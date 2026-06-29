@@ -30,9 +30,16 @@ export async function albRuntime(cfg, aws, opts = {}) {
   let healthy = 0
   let total = 0
   try {
-    const tgs =
-      (await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn })))
-        .TargetGroups ?? []
+    // paginazione target group (Marker/NextMarker): senza loop si ignorano i TG oltre la prima pagina.
+    const tgs = []
+    let marker
+    do {
+      const r = await client.send(
+        new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn, Marker: marker }),
+      )
+      tgs.push(...(r.TargetGroups ?? []))
+      marker = r.NextMarker
+    } while (marker)
     for (const tg of tgs) {
       const th =
         (await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })))

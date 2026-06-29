@@ -55,19 +55,36 @@ async function filterActiveLambda(aws, names, days) {
 
 async function listEcs(aws) {
   const client = new ECSClient(clientOpts(aws))
-  const clusters = (await client.send(new ListClustersCommand({}))).clusterArns ?? []
+  // paginazione: senza il loop su nextToken si perdono cluster/servizi oltre la prima pagina.
+  const clusters = []
+  let cTok
+  do {
+    const out = await client.send(new ListClustersCommand({ nextToken: cTok, maxResults: 100 }))
+    clusters.push(...(out.clusterArns ?? []))
+    cTok = out.nextToken
+  } while (cTok)
   const out = []
   for (const c of clusters) {
     const clusterName = c.split('/').pop()
-    const svcArns = (await client.send(new ListServicesCommand({ cluster: c }))).serviceArns ?? []
-    for (const s of svcArns) out.push({ cluster: clusterName, service: s.split('/').pop() })
+    let sTok
+    do {
+      const r = await client.send(new ListServicesCommand({ cluster: c, nextToken: sTok, maxResults: 100 }))
+      for (const s of r.serviceArns ?? []) out.push({ cluster: clusterName, service: s.split('/').pop() })
+      sTok = r.nextToken
+    } while (sTok)
   }
   return out
 }
 
 async function listAsg(aws) {
   const client = new AutoScalingClient(clientOpts(aws))
-  const groups = (await client.send(new DescribeAutoScalingGroupsCommand({}))).AutoScalingGroups ?? []
+  const groups = []
+  let tok
+  do {
+    const out = await client.send(new DescribeAutoScalingGroupsCommand({ NextToken: tok, MaxRecords: 100 }))
+    groups.push(...(out.AutoScalingGroups ?? []))
+    tok = out.NextToken
+  } while (tok)
   return groups.map((g) => g.AutoScalingGroupName).sort()
 }
 

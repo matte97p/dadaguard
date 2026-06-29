@@ -13,19 +13,26 @@ export async function getCosts({ profile, roleArn, externalId }) {
   endD.setUTCDate(endD.getUTCDate() + 1) // End è esclusivo in CE: +1 giorno per includere oggi
   const end = endD.toISOString().slice(0, 10)
 
-  const res = await ce.send(
-    new GetCostAndUsageCommand({
-      TimePeriod: { Start: start, End: end },
-      Granularity: 'MONTHLY',
-      Metrics: ['UnblendedCost'],
-      GroupBy: [
-        { Type: 'DIMENSION', Key: 'SERVICE' },
-        { Type: 'DIMENSION', Key: 'RECORD_TYPE' },
-      ],
-    }),
-  )
-
-  const groups = res.ResultsByTime?.flatMap((r) => r.Groups ?? []) ?? []
+  // paginazione: con molti servizi i Groups arrivano su più pagine (NextPageToken) → vanno
+  // accumulati tutti, altrimenti il consumo risulta troncato (e il netto sbagliato).
+  const groups = []
+  let pageToken
+  do {
+    const res = await ce.send(
+      new GetCostAndUsageCommand({
+        TimePeriod: { Start: start, End: end },
+        Granularity: 'MONTHLY',
+        Metrics: ['UnblendedCost'],
+        GroupBy: [
+          { Type: 'DIMENSION', Key: 'SERVICE' },
+          { Type: 'DIMENSION', Key: 'RECORD_TYPE' },
+        ],
+        NextPageToken: pageToken,
+      }),
+    )
+    groups.push(...(res.ResultsByTime?.flatMap((r) => r.Groups ?? []) ?? []))
+    pageToken = res.NextPageToken
+  } while (pageToken)
   const usageByService = new Map()
   let credits = 0 // crediti + rimborsi (importi negativi)
   for (const g of groups) {
