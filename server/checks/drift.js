@@ -1,0 +1,44 @@
+// Segnale #6 — drift (leggero): gli attributi chiave dichiarati in Terraform
+// combaciano con la realtà AWS? Confronta lo state (da S3, in ctx.tf.attrs) con le
+// describe AWS, SENZA `terraform plan` (troppo lento + lock sul backend per il
+// fetch-on-load). Copertura oggi: Lambda (runtime/memory/timeout/handler).
+// Il plan completo resta un'azione on-demand separata.
+import { LambdaClient, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
+import { clientOpts } from '../runtime/awsClient.js'
+
+export const key = 'drift'
+
+export async function run(service, ctx) {
+  const cfg = service.aws
+  if (cfg?.type !== 'lambda') return null // copertura iniziale: solo Lambda
+  if (!ctx?.tf) return null // account senza stateBucket → drift non applicabile
+  if (ctx.tf.error) return { key, status: 'unknown', reason: 'state TF non leggibile' }
+  const desired = ctx.tf.attrs?.lambda?.[cfg.function]
+  if (!desired) return null // lambda non gestita da TF (lo segnala #7)
+
+  const aws = {
+    profile: ctx.profile,
+    roleArn: ctx.roleArn,
+    externalId: ctx.externalId,
+    region: cfg.region ?? ctx.region,
+  }
+  try {
+    const conf = await new LambdaClient(clientOpts(aws)).send(
+      new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
+    )
+
+    const diffs = []
+    if (desired.runtime != null && desired.runtime !== conf.Runtime)
+      diffs.push(`runtime ${conf.Runtime}≠${desired.runtime}`)
+    if (desired.memory_size != null && desired.memory_size !== conf.MemorySize)
+      diffs.push(`mem ${conf.MemorySize}≠${desired.memory_size}`)
+    if (desired.timeout != null && desired.timeout !== conf.Timeout)
+      diffs.push(`timeout ${conf.Timeout}≠${desired.timeout}`)
+    if (desired.handler != null && desired.handler !== conf.Handler) diffs.push('handler≠')
+
+    if (!diffs.length) return { key, status: 'up', summary: 'in sync con TF' }
+    return { key, status: 'degraded', summary: `drift: ${diffs.join(', ')}` }
+  } catch (err) {
+    return { key, status: 'unknown', reason: err.message }
+  }
+}

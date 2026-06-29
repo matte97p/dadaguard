@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+*.log
+services.yaml
+REQUIREMENTS.md
+HANDOFF.md
+.dockerignore
+Dockerfile

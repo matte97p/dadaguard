@@ -1,0 +1,64 @@
+# Dadaguard — config di esempio. Copiala e adatta:
+#   cp services.example.yaml services.yaml
+# `services.yaml` è gitignorato: contiene la TUA infra, non va nel repo.
+#
+# Dadaguard è read-only (non tocca mai l'infra) e SENZA LLM (100% deterministico).
+
+accounts:
+  staging:
+    # Auth AWS — due modi (mutuamente esclusivi; roleArn vince su profile):
+    #  • locale: profile = profilo AWS CLI (SSO o access key)
+    #  • cloud:  roleArn + externalId → il task role assume un ruolo read-only
+    #            cross-account. Niente chiavi custodite. Vedi deploy/README.md.
+    profile: my-staging-profile
+    # roleArn: arn:aws:iam::111122223333:role/dadaguard-readonly
+    # externalId: una-stringa-segreta-condivisa # anti confused-deputy
+    region: eu-west-1
+    label: Staging
+    color: "#1677ff"
+    terraform: # opzionale → abilita #6 drift + #7 risorse non gestite
+      stateBucket: my-tf-state-staging
+      repoDir: /path/to/terraform-repo # opzionale → #6 drift completo (terragrunt plan)
+      env: staging
+  # production:
+  #   profile: my-prod-profile
+  #   region: eu-west-1
+  #   label: Production
+  #   color: "#cf1322"
+
+services:
+  # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
+  - name: my-api
+    account: staging
+    healthUrl: https://api.example.com/health
+    expectedVersion: v1.2.3
+
+  # Lambda — #3 runtime (invocazioni / error% / p95)
+  - name: my-worker
+    account: staging
+    aws: { type: lambda, function: my-worker-fn, windowMinutes: 60 }
+
+  # Lambda cron — dead-man switch (0 run nella cadenza = down; disabled se lo schedule è off)
+  - name: my-cron
+    account: staging
+    aws: { type: lambda, function: my-cron-fn, schedule: 24h }
+    ssm: { path: /myapp/staging/cron/my-cron } # #4 secret presenti (SSM, runtime)
+
+  # ECS service — desired vs running
+  - name: my-service
+    account: staging
+    aws: { type: ecs, cluster: my-cluster, service: my-svc }
+
+  # RDS / Aurora — status cluster + istanze available
+  - name: my-db
+    account: staging
+    aws: { type: rds, cluster: my-db-cluster }
+
+# Altri tipi runtime disponibili:
+#   aws: { type: asg, asg: my-asg }                 # Auto Scaling Group
+#   aws: { type: alb, name: my-load-balancer }      # Application Load Balancer (target health)
+#   aws: { type: ec2, instanceId: i-0123456789abc } # istanza EC2 (state + status check)
+# Secret (source, opzionale, richiede CLI Doppler locale):
+#   doppler: { project: my-proj, config: stg, compareWith: prd }
+# Deep-link rapidi:
+#   links: { repo: https://github.com/..., console: https://console.aws.amazon.com/... }

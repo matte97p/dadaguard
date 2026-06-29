@@ -1,0 +1,57 @@
+name: deploy
+
+# Build → push su ECR → nuova revision della task definition → update del servizio ECS.
+# Niente chiavi: autenticazione via OIDC (il ruolo è in aws-management, layer management/oidc-github).
+# Da qui in poi il deploy di Dadaguard parte da QUESTO repo: nessun `terragrunt apply` manuale.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # necessario per l'OIDC
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  ECR: 708895069864.dkr.ecr.eu-central-1.amazonaws.com/dadaguard
+  CLUSTER: cato-management
+  SERVICE: dadaguard
+  CONTAINER: dadaguard
+  ROLE_ARN: arn:aws:iam::708895069864:role/cato-management-gha-dadaguard-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          docker build --platform linux/amd64 -t "$ECR:$TAG" .
+          docker push "$ECR:$TAG"
+          echo "IMAGE=$ECR:$TAG" >> "$GITHUB_ENV"
+
+      - name: Deploy to ECS (nuova revision con la nuova immagine)
+        run: |
+          # Riusa la task definition gestita da Terraform: ne crea una revision col solo
+          # campo `image` aggiornato, poi punta il servizio alla nuova revision.
+          aws ecs describe-task-definition --task-definition "$SERVICE" --query taskDefinition > td.json
+          jq --arg IMG "$IMAGE" --arg C "$CONTAINER" '
+            .containerDefinitions |= map(if .name == $C then .image = $IMG else . end)
+            | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
+               requiresCompatibilities, cpu, memory}
+          ' td.json > new-td.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://new-td.json \
+                --query taskDefinition.taskDefinitionArn --output text)
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$ARN" >/dev/null
+          echo "Deployato $IMAGE → $ARN"
