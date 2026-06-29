@@ -12,7 +12,7 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Drift** vs Terraform: leggero (state ↔ AWS) e completo (`terragrunt plan`, on-demand)
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
-- **Topologia** dei servizi per ambiente e tipo
+- **Topologia** delle dipendenze tra servizi, **dedotta da AWS** (env Lambda · event source · security group) — niente da dichiarare a mano
 
 ## Principi
 - **No LLM** — deterministico: niente costi, latenza o non-determinismo.
@@ -27,8 +27,19 @@ npm run dev                              # → http://localhost:5173
 ```
 Auth AWS in locale: profilo SSO/CLI (campo `profile:` per account in `services.yaml`).
 
-## Deploy in cloud (self-hosted)
-Vedi [`deploy/README.md`](deploy/README.md): immagine unica su **ECS Fargate**, dietro **Cloudflare Access** (Zero Trust, zero porte pubbliche), auth AWS via **AssumeRole read-only cross-account** (niente chiavi). In cloud la config arriva da env (SSM), non da file.
+## Deploy
+**Self-host in un comando** — gira ovunque (VM, NAS, mini-PC, PaaS), UI in italiano e inglese:
+```bash
+cp services.example.yaml services.yaml   # cosa monitorare + account
+cp .env.example .env                      # accesso AWS read-only (profilo o chiavi)
+docker compose up -d                      # → http://localhost:3001
+```
+Accesso AWS, a scelta: profili `~/.aws` (montati) + `AWS_PROFILE`, chiavi in `.env`, o il ruolo dell'istanza se giri dentro AWS (EC2/ECS). Cross-account: gli account in `services.yaml` usano `roleArn` (AssumeRole). Read-only by design: zero scritture sull'infra.
+
+Ogni account monitorato concede a Dadaguard un ruolo IAM di sola lettura — esempio in [`deploy/dadaguard-readonly-role.example.tf`](deploy/dadaguard-readonly-role.example.tf) (niente `kms:Decrypt`: i valori dei secret restano inaccessibili).
+
+### Hosting su AWS Fargate (avanzato, opzionale)
+Fargate dietro **Cloudflare Access** (Zero Trust, zero porte pubbliche), con la config iniettata da SSM: vedi [`deploy/README.md`](deploy/README.md). È una delle ricette di hosting possibili — per la maggior parte dei casi `docker compose` basta.
 
 ## Architettura
 - `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.
