@@ -1,10 +1,33 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Spin, Alert, Empty, Typography, Divider, Space, Badge, Tag } from 'antd'
+import { Drawer, Spin, Alert, Empty, Typography, Divider, Space, Badge } from 'antd'
 
 const { Text } = Typography
 
-// Costi MTD per servizio AWS, per account — spesa REALE (netta di crediti). Barre
-// proporzionali: viola = costo, verde = credito/rimborso. Fetch on-demand (CE è a pagamento).
+const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(Number(v ?? 0)).toFixed(2)}`
+
+// Una barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso).
+function Bar({ label, amount, max, credit }) {
+  const color = credit ? '#52c41a' : '#7c3aed'
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+        <span>
+          {label}
+          {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>(credito)</span>}
+        </span>
+        <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>{money(amount)}</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: 'rgba(128,128,128,0.15)' }}>
+        <div
+          style={{ height: '100%', borderRadius: 4, width: `${(Math.abs(amount) / max) * 100}%`, background: color }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// Costi MTD per account: CONSUMO per servizio (viola) + CREDITI/rimborsi (verde) = netto.
+// Fetch on-demand (Cost Explorer è a pagamento).
 export default function CostsDrawer({ open, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -22,15 +45,13 @@ export default function CostsDrawer({ open, onClose }) {
   }, [open])
 
   const accounts = data ? Object.entries(data) : []
-  const fmt = (v, unit) =>
-    `${v < 0 ? '−' : ''}${unit === 'USD' ? '$' : ''}${Math.abs(Number(v)).toFixed(2)}${unit && unit !== 'USD' ? ` ${unit}` : ''}`
 
   return (
     <Drawer title="Costi · mese corrente" placement="right" width={560} open={open} onClose={onClose}>
       <Text type="secondary">
-        Spesa <b>reale</b> MTD per servizio AWS, netta di crediti/rimborsi (in verde). Dati ~24h di
-        ritardo; lettura on-demand (Cost Explorer è a pagamento). Diverso da “Sprechi”, che stima il
-        costo a listino delle risorse fisse.
+        Spesa <b>reale</b> MTD: <b style={{ color: '#7c3aed' }}>consumo</b> per servizio{' '}
+        <b>−</b> <b style={{ color: '#52c41a' }}>crediti/rimborsi</b> <b>=</b> netto (quanto paghi). Dati ~24h di
+        ritardo; on-demand. Diverso da “Sprechi”, che è la stima a listino.
       </Text>
       <Divider />
       {loading && (
@@ -42,70 +63,56 @@ export default function CostsDrawer({ open, onClose }) {
       {data && accounts.length === 0 && <Empty description="Nessun account configurato" />}
 
       {accounts.map(([key, acc]) => {
-        const items = acc.items ?? []
-        const max = Math.max(1, ...items.map((i) => Math.abs(i.amount)))
-        return (
-          <div key={key} style={{ marginBottom: 28 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        if (acc.error) {
+          return (
+            <div key={key} style={{ marginBottom: 24 }}>
               <Space>
                 {acc.color && <Badge color={acc.color} />}
                 <Text strong>{acc.label}</Text>
               </Space>
-              {!acc.error && (
-                <Text strong style={{ fontSize: 18 }}>
-                  {fmt(acc.total ?? 0, acc.currency)}
+              <Alert type="warning" showIcon style={{ marginTop: 8 }} message={acc.error} />
+            </div>
+          )
+        }
+        const items = acc.items ?? []
+        const hasCredits = Math.abs(acc.credits ?? 0) > 0.005
+        const max = Math.max(1, ...items.map((i) => Math.abs(i.amount)), Math.abs(acc.credits ?? 0))
+        return (
+          <div key={key} style={{ marginBottom: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <Space>
+                {acc.color && <Badge color={acc.color} />}
+                <Text strong>{acc.label}</Text>
+              </Space>
+              <Text strong style={{ fontSize: 18 }}>
+                {money(acc.total)}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {' '}
+                  netto
                 </Text>
-              )}
+              </Text>
             </div>
 
-            {acc.error ? (
-              <Alert type="warning" showIcon style={{ marginTop: 8 }} message={acc.error} />
-            ) : items.length === 0 ? (
+            {/* riepilogo consumo/crediti */}
+            {(items.length > 0 || hasCredits) && (
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  consumo {money(acc.gross)}
+                  {hasCredits && ` · crediti ${money(acc.credits)}`}
+                </Text>
+              </div>
+            )}
+
+            {items.length === 0 && !hasCredits ? (
               <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
                 Nessun costo registrato
               </Text>
             ) : (
               <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {items.map((it) => {
-                  const credit = it.amount < 0
-                  return (
-                    <div key={it.service}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontSize: 12,
-                          marginBottom: 2,
-                        }}
-                      >
-                        <Space size={4}>
-                          <Text style={{ fontSize: 12 }}>{it.service}</Text>
-                          {credit && (
-                            <Tag
-                              color="success"
-                              style={{ fontSize: 10, lineHeight: '15px', marginInlineEnd: 0, paddingInline: 4 }}
-                            >
-                              credito
-                            </Tag>
-                          )}
-                        </Space>
-                        <Text style={{ fontSize: 12, color: credit ? '#52c41a' : undefined }}>
-                          {fmt(it.amount, it.unit)}
-                        </Text>
-                      </div>
-                      <div style={{ height: 8, borderRadius: 4, background: 'rgba(128,128,128,0.15)' }}>
-                        <div
-                          style={{
-                            height: '100%',
-                            borderRadius: 4,
-                            width: `${(Math.abs(it.amount) / max) * 100}%`,
-                            background: credit ? '#52c41a' : '#7c3aed',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
+                {items.map((it) => (
+                  <Bar key={it.service} label={it.service} amount={it.amount} max={max} />
+                ))}
+                {hasCredits && <Bar label="Crediti e rimborsi" amount={acc.credits} max={max} credit />}
               </div>
             )}
           </div>

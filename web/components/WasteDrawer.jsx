@@ -3,7 +3,37 @@ import { Drawer, List, Tag, Alert, Space, Typography, Spin } from 'antd'
 
 const { Text } = Typography
 
-// #10 — Sprechi / costi fissi per ambiente (read-only EC2). On-demand.
+// Costruisce le voci con MOTIVO + livello: 'spreco' (quasi certo) o 'verifica' (costo fisso che
+// è spreco solo in certe condizioni). Senza il motivo, un numero da solo non dice niente.
+function buildItems(v) {
+  const out = []
+  if (v.eips?.length) {
+    out.push({
+      title: `${v.eips.length} Elastic IP non associati · ~$${Math.round(v.eips.length * 3.6)}/mese`,
+      level: 'spreco',
+      reason:
+        'Allocati ma non collegati a nessuna risorsa: AWS li fattura proprio perché inutilizzati. Rilasciali se non servono.',
+    })
+  }
+  if (v.natGateways?.length) {
+    out.push({
+      title: `${v.natGateways.length} NAT Gateway · ~$${v.natGateways.length * 32}/mese`,
+      level: 'verifica',
+      reason:
+        'Costo fisso, non uno spreco di per sé: serve quando una subnet privata deve uscire su internet. È spreco solo se nella sua VPC non c’è più nulla che lo usa.',
+    })
+  }
+  if (v.volumes?.length) {
+    out.push({
+      title: `${v.volumes.length} volumi EBS staccati · ${v.volumes.reduce((s, x) => s + x.sizeGb, 0)} GB`,
+      level: 'spreco',
+      reason:
+        'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
+    })
+  }
+  return out
+}
+
 export default function WasteDrawer({ open, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -27,7 +57,7 @@ export default function WasteDrawer({ open, onClose }) {
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (
-    <Drawer title="Risorse fisse · stima a listino" open={open} onClose={onClose} width={460}>
+    <Drawer title="Risorse fisse & sprechi · a listino" open={open} onClose={onClose} width={520}>
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
@@ -38,27 +68,12 @@ export default function WasteDrawer({ open, onClose }) {
       {data && (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <Text type="secondary">
-            Stima a <b>listino</b> (prezzo pieno): <Text strong>~${total}/mese</Text> · region eu-central-1.
-            <br />
-            Non è la bolletta — la spesa <b>reale</b> (con crediti/sconti) è in “Costi”. Serve a scovare
-            risorse fisse o orfane (un NAT/EIP/EBS che a regime costa, anche se ora i crediti lo coprono).
+            Stima a <b>listino</b> (prezzo pieno): <Text strong>~${total}/mese</Text>. Non è la bolletta — la
+            spesa reale è in “Costi”. Ogni voce dice <b>perché</b> è (o potrebbe essere) uno spreco.
           </Text>
 
           {entries.map(([key, v]) => {
-            const items = v.error
-              ? []
-              : [
-                  v.eips?.length
-                    ? `${v.eips.length} EIP non associati  ·  ~$${Math.round(v.eips.length * 3.6)}/mese`
-                    : null,
-                  v.natGateways?.length
-                    ? `${v.natGateways.length} NAT Gateway  ·  ~$${v.natGateways.length * 32}/mese`
-                    : null,
-                  v.volumes?.length
-                    ? `${v.volumes.length} volumi EBS staccati  ·  ${v.volumes.reduce((s, x) => s + x.sizeGb, 0)} GB`
-                    : null,
-                ].filter(Boolean)
-
+            const items = v.error ? [] : buildItems(v)
             return (
               <div key={key}>
                 <Space>
@@ -76,7 +91,24 @@ export default function WasteDrawer({ open, onClose }) {
                     style={{ marginTop: 8 }}
                     dataSource={items}
                     locale={{ emptyText: 'nessuno spreco rilevato 🎉' }}
-                    renderItem={(i) => <List.Item>{i}</List.Item>}
+                    renderItem={(i) => (
+                      <List.Item>
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <Text>{i.title}</Text>
+                            <Tag
+                              color={i.level === 'spreco' ? 'error' : 'warning'}
+                              style={{ marginInlineEnd: 0, height: 'fit-content' }}
+                            >
+                              {i.level === 'spreco' ? 'spreco' : 'da verificare'}
+                            </Tag>
+                          </div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {i.reason}
+                          </Text>
+                        </Space>
+                      </List.Item>
+                    )}
                   />
                 )}
               </div>
