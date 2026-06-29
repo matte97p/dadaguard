@@ -57,6 +57,16 @@ data "aws_iam_policy_document" "readonly" {
   }
 
   statement {
+    sid    = "TopologyReadOnly" # deduzione dipendenze: event source Lambda + regole dei security group
+    effect = "Allow"
+    actions = [
+      "lambda:ListEventSourceMappings",
+      "ec2:DescribeSecurityGroups",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
     sid       = "WasteReadOnly" # #10 risorse orfane costose
     effect    = "Allow"
     actions   = ["ec2:DescribeAddresses", "ec2:DescribeNatGateways", "ec2:DescribeVolumes"]
