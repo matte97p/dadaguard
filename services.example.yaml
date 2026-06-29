@@ -3,6 +3,12 @@
 # `services.yaml` è gitignorato: contiene la TUA infra, non va nel repo.
 #
 # Dadaguard è read-only (non tocca mai l'infra) e SENZA LLM (100% deterministico).
+#
+# Due modalità di config (vedi server/mode.js):
+#  • local-first: questo file. La dashboard può anche editarlo (watchlist) ed è in italiano
+#                 (in cloud usa la lingua del browser; toggle IT/EN sempre disponibile).
+#  • cloud:       inietti lo YAML via env DADAGUARD_CONFIG (es. da una SSM SecureString) →
+#                 niente file su disco, config read-only (versionata fuori dall'istanza).
 
 accounts:
   staging:
@@ -62,3 +68,6 @@ services:
 #   doppler: { project: my-proj, config: stg, compareWith: prd }
 # Deep-link rapidi:
 #   links: { repo: https://github.com/..., console: https://console.aws.amazon.com/... }
+# Dipendenze (vista Topologia): DEDOTTE in automatico da AWS (env Lambda, event source,
+# security group) — non serve dichiararle. Puoi comunque aggiungerle/forzarle a mano:
+#   dependsOn: [my-db, my-queue]
