@@ -14,7 +14,9 @@ import {
   Divider,
   Badge,
   Select,
+  Segmented,
 } from 'antd'
+import { makeT, resolveLang } from './i18n.jsx'
 import {
   ReloadOutlined,
   RadarChartOutlined,
@@ -47,6 +49,8 @@ export default function App() {
   const [costsOpen, setCostsOpen] = useState(false)
   const [topoOpen, setTopoOpen] = useState(false)
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
+  // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
+  const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
 
   // Filtri: account singolo (switch) + region multi-select.
   const [accountFilter, setAccountFilter] = useState('all')
@@ -57,11 +61,20 @@ export default function App() {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
   }, [dark])
 
+  // Lingua effettiva: preferenza salvata, altrimenti IT in locale / lingua browser in cloud.
+  // Il server traduce i summary nella stessa lingua via ?lang=.
+  const lang = resolveLang(langPref, data?.mode)
+  const t = useMemo(() => makeT(lang), [lang])
+  const setLang = useCallback((l) => {
+    localStorage.setItem('dadaguard-lang', l)
+    setLangPref(l)
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/status')
+      const res = await fetch(`/api/status?lang=${lang}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setData(await res.json())
     } catch (err) {
@@ -69,7 +82,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [lang])
 
   const removeService = useCallback(
     async (name) => {
@@ -88,20 +101,22 @@ export default function App() {
   }, [load])
 
   const services = data?.services ?? []
-  // cloud: config read-only (SSM). Niente watchlist (scrittura file) né drift completo (repo locale).
+  // capabilities = cosa permette la modalità corrente (vedi server/mode.js). Data-driven:
+  // niente controllo dell'env duplicato lato client. Fallback se un server vecchio non le manda.
   const isCloud = data?.mode === 'cloud'
+  const caps = data?.capabilities ?? { watchlist: !isCloud, discover: !isCloud, fullDrift: !isCloud }
 
   const accountOptions = useMemo(() => {
     const seen = new Map()
     for (const s of services) {
       const key = s.account?.key ?? '__none__'
-      if (!seen.has(key)) seen.set(key, s.account?.label ?? 'Senza account')
+      if (!seen.has(key)) seen.set(key, s.account?.label ?? t('filter.noAccount'))
     }
     return [
-      { value: 'all', label: 'Tutti gli account' },
+      { value: 'all', label: t('filter.allAccounts') },
       ...[...seen].map(([value, label]) => ({ value, label })),
     ]
-  }, [services])
+  }, [services, t])
 
   const regionOptions = useMemo(
     () =>
@@ -111,13 +126,14 @@ export default function App() {
     [services],
   )
 
-  const TYPE_LABELS = { lambda: 'Lambda', rds: 'Database', ecs: 'ECS', asg: 'Auto Scaling', alb: 'Load Balancer', ec2: 'EC2' }
   const typeOptions = useMemo(
     () =>
-      [...new Set(services.map((s) => s.type).filter(Boolean))]
-        .sort()
-        .map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t })),
-    [services],
+      [...new Set(services.map((s) => s.type).filter(Boolean))].sort().map((ty) => {
+        const k = `type.${ty}`
+        const label = t(k)
+        return { value: ty, label: label === k ? ty : label }
+      }),
+    [services, t],
   )
 
   const groups = useMemo(() => {
@@ -171,48 +187,57 @@ export default function App() {
                 Dadaguard 🐶
               </Title>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                il watchdog del tuo stack
+                {t('app.subtitle')}
               </Text>
             </div>
           </Space>
           <Space wrap>
+            <Segmented
+              size="small"
+              value={lang}
+              onChange={setLang}
+              options={[
+                { label: 'IT', value: 'it' },
+                { label: 'EN', value: 'en' },
+              ]}
+            />
             <Button
               type="text"
               icon={dark ? <SunOutlined /> : <MoonOutlined />}
               onClick={() => setDark((d) => !d)}
-              title={dark ? 'Tema chiaro' : 'Tema scuro'}
+              title={dark ? t('btn.themeLight') : t('btn.themeDark')}
             />
             <Button icon={<DollarOutlined />} onClick={() => setWasteOpen(true)}>
-              Sprechi
+              {t('btn.waste')}
             </Button>
             <Button icon={<PieChartOutlined />} onClick={() => setCostsOpen(true)}>
-              Costi
+              {t('btn.costs')}
             </Button>
             <Button icon={<PartitionOutlined />} onClick={() => setTopoOpen(true)}>
-              Topologia
+              {t('btn.topology')}
             </Button>
-            {!isCloud && (
-              <>
-                <Button icon={<DiffOutlined />} onClick={() => setDriftOpen(true)}>
-                  Drift
-                </Button>
-                <Button icon={<RadarChartOutlined />} onClick={() => setDiscoverOpen(true)}>
-                  Scopri servizi
-                </Button>
-              </>
+            {caps.fullDrift && (
+              <Button icon={<DiffOutlined />} onClick={() => setDriftOpen(true)}>
+                {t('btn.drift')}
+              </Button>
+            )}
+            {caps.discover && (
+              <Button icon={<RadarChartOutlined />} onClick={() => setDiscoverOpen(true)}>
+                {t('btn.discover')}
+              </Button>
             )}
             <Button type="primary" icon={<ReloadOutlined />} loading={loading} onClick={load}>
-              Aggiorna
+              {t('btn.refresh')}
             </Button>
           </Space>
         </Header>
 
         <Content style={{ padding: 24 }}>
           <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-            {data ? <StatusSummary services={groups.flatMap((g) => g.services)} /> : <span />}
+            {data ? <StatusSummary services={groups.flatMap((g) => g.services)} t={t} /> : <span />}
             {data?.generatedAt && (
               <Text type="secondary">
-                Ultimo fetch: {new Date(data.generatedAt).toLocaleTimeString()}
+                {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
               </Text>
             )}
           </Space>
@@ -228,7 +253,7 @@ export default function App() {
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="Tutte le region"
+                placeholder={t('filter.allRegions')}
                 value={regionFilter}
                 onChange={setRegionFilter}
                 options={regionOptions}
@@ -237,7 +262,7 @@ export default function App() {
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="Tutti i tipi"
+                placeholder={t('filter.allTypes')}
                 value={typeFilter}
                 onChange={setTypeFilter}
                 options={typeOptions}
@@ -247,7 +272,7 @@ export default function App() {
           )}
 
           {error && (
-            <Alert type="error" message={`Errore: ${error}`} style={{ marginBottom: 16 }} showIcon />
+            <Alert type="error" message={`${t('content.errorPrefix')} ${error}`} style={{ marginBottom: 16 }} showIcon />
           )}
           {loading && !data && (
             <div style={{ textAlign: 'center', padding: 48 }}>
@@ -255,7 +280,7 @@ export default function App() {
             </div>
           )}
           {data && groups.length === 0 && (
-            <Empty description="Nessun servizio per questi filtri" style={{ marginTop: 48 }} />
+            <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />
           )}
 
           {groups.map((g) => (
@@ -270,7 +295,11 @@ export default function App() {
               <Row gutter={[16, 16]}>
                 {g.services.map((svc) => (
                   <Col key={svc.name} xs={24} sm={12} md={8} lg={6}>
-                    <ServiceCard service={svc} onRemove={isCloud ? undefined : removeService} />
+                    <ServiceCard
+                      service={svc}
+                      onRemove={caps.watchlist ? removeService : undefined}
+                      t={t}
+                    />
                   </Col>
                 ))}
               </Row>
@@ -283,16 +312,18 @@ export default function App() {
           onClose={() => setDiscoverOpen(false)}
           existingNames={services.map((s) => s.name)}
           onAdded={load}
+          t={t}
         />
-        <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} />
-        <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} />
+        <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} t={t} />
+        <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} t={t} />
         <TopologyDrawer
           open={topoOpen}
           onClose={() => setTopoOpen(false)}
           services={groups.flatMap((g) => g.services)}
           dark={dark}
+          t={t}
         />
-        <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} />
+        <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
       </Layout>
     </ConfigProvider>
   )

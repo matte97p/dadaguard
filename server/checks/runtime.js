@@ -22,10 +22,11 @@ const PROVIDERS = {
 export async function run(service, ctx) {
   const cfg = service.aws
   if (!cfg?.type) return null // segnale non applicabile a questo servizio
+  const t = ctx?.t ?? ((k) => k)
 
   const provider = PROVIDERS[cfg.type]
   if (!provider) {
-    return { key, status: 'unknown', reason: `runtime '${cfg.type}' non ancora supportato` }
+    return { key, status: 'unknown', reason: t('runtime.unsupported', { type: cfg.type }) }
   }
 
   // profilo dall'account; region: override per-servizio (cfg.region) o dell'account.
@@ -36,7 +37,8 @@ export async function run(service, ctx) {
     region: cfg.region ?? ctx?.region,
   }
   // stato dello schedule EventBridge (dallo state TF) → per distinguere cron disabilitate.
-  const extra = { scheduleState: ctx?.tf?.schedules?.[cfg.function] }
+  // `t` viaggia con extra così ogni provider parla nella lingua scelta.
+  const extra = { scheduleState: ctx?.tf?.schedules?.[cfg.function], t }
 
   try {
     return { key, ...(await provider(cfg, aws, extra)) }

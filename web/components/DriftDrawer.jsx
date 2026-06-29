@@ -5,7 +5,7 @@ const { Text } = Typography
 
 // #6 drift COMPLETO: lancia `terragrunt plan` per un layer (job async, polling).
 // Esegue comandi → salto consapevole a "servizio".
-export default function DriftDrawer({ open, onClose }) {
+export default function DriftDrawer({ open, onClose, t = (k) => k }) {
   const [accounts, setAccounts] = useState([])
   const [account, setAccount] = useState(null)
   const [layers, setLayers] = useState([])
@@ -66,21 +66,18 @@ export default function DriftDrawer({ open, onClose }) {
   }
 
   return (
-    <Drawer title="Drift completo · terragrunt plan" open={open} onClose={onClose} width={640}>
+    <Drawer title={t('drift.title')} open={open} onClose={onClose} width={640}>
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
-        <Text type="secondary">
-          Esegue <Text code>terragrunt plan</Text> sul layer scelto (lento: init + provider + refresh;
-          mette un lock sul backend). Read-only sull'infra.
-        </Text>
+        <Text type="secondary">{t('drift.desc')}</Text>
         <Select
-          placeholder="Account"
+          placeholder={t('drift.account')}
           value={account}
           onChange={setAccount}
           style={{ width: '100%' }}
           options={accounts.map((a) => ({ value: a.key, label: a.label }))}
         />
         <Select
-          placeholder={layers.length ? 'Layer' : 'nessun layer (repoDir non configurato?)'}
+          placeholder={layers.length ? t('drift.layer') : t('drift.noLayer')}
           value={layer}
           onChange={setLayer}
           disabled={!layers.length}
@@ -88,22 +85,20 @@ export default function DriftDrawer({ open, onClose }) {
           options={layers.map((l) => ({ value: l, label: l }))}
         />
         <Button type="primary" onClick={run} loading={running} disabled={!account || !layer} block>
-          Esegui plan
+          {t('drift.run')}
         </Button>
 
-        {running && (
-          <Text type="secondary">In corso… può richiedere qualche minuto (la prima volta scarica i provider).</Text>
-        )}
+        {running && <Text type="secondary">{t('drift.running')}</Text>}
         {error && <Alert type="error" message={error} showIcon />}
 
         {job && job.status !== 'running' && (
           <>
             {job.status === 'error' ? (
-              <Alert type="error" message={`Plan fallito (exit ${job.exitCode})`} showIcon />
+              <Alert type="error" message={t('drift.failed', { code: job.exitCode })} showIcon />
             ) : job.drift ? (
-              <Alert type="warning" message="⚠ DRIFT: la realtà differisce dallo state Terraform" showIcon />
+              <Alert type="warning" message={t('drift.drift')} showIcon />
             ) : (
-              <Alert type="success" message="✓ No changes: infra allineata allo state" showIcon />
+              <Alert type="success" message={t('drift.nochanges')} showIcon />
             )}
             <pre
               style={{
@@ -116,7 +111,7 @@ export default function DriftDrawer({ open, onClose }) {
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {job.output || '(nessun output)'}
+              {job.output || t('drift.nooutput')}
             </pre>
           </>
         )}

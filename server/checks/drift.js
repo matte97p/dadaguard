@@ -10,9 +10,10 @@ export const key = 'drift'
 
 export async function run(service, ctx) {
   const cfg = service.aws
+  const t = ctx?.t ?? ((k) => k)
   if (cfg?.type !== 'lambda') return null // copertura iniziale: solo Lambda
   if (!ctx?.tf) return null // account senza stateBucket → drift non applicabile
-  if (ctx.tf.error) return { key, status: 'unknown', reason: 'state TF non leggibile' }
+  if (ctx.tf.error) return { key, status: 'unknown', reason: t('drift.stateunreadable') }
   const desired = ctx.tf.attrs?.lambda?.[cfg.function]
   if (!desired) return null // lambda non gestita da TF (lo segnala #7)
 
@@ -27,17 +28,18 @@ export async function run(service, ctx) {
       new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
     )
 
+    // Formato: "reale (atteso da Terraform)" — così è chiaro quale lato è quale.
     const diffs = []
     if (desired.runtime != null && desired.runtime !== conf.Runtime)
-      diffs.push(`runtime ${conf.Runtime}≠${desired.runtime}`)
+      diffs.push(t('drift.runtime', { actual: conf.Runtime, expected: desired.runtime }))
     if (desired.memory_size != null && desired.memory_size !== conf.MemorySize)
-      diffs.push(`mem ${conf.MemorySize}≠${desired.memory_size}`)
+      diffs.push(t('drift.memory', { actual: conf.MemorySize, expected: desired.memory_size }))
     if (desired.timeout != null && desired.timeout !== conf.Timeout)
-      diffs.push(`timeout ${conf.Timeout}≠${desired.timeout}`)
-    if (desired.handler != null && desired.handler !== conf.Handler) diffs.push('handler≠')
+      diffs.push(t('drift.timeout', { actual: conf.Timeout, expected: desired.timeout }))
+    if (desired.handler != null && desired.handler !== conf.Handler) diffs.push(t('drift.handler'))
 
-    if (!diffs.length) return { key, status: 'up', summary: 'in sync con TF' }
-    return { key, status: 'degraded', summary: `drift: ${diffs.join(', ')}` }
+    if (!diffs.length) return { key, status: 'up', summary: t('drift.insync') }
+    return { key, status: 'degraded', summary: t('drift.diverge', { diffs: diffs.join(', ') }) }
   } catch (err) {
     return { key, status: 'unknown', reason: err.message }
   }

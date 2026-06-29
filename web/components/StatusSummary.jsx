@@ -4,15 +4,15 @@ const { Text } = Typography
 
 // Conteggio globale per stato — il colpo d'occhio in cima alla dashboard.
 const DEFS = [
-  { key: 'down', status: 'error', label: 'down' },
-  { key: 'degraded', status: 'warning', label: 'degraded' },
-  { key: 'idle', status: 'default', label: 'idle' },
-  { key: 'disabled', status: 'default', label: 'disabled' },
-  { key: 'unknown', status: 'default', label: '?' },
-  { key: 'up', status: 'success', label: 'up' },
+  { key: 'down', status: 'error' },
+  { key: 'degraded', status: 'warning' },
+  { key: 'idle', status: 'default' },
+  { key: 'disabled', status: 'default' },
+  { key: 'unknown', status: 'default' },
+  { key: 'up', status: 'success' },
 ]
 
-export default function StatusSummary({ services = [] }) {
+export default function StatusSummary({ services = [], t = (k) => k }) {
   const counts = {}
   for (const s of services) counts[s.overall] = (counts[s.overall] || 0) + 1
 
@@ -22,10 +22,12 @@ export default function StatusSummary({ services = [] }) {
         <Space key={d.key} size={4}>
           <Badge status={d.status} />
           <Text strong>{counts[d.key]}</Text>
-          <Text type="secondary">{d.label}</Text>
+          <Text type="secondary">{t(`status.${d.key}`)}</Text>
         </Space>
       ))}
-      <Text type="secondary">· {services.length} servizi</Text>
+      <Text type="secondary">
+        · {services.length} {t('content.servicesCount')}
+      </Text>
     </Space>
   )
 }

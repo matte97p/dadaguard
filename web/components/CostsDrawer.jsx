@@ -6,14 +6,14 @@ const { Text } = Typography
 const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(Number(v ?? 0)).toFixed(2)}`
 
 // Una barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso).
-function Bar({ label, amount, max, credit }) {
+function Bar({ label, amount, max, credit, t }) {
   const color = credit ? '#52c41a' : '#7c3aed'
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
         <span>
           {label}
-          {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>(credito)</span>}
+          {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>{t('costs.creditMark')}</span>}
         </span>
         <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>{money(amount)}</span>
       </div>
@@ -28,7 +28,7 @@ function Bar({ label, amount, max, credit }) {
 
 // Costi MTD per account: CONSUMO per servizio (viola) + CREDITI/rimborsi (verde) = netto.
 // Fetch on-demand (Cost Explorer è a pagamento).
-export default function CostsDrawer({ open, onClose }) {
+export default function CostsDrawer({ open, onClose, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -47,12 +47,8 @@ export default function CostsDrawer({ open, onClose }) {
   const accounts = data ? Object.entries(data) : []
 
   return (
-    <Drawer title="Costi · mese corrente" placement="right" width={560} open={open} onClose={onClose}>
-      <Text type="secondary">
-        Spesa <b>reale</b> MTD: <b style={{ color: '#7c3aed' }}>consumo</b> per servizio{' '}
-        <b>−</b> <b style={{ color: '#52c41a' }}>crediti/rimborsi</b> <b>=</b> netto (quanto paghi). Dati ~24h di
-        ritardo; on-demand. Diverso da “Sprechi”, che è la stima a listino.
-      </Text>
+    <Drawer title={t('costs.title')} placement="right" width={560} open={open} onClose={onClose}>
+      <Text type="secondary">{t('costs.desc')}</Text>
       <Divider />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
@@ -60,7 +56,7 @@ export default function CostsDrawer({ open, onClose }) {
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}
-      {data && accounts.length === 0 && <Empty description="Nessun account configurato" />}
+      {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} />}
 
       {accounts.map(([key, acc]) => {
         if (acc.error) {
@@ -88,7 +84,7 @@ export default function CostsDrawer({ open, onClose }) {
                 {money(acc.total)}
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {' '}
-                  netto
+                  {t('costs.net')}
                 </Text>
               </Text>
             </div>
@@ -97,22 +93,24 @@ export default function CostsDrawer({ open, onClose }) {
             {(items.length > 0 || hasCredits) && (
               <div style={{ marginTop: 4 }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  consumo {money(acc.gross)}
-                  {hasCredits && ` · crediti ${money(acc.credits)}`}
+                  {t('costs.usage', { v: money(acc.gross) })}
+                  {hasCredits && ` · ${t('costs.credits', { v: money(acc.credits) })}`}
                 </Text>
               </div>
             )}
 
             {items.length === 0 && !hasCredits ? (
               <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                Nessun costo registrato
+                {t('costs.none')}
               </Text>
             ) : (
               <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {items.map((it) => (
-                  <Bar key={it.service} label={it.service} amount={it.amount} max={max} />
+                  <Bar key={it.service} label={it.service} amount={it.amount} max={max} t={t} />
                 ))}
-                {hasCredits && <Bar label="Crediti e rimborsi" amount={acc.credits} max={max} credit />}
+                {hasCredits && (
+                  <Bar label={t('costs.creditsRefunds')} amount={acc.credits} max={max} credit t={t} />
+                )}
               </div>
             )}
           </div>

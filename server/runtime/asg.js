@@ -6,14 +6,15 @@ import { clientOpts } from './awsClient.js'
 
 // RuntimeProvider per Auto Scaling Group: desired capacity vs istanze in servizio e healthy.
 // Permesso richiesto: autoscaling:DescribeAutoScalingGroups.
-export async function asgRuntime(cfg, aws) {
+export async function asgRuntime(cfg, aws, opts = {}) {
+  const t = opts.t ?? ((k) => k)
   const client = new AutoScalingClient(clientOpts(aws))
   const out = await client.send(
     new DescribeAutoScalingGroupsCommand({ AutoScalingGroupNames: [cfg.asg] }),
   )
 
   const group = out.AutoScalingGroups?.[0]
-  if (!group) return { status: 'unknown', reason: 'Auto Scaling Group non trovato' }
+  if (!group) return { status: 'unknown', reason: t('asg.notfound') }
 
   const desiredCount = group.DesiredCapacity ?? 0
   const instances = group.Instances ?? []
@@ -29,7 +30,7 @@ export async function asgRuntime(cfg, aws) {
 
   return {
     status,
-    summary: `${healthy}/${desiredCount} istanze healthy`,
+    summary: t('asg.healthy', { healthy, desired: desiredCount }),
     desiredCount,
     runningCount: healthy,
   }

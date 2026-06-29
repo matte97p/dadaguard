@@ -35,6 +35,7 @@ function parseSchedule(s) {
 }
 
 export async function lambdaRuntime(cfg, aws, opts = {}) {
+  const t = opts.t ?? ((k) => k)
   const opts3 = clientOpts(aws)
   const isCron = Boolean(cfg.schedule)
   const schedMin = isCron ? parseSchedule(cfg.schedule) : null
@@ -43,7 +44,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   // Cron col proprio schedule EventBridge DISABLED (dallo state TF) → ferma di proposito.
   // Niente allarme, niente chiamate metriche inutili.
   if (isCron && opts.scheduleState === 'DISABLED') {
-    return { status: 'disabled', summary: `schedule disabilitato (ogni ${fmtDur(schedMin)})`, schedule: cfg.schedule }
+    return { status: 'disabled', summary: t('lambda.cron.disabled', { sched: fmtDur(schedMin) }), schedule: cfg.schedule }
   }
 
   const lambda = new LambdaClient(opts3)
@@ -57,7 +58,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       )
       aliasInfo = `${cfg.alias}→v${alias.FunctionVersion} · `
     } catch (err) {
-      return { status: 'unknown', reason: `alias '${cfg.alias}' non trovato (${err.name})` }
+      return { status: 'unknown', reason: t('lambda.aliasnotfound', { alias: cfg.alias, name: err.name }) }
     }
   }
 
@@ -110,7 +111,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (invocations === 0) {
       return {
         status: 'down',
-        summary: `⚠ nessuna run in ${fmtDur(windowMin)} (attesa ogni ${fmtDur(schedMin)})`,
+        summary: t('lambda.cron.down', { window: fmtDur(windowMin), sched: fmtDur(schedMin) }),
         invocations: 0,
         errors,
         throttles,
@@ -118,8 +119,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       }
     }
     const status = errors > 0 || throttles > 0 ? 'degraded' : 'up'
-    const parts = [`${invocations} run`, `${errors} err`]
-    if (throttles > 0) parts.push(`${throttles} thr`)
+    const parts = [t('lambda.runs', { n: invocations }), t('lambda.errors', { n: errors })]
+    if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
     return {
       status,
       summary: `${parts.join(' · ')} (${fmtDur(windowMin)})`,
@@ -134,7 +135,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   if (invocations === 0) {
     return {
       status: 'idle',
-      summary: `${aliasInfo}0 inv (${fmtDur(windowMin)})`,
+      summary: `${aliasInfo}${t('lambda.idle', { window: fmtDur(windowMin) })}`,
       invocations: 0,
       errors,
       throttles,
@@ -147,10 +148,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const status = throttles > 0 || errors > 0 || nearTimeout ? 'degraded' : 'up'
 
   const parts = [
-    `${fmtCount(invocations)} inv`,
-    `${errRate < 0.05 ? '0' : errRate.toFixed(1)}% err`,
-    p95 ? `p95 ${Math.round(p95)}ms${timeoutSec ? `/${timeoutSec}s` : ''}` : null,
-    throttles > 0 ? `${throttles} thr` : null,
+    t('lambda.calls', { n: fmtCount(invocations) }),
+    t('lambda.errpct', { p: errRate < 0.05 ? '0' : errRate.toFixed(1) }),
+    p95 ? t('lambda.p95', { ms: Math.round(p95) }) : null,
+    nearTimeout ? t('lambda.neartimeout', { s: timeoutSec }) : null,
+    throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
   ].filter(Boolean)
 
   return {
