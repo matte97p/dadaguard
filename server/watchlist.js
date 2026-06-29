@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseDocument } from 'yaml'
 import { CONFIG_PATH } from './config.js'
+import { isCloud } from './mode.js'
 
 // La watchlist È services.yaml. Add/remove modificano SOLO questo file locale
 // (cosa monitoro), MAI l'infra AWS. Usiamo la Document API di `yaml` per
@@ -17,7 +18,7 @@ function persist(doc) {
 // In cloud il config arriva da env (SSM), non da un file: la watchlist non è
 // scrivibile dalla dashboard. Errore chiaro invece di un ENOENT su /app/services.yaml.
 function assertWritable() {
-  if (process.env.DADAGUARD_CONFIG) {
+  if (isCloud) {
     throw new Error(
       'config read-only in cloud: modifica la watchlist aggiornando il parametro SSM /dadaguard/services-yaml, non dalla dashboard',
     )
