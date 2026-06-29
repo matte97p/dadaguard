@@ -77,6 +77,7 @@ export async function getStatus() {
           : null,
         region: service.aws?.region ?? acct?.region ?? null,
         type: service.aws?.type ?? null,
+        dependsOn: service.dependsOn ?? [], // relazioni dichiarate (grafo dipendenze)
         overall: rollup(checks),
         checks,
       }

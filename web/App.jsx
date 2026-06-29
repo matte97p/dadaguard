@@ -290,6 +290,7 @@ export default function App() {
           open={topoOpen}
           onClose={() => setTopoOpen(false)}
           services={groups.flatMap((g) => g.services)}
+          dark={dark}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} />
       </Layout>
