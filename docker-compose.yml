@@ -1,0 +1,40 @@
+# Dadaguard — deploy self-host più semplice: `docker compose up -d`.
+# Gira ovunque (VM, NAS, mini-PC, fly.io/render con un compose…). Read-only su AWS.
+#
+# Cosa ti serve prima:
+#   1) services.yaml     → cosa monitorare + account (parti da services.example.yaml)
+#   2) accesso AWS read-only, in UNO di questi modi:
+#        - profili in ~/.aws (montati sotto) + AWS_PROFILE
+#        - chiavi via .env (AWS_ACCESS_KEY_ID/SECRET[/SESSION_TOKEN])
+#        - se giri su EC2/ECS: niente, usa il ruolo dell'istanza in automatico
+#      In cloud cross-account, gli account in services.yaml usano `roleArn` (AssumeRole).
+#
+# Poi: copia .env.example in .env, regola i valori, `docker compose up -d`, apri http://localhost:3001
+services:
+  dadaguard:
+    build: .
+    # In alternativa al build locale, usa un'immagine già pronta:
+    # image: ghcr.io/matte97p/dadaguard:latest
+    ports:
+      - '${PORT:-3001}:3001'
+    volumes:
+      # cosa monitorare (rw: la UI può aggiungere/togliere servizi in modalità local-first)
+      - ./services.yaml:/app/services.yaml
+      # credenziali/profili AWS, sola lettura (commenta se usi chiavi via env o un ruolo d'istanza)
+      - ${HOME}/.aws:/root/.aws:ro
+    environment:
+      # opzione A — profilo da ~/.aws
+      - AWS_PROFILE=${AWS_PROFILE:-}
+      # opzione B — chiavi dirette (lascia vuote se usi i profili o un ruolo d'istanza)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_REGION=${AWS_REGION:-eu-central-1}
+    restart: unless-stopped
+    healthcheck:
+      # check leggero: legge solo il config, niente chiamate AWS
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/api/accounts').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
