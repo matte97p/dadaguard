@@ -23,7 +23,7 @@ export async function asgRuntime(cfg, aws, opts = {}) {
   ).length
 
   let status
-  if (desiredCount === 0) status = 'unknown'
+  if (desiredCount === 0) status = 'idle' // capacità desiderata 0: a riposo, non un errore
   else if (healthy >= desiredCount) status = 'up'
   else if (healthy === 0) status = 'down'
   else status = 'degraded'
