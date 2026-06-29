@@ -1,8 +1,9 @@
 import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer'
 import { clientOpts } from './runtime/awsClient.js'
 
-// Costo per servizio AWS dell'account, mese corrente (MTD). Cost Explorer è un servizio
-// GLOBALE → endpoint us-east-1, e costa ~$0.01 a chiamata → SEMPRE on-demand, mai fetch-on-load.
+// Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
+// → SEMPRE on-demand. Separiamo per RECORD_TYPE: il CONSUMO (usage, per servizio) dai CREDITI/rimborsi,
+// così il netto è leggibile → consumo lordo + crediti (negativi) = quanto paghi davvero.
 export async function getCosts({ profile, roleArn, externalId }) {
   const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
 
@@ -17,20 +18,33 @@ export async function getCosts({ profile, roleArn, externalId }) {
       TimePeriod: { Start: start, End: end },
       Granularity: 'MONTHLY',
       Metrics: ['UnblendedCost'],
-      GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+      GroupBy: [
+        { Type: 'DIMENSION', Key: 'SERVICE' },
+        { Type: 'DIMENSION', Key: 'RECORD_TYPE' },
+      ],
     }),
   )
 
   const groups = res.ResultsByTime?.flatMap((r) => r.Groups ?? []) ?? []
-  const items = groups
-    .map((g) => ({
-      service: g.Keys?.[0] ?? '—',
-      amount: Number(g.Metrics?.UnblendedCost?.Amount ?? 0),
-      unit: g.Metrics?.UnblendedCost?.Unit ?? 'USD',
-    }))
-    .filter((i) => Math.abs(i.amount) > 0.005) // tiene anche crediti/rimborsi (importi negativi)
+  const usageByService = new Map()
+  let credits = 0 // crediti + rimborsi (importi negativi)
+  for (const g of groups) {
+    const [service, recordType] = g.Keys ?? []
+    const amt = Number(g.Metrics?.UnblendedCost?.Amount ?? 0)
+    if (recordType === 'Credit' || recordType === 'Refund') {
+      credits += amt
+    } else {
+      usageByService.set(service, (usageByService.get(service) ?? 0) + amt)
+    }
+  }
+
+  // items = consumo per servizio (lordo, prima dei crediti)
+  const items = [...usageByService.entries()]
+    .map(([service, amount]) => ({ service, amount }))
+    .filter((i) => Math.abs(i.amount) > 0.005)
     .sort((a, b) => b.amount - a.amount)
 
-  const total = items.reduce((s, i) => s + i.amount, 0) // netto: crediti inclusi
-  return { period: { start, end }, total, currency: items[0]?.unit ?? 'USD', items }
+  const gross = items.reduce((s, i) => s + i.amount, 0) // consumo lordo
+  const total = gross + credits // netto = consumo + crediti
+  return { period: { start, end }, currency: 'USD', items, gross, credits, total }
 }
