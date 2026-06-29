@@ -1,4 +1,6 @@
 import { loadConfig } from './config.js'
+import { MODE, capabilities } from './mode.js'
+import { makeT } from './i18n.js'
 import { managedResources } from './terraform/state.js'
 import * as liveness from './checks/liveness.js'
 import * as version from './checks/version.js'
@@ -21,8 +23,9 @@ function rollup(checks) {
   )
 }
 
-export async function getStatus() {
+export async function getStatus(lang) {
   const { accounts, services } = loadConfig()
+  const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
   // così il drift non rilegge S3 per ogni servizio.
@@ -62,6 +65,7 @@ export async function getStatus() {
         externalId: acct?.externalId,
         region: acct?.region,
         tf: service.account ? tfByAccount[service.account] : null,
+        t, // traduttore dei summary (i check lo usano per parlare nella lingua scelta)
       }
 
       const checkResults = (await Promise.all(CHECKS.map((c) => c.run(service, ctx)))).filter(
@@ -86,8 +90,10 @@ export async function getStatus() {
 
   return {
     generatedAt: new Date().toISOString(),
-    // cloud = config da env/SSM (read-only): il frontend nasconde watchlist e drift completo.
-    mode: process.env.DADAGUARD_CONFIG ? 'cloud' : 'local',
+    // mode + capabilities da ./mode.js (unica fonte): il frontend mostra/nasconde i pulsanti
+    // in base a `capabilities`, non a un controllo dell'env duplicato lato client.
+    mode: MODE,
+    capabilities,
     services: results,
   }
 }

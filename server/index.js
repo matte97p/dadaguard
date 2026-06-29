@@ -8,15 +8,24 @@ import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts } from './costs.js'
+import { deduceTopology } from './topology/deduce.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
+import { isCloud } from './mode.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
 app.use(express.json())
 
-app.get('/api/status', async (_req, res) => {
+// Guard per le funzioni SOLO local-first (scrivono file o usano il repo Terraform locale).
+// In cloud (read-only) rispondono 409 con messaggio chiaro, invece di fallire in modo opaco.
+const requireLocal = (feature) => (_req, res, next) => {
+  if (isCloud) return res.status(409).json({ error: `"${feature}" è disponibile solo in modalità local-first` })
+  next()
+}
+
+app.get('/api/status', async (req, res) => {
   try {
-    res.json(await getStatus())
+    res.json(await getStatus(req.query.lang))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -33,8 +42,8 @@ app.get('/api/accounts', (_req, res) => {
   )
 })
 
-// Discovery read-only: lista le risorse di un account. NON scrive niente.
-app.get('/api/discover', async (req, res) => {
+// Discovery: lista le risorse di un account. Local-first (a valle alimenta la watchlist su file).
+app.get('/api/discover', requireLocal('Scopri servizi'), async (req, res) => {
   try {
     const { accounts } = loadConfig()
     const accountKey = req.query.account
@@ -110,15 +119,27 @@ app.get('/api/costs', async (_req, res) => {
   }
 })
 
+// Topologia: dipendenze DEDOTTE dai segnali AWS (env Lambda, event source, security group),
+// senza config. On-demand (apertura del drawer) → non rallenta la dashboard. Read-only; i valori
+// delle env var sono usati solo per il match e non escono mai dal server.
+app.get('/api/topology', async (_req, res) => {
+  try {
+    const { accounts, services } = loadConfig()
+    res.json(await deduceTopology(services, accounts))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // #6 drift COMPLETO (on-demand, esegue `terragrunt plan`). Job async.
-app.get('/api/drift/layers', (req, res) => {
+app.get('/api/drift/layers', requireLocal('Drift completo'), (req, res) => {
   const { accounts } = loadConfig()
   const acct = accounts[req.query.account]
   if (!acct?.terraform?.repoDir) return res.json({ layers: [] })
   res.json({ layers: listLayers(acct.terraform.repoDir, acct.terraform.env || req.query.account) })
 })
 
-app.post('/api/drift/run', (req, res) => {
+app.post('/api/drift/run', requireLocal('Drift completo'), (req, res) => {
   try {
     const { accounts } = loadConfig()
     const acct = accounts[req.body?.account]
@@ -142,7 +163,7 @@ app.get('/api/drift/job/:id', (req, res) => {
 })
 
 // Watchlist = services.yaml. Scrive SOLO il config locale, mai su AWS.
-app.post('/api/watchlist/add', (req, res) => {
+app.post('/api/watchlist/add', requireLocal('Watchlist'), (req, res) => {
   try {
     res.json({ added: addServices(req.body?.entries ?? []) })
   } catch (err) {
@@ -150,7 +171,7 @@ app.post('/api/watchlist/add', (req, res) => {
   }
 })
 
-app.post('/api/watchlist/remove', (req, res) => {
+app.post('/api/watchlist/remove', requireLocal('Watchlist'), (req, res) => {
   try {
     res.json({ removed: removeService(req.body?.name) })
   } catch (err) {

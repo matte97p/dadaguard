@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Drawer, Segmented, Empty, Typography } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -14,34 +14,62 @@ const STATUS_COLOR = {
   unknown: '#8c8c8c',
 }
 
-// Layout a livelli (profondità nel DAG delle dipendenze) + nodi colorati per stato +
-// archi rossi quando la dipendenza è giù/degradata (impatto a colpo d'occhio).
-function buildGraph(services, dark) {
-  const byName = new Map(services.map((s) => [s.name, s]))
+// Provenienza dell'arco (come l'abbiamo dedotto): colore + etichetta per la legenda.
+const VIA = {
+  declared: { color: '#8c8c8c', label: 'dichiarata' },
+  env: { color: '#1677ff', label: 'config / env' },
+  event: { color: '#7c3aed', label: 'event source (coda/stream)' },
+  net: { color: '#13c2c2', label: 'rete (security group)' },
+}
+
+// Layout a livelli (profondità nel DAG) + nodi colorati per stato + archi colorati per provenienza.
+// Se la dipendenza (il target) è giù/degradata l'arco diventa rosso → impatto a valle a colpo d'occhio.
+function buildGraph(services, topo, dark) {
+  const statusByName = new Map(services.map((s) => [s.name, s.overall]))
+
+  const nodeList = [
+    ...services.map((s) => ({
+      id: s.name,
+      label: `${s.name}${s.type ? ` · ${s.type}` : ''}`,
+      status: s.overall,
+    })),
+    ...(topo.extraNodes ?? []).map((n) => ({
+      id: n.id,
+      label: `${n.label} · ${n.type}`,
+      status: null,
+      external: true,
+    })),
+  ]
+  const idset = new Set(nodeList.map((n) => n.id))
+  const edges = (topo.edges ?? []).filter((e) => idset.has(e.source) && idset.has(e.target))
+
+  // profondità: un nodo che dipende da altri sta sotto a ciò da cui dipende.
+  const depsOf = new Map([...idset].map((id) => [id, []]))
+  for (const e of edges) depsOf.get(e.source).push(e.target)
   const level = new Map()
-  const depth = (name, seen = new Set()) => {
-    if (level.has(name)) return level.get(name)
-    if (seen.has(name)) return 0 // protezione cicli
-    seen.add(name)
-    const deps = (byName.get(name)?.dependsOn ?? []).filter((d) => byName.has(d))
-    const d = deps.length ? 1 + Math.max(...deps.map((x) => depth(x, seen))) : 0
-    level.set(name, d)
-    return d
+  const depth = (id, seen = new Set()) => {
+    if (level.has(id)) return level.get(id)
+    if (seen.has(id)) return 0 // protezione cicli
+    seen.add(id)
+    const d = depsOf.get(id) ?? []
+    const v = d.length ? 1 + Math.max(...d.map((x) => depth(x, seen))) : 0
+    level.set(id, v)
+    return v
   }
-  services.forEach((s) => depth(s.name))
+  nodeList.forEach((n) => depth(n.id))
 
   const perLevel = new Map()
-  const nodes = services.map((s) => {
-    const l = level.get(s.name) ?? 0
+  const nodes = nodeList.map((n) => {
+    const l = level.get(n.id) ?? 0
     const idx = perLevel.get(l) ?? 0
     perLevel.set(l, idx + 1)
-    const color = STATUS_COLOR[s.overall] ?? '#8c8c8c'
+    const color = n.external ? '#bfbfbf' : STATUS_COLOR[n.status] ?? '#8c8c8c'
     return {
-      id: s.name,
+      id: n.id,
       position: { x: idx * 220, y: l * 130 },
-      data: { label: `${s.name}${s.type ? ` · ${s.type}` : ''}` },
+      data: { label: n.label },
       style: {
-        border: `2px solid ${color}`,
+        border: `2px ${n.external ? 'dashed' : 'solid'} ${color}`,
         borderRadius: 8,
         padding: 8,
         fontSize: 12,
@@ -52,38 +80,91 @@ function buildGraph(services, dark) {
     }
   })
 
-  const edges = []
-  for (const s of services) {
-    for (const dep of s.dependsOn ?? []) {
-      if (!byName.has(dep)) continue
-      const broken = ['down', 'degraded'].includes(byName.get(dep)?.overall)
-      edges.push({
-        id: `${s.name}->${dep}`,
-        source: s.name,
-        target: dep,
-        markerEnd: { type: MarkerType.ArrowClosed, color: broken ? '#ff4d4f' : '#888' },
-        animated: broken,
-        style: { stroke: broken ? '#ff4d4f' : '#888', strokeWidth: broken ? 2 : 1 },
-        label: broken ? '⚠ giù' : undefined,
-      })
+  const rfEdges = edges.map((e) => {
+    const broken = ['down', 'degraded'].includes(statusByName.get(e.target))
+    const primary = e.vias?.[0] ?? 'declared'
+    const color = broken ? '#ff4d4f' : VIA[primary]?.color ?? '#888'
+    return {
+      id: `${e.source}->${e.target}`,
+      source: e.source,
+      target: e.target,
+      markerEnd: { type: MarkerType.ArrowClosed, color },
+      animated: broken,
+      style: {
+        stroke: color,
+        strokeWidth: broken ? 2 : 1.5,
+        strokeDasharray: primary === 'net' && !broken ? '5 5' : undefined,
+      },
+      label: broken ? '⚠ giù' : undefined,
     }
-  }
-  return { nodes, edges }
+  })
+
+  // quali provenienze sono effettivamente presenti (per mostrare solo le voci utili in legenda).
+  const usedVias = new Set(edges.flatMap((e) => e.vias ?? []))
+  return { nodes, edges: rfEdges, usedVias }
 }
 
-// Topologia dei servizi. Due lenti: "Dipendenze" (grafo, stati propagati) e "Rete" (prossima,
-// dallo state Terraform). Niente backend nuovo per le dipendenze: usa `dependsOn` da /api/status.
-export default function TopologyDrawer({ open, onClose, services = [], dark }) {
+function Legend({ usedVias, t }) {
+  const keys = Object.keys(VIA).filter((k) => usedVias.has(k))
+  if (!keys.length) return null
+  return (
+    <Space size={12} wrap style={{ marginTop: 8 }}>
+      {keys.map((k) => (
+        <Space key={k} size={4}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 18,
+              height: 0,
+              borderTop: `2px ${k === 'net' ? 'dashed' : 'solid'} ${VIA[k].color}`,
+            }}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t(`topo.legend.${k}`)}
+          </Text>
+        </Space>
+      ))}
+      <Space size={4}>
+        <span style={{ display: 'inline-block', width: 18, height: 0, borderTop: '2px solid #ff4d4f' }} />
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('topo.legend.down')}
+        </Text>
+      </Space>
+    </Space>
+  )
+}
+
+// Topologia dei servizi. Lente "Dipendenze": grafo con relazioni DEDOTTE in automatico da AWS
+// (nessuna dichiarazione manuale). Lente "Rete": prossima, dallo state Terraform.
+export default function TopologyDrawer({ open, onClose, services = [], dark, t = (k) => k }) {
   const [view, setView] = useState('deps')
-  const { nodes, edges } = useMemo(() => buildGraph(services, dark), [services, dark])
-  const hasDeps = edges.length > 0
+  const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    setError(null)
+    fetch('/api/topology')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [] }))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [open])
+
+  const { nodes, edges, usedVias } = useMemo(
+    () => buildGraph(services, topo, dark),
+    [services, topo, dark],
+  )
+  const hasEdges = edges.length > 0
 
   return (
-    <Drawer title="Topologia" placement="right" width={840} open={open} onClose={onClose}>
+    <Drawer title={t('topo.title')} placement="right" width={840} open={open} onClose={onClose}>
       <Segmented
         options={[
-          { label: 'Dipendenze', value: 'deps' },
-          { label: 'Rete', value: 'net' },
+          { label: t('topo.tab.deps'), value: 'deps' },
+          { label: t('topo.tab.net'), value: 'net' },
         ]}
         value={view}
         onChange={setView}
@@ -93,19 +174,25 @@ export default function TopologyDrawer({ open, onClose, services = [], dark }) {
       {view === 'deps' ? (
         <>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Le frecce sono “dipende da”; il nodo è colorato per stato. Se una dipendenza è giù/degradata
-            l’arco diventa <span style={{ color: '#ff4d4f' }}>rosso</span> → vedi subito l’impatto a valle.
+            {t('topo.desc')}
           </Text>
+          {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
+          <Legend usedVias={usedVias} t={t} />
           <div
             style={{
-              height: '68vh',
+              height: '64vh',
               marginTop: 8,
               border: '1px solid rgba(128,128,128,0.2)',
               borderRadius: 8,
+              position: 'relative',
             }}
           >
-            {services.length === 0 ? (
-              <Empty style={{ paddingTop: 80 }} description="Nessun servizio" />
+            {loading ? (
+              <div style={{ textAlign: 'center', paddingTop: 120 }}>
+                <Spin tip={t('topo.loading')} />
+              </div>
+            ) : services.length === 0 ? (
+              <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
             ) : (
               <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
                 <Background />
@@ -113,18 +200,14 @@ export default function TopologyDrawer({ open, onClose, services = [], dark }) {
               </ReactFlow>
             )}
           </div>
-          {!hasDeps && services.length > 0 && (
+          {!loading && !hasEdges && services.length > 0 && (
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-              Nessuna relazione dichiarata: aggiungi <code>dependsOn: [nome-servizio]</code> ai servizi
-              per disegnare il grafo.
+              {t('topo.noRelations')}
             </Text>
           )}
         </>
       ) : (
-        <Empty
-          style={{ paddingTop: 100 }}
-          description="Mappa di rete — in arrivo (dallo state Terraform: VPC → subnet → risorsa, NAT/IGW)"
-        />
+        <Empty style={{ paddingTop: 100 }} description={t('topo.netPlaceholder')} />
       )}
     </Drawer>
   )

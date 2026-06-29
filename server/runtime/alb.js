@@ -9,18 +9,19 @@ import { clientOpts } from './awsClient.js'
 // RuntimeProvider per ALB: stato del LB + target healthy / totali (su tutti i target group).
 // Permessi: elasticloadbalancing:Describe*.
 // Config: aws: { type: alb, name: <lb-name> }  oppure  { type: alb, arn: <lb-arn> }
-export async function albRuntime(cfg, aws) {
+export async function albRuntime(cfg, aws, opts = {}) {
+  const t = opts.t ?? ((k) => k)
   const client = new ElasticLoadBalancingV2Client(clientOpts(aws))
 
   const lbOut = await client.send(
     new DescribeLoadBalancersCommand(cfg.arn ? { LoadBalancerArns: [cfg.arn] } : { Names: [cfg.name] }),
   )
   const lb = lbOut.LoadBalancers?.[0]
-  if (!lb) return { status: 'unknown', reason: 'load balancer non trovato' }
+  if (!lb) return { status: 'unknown', reason: t('alb.notfound') }
   if (lb.State?.Code !== 'active') {
     return {
       status: lb.State?.Code === 'failed' ? 'down' : 'degraded',
-      summary: `stato ${lb.State?.Code}`,
+      summary: t('alb.state', { code: lb.State?.Code }),
     }
   }
 
@@ -38,5 +39,5 @@ export async function albRuntime(cfg, aws) {
   }
 
   const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'
-  return { status, summary: total === 0 ? 'nessun target' : `${healthy}/${total} target healthy` }
+  return { status, summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }) }
 }

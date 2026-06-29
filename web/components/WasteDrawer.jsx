@@ -5,36 +5,33 @@ const { Text } = Typography
 
 // Costruisce le voci con MOTIVO + livello: 'spreco' (quasi certo) o 'verifica' (costo fisso che
 // è spreco solo in certe condizioni). Senza il motivo, un numero da solo non dice niente.
-function buildItems(v) {
+function buildItems(v, t) {
   const out = []
   if (v.eips?.length) {
     out.push({
-      title: `${v.eips.length} Elastic IP non associati · ~$${Math.round(v.eips.length * 3.6)}/mese`,
+      title: t('waste.eip.title', { n: v.eips.length, cost: Math.round(v.eips.length * 3.6) }),
       level: 'spreco',
-      reason:
-        'Allocati ma non collegati a nessuna risorsa: AWS li fattura proprio perché inutilizzati. Rilasciali se non servono.',
+      reason: t('waste.eip.reason'),
     })
   }
   if (v.natGateways?.length) {
     out.push({
-      title: `${v.natGateways.length} NAT Gateway · ~$${v.natGateways.length * 32}/mese`,
+      title: t('waste.nat.title', { n: v.natGateways.length, cost: v.natGateways.length * 32 }),
       level: 'verifica',
-      reason:
-        'Costo fisso, non uno spreco di per sé: serve quando una subnet privata deve uscire su internet. È spreco solo se nella sua VPC non c’è più nulla che lo usa.',
+      reason: t('waste.nat.reason'),
     })
   }
   if (v.volumes?.length) {
     out.push({
-      title: `${v.volumes.length} volumi EBS staccati · ${v.volumes.reduce((s, x) => s + x.sizeGb, 0)} GB`,
+      title: t('waste.ebs.title', { n: v.volumes.length, gb: v.volumes.reduce((s, x) => s + x.sizeGb, 0) }),
       level: 'spreco',
-      reason:
-        'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
+      reason: t('waste.ebs.reason'),
     })
   }
   return out
 }
 
-export default function WasteDrawer({ open, onClose }) {
+export default function WasteDrawer({ open, onClose, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -57,7 +54,7 @@ export default function WasteDrawer({ open, onClose }) {
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (
-    <Drawer title="Risorse fisse & sprechi · a listino" open={open} onClose={onClose} width={520}>
+    <Drawer title={t('waste.title')} open={open} onClose={onClose} width={520}>
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
@@ -67,13 +64,10 @@ export default function WasteDrawer({ open, onClose }) {
 
       {data && (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <Text type="secondary">
-            Stima a <b>listino</b> (prezzo pieno): <Text strong>~${total}/mese</Text>. Non è la bolletta — la
-            spesa reale è in “Costi”. Ogni voce dice <b>perché</b> è (o potrebbe essere) uno spreco.
-          </Text>
+          <Text type="secondary">{t('waste.desc', { total })}</Text>
 
           {entries.map(([key, v]) => {
-            const items = v.error ? [] : buildItems(v)
+            const items = v.error ? [] : buildItems(v, t)
             return (
               <div key={key}>
                 <Space>
@@ -90,7 +84,7 @@ export default function WasteDrawer({ open, onClose }) {
                     bordered
                     style={{ marginTop: 8 }}
                     dataSource={items}
-                    locale={{ emptyText: 'nessuno spreco rilevato 🎉' }}
+                    locale={{ emptyText: t('waste.empty') }}
                     renderItem={(i) => (
                       <List.Item>
                         <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -100,7 +94,7 @@ export default function WasteDrawer({ open, onClose }) {
                               color={i.level === 'spreco' ? 'error' : 'warning'}
                               style={{ marginInlineEnd: 0, height: 'fit-content' }}
                             >
-                              {i.level === 'spreco' ? 'spreco' : 'da verificare'}
+                              {i.level === 'spreco' ? t('waste.level.waste') : t('waste.level.check')}
                             </Tag>
                           </div>
                           <Text type="secondary" style={{ fontSize: 12 }}>

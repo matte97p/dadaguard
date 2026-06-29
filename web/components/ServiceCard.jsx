@@ -1,13 +1,13 @@
-import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
+import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 
 const STATUS = {
-  up: { status: 'success', text: 'UP', tag: 'success' },
-  degraded: { status: 'warning', text: 'DEGRADED', tag: 'warning' },
-  down: { status: 'error', text: 'DOWN', tag: 'error' },
-  idle: { status: 'default', text: 'IDLE', tag: 'default' },
-  disabled: { status: 'default', text: 'DISABLED', tag: 'default' },
-  unknown: { status: 'default', text: '—', tag: 'default' },
+  up: { status: 'success', tag: 'success' },
+  degraded: { status: 'warning', tag: 'warning' },
+  down: { status: 'error', tag: 'error' },
+  idle: { status: 'default', tag: 'default' },
+  disabled: { status: 'default', tag: 'default' },
+  unknown: { status: 'default', tag: 'default' },
 }
 
 const { Link, Text } = Typography
@@ -16,8 +16,22 @@ function CheckBadge({ status }) {
   return <Badge status={STATUS[status]?.status ?? 'default'} />
 }
 
-export default function ServiceCard({ service, onRemove }) {
+// Etichetta riga + tooltip che spiega COSA misura il segnale (il contenuto, da solo, è gergo).
+function RowLabel({ children, tip }) {
+  return (
+    <Space size={4}>
+      <span>{children}</span>
+      <Tooltip title={tip}>
+        <QuestionCircleOutlined style={{ color: '#bfbfbf', fontSize: 11, cursor: 'help' }} />
+      </Tooltip>
+    </Space>
+  )
+}
+
+export default function ServiceCard({ service, onRemove, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
+  const overallText =
+    service.overall && service.overall !== 'unknown' ? t(`card.status.${service.overall}`) : '—'
   const liveness = service.checks?.liveness
   const version = service.checks?.version
   const runtime = service.checks?.runtime
@@ -35,14 +49,14 @@ export default function ServiceCard({ service, onRemove }) {
       extra={
         <Space size={8}>
           <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
-            {overall.text}
+            {overallText}
           </Tag>
           {onRemove && (
             <Popconfirm
-              title="Togliere dalla watchlist?"
-              description="Smette solo di monitorarlo — non tocca AWS."
-              okText="Togli"
-              cancelText="Annulla"
+              title={t('card.removeTitle')}
+              description={t('card.removeDesc')}
+              okText={t('card.removeOk')}
+              cancelText={t('card.removeCancel')}
               onConfirm={() => onRemove(service.name)}
             >
               <Link type="secondary">
@@ -55,11 +69,13 @@ export default function ServiceCard({ service, onRemove }) {
     >
       <Descriptions column={1} size="small">
         {liveness && (
-          <Descriptions.Item label="Liveness">
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.reachable')}>{t('card.label.reachable')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={liveness.status} />
               <span>
-                {liveness.httpStatus ? `HTTP ${liveness.httpStatus}` : liveness.reason ?? '—'}
+                {liveness.httpStatus
+                  ? t('card.responds', { code: liveness.httpStatus })
+                  : liveness.reason ?? '—'}
               </span>
               {typeof liveness.latencyMs === 'number' && (
                 <Text type="secondary">· {liveness.latencyMs}ms</Text>
@@ -69,7 +85,7 @@ export default function ServiceCard({ service, onRemove }) {
         )}
 
         {version && (
-          <Descriptions.Item label="Versione">
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.version')}>{t('card.label.version')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={version.status} />
               <span>{version.summary ?? version.reason ?? '—'}</span>
@@ -78,7 +94,7 @@ export default function ServiceCard({ service, onRemove }) {
         )}
 
         {runtime && (
-          <Descriptions.Item label="Runtime">
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.runtime')}>{t('card.label.runtime')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={runtime.status} />
               <span>{runtime.summary ?? runtime.reason ?? '—'}</span>
@@ -87,7 +103,7 @@ export default function ServiceCard({ service, onRemove }) {
         )}
 
         {drift && (
-          <Descriptions.Item label="Drift TF">
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.drift')}>{t('card.label.drift')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={drift.status} />
               <span>{drift.summary ?? drift.reason ?? '—'}</span>
@@ -96,7 +112,7 @@ export default function ServiceCard({ service, onRemove }) {
         )}
 
         {secrets && (
-          <Descriptions.Item label="Secrets">
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.secret')}>{t('card.label.secret')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={secrets.status} />
               <span>{secrets.summary ?? secrets.reason ?? '—'}</span>

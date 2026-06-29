@@ -7,6 +7,7 @@ import { ssmSecrets } from '../secrets/ssm.js'
 export const key = 'secrets'
 
 export async function run(service, ctx) {
+  const t = ctx?.t ?? ((k) => k)
   // SSM (runtime, cloud-ready via AWS role): i secret che il servizio vede davvero.
   if (service.ssm?.path) {
     try {
@@ -17,8 +18,8 @@ export async function run(service, ctx) {
         region: service.ssm.region ?? ctx?.region,
         path: service.ssm.path,
       })
-      if (!r.count) return { key, status: 'degraded', summary: `0 secret in SSM ${service.ssm.path}` }
-      return { key, status: 'up', summary: `${r.count} secret (SSM)`, count: r.count }
+      if (!r.count) return { key, status: 'degraded', summary: t('secrets.none', { path: service.ssm.path }) }
+      return { key, status: 'up', summary: t('secrets.present', { n: r.count }), count: r.count }
     } catch (err) {
       return { key, status: 'unknown', reason: `SSM: ${err.message}` }
     }
@@ -37,7 +38,7 @@ export async function run(service, ctx) {
       return {
         key,
         status: 'degraded',
-        summary: `${r.missing.length} mancanti vs ${r.compareWith}: ${shown}${more}`,
+        summary: t('secrets.missing', { n: r.missing.length, env: r.compareWith, list: `${shown}${more}` }),
         count: r.count,
         missing: r.missing.length,
       }
@@ -46,14 +47,14 @@ export async function run(service, ctx) {
     return {
       key,
       status: 'up',
-      summary: `${r.count} secret (${cfg.project}/${cfg.config})`,
+      summary: t('secrets.present', { n: r.count }),
       count: r.count,
     }
   } catch (err) {
     // config inesistente, CLI non loggata, ecc. Niente valori nel messaggio.
     const reason = /not found|Invalid|Unable/i.test(err.message)
-      ? 'config Doppler non trovato o accesso negato'
-      : 'CLI Doppler non disponibile'
+      ? t('secrets.dopplernotfound')
+      : t('secrets.dopplerunavailable')
     return { key, status: 'unknown', reason }
   }
 }

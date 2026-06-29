@@ -6,7 +6,7 @@ const CRON_RE = 'cron|scale|housekeeper'
 
 const { Text } = Typography
 
-export default function DiscoverDrawer({ open, onClose, existingNames = [], onAdded }) {
+export default function DiscoverDrawer({ open, onClose, existingNames = [], onAdded, t = (k) => k }) {
   const [accounts, setAccounts] = useState([])
   const [account, setAccount] = useState(null)
   const [hideCron, setHideCron] = useState(true)
@@ -63,7 +63,7 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
       })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-      message.success(`${body.added} aggiunti alla watchlist`)
+      message.success(t('discover.added', { n: body.added }))
       setSelected([])
       onAdded?.()
     } catch (e) {
@@ -78,7 +78,7 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
 
   return (
     <Drawer
-      title="Scopri servizi"
+      title={t('discover.title')}
       open={open}
       onClose={onClose}
       width={460}
@@ -86,7 +86,7 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
         result &&
         selectable.length > 0 && (
           <Button type="primary" loading={adding} disabled={!selected.length} onClick={add}>
-            Aggiungi {selected.length || ''}
+            {t('discover.add')} {selected.length || ''}
           </Button>
         )
       }
@@ -96,15 +96,15 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
           value={account}
           onChange={setAccount}
           style={{ width: '100%' }}
-          placeholder="Account"
+          placeholder={t('discover.account')}
           options={accounts.map((a) => ({ value: a.key, label: a.label }))}
         />
         <Space>
           <Switch checked={hideCron} onChange={setHideCron} />
-          <Text>Nascondi cron / scale / housekeeper</Text>
+          <Text>{t('discover.hideCron')}</Text>
         </Space>
         <Button onClick={scan} loading={loading} disabled={!account} block>
-          Scansiona
+          {t('discover.scan')}
         </Button>
 
         {error && <Alert type="error" message={error} showIcon />}
@@ -113,9 +113,13 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
           <>
             <Space style={{ justifyContent: 'space-between', width: '100%' }}>
               <Text type="secondary">
-                {result.candidates.length} risorse
-                {result.activeInfo ? ` · attive ${result.activeInfo.kept}/${result.activeInfo.total}` : ''}
-                {result.tfState?.stateCount != null ? ` · ${result.tfState.unmanaged} non in TF` : ''}
+                {t('discover.resources', { n: result.candidates.length })}
+                {result.activeInfo
+                  ? t('discover.active', { kept: result.activeInfo.kept, total: result.activeInfo.total })
+                  : ''}
+                {result.tfState?.stateCount != null
+                  ? t('discover.unmanaged', { n: result.tfState.unmanaged })
+                  : ''}
               </Text>
               {selectable.length > 0 && (
                 <Checkbox
@@ -123,7 +127,7 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
                   indeterminate={selected.length > 0 && !allSelected}
                   onChange={(e) => setSelected(e.target.checked ? selectable : [])}
                 >
-                  tutti
+                  {t('discover.all')}
                 </Checkbox>
               )}
             </Space>
@@ -132,7 +136,7 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
               size="small"
               bordered
               dataSource={result.candidates}
-              locale={{ emptyText: 'Niente trovato' }}
+              locale={{ emptyText: t('discover.empty') }}
               renderItem={(c) => {
                 const already = existing.has(c.name)
                 return (
@@ -149,8 +153,8 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
                         <Text delete={already} type={already ? 'secondary' : undefined}>
                           {c.name}
                         </Text>
-                        {already && <Text type="secondary">(già)</Text>}
-                        {c.managed === false && <Tag color="error">⚠ non in TF</Tag>}
+                        {already && <Text type="secondary">{t('discover.already')}</Text>}
+                        {c.managed === false && <Tag color="error">{t('discover.notInTf')}</Tag>}
                       </Space>
                     </Checkbox>
                   </List.Item>

@@ -6,10 +6,11 @@ const TIMEOUT_MS = 5000
 
 export const key = 'liveness'
 
-export async function run(service) {
+export async function run(service, ctx) {
   if (!service.healthUrl) {
     return null // segnale non applicabile (es. Lambda/worker senza endpoint HTTP)
   }
+  const t = ctx?.t ?? ((k) => k)
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -35,7 +36,7 @@ export async function run(service) {
       key,
       status: 'down',
       latencyMs,
-      reason: err.name === 'AbortError' ? `timeout >${TIMEOUT_MS}ms` : err.message,
+      reason: err.name === 'AbortError' ? t('liveness.timeout', { ms: TIMEOUT_MS }) : err.message,
     }
   } finally {
     clearTimeout(timer)

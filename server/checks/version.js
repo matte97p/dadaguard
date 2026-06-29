@@ -12,12 +12,13 @@ export const key = 'version'
 
 const norm = (v) => String(v).trim().replace(/^v/i, '')
 
-export async function run(service) {
+export async function run(service, ctx) {
   const expected = service.expectedVersion
   if (!expected) return null // segnale non applicabile
+  const t = ctx?.t ?? ((k) => k)
 
   if (!service.healthUrl) {
-    return { key, status: 'unknown', reason: 'nessuna fonte versione (manca healthUrl)' }
+    return { key, status: 'unknown', reason: t('version.nosource') }
   }
 
   const field = service.versionField || 'version'
@@ -29,17 +30,17 @@ export async function run(service) {
     const actual = field.split('.').reduce((o, k) => (o == null ? o : o[k]), body)
 
     if (actual == null) {
-      return { key, status: 'unknown', reason: `campo '${field}' assente nel payload` }
+      return { key, status: 'unknown', reason: t('version.fieldmissing', { field }) }
     }
     if (norm(actual) === norm(expected)) {
       return { key, status: 'up', summary: `v${norm(actual)}` }
     }
-    return { key, status: 'degraded', summary: `gira ${actual}, atteso ${expected}` }
+    return { key, status: 'degraded', summary: t('version.mismatch', { actual, expected }) }
   } catch (err) {
     return {
       key,
       status: 'unknown',
-      reason: err.name === 'AbortError' ? 'timeout' : 'health non leggibile come JSON',
+      reason: err.name === 'AbortError' ? t('version.timeout') : t('version.notjson'),
     }
   } finally {
     clearTimeout(timer)
