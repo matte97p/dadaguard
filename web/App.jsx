@@ -24,6 +24,7 @@ import {
   DollarOutlined,
   DiffOutlined,
   PieChartOutlined,
+  PartitionOutlined,
 } from '@ant-design/icons'
 import ServiceCard from './components/ServiceCard.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -31,6 +32,7 @@ import StatusSummary from './components/StatusSummary.jsx'
 import WasteDrawer from './components/WasteDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import CostsDrawer from './components/CostsDrawer.jsx'
+import TopologyDrawer from './components/TopologyDrawer.jsx'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -43,11 +45,13 @@ export default function App() {
   const [wasteOpen, setWasteOpen] = useState(false)
   const [driftOpen, setDriftOpen] = useState(false)
   const [costsOpen, setCostsOpen] = useState(false)
+  const [topoOpen, setTopoOpen] = useState(false)
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
 
   // Filtri: account singolo (switch) + region multi-select.
   const [accountFilter, setAccountFilter] = useState('all')
   const [regionFilter, setRegionFilter] = useState([])
+  const [typeFilter, setTypeFilter] = useState([])
 
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
@@ -107,11 +111,21 @@ export default function App() {
     [services],
   )
 
+  const TYPE_LABELS = { lambda: 'Lambda', rds: 'Database', ecs: 'ECS', asg: 'Auto Scaling', alb: 'Load Balancer', ec2: 'EC2' }
+  const typeOptions = useMemo(
+    () =>
+      [...new Set(services.map((s) => s.type).filter(Boolean))]
+        .sort()
+        .map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t })),
+    [services],
+  )
+
   const groups = useMemo(() => {
     const filtered = services.filter(
       (s) =>
         (accountFilter === 'all' || (s.account?.key ?? '__none__') === accountFilter) &&
-        (regionFilter.length === 0 || regionFilter.includes(s.region)),
+        (regionFilter.length === 0 || regionFilter.includes(s.region)) &&
+        (typeFilter.length === 0 || typeFilter.includes(s.type)),
     )
     const m = new Map()
     for (const s of filtered) {
@@ -127,7 +141,7 @@ export default function App() {
       m.get(key).services.push(s)
     }
     return [...m.values()]
-  }, [services, accountFilter, regionFilter])
+  }, [services, accountFilter, regionFilter, typeFilter])
 
   const themeConfig = {
     algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
@@ -174,6 +188,9 @@ export default function App() {
             <Button icon={<PieChartOutlined />} onClick={() => setCostsOpen(true)}>
               Costi
             </Button>
+            <Button icon={<PartitionOutlined />} onClick={() => setTopoOpen(true)}>
+              Topologia
+            </Button>
             {!isCloud && (
               <>
                 <Button icon={<DiffOutlined />} onClick={() => setDriftOpen(true)}>
@@ -215,7 +232,16 @@ export default function App() {
                 value={regionFilter}
                 onChange={setRegionFilter}
                 options={regionOptions}
-                style={{ minWidth: 220 }}
+                style={{ minWidth: 200 }}
+              />
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Tutti i tipi"
+                value={typeFilter}
+                onChange={setTypeFilter}
+                options={typeOptions}
+                style={{ minWidth: 180 }}
               />
             </Space>
           )}
@@ -260,6 +286,11 @@ export default function App() {
         />
         <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} />
         <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} />
+        <TopologyDrawer
+          open={topoOpen}
+          onClose={() => setTopoOpen(false)}
+          services={groups.flatMap((g) => g.services)}
+        />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} />
       </Layout>
     </ConfigProvider>
