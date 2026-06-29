@@ -16,7 +16,7 @@ export async function ssmSecrets({ profile, roleArn, externalId, region, path })
         Recursive: true,
         WithDecryption: false,
         NextToken: token,
-        MaxResults: 10,
+        MaxResults: 10, // 10 è il massimo consentito da GetParametersByPath: il loop sotto pagina tutto
       }),
     )
     for (const p of out.Parameters ?? []) names.push((p.Name ?? '').replace(prefix, ''))
