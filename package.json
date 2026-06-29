@@ -24,6 +24,7 @@
     "@aws-sdk/client-s3": "^3.1075.0",
     "@aws-sdk/client-ssm": "^3.1075.0",
     "@aws-sdk/credential-providers": "^3.1075.0",
+    "@xyflow/react": "^12.11.1",
     "antd": "^5.17.4",
     "express": "^4.19.2",
     "js-yaml": "^4.1.0",
