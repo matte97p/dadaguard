@@ -70,19 +70,23 @@ export default function App() {
     setLangPref(l)
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/status?lang=${lang}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setData(await res.json())
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [lang])
+  const load = useCallback(
+    async (signal) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/status?lang=${lang}`, { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setData(await res.json())
+      } catch (err) {
+        if (err.name === 'AbortError') return // risposta stale (lingua cambiata): scartala, non toccare lo stato
+        setError(err.message)
+      } finally {
+        if (!signal?.aborted) setLoading(false)
+      }
+    },
+    [lang],
+  )
 
   const removeService = useCallback(
     async (name) => {
@@ -97,7 +101,10 @@ export default function App() {
   )
 
   useEffect(() => {
-    load()
+    // un fetch per lingua: al cambio di `lang` (o unmount) annulla il precedente → niente race
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
   }, [load])
 
   const services = data?.services ?? []
@@ -226,7 +233,7 @@ export default function App() {
                 {t('btn.discover')}
               </Button>
             )}
-            <Button type="primary" icon={<ReloadOutlined />} loading={loading} onClick={load}>
+            <Button type="primary" icon={<ReloadOutlined />} loading={loading} onClick={() => load()}>
               {t('btn.refresh')}
             </Button>
           </Space>

@@ -47,6 +47,7 @@ const S = {
     'alb.notarget': 'nessun target collegato',
     'alb.state': 'stato {code}',
     'alb.notfound': 'load balancer non trovato',
+    'alb.healthUnreachable': 'attivo · health dei target non raggiungibile',
 
     'ec2.checks': 'in funzione · check AWS {ok}/2 ok',
     'ec2.notfound': 'istanza EC2 non trovata',
@@ -116,6 +117,7 @@ const S = {
     'alb.notarget': 'no target attached',
     'alb.state': 'state {code}',
     'alb.notfound': 'load balancer not found',
+    'alb.healthUnreachable': 'active · target health unreachable',
 
     'ec2.checks': 'running · AWS checks {ok}/2 ok',
     'ec2.notfound': 'EC2 instance not found',

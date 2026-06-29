@@ -18,7 +18,7 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
   const pendingCount = svc.pendingCount ?? 0
 
   let status
-  if (desiredCount === 0) status = 'unknown' // scalato a zero di proposito?
+  if (desiredCount === 0) status = 'idle' // scalato a zero di proposito: a riposo, non un errore
   else if (runningCount >= desiredCount) status = 'up'
   else if (runningCount === 0) status = 'down'
   else status = 'degraded'

@@ -25,17 +25,23 @@ export async function albRuntime(cfg, aws, opts = {}) {
     }
   }
 
-  const tgs =
-    (await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn })))
-      .TargetGroups ?? []
+  // Health dei target: se le describe falliscono (permessi, throttling) NON rompere la card —
+  // il LB è comunque `active`, quindi degrada con un messaggio chiaro invece di sollevare.
   let healthy = 0
   let total = 0
-  for (const tg of tgs) {
-    const th =
-      (await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })))
-        .TargetHealthDescriptions ?? []
-    total += th.length
-    healthy += th.filter((t) => t.TargetHealth?.State === 'healthy').length
+  try {
+    const tgs =
+      (await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn })))
+        .TargetGroups ?? []
+    for (const tg of tgs) {
+      const th =
+        (await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })))
+          .TargetHealthDescriptions ?? []
+      total += th.length
+      healthy += th.filter((x) => x.TargetHealth?.State === 'healthy').length
+    }
+  } catch {
+    return { status: 'degraded', summary: t('alb.healthUnreachable') }
   }
 
   const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'

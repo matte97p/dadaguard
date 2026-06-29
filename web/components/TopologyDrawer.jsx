@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Drawer, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -137,7 +137,6 @@ function Legend({ usedVias, t }) {
 // Topologia dei servizi. Lente "Dipendenze": grafo con relazioni DEDOTTE in automatico da AWS
 // (nessuna dichiarazione manuale). Lente "Rete": prossima, dallo state Terraform.
 export default function TopologyDrawer({ open, onClose, services = [], dark, t = (k) => k }) {
-  const [view, setView] = useState('deps')
   const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -161,53 +160,37 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
 
   return (
     <Drawer title={t('topo.title')} placement="right" width={840} open={open} onClose={onClose}>
-      <Segmented
-        options={[
-          { label: t('topo.tab.deps'), value: 'deps' },
-          { label: t('topo.tab.net'), value: 'net' },
-        ]}
-        value={view}
-        onChange={setView}
-        style={{ marginBottom: 12 }}
-      />
-
-      {view === 'deps' ? (
-        <>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('topo.desc')}
-          </Text>
-          {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
-          <Legend usedVias={usedVias} t={t} />
-          <div
-            style={{
-              height: '64vh',
-              marginTop: 8,
-              border: '1px solid rgba(128,128,128,0.2)',
-              borderRadius: 8,
-              position: 'relative',
-            }}
-          >
-            {loading ? (
-              <div style={{ textAlign: 'center', paddingTop: 120 }}>
-                <Spin tip={t('topo.loading')} />
-              </div>
-            ) : services.length === 0 ? (
-              <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
-            ) : (
-              <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
-                <Background />
-                <Controls showInteractive={false} />
-              </ReactFlow>
-            )}
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {t('topo.desc')}
+      </Text>
+      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
+      <Legend usedVias={usedVias} t={t} />
+      <div
+        style={{
+          height: '66vh',
+          marginTop: 8,
+          border: '1px solid rgba(128,128,128,0.2)',
+          borderRadius: 8,
+          position: 'relative',
+        }}
+      >
+        {loading ? (
+          <div style={{ textAlign: 'center', paddingTop: 120 }}>
+            <Spin tip={t('topo.loading')} />
           </div>
-          {!loading && !hasEdges && services.length > 0 && (
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-              {t('topo.noRelations')}
-            </Text>
-          )}
-        </>
-      ) : (
-        <Empty style={{ paddingTop: 100 }} description={t('topo.netPlaceholder')} />
+        ) : services.length === 0 ? (
+          <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
+        ) : (
+          <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
+            <Background />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        )}
+      </div>
+      {!loading && !hasEdges && services.length > 0 && (
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+          {t('topo.noRelations')}
+        </Text>
       )}
     </Drawer>
   )

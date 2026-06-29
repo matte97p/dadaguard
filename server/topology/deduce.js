@@ -185,6 +185,7 @@ export async function deduceTopology(services, accounts) {
   const idList = await Promise.all(
     services.map(async (s) => ({
       name: s.name,
+      account: s.account ?? '__none__', // serve a disambiguare i match tra account diversi
       ids: await identifiers(s, awsFor(s, accounts)),
     })),
   )
@@ -211,13 +212,29 @@ export async function deduceTopology(services, accounts) {
       .filter((s) => s.aws?.type === 'lambda' && s.aws.function)
       .map(async (s) => {
         const { env, sources } = await lambdaReferences(s, awsFor(s, accounts))
-        for (const t of idList) {
-          if (t.name === s.name) continue
-          if (t.ids.some((tok) => env.includes(tok))) push(s.name, t.name, 'env')
-        }
+
+        // Match a TOKEN ESATTO (non substring): le env sono già stringhe separate; tokenizzo su
+        // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
+        // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
+        const envTokens = new Set(env.split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean))
+        const envCandidates = idList.filter(
+          (t) => t.name !== s.name && t.ids.some((tok) => envTokens.has(tok)),
+        )
+        // Disambigua per account: se c'è un candidato nello STESSO account, è quello (uccide le
+        // collisioni di nomi tra ambienti). Se invece il token è unico e vive in un altro account,
+        // è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
+        const envSame = envCandidates.filter((t) => t.account === s.account)
+        for (const t of envSame.length ? envSame : envCandidates) push(s.name, t.name, 'env')
+
         for (const arn of sources) {
           const lower = arn.toLowerCase()
-          const matched = idList.find((t) => t.name !== s.name && t.ids.some((tok) => lower.includes(tok)))
+          const arnTokens = new Set(lower.split(/[\s:/]+/).filter(Boolean))
+          const evCandidates = idList.filter(
+            (t) => t.name !== s.name && t.ids.some((tok) => arnTokens.has(tok)),
+          )
+          // gli event source mapping sono tipicamente nello stesso account della Lambda → preferiscilo
+          const evSame = evCandidates.filter((t) => t.account === s.account)
+          const matched = (evSame.length ? evSame : evCandidates)[0]
           if (matched) {
             push(s.name, matched.name, 'event')
             continue
