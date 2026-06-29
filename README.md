@@ -1,36 +1,39 @@
 # Dadaguard 🐶
 
-> *il watchdog del tuo stack*
+Watchdog DevOps **local-first**: *il mio stack è su **e coerente**?* Correla lo stato reale di **AWS + secret + Terraform** — **senza LLM**, 100% deterministico.
 
-Dashboard **local-first** che risponde a una sola domanda: *"il mio stack è su **e coerente**?"*,
-correlando **AWS + Doppler + Terraform**. Read-only, fetch-on-load, zero storage.
+Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la versione deployata è quella attesa? il runtime reale (task *running* vs *desired*) è a posto? i secret che il servizio usa esistono? lo stato combacia con Terraform? Un servizio "verde" altrove qui può diventare **giallo**.
 
-> **Stato: scheletro verticale.** Per ora un solo segnale — **liveness** (#1).
-> I prossimi (runtime AWS, versione attesa, secret Doppler) si agganciano uno alla volta.
+## Segnali
+- **Liveness** + latenza
+- **Versione** deployata vs attesa
+- **Runtime** AWS reale: ECS · ASG · Lambda (con dead-man switch per le cron) · RDS/Aurora · ALB · EC2
+- **Secret** presenti (SSM / Doppler) — solo per **nome**, mai i valori
+- **Drift** vs Terraform: leggero (state ↔ AWS) e completo (`terragrunt plan`, on-demand)
+- **Risorse non gestite** da Terraform
+- **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
+- **Topologia** dei servizi per ambiente e tipo
 
-## Avvio (dev)
+## Principi
+- **No LLM** — deterministico: niente costi, latenza o non-determinismo.
+- **Read-only sull'infra** — non crea/modifica/distrugge nulla; l'infrastruttura si cambia **solo** via Terraform.
+- **Fetch-on-load, zero storage** — la config (`services.yaml`) è riletta a ogni richiesta.
 
+## Uso locale
 ```bash
-npm install
-aws sso login --sso-session ops-ro   # rinnova il token SSO (vale per tutti i profili)
-npm run dev                          # i profili AWS arrivano da services.yaml (staging-ro / production-ro)
+cp services.example.yaml services.yaml   # adatta ai tuoi account e servizi
+npm install --legacy-peer-deps
+npm run dev                              # → http://localhost:5173
 ```
+Auth AWS in locale: profilo SSO/CLI (campo `profile:` per account in `services.yaml`).
 
-- Frontend → http://localhost:5173
-- API → http://localhost:3001/api/status  (porta cambiabile: `PORT=4000 npm run dev` sposta backend **e** proxy insieme)
-
-Solo backend (senza UI): `npm run server`, poi `curl localhost:3001/api/status`.
-
-## Config
-
-Modifica `services.yaml`: un servizio = una entry. Per ora basta `healthUrl`.
-Il file viene **riletto a ogni fetch** — nessuno stato, nessun riavvio.
+## Deploy in cloud (self-hosted)
+Vedi [`deploy/README.md`](deploy/README.md): immagine unica su **ECS Fargate**, dietro **Cloudflare Access** (Zero Trust, zero porte pubbliche), auth AWS via **AssumeRole read-only cross-account** (niente chiavi). In cloud la config arriva da env (SSM), non da file.
 
 ## Architettura
+- `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.
+- `web/` — React + Ant Design. Una card per servizio; il semaforo è il check messo peggio.
+- In cloud Express serve anche il frontend buildato (`dist/`) sulla stessa porta.
 
-- `server/` — Express sottile. `GET /api/status` ricarica `services.yaml` ed esegue i
-  check in parallelo (`server/checks/`). **Aggiungere un segnale = un file in `checks/`
-  + una riga in `server/status.js`.**
-- `web/` — React + Ant Design. Una card per servizio, semaforo = peggiore dei check.
-
-Niente DB, niente processo always-on: apri → fetch → mostra → chiudi.
+## Licenza
+[MIT](LICENSE) © 2026 Matteo Perino

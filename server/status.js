@@ -76,6 +76,7 @@ export async function getStatus() {
           ? { key: service.account, label: acct.label ?? service.account, color: acct.color ?? null }
           : null,
         region: service.aws?.region ?? acct?.region ?? null,
+        type: service.aws?.type ?? null,
         overall: rollup(checks),
         checks,
       }
