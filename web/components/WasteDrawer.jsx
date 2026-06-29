@@ -27,7 +27,7 @@ export default function WasteDrawer({ open, onClose }) {
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (
-    <Drawer title="Sprechi & costi fissi" open={open} onClose={onClose} width={460}>
+    <Drawer title="Risorse fisse · stima a listino" open={open} onClose={onClose} width={460}>
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
@@ -38,7 +38,10 @@ export default function WasteDrawer({ open, onClose }) {
       {data && (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <Text type="secondary">
-            Stima totale: <Text strong>~${total}/mese</Text> · approssimata, region eu-central-1
+            Stima a <b>listino</b> (prezzo pieno): <Text strong>~${total}/mese</Text> · region eu-central-1.
+            <br />
+            Non è la bolletta — la spesa <b>reale</b> (con crediti/sconti) è in “Costi”. Serve a scovare
+            risorse fisse o orfane (un NAT/EIP/EBS che a regime costa, anche se ora i crediti lo coprono).
           </Text>
 
           {entries.map(([key, v]) => {
