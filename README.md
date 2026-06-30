@@ -27,6 +27,8 @@ npm run dev                              # → http://localhost:5173
 ```
 Auth AWS in locale: profilo SSO/CLI (campo `profile:` per account in `services.yaml`).
 
+In modalità local-first `services.yaml` è anche **editabile dalla dashboard** (aggiungere/togliere servizi dalla watchlist riscrive il file). In cloud la config è read-only e arriva da SSM.
+
 ## Deploy
 **Self-host in un comando** — gira ovunque (VM, NAS, mini-PC, PaaS), UI in italiano e inglese:
 ```bash

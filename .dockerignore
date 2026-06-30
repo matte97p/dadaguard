@@ -1,9 +1,32 @@
+# Cosa NON entra nel contesto di build Docker (il Dockerfile fa `COPY . .` nello stage di build).
+# Obiettivo: immagine più piccola e nessun leak di config/credenziali.
+# NB: non escludere ciò che serve al build del frontend (index.html, vite.config.js, web/, package*.json).
+
+# dipendenze e artefatti: reinstallati/buildati dentro l'immagine
 node_modules
 dist
+
+# VCS e CI
 .git
-*.log
+.gitignore
+.github
+
+# config reale e segreti — MAI nell'immagine (si montano a runtime)
 services.yaml
-REQUIREMENTS.md
-HANDOFF.md
-.dockerignore
-Dockerfile
+services.example.yaml
+.env
+.env.*
+
+# test e tooling non necessari al runtime
+test
+scripts
+
+# deploy / esempi infra: non servono nell'immagine
+deploy
+
+# documentazione e planning
+*.md
+
+# rumore locale
+*.log
+.DS_Store
