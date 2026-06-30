@@ -14,10 +14,10 @@ permissions:
   contents: read
 
 # Config dell'ambiente di deploy via GitHub repo *variables* (Settings → Variables):
-# ECR_REPOSITORY, ECS_CLUSTER, AWS_DEPLOY_ROLE_ARN — così il repo pubblico non hardcoda
-# account id/ARN. Chi fa fork e vuole un proprio deploy imposta le sue.
+# AWS_REGION, ECR_REPOSITORY, ECS_CLUSTER, AWS_DEPLOY_ROLE_ARN — così il repo pubblico non
+# hardcoda nulla di specifico. Chi fa fork e vuole un proprio deploy imposta le sue.
 env:
-  AWS_REGION: eu-central-1
+  AWS_REGION: ${{ vars.AWS_REGION }}
   ECR: ${{ vars.ECR_REPOSITORY }}
   CLUSTER: ${{ vars.ECS_CLUSTER }}
   SERVICE: dadaguard
