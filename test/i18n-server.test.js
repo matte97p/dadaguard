@@ -8,7 +8,7 @@ test('makeT: interpolazione it/en', () => {
 })
 
 test('makeT: lingua sconosciuta → fallback IT', () => {
-  assert.equal(makeT('xx')('drift.insync'), 'combacia con Terraform')
+  assert.equal(makeT('xx')('drift.insync'), 'sì')
 })
 
 test('makeT: chiave assente → ritorna la chiave', () => {
