@@ -10,8 +10,9 @@ import { findWaste } from './waste.js'
 import { getCosts } from './costs.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
+import { renderMetrics } from './metrics.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
-import { isCloud } from './mode.js'
+import { isCloud, MODE } from './mode.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -23,6 +24,26 @@ const requireLocal = (feature) => (_req, res, next) => {
   if (isCloud) return res.status(409).json({ error: `"${feature}" è disponibile solo in modalità local-first` })
   next()
 }
+
+// Liveness dell'app (container/orchestratori): NON chiama AWS, conferma solo che il server è su.
+app.get('/healthz', (_req, res) => res.json({ ok: true, mode: MODE }))
+
+// Esposizione Prometheus: severità per servizio/check → Grafana/Alertmanager fanno alert e storico,
+// senza che Dadaguard diventi un servizio. Cache breve: Prometheus scrapa spesso, evitiamo di
+// martellare AWS a ogni scrape (il /api/status della dashboard resta invece live).
+let metricsCache = { at: 0, body: '' }
+const METRICS_TTL = 30000
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', 'text/plain; version=0.0.4')
+  try {
+    if (metricsCache.body && Date.now() - metricsCache.at < METRICS_TTL) return res.send(metricsCache.body)
+    const body = renderMetrics(await getStatus('en'))
+    metricsCache = { at: Date.now(), body }
+    res.send(body)
+  } catch (err) {
+    res.status(500).send(`# scrape failed: ${err.message}\ndadaguard_scrape_success 0\n`)
+  }
+})
 
 app.get('/api/status', async (req, res) => {
   try {

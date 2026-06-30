@@ -32,8 +32,8 @@ services:
       - AWS_REGION=${AWS_REGION:-eu-central-1}
     restart: unless-stopped
     healthcheck:
-      # check leggero: legge solo il config, niente chiamate AWS
-      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/api/accounts').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      # check leggero: /healthz conferma solo che il server è su, niente chiamate AWS
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
