@@ -163,6 +163,13 @@ const STRINGS = {
     'logs.showNoise': 'Mostra START/END/REPORT',
     'logs.hidden': 'righe Lambda nascoste',
 
+    'events.title': 'Eventi recenti',
+    'events.button': 'Eventi recenti',
+    'events.refresh': 'Aggiorna',
+    'events.loading': 'Carico gli eventi…',
+    'events.empty': 'Nessun evento recente',
+    'events.notApplicable': 'Eventi non disponibili per questo tipo (ECS/RDS/ASG).',
+
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
       'Esegue terragrunt plan sul layer scelto (lento: init + provider + refresh; mette un lock sul backend). Read-only sull’infra.',
@@ -335,6 +342,13 @@ const STRINGS = {
     'logs.empty': 'No events in the window',
     'logs.showNoise': 'Show START/END/REPORT',
     'logs.hidden': 'Lambda lines hidden',
+
+    'events.title': 'Recent events',
+    'events.button': 'Recent events',
+    'events.refresh': 'Refresh',
+    'events.loading': 'Loading events…',
+    'events.empty': 'No recent events',
+    'events.notApplicable': 'No events for this type (ECS/RDS/ASG).',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
