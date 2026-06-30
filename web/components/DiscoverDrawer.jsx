@@ -20,13 +20,14 @@ export default function DiscoverDrawer({ open, onClose, existingNames = [], onAd
 
   useEffect(() => {
     if (!open) return
+    setError(null)
     fetch('/api/accounts')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((a) => {
         setAccounts(a)
         setAccount((prev) => prev ?? a[0]?.key ?? null)
       })
-      .catch(() => {})
+      .catch((e) => setError(e.message)) // prima era silenzioso: ora errore visibile (Alert sotto)
   }, [open])
 
   const scan = async () => {

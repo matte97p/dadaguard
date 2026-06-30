@@ -41,12 +41,12 @@ export default function WasteDrawer({ open, onClose, t = (k) => k }) {
     setLoading(true)
     setError(null)
     fetch('/api/waste')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         if (d.error) throw new Error(d.error)
         setData(d)
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message)) // errore HTTP/parse → Alert visibile, mai muto
       .finally(() => setLoading(false))
   }, [open])
 

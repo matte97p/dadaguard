@@ -15,6 +15,7 @@ import {
   Badge,
   Select,
   Segmented,
+  message,
 } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
 import {
@@ -90,12 +91,21 @@ export default function App() {
 
   const removeService = useCallback(
     async (name) => {
-      await fetch('/api/watchlist/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      })
-      load()
+      try {
+        const res = await fetch('/api/watchlist/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || `HTTP ${res.status}`)
+        }
+        load()
+      } catch (err) {
+        // Senza feedback l'utente non sa che il remove è fallito (permessi file, 409 cloud).
+        message.error(err.message)
+      }
     },
     [load],
   )

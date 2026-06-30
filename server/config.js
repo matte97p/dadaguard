@@ -18,5 +18,22 @@ export const CONFIG_PATH = join(__dirname, '..', 'services.yaml')
 export function loadConfig() {
   const raw = isCloud ? process.env.DADAGUARD_CONFIG : readFileSync(CONFIG_PATH, 'utf8')
   const doc = yaml.load(raw) ?? {}
-  return { accounts: doc.accounts ?? {}, services: doc.services ?? [] }
+  const accounts = doc.accounts ?? {}
+  const services = doc.services ?? []
+
+  // Validazione leggera: forma sbagliata = errore chiaro qui, non errori oscuri a valle.
+  // Permissiva: un config valido (anche minimale) non viene mai rifiutato.
+  if (typeof accounts !== 'object' || Array.isArray(accounts)) {
+    throw new Error("config non valido: 'accounts' deve essere un oggetto (mappa key → account)")
+  }
+  if (!Array.isArray(services)) {
+    throw new Error("config non valido: 'services' deve essere una lista")
+  }
+  services.forEach((s, i) => {
+    if (!s || typeof s !== 'object' || !s.name) {
+      throw new Error(`config non valido: services[${i}] manca del campo 'name'`)
+    }
+  })
+
+  return { accounts, services }
 }

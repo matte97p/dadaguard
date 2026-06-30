@@ -133,10 +133,15 @@ app.get('/api/topology', async (_req, res) => {
 
 // #6 drift COMPLETO (on-demand, esegue `terragrunt plan`). Job async.
 app.get('/api/drift/layers', requireLocal('Drift completo'), (req, res) => {
-  const { accounts } = loadConfig()
-  const acct = accounts[req.query.account]
-  if (!acct?.terraform?.repoDir) return res.json({ layers: [] })
-  res.json({ layers: listLayers(acct.terraform.repoDir, acct.terraform.env || req.query.account) })
+  try {
+    const { accounts } = loadConfig()
+    const acct = accounts[req.query.account]
+    if (!acct?.terraform?.repoDir) return res.json({ layers: [] })
+    res.json({ layers: listLayers(acct.terraform.repoDir, acct.terraform.env || req.query.account) })
+  } catch (err) {
+    // readdirSync/listLayers può lanciare (permessi, path sparito): 500 JSON, non crash.
+    res.status(500).json({ error: err.message })
+  }
 })
 
 app.post('/api/drift/run', requireLocal('Drift completo'), (req, res) => {

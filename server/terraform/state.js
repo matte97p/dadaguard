@@ -19,6 +19,13 @@ const TYPE_TO_KIND = {
   },
   aws_ecs_service: { kind: 'ecs', id: (a) => a.name },
   aws_autoscaling_group: { kind: 'asg', id: (a) => a.name },
+  // RDS/ALB/EC2 → #7 risorse non gestite per questi tipi. L'id usa l'identificatore
+  // "naturale" di ogni risorsa (lo stesso che usa il confronto con i candidati discovery).
+  aws_db_instance: { kind: 'rds', id: (a) => a.identifier ?? a.id },
+  aws_rds_cluster: { kind: 'rds', id: (a) => a.cluster_identifier ?? a.id },
+  aws_lb: { kind: 'alb', id: (a) => a.name },
+  aws_alb: { kind: 'alb', id: (a) => a.name },
+  aws_instance: { kind: 'ec2', id: (a) => a.id },
 }
 
 function lambdaNameFromArn(arn) {
@@ -31,15 +38,21 @@ export async function managedResources({ profile, roleArn, externalId, region, s
 
   const keys = []
   let token
-  do {
-    const out = await s3.send(
-      new ListObjectsV2Command({ Bucket: stateBucket, ContinuationToken: token }),
-    )
-    for (const o of out.Contents ?? []) if (o.Key.endsWith('.tfstate')) keys.push(o.Key)
-    token = out.IsTruncated ? out.NextContinuationToken : undefined
-  } while (token)
+  try {
+    do {
+      const out = await s3.send(
+        new ListObjectsV2Command({ Bucket: stateBucket, ContinuationToken: token }),
+      )
+      for (const o of out.Contents ?? []) if (o.Key.endsWith('.tfstate')) keys.push(o.Key)
+      token = out.IsTruncated ? out.NextContinuationToken : undefined
+    } while (token)
+  } catch (err) {
+    // Bucket irraggiungibile/permessi: errore chiaro al chiamante (che lo logga e degrada),
+    // invece di un crash opaco a metà loop.
+    throw new Error(`state bucket '${stateBucket}' non leggibile: ${err.message}`)
+  }
 
-  const managed = { lambda: new Set(), ecs: new Set(), asg: new Set() }
+  const managed = { lambda: new Set(), ecs: new Set(), asg: new Set(), rds: new Set(), alb: new Set(), ec2: new Set() }
   const attrs = { lambda: {} }
   const schedules = {} // functionName -> "ENABLED" | "DISABLED"
 
@@ -70,8 +83,10 @@ export async function managedResources({ profile, roleArn, externalId, region, s
             if (map.attrs) (attrs[map.kind] ??= {})[id] = map.attrs(a)
           }
         }
-      } catch {
-        /* state illeggibile: salta */
+      } catch (err) {
+        // State illeggibile (JSON malformato, fetch fallito): logga il file e salta,
+        // così il drift non si rompe in silenzio ma il problema è diagnosticabile.
+        console.error(`[dadaguard] state '${Key}' illeggibile: ${err.message}`)
       }
     }),
   )
