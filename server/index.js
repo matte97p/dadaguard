@@ -13,6 +13,7 @@ import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
 import { recentEvents } from './events.js'
+import { recentChanges } from './changes.js'
 import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
@@ -221,7 +222,9 @@ app.get('/api/events', async (req, res) => {
     const { accounts, services } = loadConfig()
     const svc = services.find((s) => s.name === req.query.service)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
-    res.json(await recentEvents(svc, accounts, {}))
+    // Eventi operativi (ECS/RDS/ASG) + modifiche CloudTrail (la "causa"), in parallelo.
+    const [evt, chg] = await Promise.all([recentEvents(svc, accounts, {}), recentChanges(svc, accounts, {})])
+    res.json({ ...evt, changes: chg.changes ?? null, changesError: chg.error })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

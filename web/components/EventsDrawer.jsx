@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
+import { Drawer, Alert, Empty, Spin, Typography, Space, Button, Divider, Tag } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
-// Pannello "Eventi recenti" di un servizio (ECS/RDS/ASG): snapshot on-demand. service = nome.
+// Pannello "Eventi & modifiche" di un servizio: eventi operativi (ECS/RDS/ASG) + modifiche
+// CloudTrail (la "causa": chi/cosa/quando ha cambiato la risorsa). Snapshot on-demand.
 export default function EventsDrawer({ service, onClose, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -31,6 +32,9 @@ export default function EventsDrawer({ service, onClose, t = (k) => k }) {
 
   const fmt = (ts) => (ts ? new Date(ts).toLocaleString() : '')
 
+  const events = data?.events
+  const changes = data?.changes
+
   return (
     <Drawer
       title={`${t('events.title')}${service ? ` · ${service}` : ''}`}
@@ -49,25 +53,56 @@ export default function EventsDrawer({ service, onClose, t = (k) => k }) {
         <div style={{ textAlign: 'center', paddingTop: 80 }}>
           <Spin tip={t('events.loading')} />
         </div>
-      ) : data?.notApplicable ? (
-        <Empty style={{ paddingTop: 60 }} description={t('events.notApplicable')} />
-      ) : data?.error ? (
-        <Alert type="warning" showIcon message={data.error} />
       ) : data ? (
-        !data.events || data.events.length === 0 ? (
-          <Empty style={{ paddingTop: 60 }} description={t('events.empty')} />
-        ) : (
-          <Space direction="vertical" size={6} style={{ width: '100%' }}>
-            {data.events.map((e, i) => (
-              <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {fmt(e.ts)}
-                </Text>
-                <div style={{ fontSize: 13 }}>{e.message}</div>
-              </div>
-            ))}
-          </Space>
-        )
+        <>
+          {/* Eventi operativi (ECS/RDS/ASG) */}
+          <Divider orientation="left" orientationMargin={0} style={{ marginTop: 0 }}>
+            {t('events.opSection')}
+          </Divider>
+          {data.notApplicable ? (
+            <Text type="secondary">{t('events.notApplicable')}</Text>
+          ) : data.error ? (
+            <Alert type="warning" showIcon message={data.error} />
+          ) : !events || events.length === 0 ? (
+            <Text type="secondary">{t('events.empty')}</Text>
+          ) : (
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              {events.map((e, i) => (
+                <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{fmt(e.ts)}</Text>
+                  <div style={{ fontSize: 13 }}>{e.message}</div>
+                </div>
+              ))}
+            </Space>
+          )}
+
+          {/* Modifiche CloudTrail (la causa) */}
+          <Divider orientation="left" orientationMargin={0}>{t('changes.section')}</Divider>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+            {t('changes.desc')}
+          </Text>
+          {data.changesError ? (
+            <Alert type="warning" showIcon message={data.changesError} />
+          ) : !changes || changes.length === 0 ? (
+            <Text type="secondary">{t('changes.empty')}</Text>
+          ) : (
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              {changes.map((c, i) => (
+                <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{fmt(c.ts)}</Text>
+                  <div style={{ fontSize: 13 }}>
+                    <Text strong>{c.eventName}</Text>
+                    {c.user && <Text type="secondary"> · {c.user}</Text>}
+                    {c.errorCode && (
+                      <Tag color="error" style={{ marginLeft: 6 }}>{c.errorCode}</Tag>
+                    )}
+                  </div>
+                  {c.source && <Text type="secondary" style={{ fontSize: 11 }}>{c.source}</Text>}
+                </div>
+              ))}
+            </Space>
+          )}
+        </>
       ) : null}
     </Drawer>
   )

@@ -31,7 +31,7 @@ function RowLabel({ children, tip }) {
 export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs'].includes(service.type) // tipi con log applicativi su CloudWatch
-  const hasEvents = ['ecs', 'rds', 'asg'].includes(service.type) // tipi con eventi AWS testuali
+  const hasEvents = Boolean(service.type) // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail
   const overallText =
     service.overall && service.overall !== 'unknown' ? t(`card.status.${service.overall}`) : '—'
   const liveness = service.checks?.liveness

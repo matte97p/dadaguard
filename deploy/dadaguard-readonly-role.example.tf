@@ -127,6 +127,13 @@ data "aws_iam_policy_document" "readonly" {
     actions   = ["ce:GetCostAndUsage"]
     resources = ["*"]
   }
+
+  statement {
+    sid       = "ChangesReadOnly" # #7 causalità: chi/cosa/quando ha cambiato la risorsa (CloudTrail)
+    effect    = "Allow"
+    actions   = ["cloudtrail:LookupEvents"]
+    resources = ["*"]
+  }
 }
 
 # --- state Terraform su S3 (opzionale): sola lettura del bucket dichiarato ---
