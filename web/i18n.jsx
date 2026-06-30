@@ -143,6 +143,7 @@ const STRINGS = {
     'drift.running': 'In corso… può richiedere qualche minuto (la prima volta scarica i provider).',
     'drift.failed': 'Plan fallito (exit {code})',
     'drift.drift': '⚠ DRIFT: la realtà differisce dallo state Terraform',
+    'drift.pending': '↑ {n} risorse da applicare: definite in Terraform ma non ancora create (non è drift)',
     'drift.nochanges': '✓ No changes: infra allineata allo state',
     'drift.nooutput': '(nessun output)',
 
@@ -285,6 +286,7 @@ const STRINGS = {
     'drift.running': 'Running… may take a few minutes (first run downloads the providers).',
     'drift.failed': 'Plan failed (exit {code})',
     'drift.drift': '⚠ DRIFT: reality differs from the Terraform state',
+    'drift.pending': '↑ {n} resources to apply: defined in Terraform but not created yet (not drift)',
     'drift.nochanges': '✓ No changes: infra matches the state',
     'drift.nooutput': '(no output)',
 
