@@ -37,3 +37,13 @@ export async function ec2Runtime(cfg, aws, opts = {}) {
   const ok = okCount === 2
   return { status: ok ? 'up' : 'degraded', summary: t('ec2.checks', { ok: okCount }) }
 }
+
+// #2 build/deploy zero-config per EC2: AMI + da quando è su (LaunchTime).
+// Permesso: ec2:DescribeInstances (già concesso). Ritorna { ami, launchTime } o null.
+export async function ec2BuildInfo(cfg, aws) {
+  const client = new EC2Client(clientOpts(aws))
+  const out = await client.send(new DescribeInstancesCommand({ InstanceIds: [cfg.instanceId] }))
+  const inst = out.Reservations?.[0]?.Instances?.[0]
+  if (!inst) return null
+  return { ami: inst.ImageId ?? null, launchTime: inst.LaunchTime ?? null }
+}

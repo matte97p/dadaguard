@@ -52,12 +52,18 @@ const STRINGS = {
     'card.status.disabled': 'SPENTO',
     'card.label.reachable': 'Raggiungibile',
     'card.label.version': 'Versione',
+    'card.label.build': 'Build',
     'card.label.runtime': 'Esecuzione',
     'card.label.drift': 'Conforme a Terraform',
     'card.label.secret': 'Secret',
+    'card.label.security': 'Sicurezza',
     'card.tip.reachable': "L'endpoint pubblico risponde alle richieste, e con che latenza.",
     'card.tip.version':
       'La versione che gira davvero è quella che ti aspetti (confronto col tag/health atteso).',
+    'card.tip.build':
+      'Cosa gira e da quando, letto direttamente da AWS senza dichiarare nulla: tag immagine del task ECS, versione Lambda, AMI EC2 — con il «tempo fa» dell’ultimo deploy. Se dichiari una versione attesa, segnala anche il mismatch.',
+    'card.tip.security':
+      'Esposizioni note correlate al servizio: regole di security group aperte a internet (0.0.0.0/0) su porte sensibili, e policy IAM del suo ruolo con wildcard ampie (Action/Resource «*»). Solo lettura.',
     'card.tip.runtime':
       'Il compute reale combacia col desiderato: i task/istanze attesi sono su e in salute, gli errori bassi. «p95 805ms» = il 95% delle chiamate finisce entro 805ms (la coda lenta, non la media). Un «HTTP 200» da solo non lo dice.',
     'card.tip.drift':
@@ -181,12 +187,18 @@ const STRINGS = {
     'card.status.disabled': 'DISABLED',
     'card.label.reachable': 'Reachable',
     'card.label.version': 'Version',
+    'card.label.build': 'Build',
     'card.label.runtime': 'Runtime',
     'card.label.drift': 'Terraform sync',
     'card.label.secret': 'Secrets',
+    'card.label.security': 'Security',
     'card.tip.reachable': 'The public endpoint answers requests, and with what latency.',
     'card.tip.version':
       'The version actually running is the one you expect (compared to the expected tag/health).',
+    'card.tip.build':
+      'What runs and since when, read straight from AWS with nothing to declare: ECS task image tag, Lambda version, EC2 AMI — with the «time ago» of the last deploy. If you declare an expected version, it also flags a mismatch.',
+    'card.tip.security':
+      "Known exposures correlated to the service: security-group rules open to the internet (0.0.0.0/0) on sensitive ports, and the role's IAM policies with broad wildcards (Action/Resource «*»). Read-only.",
     'card.tip.runtime':
       'Real compute matches desired: expected tasks/instances are up and healthy, errors low. «p95 805ms» = 95% of calls finish within 805ms (the slow tail, not the average). An «HTTP 200» alone won’t tell you.',
     'card.tip.drift':

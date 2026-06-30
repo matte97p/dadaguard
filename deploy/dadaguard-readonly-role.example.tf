@@ -43,7 +43,9 @@ data "aws_iam_policy_document" "readonly" {
     effect = "Allow"
     actions = [
       "ecs:ListClusters", "ecs:ListServices", "ecs:DescribeServices",
+      "ecs:DescribeTaskDefinition", # #2 build: tag immagine del task in uso
       "lambda:ListFunctions", "lambda:GetFunction", "lambda:GetFunctionConfiguration",
+      "lambda:GetAlias", # #2 build: versione dietro l'alias Lambda
       "autoscaling:DescribeAutoScalingGroups",
       "rds:DescribeDBClusters", "rds:DescribeDBInstances",
       "elasticloadbalancing:DescribeLoadBalancers",
@@ -70,6 +72,21 @@ data "aws_iam_policy_document" "readonly" {
     sid       = "WasteReadOnly" # #10 risorse orfane costose
     effect    = "Allow"
     actions   = ["ec2:DescribeAddresses", "ec2:DescribeNatGateways", "ec2:DescribeVolumes"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "SecurityReadOnly" # #11 quick-win: SG aperti + policy IAM con wildcard
+    effect = "Allow"
+    actions = [
+      # SG aperti a internet (0.0.0.0/0): ec2:DescribeSecurityGroups già concesso sopra (Topology).
+      # IAM read: legge SOLO le policy del ruolo del servizio, per trovare Action/Resource "*".
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRolePolicies",
+      "iam:GetRolePolicy",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+    ]
     resources = ["*"]
   }
 

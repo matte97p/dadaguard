@@ -11,6 +11,21 @@ const S = {
     'version.notjson': 'health non leggibile come JSON',
     'liveness.timeout': 'timeout >{ms}ms',
 
+    // #2 Build/deploy zero-config — cosa gira e da quando (senza dichiarare nulla).
+    'build.ecs': '{tag} · deploy {ago}',
+    'build.ecsnotag': 'deploy {ago}',
+    'build.lambda': '{ver} · {ago}',
+    'build.ec2': '{ami} · su da {ago}',
+    'build.mismatch': 'gira {actual}, atteso {expected}',
+    'build.notfound': 'risorsa non trovata',
+    'build.unsupported': 'build non disponibile per «{type}»',
+    // "tempo fa" i18n (unità singola, già arrotondata)
+    'time.ago': '{n}{unit} fa',
+    'time.now': 'adesso',
+    'time.unit.m': 'm',
+    'time.unit.h': 'h',
+    'time.unit.d': 'g',
+
     'lambda.cron.disabled': 'cron disattivata di proposito (ogni {sched})',
     'lambda.cron.down': '⚠ nessuna esecuzione in {window} (attesa ogni {sched})',
     'lambda.runs': '{n} esecuzioni',
@@ -42,6 +57,11 @@ const S = {
     'rds.status.starting': 'in avvio',
     'rds.status.stopped': 'ferma',
     'rds.status.failed': 'in errore',
+    'rds.status.deleting': 'in eliminazione',
+    'rds.status.deleted': 'eliminata',
+    'rds.status.incompatible-restore': 'restore incompatibile',
+    'rds.status.backtracking': 'backtrack in corso',
+    'rds.status.storage-full': 'storage pieno',
 
     'alb.targets': '{healthy}/{total} target sani',
     'alb.notarget': 'nessun target collegato',
@@ -72,6 +92,19 @@ const S = {
     'secrets.missing': '{n} secret mancanti rispetto a {env}: {list}',
     'secrets.dopplernotfound': 'config Doppler non trovato o accesso negato',
     'secrets.dopplerunavailable': 'CLI Doppler non disponibile',
+    'secrets.dopplerbadjson': 'output Doppler non leggibile come JSON',
+    // #15 età/rotazione (solo se Doppler espone le date dei secret)
+    'secrets.stale': '{n} secret più vecchi di {days}g (rotazione consigliata)',
+
+    // #11 security quick-win
+    'security.sgopen': '{n} regola/e aperta/e a internet ({list})',
+    'security.sgopenmore': '{list}, +{n}',
+    'security.iamwildcard': '{n} policy con wildcard ampia ({list})',
+    'security.clean': 'nessuna apertura nota',
+    'security.nosg': 'nessun security group correlabile',
+    'security.notapplicable': 'non applicabile a questo tipo',
+    'security.port': 'porta {p}',
+    'security.allports': 'tutte le porte',
   },
   en: {
     'version.mismatch': 'running {actual}, expected {expected}',
@@ -80,6 +113,21 @@ const S = {
     'version.timeout': 'timeout',
     'version.notjson': 'health not readable as JSON',
     'liveness.timeout': 'timeout >{ms}ms',
+
+    // #2 build/deploy zero-config — what runs and since when (nothing to declare).
+    'build.ecs': '{tag} · deployed {ago}',
+    'build.ecsnotag': 'deployed {ago}',
+    'build.lambda': '{ver} · {ago}',
+    'build.ec2': '{ami} · up for {ago}',
+    'build.mismatch': 'running {actual}, expected {expected}',
+    'build.notfound': 'resource not found',
+    'build.unsupported': 'build not available for «{type}»',
+    // i18n "ago" (single, already-rounded unit)
+    'time.ago': '{n}{unit} ago',
+    'time.now': 'just now',
+    'time.unit.m': 'm',
+    'time.unit.h': 'h',
+    'time.unit.d': 'd',
 
     'lambda.cron.disabled': 'cron disabled on purpose (every {sched})',
     'lambda.cron.down': '⚠ no run in {window} (expected every {sched})',
@@ -112,6 +160,11 @@ const S = {
     'rds.status.starting': 'starting',
     'rds.status.stopped': 'stopped',
     'rds.status.failed': 'failed',
+    'rds.status.deleting': 'deleting',
+    'rds.status.deleted': 'deleted',
+    'rds.status.incompatible-restore': 'incompatible restore',
+    'rds.status.backtracking': 'backtracking',
+    'rds.status.storage-full': 'storage full',
 
     'alb.targets': '{healthy}/{total} healthy targets',
     'alb.notarget': 'no target attached',
@@ -142,6 +195,19 @@ const S = {
     'secrets.missing': '{n} secrets missing vs {env}: {list}',
     'secrets.dopplernotfound': 'Doppler config not found or access denied',
     'secrets.dopplerunavailable': 'Doppler CLI not available',
+    'secrets.dopplerbadjson': 'Doppler output not readable as JSON',
+    // #15 age/rotation (only if Doppler exposes secret dates)
+    'secrets.stale': '{n} secrets older than {days}d (rotation advised)',
+
+    // #11 security quick-win
+    'security.sgopen': '{n} rule(s) open to the internet ({list})',
+    'security.sgopenmore': '{list}, +{n}',
+    'security.iamwildcard': '{n} policy/ies with broad wildcard ({list})',
+    'security.clean': 'no known exposure',
+    'security.nosg': 'no correlatable security group',
+    'security.notapplicable': 'not applicable to this type',
+    'security.port': 'port {p}',
+    'security.allports': 'all ports',
   },
 }
 
@@ -160,4 +226,32 @@ export const identityT = (key, vars) => {
   let s = key
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
   return s
+}
+
+// Durata compatta "Nu" i18n (bare): da ms di elapsed a "2h"/"12g"/"5m".
+function fmtElapsed(ms, t) {
+  const min = Math.floor(ms / 60000)
+  if (min < 60) return { n: Math.max(1, min), unit: t('time.unit.m') }
+  const hours = Math.round(min / 60)
+  if (hours < 24) return { n: hours, unit: t('time.unit.h') }
+  return { n: Math.round(hours / 24), unit: t('time.unit.d') }
+}
+
+// Elapsed bare (senza "fa"/"ago"): "12g"/"2h". Per frasi tipo "su da {dur}".
+export function fmtDuration(when, t = identityT) {
+  const ms = when instanceof Date ? when.getTime() : new Date(when).getTime()
+  if (!Number.isFinite(ms)) return ''
+  const e = fmtElapsed(Math.max(0, Date.now() - ms), t)
+  return `${e.n}${e.unit}`
+}
+
+// "tempo fa" i18n: da una data (Date | ISO | epoch ms) a "2h fa"/"2h ago".
+// Sotto il minuto → "adesso"/"just now". Unità tradotta via `t` (chiavi time.*).
+export function fmtAgo(when, t = identityT) {
+  const ms = when instanceof Date ? when.getTime() : new Date(when).getTime()
+  if (!Number.isFinite(ms)) return ''
+  const elapsed = Math.max(0, Date.now() - ms)
+  if (elapsed < 60000) return t('time.now')
+  const e = fmtElapsed(elapsed, t)
+  return t('time.ago', { n: e.n, unit: e.unit })
 }
