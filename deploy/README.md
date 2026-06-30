@@ -43,9 +43,11 @@ niente profili SSO, ma un **task role** che assume un ruolo read-only in ogni ac
 1. **In ogni account target** crea il ruolo `dadaguard-readonly`
    (vedi [`dadaguard-readonly-role.example.tf`](dadaguard-readonly-role.example.tf)),
    con trust verso il task role host + `ExternalId`.
-2. **Nell'account host** builda e deploya il container su ECS Fargate
-   (`docker build -t dadaguard .`). Il task role deve poter fare `sts:AssumeRole`
-   sui `dadaguard-readonly` di ogni account.
+2. **Nell'account host** deploya il container su ECS Fargate. La ricetta Terraform
+   pronta è in [`terraform/`](terraform/) (servizio + ruoli + SG + Tunnel sidecar):
+   `cp terraform.tfvars.example terraform.tfvars` → `terraform apply`. Il task role
+   deve poter fare `sts:AssumeRole` sui `dadaguard-readonly` di ogni account (la
+   ricetta lo configura da `readonly_role_arns`).
 3. **Config via env** — in cloud Dadaguard legge `DADAGUARD_CONFIG` (lo YAML di
    `services.yaml`, iniettato da un SSM SecureString): niente file/storage. Per ogni
    account usa `roleArn` + `externalId` invece di `profile` (vedi `services.example.yaml`).

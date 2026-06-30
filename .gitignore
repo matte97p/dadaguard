@@ -12,3 +12,10 @@ services.yaml
 # Planning: fuori dal repo OSS (vivono qui solo per la revisione locale)
 REQUIREMENTS.md
 HANDOFF.md
+
+# Terraform (ricetta deploy/terraform): stato + tfvars reali fuori dal repo
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
