@@ -82,6 +82,13 @@ data "aws_iam_policy_document" "readonly" {
   }
 
   statement {
+    sid       = "LogsReadOnly" # pannello "Log recenti" (on-demand): ultimi eventi CloudWatch Logs
+    effect    = "Allow"
+    actions   = ["logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "SecurityReadOnly" # #11 quick-win: SG aperti + policy IAM con wildcard
     effect = "Allow"
     actions = [

@@ -1,5 +1,5 @@
 import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
-import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined } from '@ant-design/icons'
 
 const STATUS = {
   up: { status: 'success', tag: 'success' },
@@ -28,8 +28,9 @@ function RowLabel({ children, tip }) {
   )
 }
 
-export default function ServiceCard({ service, onRemove, t = (k) => k }) {
+export default function ServiceCard({ service, onRemove, onLogs, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
+  const hasLogs = ['lambda', 'ecs'].includes(service.type) // tipi con log applicativi su CloudWatch
   const overallText =
     service.overall && service.overall !== 'unknown' ? t(`card.status.${service.overall}`) : '—'
   const liveness = service.checks?.liveness
@@ -52,6 +53,11 @@ export default function ServiceCard({ service, onRemove, t = (k) => k }) {
           <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
             {overallText}
           </Tag>
+          {onLogs && hasLogs && (
+            <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
+              <FileTextOutlined />
+            </Link>
+          )}
           {onRemove && (
             <Popconfirm
               title={t('card.removeTitle')}

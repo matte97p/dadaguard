@@ -67,6 +67,8 @@ services:
 #   aws: { type: sqs, queue: my-queue, maxDepth: 1000 } # coda SQS (backlog; degraded se > maxDepth)
 #   aws: { type: dynamodb, table: my-table }        # tabella DynamoDB (stato)
 #   aws: { type: elasticache, cluster: my-redis }   # cluster ElastiCache (Redis/Memcached)
+# Log recenti (pannello on-demand): automatici per lambda (/aws/lambda/<fn>) ed ecs (dal task def).
+# Per altri tipi o un group custom, dichiaralo: aws: { type: ecs, ..., logGroup: /mio/log/group }
 # Multi-region: di default la region è quella dell'account; per monitorare una risorsa in
 # un'altra region basta l'override per-servizio:
 #   aws: { type: lambda, function: my-fn, region: us-east-1 }
