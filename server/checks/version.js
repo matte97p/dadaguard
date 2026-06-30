@@ -18,11 +18,75 @@ export const key = 'version'
 
 const norm = (v) => String(v).trim().replace(/^v/i, '')
 
+// --- #4 PROVENIENZA della versione attesa ---
+// "Atteso" non è più solo un literal stantio in config: può venire da una fonte di verità
+// DINAMICA (un URL/manifest/endpoint), e l'output dice SEMPRE da dove arriva (expectedSource).
+const hostOf = (u) => {
+  try {
+    return new URL(u).host
+  } catch {
+    return 'url'
+  }
+}
+
+// Estrae la versione da un corpo di risposta (JSON.field o prima riga di testo). Puro/testabile.
+export function parseExpectedBody(raw, contentType = '', field = 'version') {
+  if (/json/i.test(contentType) || /^\s*[[{]/.test(raw)) {
+    try {
+      const body = JSON.parse(raw)
+      const v = String(field).split('.').reduce((o, k) => (o == null ? o : o[k]), body)
+      return v == null ? null : String(v)
+    } catch {
+      /* non era JSON: prova come testo */
+    }
+  }
+  const first = String(raw).split('\n')[0].trim()
+  return first || null
+}
+
+async function fetchExpected(url, field) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    return parseExpectedBody(await res.text(), res.headers.get('content-type') || '', field || 'version')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Ritorna { value, source: 'url'|'config', from } o null. L'URL ha precedenza (verità dinamica);
+// se irraggiungibile, ripiega sul literal in config — senza mai mentire sulla provenienza.
+export async function resolveExpected(service) {
+  if (service.expectedVersionUrl) {
+    try {
+      const value = await fetchExpected(service.expectedVersionUrl, service.expectedVersionField)
+      if (value != null) return { value, source: 'url', from: hostOf(service.expectedVersionUrl) }
+    } catch {
+      /* fallback sul literal sotto */
+    }
+  }
+  if (service.expectedVersion != null)
+    return { value: String(service.expectedVersion), source: 'config', from: 'config' }
+  return null
+}
+
 export async function run(service, ctx) {
   const t = ctx?.t ?? ((k) => k)
-  const expected = service.expectedVersion
+  const exp = await resolveExpected(service)
+  const expected = exp?.value
+  const res = await compute(service, ctx, expected, t)
+  // Provenienza trasparente: quando c'è un atteso e abbiamo un esito di confronto, dillo.
+  if (res && exp && (res.status === 'up' || res.status === 'degraded')) {
+    res.expected = exp.value
+    res.expectedSource = exp.source
+    res.expectedFrom = exp.from
+  }
+  return res
+}
 
-  // (1) Fonte dichiarata: /health JSON vs expectedVersion (comportamento storico).
+async function compute(service, ctx, expected, t) {
+  // (1) Fonte dichiarata: /health JSON vs atteso (comportamento storico).
   if (expected && service.healthUrl) {
     return await fromHealth(service, expected, t)
   }
@@ -43,7 +107,7 @@ export async function run(service, ctx) {
     }
   }
 
-  // (3) expectedVersion dichiarato ma senza healthUrl né tipo AWS leggibile.
+  // (3) atteso dichiarato ma senza healthUrl né tipo AWS leggibile.
   if (expected) return { key, status: 'unknown', reason: t('version.nosource') }
   return null // segnale non applicabile
 }

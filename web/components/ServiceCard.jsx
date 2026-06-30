@@ -104,6 +104,9 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
             <Space size={4}>
               <CheckBadge status={version.status} />
               <span>{version.summary ?? version.reason ?? '—'}</span>
+              {version.expectedSource === 'url' && (
+                <Text type="secondary">· {t('card.expectedFrom', { from: version.expectedFrom })}</Text>
+              )}
             </Space>
           </Descriptions.Item>
         )}
