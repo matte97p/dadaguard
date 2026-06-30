@@ -8,6 +8,7 @@
     "dev": "concurrently -n server,web -c green,cyan \"node server/index.js\" \"vite\"",
     "server": "node server/index.js",
     "discover": "node scripts/discover.js",
+    "config:push": "node scripts/push-config.js",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test"
