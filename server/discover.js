@@ -95,11 +95,12 @@ async function listAsg(aws) {
 
 // Mappa i candidati discovery → voci servizio pronte per getStatus (in memoria, read-only).
 // Pura/testabile. Usata dall'auto-discovery zero-config (server/autodiscover.js).
-export function candidatesToServices(candidates, accountKey) {
+// region: se passata (sweep multi-region #8) viene iniettata in aws.region del servizio.
+export function candidatesToServices(candidates, accountKey, region) {
   return (candidates ?? []).map((c) => ({
     name: c.name,
     account: accountKey,
-    aws: c.aws,
+    aws: region ? { ...c.aws, region } : c.aws,
     ...(c.managed !== undefined ? { managed: c.managed } : {}),
   }))
 }

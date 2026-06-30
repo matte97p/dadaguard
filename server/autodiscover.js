@@ -1,27 +1,39 @@
 import { discover, candidatesToServices } from './discover.js'
+import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
 
-// Auto-discovery zero-config: se non c'è alcun servizio dichiarato, scopre quelli che
-// girano in ogni account (read-only, in memoria — NON scrive services.yaml). Così il primo
-// avvio mostra valore senza config; services.yaml resta un OVERRIDE opzionale.
-//
-// Read-only e on-DNA: riusa la stessa discover() del pulsante "Scopri servizi", ma senza
-// mai persistere. Se un account non è raggiungibile, logga e prosegue (gli altri restano).
+// Region da spazzolare per un account: `regions: [...]` (sweep multi-region #8) o la singola region.
+function regionsOf(a) {
+  if (Array.isArray(a.regions) && a.regions.length) return a.regions
+  return [a.region] // anche undefined → la catena di default AWS sceglie la region
+}
+
+// Auto-discovery zero-config (#1) + sweep multi-region (#8): se non c'è alcun servizio
+// dichiarato, scopre quelli che girano in OGNI account e OGNI region (read-only, in memoria —
+// non scrive nulla). services.yaml resta un OVERRIDE. Account e (account×region) in parallelo
+// con un cap, per non aprire troppe chiamate AWS insieme.
 export async function autoDiscoverServices(accounts) {
-  const out = []
+  const jobs = []
   for (const [key, a] of Object.entries(accounts ?? {})) {
+    for (const region of regionsOf(a)) jobs.push({ key, a, region })
+  }
+  const CAP = Number(process.env.DADAGUARD_CONCURRENCY) || 8
+  const lists = await mapLimit(jobs, CAP, async ({ key, a, region }) => {
     try {
       const { candidates } = await discover({
         profile: a.profile,
         roleArn: a.roleArn,
         externalId: a.externalId,
-        region: a.region,
+        region,
         stateBucket: a.terraform?.stateBucket,
       })
-      out.push(...candidatesToServices(candidates, key))
+      // tagga la region solo se stiamo davvero spazzolando più region per l'account
+      const tag = regionsOf(a).length > 1 ? region : undefined
+      return candidatesToServices(candidates, key, tag)
     } catch (err) {
-      log.error('auto-discovery fallita', { account: key, err: err.message })
+      log.error('auto-discovery fallita', { account: key, region, err: err.message })
+      return []
     }
-  }
-  return out
+  })
+  return lists.flat()
 }

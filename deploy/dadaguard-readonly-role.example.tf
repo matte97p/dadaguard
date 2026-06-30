@@ -134,6 +134,13 @@ data "aws_iam_policy_document" "readonly" {
     actions   = ["cloudtrail:LookupEvents"]
     resources = ["*"]
   }
+
+  statement {
+    sid       = "OrgReadOnly" # #8 enumerazione account via AWS Organizations (solo sull'identità che elenca)
+    effect    = "Allow"
+    actions   = ["organizations:ListAccounts"]
+    resources = ["*"]
+  }
 }
 
 # --- state Terraform su S3 (opzionale): sola lettura del bucket dichiarato ---

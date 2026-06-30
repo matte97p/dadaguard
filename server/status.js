@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js'
 import { autoDiscoverServices } from './autodiscover.js'
+import { resolveOrgAccounts } from './org.js'
 import { consoleUrl } from './console.js'
 import { MODE, capabilities } from './mode.js'
 import { makeT } from './i18n.js'
@@ -33,9 +34,20 @@ function rollup(checks) {
 }
 
 export async function getStatus(lang) {
-  const { accounts, services: declared } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org } = loadConfig()
+  let accounts = declaredAccounts
   let services = declared
   const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
+
+  // #8 AWS Organizations: enumera i membri (ListAccounts) e aggiungili agli account, ciascuno
+  // col ruolo read-only assunto cross-account. Se fallisce, logga e prosegue con quelli espliciti.
+  if (org) {
+    try {
+      accounts = { ...accounts, ...(await resolveOrgAccounts(org)) }
+    } catch (err) {
+      log.error('org: ListAccounts fallita', { err: err.message })
+    }
+  }
 
   // Auto-discovery zero-config: nessun servizio dichiarato → scoprili dagli account
   // (read-only, in memoria). services.yaml resta un override; se c'è, questo non scatta.

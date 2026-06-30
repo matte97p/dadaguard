@@ -23,3 +23,10 @@ test('candidatesToServices: input vuoto/nullo → lista vuota', () => {
   assert.deepEqual(candidatesToServices(undefined, 'x'), [])
   assert.deepEqual(candidatesToServices([], 'x'), [])
 })
+
+test('candidatesToServices: region iniettata in aws.region (sweep #8)', () => {
+  const c = [{ name: 'fn', kind: 'lambda', aws: { type: 'lambda', function: 'fn' } }]
+  assert.equal(candidatesToServices(c, 'prod', 'us-east-1')[0].aws.region, 'us-east-1')
+  // senza region: aws invariato
+  assert.equal('region' in candidatesToServices(c, 'prod')[0].aws, false)
+})

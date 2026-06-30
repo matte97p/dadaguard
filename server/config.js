@@ -31,7 +31,7 @@ export function validateConfig(doc) {
       throw new Error(`config non valido: services[${i}] manca del campo 'name'`)
     }
   })
-  return { accounts, services }
+  return { accounts, services, org: doc?.org ?? null }
 }
 
 export function loadConfig() {
@@ -45,7 +45,7 @@ export function loadConfig() {
     // credenziali AWS (env / SSO / role), region da AWS_REGION. I servizi li trova
     // l'auto-discovery (read-only, in memoria). services.yaml resta un OVERRIDE opzionale.
     const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || undefined
-    return { accounts: { default: { region, label: 'AWS' } }, services: [] }
+    return { accounts: { default: { region, label: 'AWS' } }, services: [], org: null }
   }
   return validateConfig(yaml.load(raw) ?? {})
 }

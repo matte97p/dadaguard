@@ -80,6 +80,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "OrgReadOnly",
+      "Effect": "Allow",
+      "Action": ["organizations:ListAccounts"],
+      "Resource": "*"
+    },
+    {
       "Sid": "TerraformStateReadOnly",
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:ListBucket"],
