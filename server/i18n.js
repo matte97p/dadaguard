@@ -110,8 +110,8 @@ const S = {
     'ec2.state.pending': 'in avvio',
     'ec2.state.stopping': 'in arresto',
 
-    'drift.insync': 'combacia con Terraform',
-    'drift.diverge': 'diverge da Terraform: {diffs}',
+    'drift.insync': 'sì',
+    'drift.diverge': 'no · {diffs}',
     'drift.runtime': 'runtime {actual} (TF: {expected})',
     'drift.memory': 'memoria {actual}MB (TF: {expected}MB)',
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
@@ -246,8 +246,8 @@ const S = {
     'ec2.state.pending': 'starting',
     'ec2.state.stopping': 'stopping',
 
-    'drift.insync': 'matches Terraform',
-    'drift.diverge': 'diverges from Terraform: {diffs}',
+    'drift.insync': 'yes',
+    'drift.diverge': 'no · {diffs}',
     'drift.runtime': 'runtime {actual} (TF: {expected})',
     'drift.memory': 'memory {actual}MB (TF: {expected}MB)',
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
