@@ -11,6 +11,13 @@ import { sqsRuntime } from '../runtime/sqs.js'
 import { dynamodbRuntime } from '../runtime/dynamodb.js'
 import { elasticacheRuntime } from '../runtime/elasticache.js'
 import { acmRuntime } from '../runtime/acm.js'
+import { apigatewayRuntime } from '../runtime/apigateway.js'
+import { sfnRuntime } from '../runtime/sfn.js'
+import { eksRuntime } from '../runtime/eks.js'
+import { cloudfrontRuntime } from '../runtime/cloudfront.js'
+import { snsRuntime } from '../runtime/sns.js'
+import { s3Runtime } from '../runtime/s3.js'
+import { kinesisRuntime } from '../runtime/kinesis.js'
 
 export const key = 'runtime'
 
@@ -25,6 +32,13 @@ const PROVIDERS = {
   dynamodb: dynamodbRuntime,
   elasticache: elasticacheRuntime,
   acm: acmRuntime,
+  apigateway: apigatewayRuntime,
+  sfn: sfnRuntime,
+  eks: eksRuntime,
+  cloudfront: cloudfrontRuntime,
+  sns: snsRuntime,
+  s3: s3Runtime,
+  kinesis: kinesisRuntime,
 }
 
 export async function run(service, ctx) {

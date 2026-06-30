@@ -91,6 +91,13 @@ const STRINGS = {
     'type.dynamodb': 'DynamoDB',
     'type.elasticache': 'ElastiCache',
     'type.acm': 'Certificato',
+    'type.apigateway': 'API Gateway',
+    'type.sfn': 'Step Functions',
+    'type.eks': 'EKS',
+    'type.cloudfront': 'CloudFront',
+    'type.sns': 'SNS',
+    'type.s3': 'S3',
+    'type.kinesis': 'Kinesis',
 
     'costs.title': 'Costi · mese corrente',
     'costs.desc':
@@ -257,6 +264,13 @@ const STRINGS = {
     'type.dynamodb': 'DynamoDB',
     'type.elasticache': 'ElastiCache',
     'type.acm': 'Certificate',
+    'type.apigateway': 'API Gateway',
+    'type.sfn': 'Step Functions',
+    'type.eks': 'EKS',
+    'type.cloudfront': 'CloudFront',
+    'type.sns': 'SNS',
+    'type.s3': 'S3',
+    'type.kinesis': 'Kinesis',
 
     'costs.title': 'Costs · current month',
     'costs.desc':
