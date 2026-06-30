@@ -1,5 +1,5 @@
 import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
-import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined } from '@ant-design/icons'
+import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined, HistoryOutlined } from '@ant-design/icons'
 
 const STATUS = {
   up: { status: 'success', tag: 'success' },
@@ -28,9 +28,10 @@ function RowLabel({ children, tip }) {
   )
 }
 
-export default function ServiceCard({ service, onRemove, onLogs, t = (k) => k }) {
+export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs'].includes(service.type) // tipi con log applicativi su CloudWatch
+  const hasEvents = ['ecs', 'rds', 'asg'].includes(service.type) // tipi con eventi AWS testuali
   const overallText =
     service.overall && service.overall !== 'unknown' ? t(`card.status.${service.overall}`) : '—'
   const liveness = service.checks?.liveness
@@ -58,6 +59,11 @@ export default function ServiceCard({ service, onRemove, onLogs, t = (k) => k })
           {onLogs && hasLogs && (
             <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
               <FileTextOutlined />
+            </Link>
+          )}
+          {onEvents && hasEvents && (
+            <Link type="secondary" onClick={() => onEvents(service.name)} title={t('events.button')}>
+              <HistoryOutlined />
             </Link>
           )}
           {onRemove && (

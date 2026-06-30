@@ -12,6 +12,7 @@ import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
+import { recentEvents } from './events.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE } from './mode.js'
 import { log } from './log.js'
@@ -179,6 +180,18 @@ app.get('/api/logs', async (req, res) => {
         limit: req.query.limit ? Number(req.query.limit) : 100,
       }),
     )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Eventi recenti di un servizio (on-demand, read-only): ECS/RDS/ASG — il "perché" testuale.
+app.get('/api/events', async (req, res) => {
+  try {
+    const { accounts, services } = loadConfig()
+    const svc = services.find((s) => s.name === req.query.service)
+    if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
+    res.json(await recentEvents(svc, accounts, {}))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

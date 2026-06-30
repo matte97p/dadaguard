@@ -49,6 +49,7 @@ data "aws_iam_policy_document" "readonly" {
       "autoscaling:DescribeAutoScalingGroups",
       "rds:DescribeDBClusters", "rds:DescribeDBInstances",
       "rds:DescribeDBClusterSnapshots", "rds:DescribeDBSnapshots", # recency backup
+      "rds:DescribeEvents", "autoscaling:DescribeScalingActivities", # eventi recenti (RDS/ASG)
       "acm:DescribeCertificate", # #scadenza certificati
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTargetGroups",
