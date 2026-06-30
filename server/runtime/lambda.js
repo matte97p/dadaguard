@@ -187,5 +187,7 @@ export async function lambdaBuildInfo(cfg, aws) {
       /* alias assente: tieni la versione della config */
     }
   }
-  return { version, lastModified: conf.LastModified ?? null }
+  // CodeSha256 = identità del build (cambia a ogni deploy): per le funzioni non versionate
+  // ($LATEST) è l'unico modo per dire "quale build è viva".
+  return { version, lastModified: conf.LastModified ?? null, codeSha: conf.CodeSha256 ?? null }
 }

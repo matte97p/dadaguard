@@ -87,9 +87,14 @@ const BUILDERS = {
   async lambda(cfg, aws, expected, t) {
     const b = await lambdaBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
-    // $LATEST = funzione non versionata (nessuna versione pubblicata/alias): mostralo com'è,
-    // il prefisso "v" ha senso solo davanti a un numero.
-    const ver = b.version === '$LATEST' ? '$LATEST' : `v${b.version}`
+    // Versionata (numero o alias) → "v<n>". Non versionata ($LATEST) → fingerprint del codice
+    // (CodeSha256 corto): dice QUALE build è viva, visto che "$LATEST" è uguale per tutte.
+    const ver =
+      b.version && b.version !== '$LATEST'
+        ? `v${b.version}`
+        : b.codeSha
+          ? `sha ${b.codeSha.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase()}`
+          : '$LATEST'
     const ago = b.lastModified ? fmtAgo(b.lastModified, t) : '—'
     return decideStatus({ key, summary: t('build.lambda', { ver, ago }) }, expected, b.version, t)
   },
