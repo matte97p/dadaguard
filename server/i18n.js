@@ -75,6 +75,7 @@ const S = {
     'dynamodb.notfound': 'tabella DynamoDB non trovata',
     'elasticache.summary': '{engine} · {status} · {nodes} nodi',
     'elasticache.notfound': 'cluster ElastiCache non trovato',
+    'alarms.firing': '{n} allarme/i attivo/i: {list}',
 
     'ec2.checks': 'in funzione · check AWS {ok}/2 ok',
     'ec2.notfound': 'istanza EC2 non trovata',
@@ -185,6 +186,7 @@ const S = {
     'dynamodb.notfound': 'DynamoDB table not found',
     'elasticache.summary': '{engine} · {status} · {nodes} nodes',
     'elasticache.notfound': 'ElastiCache cluster not found',
+    'alarms.firing': '{n} alarm(s) firing: {list}',
 
     'ec2.checks': 'running · AWS checks {ok}/2 ok',
     'ec2.notfound': 'EC2 instance not found',

@@ -57,6 +57,9 @@ const STRINGS = {
     'card.label.drift': 'Conforme a Terraform',
     'card.label.secret': 'Secret',
     'card.label.security': 'Sicurezza',
+    'card.label.alarms': 'Allarmi',
+    'card.tip.alarms':
+      'Allarmi CloudWatch in stato ALARM correlati a questa risorsa (per dimensione). Compare solo quando qualcosa sta scattando ora.',
     'card.tip.reachable': "L'endpoint pubblico risponde alle richieste, e con che latenza.",
     'card.tip.version':
       'La versione che gira davvero è quella che ti aspetti (confronto col tag/health atteso).',
@@ -216,6 +219,9 @@ const STRINGS = {
     'card.label.drift': 'Terraform sync',
     'card.label.secret': 'Secrets',
     'card.label.security': 'Security',
+    'card.label.alarms': 'Alarms',
+    'card.tip.alarms':
+      'CloudWatch alarms in ALARM state matched to this resource (by dimension). Shown only when something is firing now.',
     'card.tip.reachable': 'The public endpoint answers requests, and with what latency.',
     'card.tip.version':
       'The version actually running is the one you expect (compared to the expected tag/health).',
