@@ -43,7 +43,15 @@ services:
   - name: my-api
     account: staging
     healthUrl: https://api.example.com/health
+    # Versione ATTESA — due provenienze (la dashboard mostra sempre da dove arriva):
+    #  • expectedVersion: stringa fissa (statica).
+    #  • expectedVersionUrl: fonte di verità DINAMICA (GET read-only di un manifest o
+    #    endpoint: testo, o JSON via expectedVersionField, default "version"). Esempi:
+    #    l'ultima release/tag su un raw GitHub, o il /version del repo. Ha precedenza;
+    #    se irraggiungibile ripiega su expectedVersion.
     expectedVersion: v1.2.3
+    # expectedVersionUrl: https://raw.githubusercontent.com/me/app/main/VERSION
+    # expectedVersionField: version   # solo se l'URL ritorna JSON
 
   # Lambda — #3 runtime (invocazioni / error% / p95)
   - name: my-worker
