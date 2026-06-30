@@ -11,8 +11,12 @@
 //                 file né repo locale → niente watchlist / drift-completo / discovery. È la
 //                 modalità "quasi-SaaS": un container condiviso che solo LEGGE lo stato AWS.
 //
+//   demo        — DADAGUARD_DEMO=1: dataset finto, ZERO AWS. Per provarlo senza wiring,
+//                 registrare la GIF di lancio, o valutare la UI. Tutto read-only e statico.
+//
 // Il discriminante è la PRESENZA di DADAGUARD_CONFIG: in cloud lo inietta SSM, in locale non c'è.
-export const MODE = process.env.DADAGUARD_CONFIG ? 'cloud' : 'local'
+export const isDemo = Boolean(process.env.DADAGUARD_DEMO)
+export const MODE = isDemo ? 'demo' : process.env.DADAGUARD_CONFIG ? 'cloud' : 'local'
 export const isCloud = MODE === 'cloud'
 export const isLocal = MODE === 'local'
 

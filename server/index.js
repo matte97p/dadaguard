@@ -15,7 +15,8 @@ import { recentLogs } from './logs.js'
 import { recentEvents } from './events.js'
 import { nearLimitQuotas } from './quotas.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
-import { isCloud, MODE } from './mode.js'
+import { isCloud, MODE, isDemo } from './mode.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents } from './demo.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -41,7 +42,7 @@ app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4')
   try {
     if (metricsCache.body && Date.now() - metricsCache.at < METRICS_TTL) return res.send(metricsCache.body)
-    const body = renderMetrics(await getStatus('en'))
+    const body = renderMetrics(isDemo ? demoStatus('en') : await getStatus('en'))
     metricsCache = { at: Date.now(), body }
     res.send(body)
   } catch (err) {
@@ -51,6 +52,7 @@ app.get('/metrics', async (_req, res) => {
 
 app.get('/api/status', async (req, res) => {
   try {
+    if (isDemo) return res.json(demoStatus(req.query.lang))
     res.json(await getStatus(req.query.lang))
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -98,6 +100,7 @@ app.get('/api/discover', requireLocal('Scopri servizi'), async (req, res) => {
 // #10 Sprechi: risorse orfane costose per ambiente (read-only EC2). On-demand.
 app.get('/api/waste', async (_req, res) => {
   try {
+    if (isDemo) return res.json({})
     const { accounts } = loadConfig()
     const out = {}
     await Promise.all(
@@ -123,6 +126,7 @@ app.get('/api/waste', async (_req, res) => {
 // Costi: spesa MTD per servizio AWS, per account. On-demand (Cost Explorer è a pagamento).
 app.get('/api/costs', async (_req, res) => {
   try {
+    if (isDemo) return res.json(demoCosts())
     const { accounts } = loadConfig()
     const out = {}
     await Promise.all(
@@ -150,6 +154,7 @@ app.get('/api/costs', async (_req, res) => {
 // delle env var sono usati solo per il match e non escono mai dal server.
 app.get('/api/topology', async (_req, res) => {
   try {
+    if (isDemo) return res.json({ edges: [], extraNodes: [] })
     const { accounts, services } = loadConfig()
     res.json(await deduceTopology(services, accounts))
   } catch (err) {
@@ -161,6 +166,7 @@ app.get('/api/topology', async (_req, res) => {
 // Read-only; chi non sta in una VPC (es. Lambda non-VPC) finisce nel gruppo "senza VPC".
 app.get('/api/network', async (_req, res) => {
   try {
+    if (isDemo) return res.json({})
     const { accounts, services } = loadConfig()
     res.json(await networkTopology(services, accounts))
   } catch (err) {
@@ -171,6 +177,7 @@ app.get('/api/network', async (_req, res) => {
 // Log recenti di un servizio (on-demand, read-only): il "perché è rosso". Lambda/ECS o logGroup.
 app.get('/api/logs', async (req, res) => {
   try {
+    if (isDemo) return res.json(demoLogs())
     const { accounts, services } = loadConfig()
     const svc = services.find((s) => s.name === req.query.service)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
@@ -189,6 +196,7 @@ app.get('/api/logs', async (req, res) => {
 // Service Quotas vicine al limite, per account (on-demand, read-only).
 app.get('/api/quotas', async (_req, res) => {
   try {
+    if (isDemo) return res.json(demoQuotas())
     res.json(await nearLimitQuotas(loadConfig().accounts))
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -198,6 +206,7 @@ app.get('/api/quotas', async (_req, res) => {
 // Eventi recenti di un servizio (on-demand, read-only): ECS/RDS/ASG — il "perché" testuale.
 app.get('/api/events', async (req, res) => {
   try {
+    if (isDemo) return res.json(demoEvents())
     const { accounts, services } = loadConfig()
     const svc = services.find((s) => s.name === req.query.service)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
