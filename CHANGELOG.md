@@ -3,6 +3,34 @@
 All notable changes to Dadaguard are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/), versioning follows [SemVer](https://semver.org/).
 
+## [0.2.0] — 2026-06-30
+
+Adoption, trust and scale — the jump from "deep tool" to "the dashboard a DevOps reaches for".
+
+### Added
+- **Zero-config auto-discovery** — starts with no `services.yaml`: discovers what's running in each
+  account (read-only, in memory). `services.yaml` becomes an override to pin watchlist/versions/accounts.
+- **Demo mode** (`DADAGUARD_DEMO=1`) — a fake 12-service fleet covering every state, zero AWS. Try it,
+  record a demo, or evaluate the UI without credentials.
+- **AWS Organizations + multi-region** — an `org` block enumerates members (`organizations:ListAccounts`)
+  and assumes the read-only role in each; auto-discovery sweeps every member × region.
+- **Recent changes (CloudTrail)** — write API calls on a resource (who/what/when + errorCode): the cause
+  behind a service turning yellow/red, alongside operational events.
+- **Account reachability (meta-health)** — an STS probe per account + a header indicator; broken plumbing
+  (expired creds, wrong ExternalId) no longer hides as a falsely "unknown" signal.
+- **AWS console deep-links** — one click from any card to the exact resource (17 types).
+- **Expected-version provenance** — `expectedVersionUrl` resolves the expected version from a dynamic
+  source of truth; the UI always shows where "expected" came from.
+- **Brand** — a dog mascot logo + favicon, and a demo video/GIF in the README (rendered by demowright).
+
+### Changed
+- **Deploy-aware grace for ECS** — no false reds during rollouts: a running<desired count during a
+  deployment reads as "rollout in progress", not a fault (`DADAGUARD_DEPLOY_GRACE_SECONDS`, default 120).
+
+### Read-only role
+- New permissions: **`cloudtrail:LookupEvents`** (recent changes) and **`organizations:ListAccounts`**
+  (org mode only). Re-apply the role to enable them.
+
 ## [0.1.0] — 2026-06-30
 
 First public release. A local-first, **read-only**, **no-LLM** watchdog that answers
