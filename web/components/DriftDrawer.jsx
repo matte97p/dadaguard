@@ -103,10 +103,12 @@ export default function DriftDrawer({ open, onClose, t = (k) => k }) {
 
         {job && job.status !== 'running' && (
           <>
-            {job.status === 'error' ? (
+            {job.kind === 'error' ? (
               <Alert type="error" message={t('drift.failed', { code: job.exitCode })} showIcon />
-            ) : job.drift ? (
+            ) : job.kind === 'drift' ? (
               <Alert type="warning" message={t('drift.drift')} showIcon />
+            ) : job.kind === 'pending' ? (
+              <Alert type="info" message={t('drift.pending', { n: job.counts?.add ?? '?' })} showIcon />
             ) : (
               <Alert type="success" message={t('drift.nochanges')} showIcon />
             )}

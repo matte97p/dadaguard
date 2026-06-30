@@ -75,10 +75,26 @@ export function startPlan({ repoDir, env, layer }) {
 export function getJob(id) {
   const j = jobs.get(id)
   if (!j) return null
+
+  // exit 2 = "ci sono cambiamenti", ma NON distingue aggiunte da modifiche/distruzioni.
+  // Parso "Plan: A to add, C to change, D to destroy" per classificare onestamente:
+  //   insync  = nessun cambiamento
+  //   pending = solo aggiunte (definito in TF ma non ancora applicato) → NON è drift
+  //   drift   = ci sono change/destroy (la realtà diverge da ciò che è applicato)
+  const m = /Plan:\s+(\d+) to add,\s+(\d+) to change,\s+(\d+) to destroy/.exec(j.output)
+  const counts = m ? { add: +m[1], change: +m[2], destroy: +m[3] } : null
+  let kind
+  if (j.status === 'error') kind = 'error'
+  else if (j.exitCode === 0) kind = 'insync'
+  else if (counts && counts.change === 0 && counts.destroy === 0 && counts.add > 0) kind = 'pending'
+  else kind = 'drift' // exit 2 con modifiche/distruzioni, o piano con cambiamenti non parsabile
+
   return {
     status: j.status, // running | done | error
     exitCode: j.exitCode,
-    drift: j.exitCode === 2, // 2 = ci sono cambiamenti = drift
+    kind, // insync | pending | drift | error
+    counts, // { add, change, destroy } | null
+    drift: kind === 'drift', // retro-compat
     layer: j.layer,
     output: j.output.slice(-12000), // cap per non spingere MB nel browser
   }
