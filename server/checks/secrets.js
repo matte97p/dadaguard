@@ -77,8 +77,8 @@ export async function run(service, ctx) {
   }
 }
 
-// TODO #13 (secret orfani: in Doppler ma referenziati da nessuno) — NON implementato.
-// È fragile: richiederebbe scansionare env Lambda / task ECS / SSM di tutti i servizi e
-// fare match per NOME col set Doppler, con alto rischio di falsi positivi (nomi che non
-// coincidono 1:1, secret usati a runtime ma non in env). Senza un legame robusto non lo
-// inventiamo. Vedi anche TODO #18 (mappa secret→servizio→risorsa) — fuori da questo batch.
+// DECISIONE (chiusa, non un TODO aperto): #13 (secret orfani) e #18 (mappa secret→servizio→risorsa)
+// NON si implementano. #13 richiederebbe scansionare il CODICE SORGENTE delle app per sapere cosa è
+// "referenziato": fuori dal modello di Dadaguard (monitora infra/AWS/Doppler, non i repo) → produrrebbe
+// solo falsi positivi. #18 è già coperto: i servizi dichiarano `ssm.path`/`doppler` in config (è di
+// fatto la mappa) e le relazioni tra servizi le disegna la topologia (deduce.js). Non duplichiamo.

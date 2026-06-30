@@ -11,8 +11,9 @@ const exec = promisify(execFile)
 // (created/modified) — solo computed/raw/note. Le date stanno nell'API / activity log,
 // non in questo comando. Qui rileviamo una eventuale data SE la CLI la espone in futuro
 // (campi `created_at`/`createdAt`), così #15 si abilita senza altri cambi. Finché non
-// c'è, `oldest` resta null e il check età non scatta. TODO #15: per una vera età/rotazione
-// servirebbe `doppler activity` (workplace-level, fragile) o l'API — fuori scope CLI.
+// c'è, `oldest` resta null e il check età non scatta. #15 (età/rotazione) resta quindi DORMIENTE
+// by-design: si attiva da sé se la CLI esporrà le date. `doppler activity`/API sarebbero fragili o
+// fuori dallo scope CLI → non li usiamo. Scelta chiusa, non un TODO aperto.
 async function readSecrets(project, config) {
   const { stdout } = await exec(
     'doppler',
