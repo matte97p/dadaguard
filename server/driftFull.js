@@ -72,23 +72,27 @@ export function startPlan({ repoDir, env, layer }) {
   return id
 }
 
+// exit 2 = "ci sono cambiamenti", ma NON distingue aggiunte da modifiche/distruzioni.
+// Parso "Plan: A to add, C to change, D to destroy" per classificare onestamente:
+//   insync  = nessun cambiamento
+//   pending = solo aggiunte (definito in TF ma non ancora applicato) → NON è drift
+//   drift   = ci sono change/destroy (la realtà diverge da ciò che è applicato)
+// Funzione pura (testabile) separata dallo stato del job.
+export function classifyPlan(status, exitCode, output) {
+  const m = /Plan:\s+(\d+) to add,\s+(\d+) to change,\s+(\d+) to destroy/.exec(output ?? '')
+  const counts = m ? { add: +m[1], change: +m[2], destroy: +m[3] } : null
+  let kind
+  if (status === 'error') kind = 'error'
+  else if (exitCode === 0) kind = 'insync'
+  else if (counts && counts.change === 0 && counts.destroy === 0 && counts.add > 0) kind = 'pending'
+  else kind = 'drift' // exit 2 con modifiche/distruzioni, o piano con cambiamenti non parsabile
+  return { kind, counts }
+}
+
 export function getJob(id) {
   const j = jobs.get(id)
   if (!j) return null
-
-  // exit 2 = "ci sono cambiamenti", ma NON distingue aggiunte da modifiche/distruzioni.
-  // Parso "Plan: A to add, C to change, D to destroy" per classificare onestamente:
-  //   insync  = nessun cambiamento
-  //   pending = solo aggiunte (definito in TF ma non ancora applicato) → NON è drift
-  //   drift   = ci sono change/destroy (la realtà diverge da ciò che è applicato)
-  const m = /Plan:\s+(\d+) to add,\s+(\d+) to change,\s+(\d+) to destroy/.exec(j.output)
-  const counts = m ? { add: +m[1], change: +m[2], destroy: +m[3] } : null
-  let kind
-  if (j.status === 'error') kind = 'error'
-  else if (j.exitCode === 0) kind = 'insync'
-  else if (counts && counts.change === 0 && counts.destroy === 0 && counts.add > 0) kind = 'pending'
-  else kind = 'drift' // exit 2 con modifiche/distruzioni, o piano con cambiamenti non parsabile
-
+  const { kind, counts } = classifyPlan(j.status, j.exitCode, j.output)
   return {
     status: j.status, // running | done | error
     exitCode: j.exitCode,

@@ -179,6 +179,17 @@ async function deduceBySecurityGroups(services, accounts, push) {
   }
 }
 
+// Match env→servizio (puro, testabile): token ESATTO (no substring, niente "prod" dentro
+// "production") + disambiguazione per account. Se c'è un candidato nello STESSO account è quello
+// (uccide le collisioni di nomi tra ambienti); se il token è unico e vive in un altro account,
+// è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
+export function matchEnvTargets(env, self, idList) {
+  const tokens = new Set(String(env || '').split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean))
+  const candidates = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => tokens.has(tok)))
+  const sameAcct = candidates.filter((t) => t.account === self.account)
+  return sameAcct.length ? sameAcct : candidates
+}
+
 // Deduzione completa. Ritorna { edges:[{source,target,vias[]}], extraNodes:[{id,type,label}] }.
 // extraNodes = sorgenti evento non tracciate (code/stream) da disegnare come nodi esterni.
 export async function deduceTopology(services, accounts) {
@@ -216,15 +227,8 @@ export async function deduceTopology(services, accounts) {
         // Match a TOKEN ESATTO (non substring): le env sono già stringhe separate; tokenizzo su
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
-        const envTokens = new Set(env.split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean))
-        const envCandidates = idList.filter(
-          (t) => t.name !== s.name && t.ids.some((tok) => envTokens.has(tok)),
-        )
-        // Disambigua per account: se c'è un candidato nello STESSO account, è quello (uccide le
-        // collisioni di nomi tra ambienti). Se invece il token è unico e vive in un altro account,
-        // è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
-        const envSame = envCandidates.filter((t) => t.account === s.account)
-        for (const t of envSame.length ? envSame : envCandidates) push(s.name, t.name, 'env')
+        for (const t of matchEnvTargets(env, { name: s.name, account: s.account ?? '__none__' }, idList))
+          push(s.name, t.name, 'env')
 
         for (const arn of sources) {
           const lower = arn.toLowerCase()

@@ -1,5 +1,6 @@
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
 import { clientOpts } from '../runtime/awsClient.js'
+import { log } from '../log.js'
 
 // Legge gli state Terraform da un bucket S3. Estrae:
 //  - managed:   Set di identificatori gestiti per kind (lambda/ecs/asg) → #7 risorse non gestite
@@ -86,7 +87,7 @@ export async function managedResources({ profile, roleArn, externalId, region, s
       } catch (err) {
         // State illeggibile (JSON malformato, fetch fallito): logga il file e salta,
         // così il drift non si rompe in silenzio ma il problema è diagnosticabile.
-        console.error(`[dadaguard] state '${Key}' illeggibile: ${err.message}`)
+        log.error('state TF illeggibile', { key: Key, err: err.message })
       }
     }),
   )
