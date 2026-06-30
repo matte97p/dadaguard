@@ -269,6 +269,17 @@ export default function App() {
             )}
           </Space>
 
+          {data?.mode === 'demo' && (
+            <Alert
+              type="warning"
+              showIcon
+              banner
+              style={{ marginBottom: 16 }}
+              message={t('demo.title')}
+              description={t('demo.desc')}
+            />
+          )}
+
           {data?.discovered && (
             <Alert
               type="info"
