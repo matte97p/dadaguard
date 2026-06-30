@@ -1,4 +1,8 @@
-# Dadaguard 🐶
+<p align="center">
+  <img src="assets/logo.png" alt="Dadaguard" width="128">
+</p>
+
+# Dadaguard
 
 Watchdog DevOps **local-first**: *il mio stack è su **e coerente**?* Correla lo stato reale di **AWS + secret + Terraform** — **senza LLM**, 100% deterministico.
 
