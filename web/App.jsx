@@ -269,6 +269,17 @@ export default function App() {
             )}
           </Space>
 
+          {data?.discovered && (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              style={{ marginBottom: 16 }}
+              message={t('discover.autoTitle')}
+              description={t('discover.autoDesc', { n: data.discovered.count })}
+            />
+          )}
+
           {data && (
             <Space style={{ marginBottom: 16 }} wrap>
               <Select

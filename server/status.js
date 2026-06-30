@@ -1,4 +1,5 @@
 import { loadConfig } from './config.js'
+import { autoDiscoverServices } from './autodiscover.js'
 import { MODE, capabilities } from './mode.js'
 import { makeT } from './i18n.js'
 import { mapLimit } from './util/pool.js'
@@ -31,8 +32,20 @@ function rollup(checks) {
 }
 
 export async function getStatus(lang) {
-  const { accounts, services } = loadConfig()
+  const { accounts, services: declared } = loadConfig()
+  let services = declared
   const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
+
+  // Auto-discovery zero-config: nessun servizio dichiarato → scoprili dagli account
+  // (read-only, in memoria). services.yaml resta un override; se c'è, questo non scatta.
+  let discovered = null
+  if (services.length === 0) {
+    services = await autoDiscoverServices(accounts)
+    if (services.length) {
+      discovered = { count: services.length, accounts: Object.keys(accounts) }
+      log.info('auto-discovery', discovered)
+    }
+  }
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
   // così il drift non rilegge S3 per ogni servizio.
@@ -122,6 +135,7 @@ export async function getStatus(lang) {
     // in base a `capabilities`, non a un controllo dell'env duplicato lato client.
     mode: MODE,
     capabilities,
+    discovered, // != null quando i servizi sono stati auto-scoperti (nessun services.yaml)
     services: results,
   }
 }

@@ -4,6 +4,12 @@
 #
 # Dadaguard è read-only (non tocca mai l'infra) e SENZA LLM (100% deterministico).
 #
+# QUESTO FILE È OPZIONALE. Senza services.yaml, Dadaguard parte lo stesso: usa le
+# credenziali AWS di default (env/SSO, region da AWS_REGION) e AUTO-SCOPRE i servizi
+# che girano (read-only, in memoria — non scrive nulla). Crea services.yaml solo per
+# FISSARE la watchlist, le versioni attese, gli account multipli e il Terraform.
+# È un override, non un prerequisito.
+#
 # Due modalità di config (vedi server/mode.js):
 #  • local-first: questo file. La dashboard può anche editarlo (watchlist) ed è in italiano
 #                 (in cloud usa la lingua del browser; toggle IT/EN sempre disponibile).
