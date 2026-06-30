@@ -211,6 +211,13 @@ const STRINGS = {
     'demo.title': 'Modalità demo — dati finti',
     'demo.desc':
       'Stai vedendo una flotta di esempio, nessuna connessione ad AWS. Per i tuoi dati reali avvia senza DADAGUARD_DEMO.',
+
+    'health.title': 'Connessione agli account',
+    'health.desc':
+      'Dadaguard riesce a raggiungere e assumere il ruolo read-only in ogni account? (sonda STS). Se qui un account è rosso, i suoi segnali sarebbero falsamente «sconosciuti».',
+    'health.ok': 'raggiungibile',
+    'health.fail': 'irraggiungibile',
+    'health.empty': 'Nessun account configurato',
   },
   en: {
     'app.subtitle': "your stack's watchdog",
@@ -405,6 +412,13 @@ const STRINGS = {
     'demo.title': 'Demo mode — fake data',
     'demo.desc':
       'You are viewing a sample fleet, no AWS connection. For your real data, start without DADAGUARD_DEMO.',
+
+    'health.title': 'Account connectivity',
+    'health.desc':
+      'Can Dadaguard reach and assume the read-only role in each account? (STS probe). If an account is red here, its signals would be falsely «unknown».',
+    'health.ok': 'reachable',
+    'health.fail': 'unreachable',
+    'health.empty': 'No account configured',
   },
 }
 

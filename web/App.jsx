@@ -29,6 +29,7 @@ import {
   PieChartOutlined,
   PartitionOutlined,
   DashboardOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
 import ServiceCard from './components/ServiceCard.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -40,6 +41,7 @@ import TopologyDrawer from './components/TopologyDrawer.jsx'
 import LogsDrawer from './components/LogsDrawer.jsx'
 import EventsDrawer from './components/EventsDrawer.jsx'
 import QuotasDrawer from './components/QuotasDrawer.jsx'
+import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -54,6 +56,8 @@ export default function App() {
   const [costsOpen, setCostsOpen] = useState(false)
   const [topoOpen, setTopoOpen] = useState(false)
   const [quotasOpen, setQuotasOpen] = useState(false)
+  const [healthOpen, setHealthOpen] = useState(false)
+  const [health, setHealth] = useState(null) // #6 meta-salute (raggiungibilità account)
   const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
   const [eventsService, setEventsService] = useState(null) // ... e gli eventi recenti
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
@@ -95,6 +99,20 @@ export default function App() {
     },
     [lang],
   )
+
+  // #6 meta-salute: una sonda STS per account (raggiungibilità). On-mount + a ogni refresh.
+  const loadHealth = useCallback(async () => {
+    try {
+      const r = await fetch('/api/selfcheck')
+      if (r.ok) setHealth(await r.json())
+    } catch {
+      /* il pallino resta neutro: non è un errore della dashboard */
+    }
+  }, [])
+
+  useEffect(() => {
+    loadHealth()
+  }, [loadHealth])
 
   const removeService = useCallback(
     async (name) => {
@@ -216,6 +234,18 @@ export default function App() {
             </div>
           </Space>
           <Space wrap>
+            <Badge
+              dot
+              status={health?.status === 'up' ? 'success' : health?.status === 'down' ? 'error' : 'default'}
+              offset={[-2, 4]}
+            >
+              <Button
+                type="text"
+                icon={<ApiOutlined />}
+                onClick={() => setHealthOpen(true)}
+                title={t('health.title')}
+              />
+            </Badge>
             <Segmented
               size="small"
               value={lang}
@@ -253,7 +283,15 @@ export default function App() {
                 {t('btn.discover')}
               </Button>
             )}
-            <Button type="primary" icon={<ReloadOutlined />} loading={loading} onClick={() => load()}>
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={() => {
+                load()
+                loadHealth()
+              }}
+            >
               {t('btn.refresh')}
             </Button>
           </Space>
@@ -378,6 +416,7 @@ export default function App() {
         <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
         <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} t={t} />
+        <MetaHealthDrawer open={healthOpen} onClose={() => setHealthOpen(false)} health={health} t={t} />
       </Layout>
     </ConfigProvider>
   )

@@ -149,6 +149,16 @@ export function demoLogs() {
   }
 }
 
+export function demoSelfcheck() {
+  return {
+    status: 'up', allOk: true, anyFail: false,
+    accounts: [
+      { key: 'prod', label: 'Production', color: '#cf1322', ok: true, account: '111122223333', arn: 'arn:aws:sts::111122223333:assumed-role/dadaguard-readonly/dadaguard', via: 'roleArn' },
+      { key: 'staging', label: 'Staging', color: '#1677ff', ok: true, account: '444455556666', arn: 'arn:aws:sts::444455556666:assumed-role/dadaguard-readonly/dadaguard', via: 'roleArn' },
+    ],
+  }
+}
+
 export function demoEvents() {
   const now = Date.now()
   return {
