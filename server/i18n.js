@@ -26,6 +26,7 @@ const S = {
     'time.unit.h': 'h',
     'time.unit.d': 'g',
 
+    'link.console': 'Console AWS',
     'lambda.cron.disabled': 'cron disattivata di proposito (ogni {sched})',
     'lambda.cron.down': '⚠ nessuna esecuzione in {window} (attesa ogni {sched})',
     'lambda.runs': '{n} esecuzioni',
@@ -163,6 +164,7 @@ const S = {
     'time.unit.h': 'h',
     'time.unit.d': 'd',
 
+    'link.console': 'AWS Console',
     'lambda.cron.disabled': 'cron disabled on purpose (every {sched})',
     'lambda.cron.down': '⚠ no run in {window} (expected every {sched})',
     'lambda.runs': '{n} runs',
