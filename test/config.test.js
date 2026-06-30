@@ -8,7 +8,7 @@ test('validateConfig: doc valido passa', () => {
 })
 
 test('validateConfig: doc vuoto = config minimale ok', () => {
-  assert.deepEqual(validateConfig({}), { accounts: {}, services: [] })
+  assert.deepEqual(validateConfig({}), { accounts: {}, services: [], org: null })
 })
 
 test('validateConfig: accounts come array → errore', () => {

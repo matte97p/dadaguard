@@ -38,6 +38,19 @@ accounts:
   #   label: Production
   #   color: "#cf1322"
 
+# --- #8 AWS Organizations (opzionale) — invece di elencare gli account a mano ---
+# Punta all'org: Dadaguard enumera i membri (organizations:ListAccounts) e crea un account
+# per ciascuno, assumendo in ognuno il ruolo read-only `roleName`. Si combina con
+# l'auto-discovery: senza `services`, spazzola TUTTI i membri × TUTTE le `regions`.
+# Permessi: il chiamante (creds management, o callerRoleArn) deve poter fare
+# organizations:ListAccounts; il task role deve poter assumere arn:aws:iam::*:role/<roleName>.
+# org:
+#   roleName: dadaguard-readonly        # ruolo RO presente in ogni membro
+#   externalId: una-stringa-condivisa   # anti confused-deputy (uguale nei ruoli RO)
+#   regions: [eu-west-1, us-east-1]      # sweep multi-region (default: una sola)
+#   exclude: ["123456789012"]           # account da saltare (per Id o Nome)
+#   # profile / callerRoleArn: identità che esegue ListAccounts (default: catena standard)
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api
