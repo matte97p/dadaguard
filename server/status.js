@@ -1,6 +1,8 @@
 import { loadConfig } from './config.js'
 import { MODE, capabilities } from './mode.js'
 import { makeT } from './i18n.js'
+import { mapLimit } from './util/pool.js'
+import { log } from './log.js'
 import { managedResources } from './terraform/state.js'
 import * as liveness from './checks/liveness.js'
 import * as version from './checks/version.js'
@@ -15,6 +17,8 @@ import * as security from './checks/security.js'
 const CHECKS = [liveness, version, runtime, drift, secrets, security]
 
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
+// Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
+const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 8
 
 // Semaforo del servizio = il check messo peggio.
 function rollup(checks) {
@@ -46,7 +50,7 @@ export async function getStatus(lang) {
         })
       } catch (err) {
         // Non nascondere: logga e marca l'errore (il drift dirà "unknown", non sparirà).
-        console.error(`[dadaguard] state TF '${k}' non leggibile: ${err.message}`)
+        log.error('state TF non leggibile', { account: k, err: err.message })
         tfByAccount[k] = {
           error: err.message,
           managed: { lambda: new Set(), ecs: new Set(), asg: new Set() },
@@ -57,8 +61,8 @@ export async function getStatus(lang) {
     }),
   )
 
-  const results = await Promise.all(
-    services.map(async (service) => {
+  // cap di concorrenza sui servizi (ogni servizio fa già più chiamate AWS in parallelo per i check)
+  const results = await mapLimit(services, CONCURRENCY, async (service) => {
       const acct = service.account ? accounts[service.account] : null
       const ctx = {
         profile: acct?.profile,
@@ -86,8 +90,7 @@ export async function getStatus(lang) {
         overall: rollup(checks),
         checks,
       }
-    }),
-  )
+  })
 
   return {
     generatedAt: new Date().toISOString(),

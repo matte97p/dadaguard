@@ -13,6 +13,7 @@ import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE } from './mode.js'
+import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -228,5 +229,5 @@ if (existsSync(DIST)) {
 // Bind esplicito su IPv4 0.0.0.0: in container il default di Node può fare bind su
 // :: (IPv6) non-dual-stack → un sidecar che chiama 127.0.0.1 non raggiunge l'app.
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`dadaguard → http://0.0.0.0:${PORT}`)
+  log.info('dadaguard up', { port: Number(PORT), mode: MODE })
 })
