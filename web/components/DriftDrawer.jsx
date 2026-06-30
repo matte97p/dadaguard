@@ -16,12 +16,19 @@ export default function DriftDrawer({ open, onClose, t = (k) => k }) {
   const pollRef = useRef(null)
 
   useEffect(() => {
-    if (!open) return
+    // Alla chiusura ferma comunque il polling (l'intervallo non deve sopravvivere al drawer).
+    if (!open) {
+      clearInterval(pollRef.current)
+      return
+    }
+    // Reset: niente stato cached dall'apertura precedente.
+    setAccounts([])
+    setError(null)
     fetch('/api/accounts')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setAccounts)
-      .catch(() => {})
-    return () => clearInterval(pollRef.current)
+      .catch((e) => setError(e.message)) // prima era silenzioso: ora errore visibile
+    return () => clearInterval(pollRef.current) // cleanup su unmount/cambio open
   }, [open])
 
   useEffect(() => {
@@ -29,9 +36,12 @@ export default function DriftDrawer({ open, onClose, t = (k) => k }) {
     setLayers([])
     if (!account) return
     fetch(`/api/drift/layers?account=${account}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setLayers(d.layers || []))
-      .catch(() => setLayers([]))
+      .catch((e) => {
+        setLayers([])
+        setError(e.message) // niente fallimento muto sul fetch dei layer
+      })
   }, [account])
 
   const run = async () => {
