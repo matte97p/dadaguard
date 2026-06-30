@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Drawer, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -16,40 +16,29 @@ const STATUS_COLOR = {
 
 // Provenienza dell'arco (come l'abbiamo dedotto): colore + etichetta per la legenda.
 const VIA = {
-  declared: { color: '#8c8c8c', label: 'dichiarata' },
-  env: { color: '#1677ff', label: 'config / env' },
-  event: { color: '#7c3aed', label: 'event source (coda/stream)' },
-  net: { color: '#13c2c2', label: 'rete (security group)' },
+  declared: { color: '#8c8c8c' },
+  env: { color: '#1677ff' },
+  event: { color: '#7c3aed' },
+  net: { color: '#13c2c2' },
 }
 
-// Layout a livelli (profondità nel DAG) + nodi colorati per stato + archi colorati per provenienza.
-// Se la dipendenza (il target) è giù/degradata l'arco diventa rosso → impatto a valle a colpo d'occhio.
+// --- Vista "Dipendenze": grafo a livelli, nodi colorati per stato, archi per provenienza. ---
 function buildGraph(services, topo, dark) {
   const statusByName = new Map(services.map((s) => [s.name, s.overall]))
 
   const nodeList = [
-    ...services.map((s) => ({
-      id: s.name,
-      label: `${s.name}${s.type ? ` · ${s.type}` : ''}`,
-      status: s.overall,
-    })),
-    ...(topo.extraNodes ?? []).map((n) => ({
-      id: n.id,
-      label: `${n.label} · ${n.type}`,
-      status: null,
-      external: true,
-    })),
+    ...services.map((s) => ({ id: s.name, label: `${s.name}${s.type ? ` · ${s.type}` : ''}`, status: s.overall })),
+    ...(topo.extraNodes ?? []).map((n) => ({ id: n.id, label: `${n.label} · ${n.type}`, status: null, external: true })),
   ]
   const idset = new Set(nodeList.map((n) => n.id))
   const edges = (topo.edges ?? []).filter((e) => idset.has(e.source) && idset.has(e.target))
 
-  // profondità: un nodo che dipende da altri sta sotto a ciò da cui dipende.
   const depsOf = new Map([...idset].map((id) => [id, []]))
   for (const e of edges) depsOf.get(e.source).push(e.target)
   const level = new Map()
   const depth = (id, seen = new Set()) => {
     if (level.has(id)) return level.get(id)
-    if (seen.has(id)) return 0 // protezione cicli
+    if (seen.has(id)) return 0
     seen.add(id)
     const d = depsOf.get(id) ?? []
     const v = d.length ? 1 + Math.max(...d.map((x) => depth(x, seen))) : 0
@@ -99,9 +88,112 @@ function buildGraph(services, topo, dark) {
     }
   })
 
-  // quali provenienze sono effettivamente presenti (per mostrare solo le voci utili in legenda).
   const usedVias = new Set(edges.flatMap((e) => e.vias ?? []))
   return { nodes, edges: rfEdges, usedVias }
+}
+
+// --- Vista "Rete": box VPC (un account può averne più d'una) che contengono i servizi, più un
+// bucket "Senza VPC" per chi non è in una VPC (es. Lambda non-VPC: girano sulla rete gestita da AWS). ---
+function buildNetworkGraph(net, dark, t) {
+  const groups = []
+  for (const acc of net.accounts ?? []) {
+    for (const v of acc.vpcs ?? []) {
+      const egress = [v.igw ? 'IGW' : null, v.nat > 0 ? `NAT×${v.nat}` : null].filter(Boolean).join(' · ')
+      const services = (v.subnets ?? []).flatMap((s) =>
+        s.services.map((name) => ({
+          name,
+          sub: [s.name || s.id, s.az, t(s.public ? 'topo.subnetPublic' : 'topo.subnetPrivate')]
+            .filter(Boolean)
+            .join(' · '),
+        })),
+      )
+      groups.push({
+        id: `vpc:${acc.account}:${v.id}`,
+        title: v.name || v.id,
+        subtitle: [acc.label, v.cidr, egress ? `→ ${egress}` : null].filter(Boolean).join(' · '),
+        color: acc.color || '#8c8c8c',
+        services,
+      })
+    }
+    if ((acc.noVpc ?? []).length) {
+      groups.push({
+        id: `novpc:${acc.account}`,
+        title: t('topo.noVpc'),
+        subtitle: `${acc.label} · ${t('topo.noVpcSub')}`,
+        color: acc.color || '#8c8c8c',
+        dim: true,
+        services: acc.noVpc.map((name) => ({ name, sub: null })),
+      })
+    }
+  }
+
+  const GW = 250
+  const HEADER = 48
+  const ROW = 42
+  const PADB = 14
+  const GAPX = 36
+  const nodes = []
+  let x = 0
+  for (const g of groups) {
+    const count = Math.max(1, g.services.length)
+    nodes.push({
+      id: g.id,
+      position: { x, y: 0 },
+      data: { label: '' },
+      draggable: false,
+      selectable: false,
+      style: {
+        width: GW,
+        height: HEADER + count * ROW + PADB,
+        borderRadius: 10,
+        border: `1.5px ${g.dim ? 'dashed' : 'solid'} ${g.color}`,
+        background: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+      },
+    })
+    nodes.push({
+      id: `${g.id}::h`,
+      parentId: g.id,
+      extent: 'parent',
+      draggable: false,
+      selectable: false,
+      position: { x: 10, y: 8 },
+      data: {
+        label: (
+          <div style={{ textAlign: 'left', width: GW - 32 }}>
+            <div style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</div>
+            <div style={{ fontSize: 10, opacity: 0.7 }}>{g.subtitle}</div>
+          </div>
+        ),
+      },
+      style: { border: 'none', background: 'transparent', padding: 0, width: GW - 20 },
+    })
+    g.services.forEach((s, i) => {
+      nodes.push({
+        id: `${g.id}::${s.name}`,
+        parentId: g.id,
+        extent: 'parent',
+        draggable: false,
+        position: { x: 12, y: HEADER + i * ROW },
+        data: {
+          label: (
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 12 }}>{s.name}</div>
+              {s.sub && <div style={{ fontSize: 10, opacity: 0.65 }}>{s.sub}</div>}
+            </div>
+          ),
+        },
+        style: {
+          width: GW - 24,
+          borderRadius: 6,
+          border: `1px solid ${dark ? '#303030' : '#d9d9d9'}`,
+          background: dark ? '#1f1f1f' : '#fff',
+          padding: 6,
+        },
+      })
+    })
+    x += GW + GAPX
+  }
+  return { nodes, hasData: groups.length > 0 }
 }
 
 function Legend({ usedVias, t }) {
@@ -134,13 +226,26 @@ function Legend({ usedVias, t }) {
   )
 }
 
-// Topologia dei servizi. Lente "Dipendenze": grafo con relazioni DEDOTTE in automatico da AWS
-// (nessuna dichiarazione manuale). Lente "Rete": prossima, dallo state Terraform.
+const CANVAS = {
+  height: '64vh',
+  marginTop: 8,
+  border: '1px solid rgba(128,128,128,0.2)',
+  borderRadius: 8,
+  position: 'relative',
+}
+
+// Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/SG). "Rete" = dove vive
+// ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 export default function TopologyDrawer({ open, onClose, services = [], dark, t = (k) => k }) {
+  const [view, setView] = useState('deps')
   const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [net, setNet] = useState(null)
+  const [netLoading, setNetLoading] = useState(false)
+  const [netError, setNetError] = useState(null)
 
+  // Dipendenze: fetch all'apertura.
   useEffect(() => {
     if (!open) return
     setLoading(true)
@@ -152,51 +257,98 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
       .finally(() => setLoading(false))
   }, [open])
 
-  const { nodes, edges, usedVias } = useMemo(
-    () => buildGraph(services, topo, dark),
-    [services, topo, dark],
-  )
+  // Rete: fetch pigro la prima volta che apri la tab (più chiamate AWS → solo se serve).
+  useEffect(() => {
+    if (!open || view !== 'net' || net) return
+    setNetLoading(true)
+    setNetError(null)
+    fetch('/api/network')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setNet)
+      .catch((e) => setNetError(e.message))
+      .finally(() => setNetLoading(false))
+  }, [open, view, net])
+
+  // alla chiusura svuota la cache rete → riapertura = dati freschi
+  useEffect(() => {
+    if (!open) setNet(null)
+  }, [open])
+
+  const { nodes, edges, usedVias } = useMemo(() => buildGraph(services, topo, dark), [services, topo, dark])
   const hasEdges = edges.length > 0
+  const netGraph = useMemo(
+    () => (net ? buildNetworkGraph(net, dark, t) : { nodes: [], hasData: false }),
+    [net, dark, t],
+  )
 
   return (
     <Drawer title={t('topo.title')} placement="right" width={840} open={open} onClose={onClose}>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {t('topo.desc')}
-      </Text>
-      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
-      <Legend usedVias={usedVias} t={t} />
-      <div
-        style={{
-          height: '66vh',
-          marginTop: 8,
-          border: '1px solid rgba(128,128,128,0.2)',
-          borderRadius: 8,
-          position: 'relative',
-        }}
-      >
-        {loading ? (
-          <div style={{ textAlign: 'center', paddingTop: 120 }}>
-            <Spin tip={t('topo.loading')} />
+      <Segmented
+        options={[
+          { label: t('topo.tab.deps'), value: 'deps' },
+          { label: t('topo.tab.net'), value: 'net' },
+        ]}
+        value={view}
+        onChange={setView}
+        style={{ marginBottom: 12 }}
+      />
+
+      {view === 'deps' ? (
+        <>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('topo.desc')}
+          </Text>
+          {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
+          <Legend usedVias={usedVias} t={t} />
+          <div style={CANVAS}>
+            {loading ? (
+              <div style={{ textAlign: 'center', paddingTop: 120 }}>
+                <Spin tip={t('topo.loading')} />
+              </div>
+            ) : services.length === 0 ? (
+              <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
+            ) : (
+              <ReactFlow nodes={nodes} edges={edges} fitView colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
+                <Background />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            )}
           </div>
-        ) : services.length === 0 ? (
-          <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
-        ) : (
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            fitView
-            colorMode={dark ? 'dark' : 'light'}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-        )}
-      </div>
-      {!loading && !hasEdges && services.length > 0 && (
-        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-          {t('topo.noRelations')}
-        </Text>
+          {!loading && !hasEdges && services.length > 0 && (
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+              {t('topo.noRelations')}
+            </Text>
+          )}
+        </>
+      ) : (
+        <>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('topo.netDesc')}
+          </Text>
+          {netError && <Alert type="error" showIcon message={netError} style={{ marginTop: 8 }} />}
+          <div style={CANVAS}>
+            {netLoading ? (
+              <div style={{ textAlign: 'center', paddingTop: 120 }}>
+                <Spin tip={t('topo.netLoading')} />
+              </div>
+            ) : !netGraph.hasData ? (
+              <Empty style={{ paddingTop: 80 }} description={t('topo.netEmpty')} />
+            ) : (
+              <ReactFlow
+                nodes={netGraph.nodes}
+                edges={[]}
+                fitView
+                nodesDraggable={false}
+                nodesConnectable={false}
+                colorMode={dark ? 'dark' : 'light'}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            )}
+          </div>
+        </>
       )}
     </Drawer>
   )

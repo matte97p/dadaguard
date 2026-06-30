@@ -59,11 +59,14 @@ data "aws_iam_policy_document" "readonly" {
   }
 
   statement {
-    sid    = "TopologyReadOnly" # deduzione dipendenze: event source Lambda + regole dei security group
+    sid    = "TopologyReadOnly" # topologia: dipendenze (event source + SG) e mappa di rete (VPC/subnet/IGW)
     effect = "Allow"
     actions = [
       "lambda:ListEventSourceMappings",
       "ec2:DescribeSecurityGroups",
+      "ec2:DescribeSubnets",          # vista Rete: subnet → VPC, AZ, pubblica/privata
+      "ec2:DescribeVpcs",             # vista Rete: nome/CIDR della VPC
+      "ec2:DescribeInternetGateways", # vista Rete: egress (IGW); NAT gateway già concesso in WasteReadOnly
     ]
     resources = ["*"]
   }

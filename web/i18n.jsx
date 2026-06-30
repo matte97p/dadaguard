@@ -123,8 +123,15 @@ const STRINGS = {
     'topo.noServices': 'Nessun servizio',
     'topo.noRelations':
       'Nessuna relazione rilevata: nessuna env/event-source/regola di rete collega questi servizi tra loro. (Gli archi “rete” ed “event source” richiedono i permessi ec2:DescribeSecurityGroups e lambda:ListEventSourceMappings sul ruolo read-only.)',
-    'topo.netPlaceholder':
-      'Mappa di rete — in arrivo (dallo state Terraform: VPC → subnet → risorsa, NAT/IGW)',
+    'topo.netDesc':
+      'Dove vive ogni servizio a livello di rete: raggruppato per VPC → subnet, con egress (NAT/IGW). Chi non è in una VPC (es. Lambda non-VPC) sta in «Senza VPC».',
+    'topo.netLoading': 'Leggo la rete da AWS…',
+    'topo.netEmpty':
+      'Nessun dato di rete (servono i permessi ec2:DescribeSubnets/DescribeVpcs sul ruolo read-only).',
+    'topo.noVpc': 'Senza VPC',
+    'topo.noVpcSub': 'rete gestita da AWS',
+    'topo.subnetPublic': 'pubblica',
+    'topo.subnetPrivate': 'privata',
 
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
@@ -258,8 +265,15 @@ const STRINGS = {
     'topo.noServices': 'No service',
     'topo.noRelations':
       'No relation detected: no env/event-source/network rule connects these services. («Network» and «event source» edges require the ec2:DescribeSecurityGroups and lambda:ListEventSourceMappings permissions on the read-only role.)',
-    'topo.netPlaceholder':
-      'Network map — coming soon (from Terraform state: VPC → subnet → resource, NAT/IGW)',
+    'topo.netDesc':
+      'Where each service lives network-wise: grouped by VPC → subnet, with egress (NAT/IGW). Anything not in a VPC (e.g. non-VPC Lambdas) sits under «No VPC».',
+    'topo.netLoading': 'Reading the network from AWS…',
+    'topo.netEmpty':
+      'No network data (needs ec2:DescribeSubnets/DescribeVpcs on the read-only role).',
+    'topo.noVpc': 'No VPC',
+    'topo.noVpcSub': 'AWS-managed network',
+    'topo.subnetPublic': 'public',
+    'topo.subnetPrivate': 'private',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
