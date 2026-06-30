@@ -7,6 +7,9 @@ import { lambdaRuntime } from '../runtime/lambda.js'
 import { rdsRuntime } from '../runtime/rds.js'
 import { albRuntime } from '../runtime/alb.js'
 import { ec2Runtime } from '../runtime/ec2.js'
+import { sqsRuntime } from '../runtime/sqs.js'
+import { dynamodbRuntime } from '../runtime/dynamodb.js'
+import { elasticacheRuntime } from '../runtime/elasticache.js'
 
 export const key = 'runtime'
 
@@ -17,6 +20,9 @@ const PROVIDERS = {
   rds: rdsRuntime,
   alb: albRuntime,
   ec2: ec2Runtime,
+  sqs: sqsRuntime,
+  dynamodb: dynamodbRuntime,
+  elasticache: elasticacheRuntime,
 }
 
 export async function run(service, ctx) {

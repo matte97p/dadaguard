@@ -69,6 +69,13 @@ const S = {
     'alb.notfound': 'load balancer non trovato',
     'alb.healthUnreachable': 'attivo · health dei target non raggiungibile',
 
+    'sqs.summary': '{n} in coda · {inflight} in volo',
+    'sqs.notfound': 'coda SQS non trovata',
+    'dynamodb.summary': '{status} · {items} item',
+    'dynamodb.notfound': 'tabella DynamoDB non trovata',
+    'elasticache.summary': '{engine} · {status} · {nodes} nodi',
+    'elasticache.notfound': 'cluster ElastiCache non trovato',
+
     'ec2.checks': 'in funzione · check AWS {ok}/2 ok',
     'ec2.notfound': 'istanza EC2 non trovata',
     'ec2.state.running': 'in funzione',
@@ -171,6 +178,13 @@ const S = {
     'alb.state': 'state {code}',
     'alb.notfound': 'load balancer not found',
     'alb.healthUnreachable': 'active · target health unreachable',
+
+    'sqs.summary': '{n} queued · {inflight} in flight',
+    'sqs.notfound': 'SQS queue not found',
+    'dynamodb.summary': '{status} · {items} items',
+    'dynamodb.notfound': 'DynamoDB table not found',
+    'elasticache.summary': '{engine} · {status} · {nodes} nodes',
+    'elasticache.notfound': 'ElastiCache cluster not found',
 
     'ec2.checks': 'running · AWS checks {ok}/2 ok',
     'ec2.notfound': 'EC2 instance not found',

@@ -81,6 +81,9 @@ const STRINGS = {
     'type.asg': 'Auto Scaling',
     'type.alb': 'Load Balancer',
     'type.ec2': 'EC2',
+    'type.sqs': 'SQS',
+    'type.dynamodb': 'DynamoDB',
+    'type.elasticache': 'ElastiCache',
 
     'costs.title': 'Costi · mese corrente',
     'costs.desc':
@@ -224,6 +227,9 @@ const STRINGS = {
     'type.asg': 'Auto Scaling',
     'type.alb': 'Load Balancer',
     'type.ec2': 'EC2',
+    'type.sqs': 'SQS',
+    'type.dynamodb': 'DynamoDB',
+    'type.elasticache': 'ElastiCache',
 
     'costs.title': 'Costs · current month',
     'costs.desc':

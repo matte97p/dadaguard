@@ -54,6 +54,9 @@ data "aws_iam_policy_document" "readonly" {
       "ec2:DescribeInstances", "ec2:DescribeInstanceStatus",
       "cloudwatch:GetMetricData",
       "scheduler:GetSchedule", "scheduler:ListSchedules",
+      "sqs:GetQueueUrl", "sqs:GetQueueAttributes",   # #3 runtime SQS (profondità coda)
+      "dynamodb:DescribeTable",                       # #3 runtime DynamoDB (stato tabella)
+      "elasticache:DescribeCacheClusters",            # #3 runtime ElastiCache (stato cluster)
     ]
     resources = ["*"]
   }
