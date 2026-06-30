@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/github/v/release/matte97p/dadaguard?color=7c3aed" alt="release">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
   <a href="https://github.com/matte97p/dadaguard/pkgs/container/dadaguard"><img src="https://img.shields.io/badge/ghcr.io-dadaguard-2496ED?logo=docker&logoColor=white" alt="container image"></a>
+  <a href="https://hub.docker.com/r/matte97/dadaguard"><img src="https://img.shields.io/docker/pulls/matte97/dadaguard?logo=docker&label=pulls&color=2496ED" alt="Docker pulls"></a>
   <a href="https://github.com/matte97p/dadaguard/stargazers"><img src="https://img.shields.io/github/stars/matte97p/dadaguard?style=social" alt="stars"></a>
 </p>
 
