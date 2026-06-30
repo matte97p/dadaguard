@@ -11,11 +11,12 @@ import * as drift from './checks/drift.js'
 import * as secrets from './checks/secrets.js'
 import * as security from './checks/security.js'
 import * as alarms from './checks/alarms.js'
+import * as backups from './checks/backups.js'
 
 // Registro dei check attivi. Aggiungere un segnale = importare il modulo
 // e aggiungerlo qui. Ogni modulo espone { key, run(service, ctx) }.
 // run() può ritornare null se il segnale non si applica al servizio.
-const CHECKS = [liveness, version, runtime, drift, secrets, security, alarms]
+const CHECKS = [liveness, version, runtime, drift, secrets, security, alarms, backups]
 
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
 // Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).

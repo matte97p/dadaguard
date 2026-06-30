@@ -60,6 +60,9 @@ const STRINGS = {
     'card.label.alarms': 'Allarmi',
     'card.tip.alarms':
       'Allarmi CloudWatch in stato ALARM correlati a questa risorsa (per dimensione). Compare solo quando qualcosa sta scattando ora.',
+    'card.label.backups': 'Backup',
+    'card.tip.backups':
+      'Quanto è recente l’ultimo snapshot RDS: degraded se oltre soglia (default 2g), down se nessuno.',
     'card.tip.reachable': "L'endpoint pubblico risponde alle richieste, e con che latenza.",
     'card.tip.version':
       'La versione che gira davvero è quella che ti aspetti (confronto col tag/health atteso).',
@@ -87,6 +90,7 @@ const STRINGS = {
     'type.sqs': 'SQS',
     'type.dynamodb': 'DynamoDB',
     'type.elasticache': 'ElastiCache',
+    'type.acm': 'Certificato',
 
     'costs.title': 'Costi · mese corrente',
     'costs.desc':
@@ -222,6 +226,9 @@ const STRINGS = {
     'card.label.alarms': 'Alarms',
     'card.tip.alarms':
       'CloudWatch alarms in ALARM state matched to this resource (by dimension). Shown only when something is firing now.',
+    'card.label.backups': 'Backup',
+    'card.tip.backups':
+      'How recent the latest RDS snapshot is: degraded if older than the threshold (default 2d), down if none.',
     'card.tip.reachable': 'The public endpoint answers requests, and with what latency.',
     'card.tip.version':
       'The version actually running is the one you expect (compared to the expected tag/health).',
@@ -249,6 +256,7 @@ const STRINGS = {
     'type.sqs': 'SQS',
     'type.dynamodb': 'DynamoDB',
     'type.elasticache': 'ElastiCache',
+    'type.acm': 'Certificate',
 
     'costs.title': 'Costs · current month',
     'costs.desc':

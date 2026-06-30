@@ -40,6 +40,7 @@ export default function ServiceCard({ service, onRemove, onLogs, t = (k) => k })
   const secrets = service.checks?.secrets
   const security = service.checks?.security
   const alarms = service.checks?.alarms
+  const backups = service.checks?.backups
   const links = service.links ?? {}
   const account = service.account
 
@@ -142,6 +143,15 @@ export default function ServiceCard({ service, onRemove, onLogs, t = (k) => k })
             <Space size={4}>
               <CheckBadge status={alarms.status} />
               <span>{alarms.summary ?? alarms.reason ?? '—'}</span>
+            </Space>
+          </Descriptions.Item>
+        )}
+
+        {backups && (
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.backups')}>{t('card.label.backups')}</RowLabel>}>
+            <Space size={4}>
+              <CheckBadge status={backups.status} />
+              <span>{backups.summary ?? backups.reason ?? '—'}</span>
             </Space>
           </Descriptions.Item>
         )}
