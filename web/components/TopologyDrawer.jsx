@@ -181,7 +181,13 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
         ) : services.length === 0 ? (
           <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
         ) : (
-          <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            fitView
+            colorMode={dark ? 'dark' : 'light'}
+            proOptions={{ hideAttribution: true }}
+          >
             <Background />
             <Controls showInteractive={false} />
           </ReactFlow>
