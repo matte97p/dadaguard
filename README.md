@@ -36,12 +36,24 @@ cp services.example.yaml services.yaml   # cosa monitorare + account
 cp .env.example .env                      # accesso AWS read-only (profilo o chiavi)
 docker compose up -d                      # → http://localhost:3001
 ```
+In alternativa al build locale c'è l'**immagine pubblicata**: togli il commento `image:` nel compose, o `docker run -p 3001:3001 -v $PWD/services.yaml:/app/services.yaml -v $HOME/.aws:/root/.aws:ro ghcr.io/matte97p/dadaguard:latest`.
+
 Accesso AWS, a scelta: profili `~/.aws` (montati) + `AWS_PROFILE`, chiavi in `.env`, o il ruolo dell'istanza se giri dentro AWS (EC2/ECS). Cross-account: gli account in `services.yaml` usano `roleArn` (AssumeRole). Read-only by design: zero scritture sull'infra.
 
-Ogni account monitorato concede a Dadaguard un ruolo IAM di sola lettura — esempio in [`deploy/dadaguard-readonly-role.example.tf`](deploy/dadaguard-readonly-role.example.tf) (niente `kms:Decrypt`: i valori dei secret restano inaccessibili).
+Ogni account monitorato concede a Dadaguard un ruolo IAM di sola lettura — [esempio Terraform](deploy/dadaguard-readonly-role.example.tf) o la stessa [policy in JSON](deploy/dadaguard-readonly-policy.json) se non usi Terraform (niente `kms:Decrypt`: i valori dei secret restano inaccessibili).
 
 ### Hosting su AWS Fargate (avanzato, opzionale)
 Fargate dietro **Cloudflare Access** (Zero Trust, zero porte pubbliche), con la config iniettata da SSM: vedi [`deploy/README.md`](deploy/README.md). È una delle ricette di hosting possibili — per la maggior parte dei casi `docker compose` basta.
+
+## CLI & metriche
+Oltre alla dashboard, due interfacce per il flusso DevOps (read-only, on-demand):
+```bash
+npm run check                 # esegue tutti i check; exit ≠0 se un servizio è giù
+npm run check -- --json       # output machine-readable
+npm run check -- --fail-on degraded   # soglia più severa (gating di pipeline)
+```
+- **`/metrics`** — formato Prometheus (severità per servizio/check + latenza + running/desired): aggancialo a Grafana/Alertmanager per dashboard, alert e storico, senza che Dadaguard diventi un servizio stateful.
+- **`/healthz`** — liveness dell'app (non chiama AWS).
 
 ## Architettura
 - `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.

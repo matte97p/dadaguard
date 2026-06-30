@@ -1,0 +1,48 @@
+# Pubblica l'immagine OSS su GitHub Container Registry e crea la Release, quando spingi un tag v*.
+#   git tag v0.1.0 && git push origin v0.1.0
+# Distinto da deploy.yml (che deploya l'istanza Cato su ECR/ECS al push su main).
+# Nota: l'immagine eredita la visibilità del package GHCR — per l'OSS rendila "public"
+# nelle settings del package dopo il primo push.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # creare la GitHub Release
+  packages: write # pushare su ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

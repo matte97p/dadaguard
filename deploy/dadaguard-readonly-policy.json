@@ -1,0 +1,86 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RuntimeReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "lambda:ListFunctions",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetAlias",
+        "autoscaling:DescribeAutoScalingGroups",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "cloudwatch:GetMetricData",
+        "scheduler:GetSchedule",
+        "scheduler:ListSchedules",
+        "sqs:GetQueueUrl",
+        "sqs:GetQueueAttributes",
+        "dynamodb:DescribeTable",
+        "elasticache:DescribeCacheClusters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TopologyReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListEventSourceMappings",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeInternetGateways"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WasteReadOnly",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeAddresses", "ec2:DescribeNatGateways", "ec2:DescribeVolumes"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecurityReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecretsByNameOnly",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParametersByPath", "ssm:DescribeParameters"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CostExplorer",
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TerraformStateReadOnly",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::REPLACE_WITH_YOUR_TF_STATE_BUCKET",
+        "arn:aws:s3:::REPLACE_WITH_YOUR_TF_STATE_BUCKET/*"
+      ]
+    }
+  ]
+}
