@@ -40,6 +40,7 @@ const S = {
 
     'ecs.tasks': '{running}/{desired} task attivi',
     'ecs.pending': ' · {n} in avvio',
+    'ecs.deploying': 'rollout in corso · {running}/{desired}',
     'ecs.notfound': 'servizio ECS non trovato',
 
     'asg.healthy': '{healthy}/{desired} istanze sane',
@@ -176,6 +177,7 @@ const S = {
 
     'ecs.tasks': '{running}/{desired} tasks running',
     'ecs.pending': ' · {n} starting',
+    'ecs.deploying': 'rollout in progress · {running}/{desired}',
     'ecs.notfound': 'ECS service not found',
 
     'asg.healthy': '{healthy}/{desired} healthy instances',
