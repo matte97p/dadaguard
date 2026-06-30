@@ -48,6 +48,8 @@ data "aws_iam_policy_document" "readonly" {
       "lambda:GetAlias", # #2 build: versione dietro l'alias Lambda
       "autoscaling:DescribeAutoScalingGroups",
       "rds:DescribeDBClusters", "rds:DescribeDBInstances",
+      "rds:DescribeDBClusterSnapshots", "rds:DescribeDBSnapshots", # recency backup
+      "acm:DescribeCertificate", # #scadenza certificati
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",

@@ -10,6 +10,7 @@ import { ec2Runtime } from '../runtime/ec2.js'
 import { sqsRuntime } from '../runtime/sqs.js'
 import { dynamodbRuntime } from '../runtime/dynamodb.js'
 import { elasticacheRuntime } from '../runtime/elasticache.js'
+import { acmRuntime } from '../runtime/acm.js'
 
 export const key = 'runtime'
 
@@ -23,6 +24,7 @@ const PROVIDERS = {
   sqs: sqsRuntime,
   dynamodb: dynamodbRuntime,
   elasticache: elasticacheRuntime,
+  acm: acmRuntime,
 }
 
 export async function run(service, ctx) {

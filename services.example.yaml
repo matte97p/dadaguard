@@ -67,6 +67,9 @@ services:
 #   aws: { type: sqs, queue: my-queue, maxDepth: 1000 } # coda SQS (backlog; degraded se > maxDepth)
 #   aws: { type: dynamodb, table: my-table }        # tabella DynamoDB (stato)
 #   aws: { type: elasticache, cluster: my-redis }   # cluster ElastiCache (Redis/Memcached)
+#   aws: { type: acm, arn: arn:aws:acm:eu-central-1:...:certificate/..., warnDays: 30 } # scadenza cert
+# Backup RDS: il check "backups" si applica da sé ai servizi type rds (recency ultimo snapshot;
+# soglia backupMaxAgeDays, default 2). Allarmi CloudWatch: correlati per dimensione, riga solo se attivi.
 # Log recenti (pannello on-demand): automatici per lambda (/aws/lambda/<fn>) ed ecs (dal task def).
 # Per altri tipi o un group custom, dichiaralo: aws: { type: ecs, ..., logGroup: /mio/log/group }
 # Multi-region: di default la region è quella dell'account; per monitorare una risorsa in
