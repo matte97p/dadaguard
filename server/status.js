@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js'
 import { autoDiscoverServices } from './autodiscover.js'
+import { consoleUrl } from './console.js'
 import { MODE, capabilities } from './mode.js'
 import { makeT } from './i18n.js'
 import { mapLimit } from './util/pool.js'
@@ -115,9 +116,10 @@ export async function getStatus(lang) {
       )
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
+      const cu = consoleUrl(service) // #5 deep-link alla risorsa AWS esatta
       return {
         name: service.name,
-        links: service.links ?? {},
+        links: { ...(service.links ?? {}), ...(cu ? { [t('link.console')]: cu } : {}) },
         account: acct
           ? { key: service.account, label: acct.label ?? service.account, color: acct.color ?? null }
           : null,
