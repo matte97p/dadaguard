@@ -204,6 +204,9 @@ const STRINGS = {
     'discover.already': '(già)',
     'discover.notInTf': '⚠ non in TF',
     'discover.added': '{n} aggiunti alla watchlist',
+    'discover.autoTitle': 'Auto-discovery attiva',
+    'discover.autoDesc':
+      '{n} servizi scoperti in automatico dai tuoi account AWS (nessun services.yaml). Crea services.yaml per fissare la watchlist, le versioni attese e gli account.',
   },
   en: {
     'app.subtitle': "your stack's watchdog",
@@ -391,6 +394,9 @@ const STRINGS = {
     'discover.already': '(already)',
     'discover.notInTf': '⚠ not in TF',
     'discover.added': '{n} added to the watchlist',
+    'discover.autoTitle': 'Auto-discovery on',
+    'discover.autoDesc':
+      '{n} services auto-discovered from your AWS accounts (no services.yaml). Create a services.yaml to pin the watchlist, expected versions and accounts.',
   },
 }
 

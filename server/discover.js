@@ -93,6 +93,17 @@ async function listAsg(aws) {
   return groups.map((g) => g.AutoScalingGroupName).sort()
 }
 
+// Mappa i candidati discovery → voci servizio pronte per getStatus (in memoria, read-only).
+// Pura/testabile. Usata dall'auto-discovery zero-config (server/autodiscover.js).
+export function candidatesToServices(candidates, accountKey) {
+  return (candidates ?? []).map((c) => ({
+    name: c.name,
+    account: accountKey,
+    aws: c.aws,
+    ...(c.managed !== undefined ? { managed: c.managed } : {}),
+  }))
+}
+
 // Ritorna { candidates: [{ name, kind, aws, managed? }], activeInfo, tfState? }.
 export async function discover({ profile, roleArn, externalId, region, activeDays = 30, exclude, all, stateBucket } = {}) {
   const aws = { profile, roleArn, externalId, region }

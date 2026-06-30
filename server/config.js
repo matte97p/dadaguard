@@ -35,6 +35,17 @@ export function validateConfig(doc) {
 }
 
 export function loadConfig() {
-  const raw = isCloud ? process.env.DADAGUARD_CONFIG : readFileSync(CONFIG_PATH, 'utf8')
+  if (isCloud) return validateConfig(yaml.load(process.env.DADAGUARD_CONFIG) ?? {})
+  let raw
+  try {
+    raw = readFileSync(CONFIG_PATH, 'utf8')
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+    // Zero-config: nessun services.yaml. Sintetizza un account 'default' dalla catena di
+    // credenziali AWS (env / SSO / role), region da AWS_REGION. I servizi li trova
+    // l'auto-discovery (read-only, in memoria). services.yaml resta un OVERRIDE opzionale.
+    const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || undefined
+    return { accounts: { default: { region, label: 'AWS' } }, services: [] }
+  }
   return validateConfig(yaml.load(raw) ?? {})
 }
