@@ -11,6 +11,7 @@ import { getCosts } from './costs.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
+import { recentLogs } from './logs.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE } from './mode.js'
 import { log } from './log.js'
@@ -160,6 +161,24 @@ app.get('/api/network', async (_req, res) => {
   try {
     const { accounts, services } = loadConfig()
     res.json(await networkTopology(services, accounts))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Log recenti di un servizio (on-demand, read-only): il "perché è rosso". Lambda/ECS o logGroup.
+app.get('/api/logs', async (req, res) => {
+  try {
+    const { accounts, services } = loadConfig()
+    const svc = services.find((s) => s.name === req.query.service)
+    if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
+    res.json(
+      await recentLogs(svc, accounts, {
+        errorsOnly: req.query.errorsOnly === 'true',
+        minutes: req.query.minutes ? Number(req.query.minutes) : 60,
+        limit: req.query.limit ? Number(req.query.limit) : 100,
+      }),
+    )
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

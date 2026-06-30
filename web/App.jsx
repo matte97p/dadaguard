@@ -36,6 +36,7 @@ import WasteDrawer from './components/WasteDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import CostsDrawer from './components/CostsDrawer.jsx'
 import TopologyDrawer from './components/TopologyDrawer.jsx'
+import LogsDrawer from './components/LogsDrawer.jsx'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -49,6 +50,7 @@ export default function App() {
   const [driftOpen, setDriftOpen] = useState(false)
   const [costsOpen, setCostsOpen] = useState(false)
   const [topoOpen, setTopoOpen] = useState(false)
+  const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
@@ -315,6 +317,7 @@ export default function App() {
                     <ServiceCard
                       service={svc}
                       onRemove={caps.watchlist ? removeService : undefined}
+                      onLogs={setLogsService}
                       t={t}
                     />
                   </Col>
@@ -341,6 +344,7 @@ export default function App() {
           t={t}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
+        <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
       </Layout>
     </ConfigProvider>
   )

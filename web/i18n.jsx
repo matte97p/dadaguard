@@ -136,6 +136,17 @@ const STRINGS = {
     'topo.subnetPublic': 'pubblica',
     'topo.subnetPrivate': 'privata',
 
+    'logs.title': 'Log recenti',
+    'logs.button': 'Log recenti',
+    'logs.errorsOnly': 'Solo errori',
+    'logs.refresh': 'Aggiorna',
+    'logs.warning': 'Log grezzi della risorsa (ultima ora, max ~100 righe). Possono contenere dati sensibili.',
+    'logs.loading': 'Leggo i log da CloudWatch…',
+    'logs.notApplicable':
+      'Nessun log applicativo per questo tipo (solo Lambda/ECS, oppure imposta aws.logGroup).',
+    'logs.group': 'Log group',
+    'logs.empty': 'Nessun evento nella finestra',
+
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
       'Esegue terragrunt plan sul layer scelto (lento: init + provider + refresh; mette un lock sul backend). Read-only sull’infra.',
@@ -281,6 +292,17 @@ const STRINGS = {
     'topo.noVpcSub': 'AWS-managed network',
     'topo.subnetPublic': 'public',
     'topo.subnetPrivate': 'private',
+
+    'logs.title': 'Recent logs',
+    'logs.button': 'Recent logs',
+    'logs.errorsOnly': 'Errors only',
+    'logs.refresh': 'Refresh',
+    'logs.warning': 'Raw resource logs (last hour, up to ~100 lines). May contain sensitive data.',
+    'logs.loading': 'Reading logs from CloudWatch…',
+    'logs.notApplicable':
+      'No application logs for this type (Lambda/ECS only, or set aws.logGroup).',
+    'logs.group': 'Log group',
+    'logs.empty': 'No events in the window',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
