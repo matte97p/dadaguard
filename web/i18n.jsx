@@ -23,6 +23,7 @@ const STRINGS = {
     'btn.waste': 'Sprechi',
     'btn.costs': 'Costi',
     'btn.topology': 'Topologia',
+    'btn.quotas': 'Quote',
     'btn.drift': 'Drift',
     'btn.discover': 'Scopri servizi',
     'btn.refresh': 'Aggiorna',
@@ -170,6 +171,12 @@ const STRINGS = {
     'events.empty': 'Nessun evento recente',
     'events.notApplicable': 'Eventi non disponibili per questo tipo (ECS/RDS/ASG).',
 
+    'quotas.title': 'Service Quotas vicine al limite',
+    'quotas.desc': 'Quote AWS al ≥80% dell’uso (solo quelle con metrica d’uso esposta). On-demand.',
+    'quotas.loading': 'Leggo le quote…',
+    'quotas.none': 'Nessuna quota vicina al limite 🎉',
+    'quotas.noAccounts': 'Nessun account configurato',
+
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
       'Esegue terragrunt plan sul layer scelto (lento: init + provider + refresh; mette un lock sul backend). Read-only sull’infra.',
@@ -203,6 +210,7 @@ const STRINGS = {
     'btn.waste': 'Waste',
     'btn.costs': 'Costs',
     'btn.topology': 'Topology',
+    'btn.quotas': 'Quotas',
     'btn.drift': 'Drift',
     'btn.discover': 'Discover services',
     'btn.refresh': 'Refresh',
@@ -349,6 +357,12 @@ const STRINGS = {
     'events.loading': 'Loading events…',
     'events.empty': 'No recent events',
     'events.notApplicable': 'No events for this type (ECS/RDS/ASG).',
+
+    'quotas.title': 'Service Quotas near the limit',
+    'quotas.desc': 'AWS quotas at ≥80% usage (only those exposing a usage metric). On-demand.',
+    'quotas.loading': 'Reading quotas…',
+    'quotas.none': 'No quota near the limit 🎉',
+    'quotas.noAccounts': 'No account configured',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
