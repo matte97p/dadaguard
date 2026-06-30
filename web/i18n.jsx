@@ -146,6 +146,8 @@ const STRINGS = {
       'Nessun log applicativo per questo tipo (solo Lambda/ECS, oppure imposta aws.logGroup).',
     'logs.group': 'Log group',
     'logs.empty': 'Nessun evento nella finestra',
+    'logs.showNoise': 'Mostra START/END/REPORT',
+    'logs.hidden': 'righe Lambda nascoste',
 
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
@@ -303,6 +305,8 @@ const STRINGS = {
       'No application logs for this type (Lambda/ECS only, or set aws.logGroup).',
     'logs.group': 'Log group',
     'logs.empty': 'No events in the window',
+    'logs.showNoise': 'Show START/END/REPORT',
+    'logs.hidden': 'Lambda lines hidden',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
