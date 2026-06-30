@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Drawer, Segmented, Select, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -244,6 +244,23 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
   const [net, setNet] = useState(null)
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
+  const [acct, setAcct] = useState('all')
+
+  // account presenti (dai servizi) → opzioni del filtro. Un account alla volta, non tutti insieme.
+  const accountOpts = useMemo(() => {
+    const seen = new Map()
+    for (const s of services) {
+      const k = s.account?.key ?? '__none__'
+      if (!seen.has(k)) seen.set(k, s.account?.label ?? k)
+    }
+    return [...seen].map(([value, label]) => ({ value, label }))
+  }, [services])
+
+  // default = primo account (così parte mostrandone uno solo); resta valido se ancora presente.
+  useEffect(() => {
+    if (!open) return
+    setAcct((cur) => (accountOpts.some((o) => o.value === cur) ? cur : accountOpts[0]?.value ?? 'all'))
+  }, [open, accountOpts])
 
   // Dipendenze: fetch all'apertura.
   useEffect(() => {
@@ -274,24 +291,47 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
     if (!open) setNet(null)
   }, [open])
 
-  const { nodes, edges, usedVias } = useMemo(() => buildGraph(services, topo, dark), [services, topo, dark])
+  // filtro account applicato a entrambe le viste
+  const shownServices = useMemo(
+    () => (acct === 'all' ? services : services.filter((s) => (s.account?.key ?? '__none__') === acct)),
+    [services, acct],
+  )
+  const shownNet = useMemo(
+    () => (!net || acct === 'all' ? net : { accounts: (net.accounts ?? []).filter((a) => a.account === acct) }),
+    [net, acct],
+  )
+
+  const { nodes, edges, usedVias } = useMemo(
+    () => buildGraph(shownServices, topo, dark),
+    [shownServices, topo, dark],
+  )
   const hasEdges = edges.length > 0
   const netGraph = useMemo(
-    () => (net ? buildNetworkGraph(net, dark, t) : { nodes: [], hasData: false }),
-    [net, dark, t],
+    () => (shownNet ? buildNetworkGraph(shownNet, dark, t) : { nodes: [], hasData: false }),
+    [shownNet, dark, t],
   )
 
   return (
     <Drawer title={t('topo.title')} placement="right" width={840} open={open} onClose={onClose}>
-      <Segmented
-        options={[
-          { label: t('topo.tab.deps'), value: 'deps' },
-          { label: t('topo.tab.net'), value: 'net' },
-        ]}
-        value={view}
-        onChange={setView}
-        style={{ marginBottom: 12 }}
-      />
+      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
+        <Segmented
+          options={[
+            { label: t('topo.tab.deps'), value: 'deps' },
+            { label: t('topo.tab.net'), value: 'net' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+        {accountOpts.length > 1 && (
+          <Select
+            size="small"
+            value={acct}
+            onChange={setAcct}
+            style={{ minWidth: 200 }}
+            options={[...accountOpts, { value: 'all', label: t('filter.allAccounts') }]}
+          />
+        )}
+      </Space>
 
       {view === 'deps' ? (
         <>
@@ -305,7 +345,7 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
               <div style={{ textAlign: 'center', paddingTop: 120 }}>
                 <Spin tip={t('topo.loading')} />
               </div>
-            ) : services.length === 0 ? (
+            ) : shownServices.length === 0 ? (
               <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
             ) : (
               <ReactFlow nodes={nodes} edges={edges} fitView colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
@@ -314,7 +354,7 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
               </ReactFlow>
             )}
           </div>
-          {!loading && !hasEdges && services.length > 0 && (
+          {!loading && !hasEdges && shownServices.length > 0 && (
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
               {t('topo.noRelations')}
             </Text>
