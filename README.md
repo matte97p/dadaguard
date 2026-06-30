@@ -8,6 +8,11 @@ Watchdog DevOps **local-first**: *il mio stack è su **e coerente**?* Correla lo
 
 Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la versione deployata è quella attesa? il runtime reale (task *running* vs *desired*) è a posto? i secret che il servizio usa esistono? lo stato combacia con Terraform? Un servizio "verde" altrove qui può diventare **giallo**.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Dadaguard — la dashboard in azione" width="760"><br>
+  <sub><a href="assets/demo.mp4">▶ video completo</a> · girato da <a href="https://github.com/matte97p/demowright">demowright</a> sui dati di <code>DADAGUARD_DEMO=1</code></sub>
+</p>
+
 ## Segnali
 - **Liveness** + latenza
 - **Versione** deployata vs attesa

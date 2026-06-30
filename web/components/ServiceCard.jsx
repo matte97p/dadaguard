@@ -48,6 +48,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
   return (
     <Card
       size="small"
+      data-service={service.name}
       // accento colore dell'ambiente: riconosci prod da staging a colpo d'occhio
       style={account?.color ? { borderTop: `3px solid ${account.color}` } : undefined}
       title={<Badge status={overall.status} text={service.name} />}
