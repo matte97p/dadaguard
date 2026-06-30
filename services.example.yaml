@@ -68,6 +68,13 @@ services:
 #   aws: { type: dynamodb, table: my-table }        # tabella DynamoDB (stato)
 #   aws: { type: elasticache, cluster: my-redis }   # cluster ElastiCache (Redis/Memcached)
 #   aws: { type: acm, arn: arn:aws:acm:eu-central-1:...:certificate/..., warnDays: 30 } # scadenza cert
+#   aws: { type: apigateway, apiName: my-api, stage: prod }   # API Gateway (5xx recenti via CloudWatch)
+#   aws: { type: sfn, arn: arn:aws:states:...:stateMachine:my-sm } # Step Functions (esecuzioni fallite 24h)
+#   aws: { type: eks, cluster: my-cluster }          # EKS (stato cluster + versione)
+#   aws: { type: cloudfront, id: E123ABC }           # CloudFront (distribuzione, globale)
+#   aws: { type: sns, arn: arn:aws:sns:...:my-topic } # SNS (esiste + sottoscrizioni)
+#   aws: { type: s3, bucket: my-bucket }             # S3 (esistenza + esposizione pubblica)
+#   aws: { type: kinesis, stream: my-stream }        # Kinesis (stato stream + shard)
 # Backup RDS: il check "backups" si applica da sé ai servizi type rds (recency ultimo snapshot;
 # soglia backupMaxAgeDays, default 2). Allarmi CloudWatch: correlati per dimensione, riga solo se attivi.
 # Log recenti (pannello on-demand): automatici per lambda (/aws/lambda/<fn>) ed ecs (dal task def).
