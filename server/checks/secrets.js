@@ -44,6 +44,21 @@ export async function run(service, ctx) {
       }
     }
 
+    // #15 età/rotazione: secret più vecchi di `maxAgeDays` (default 90). Scatta solo se
+    // Doppler espone le date (r.oldest != null); altrimenti il dato non c'è e si salta.
+    const maxAgeDays = cfg.maxAgeDays ?? 90
+    if (r.oldest != null) {
+      const ageDays = Math.floor((Date.now() - r.oldest) / 86400000)
+      if (ageDays > maxAgeDays) {
+        return {
+          key,
+          status: 'degraded',
+          summary: t('secrets.stale', { n: r.count, days: maxAgeDays }),
+          count: r.count,
+        }
+      }
+    }
+
     return {
       key,
       status: 'up',
@@ -51,10 +66,19 @@ export async function run(service, ctx) {
       count: r.count,
     }
   } catch (err) {
-    // config inesistente, CLI non loggata, ecc. Niente valori nel messaggio.
-    const reason = /not found|Invalid|Unable/i.test(err.message)
-      ? t('secrets.dopplernotfound')
-      : t('secrets.dopplerunavailable')
+    // config inesistente, CLI non loggata, JSON illeggibile, ecc. Niente valori nel messaggio.
+    const reason =
+      err.code === 'DOPPLER_BAD_JSON'
+        ? t('secrets.dopplerbadjson')
+        : /not found|Invalid|Unable/i.test(err.message)
+          ? t('secrets.dopplernotfound')
+          : t('secrets.dopplerunavailable')
     return { key, status: 'unknown', reason }
   }
 }
+
+// TODO #13 (secret orfani: in Doppler ma referenziati da nessuno) — NON implementato.
+// È fragile: richiederebbe scansionare env Lambda / task ECS / SSM di tutti i servizi e
+// fare match per NOME col set Doppler, con alto rischio di falsi positivi (nomi che non
+// coincidono 1:1, secret usati a runtime ma non in env). Senza un legame robusto non lo
+// inventiamo. Vedi anche TODO #18 (mappa secret→servizio→risorsa) — fuori da questo batch.

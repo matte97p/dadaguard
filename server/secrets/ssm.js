@@ -5,6 +5,10 @@ import { clientOpts } from '../runtime/awsClient.js'
 // Legge SOLO i NOMI sotto un path (WithDecryption=false → niente valori, niente kms:Decrypt).
 // Convenzione Cato: /cato/<env>/<componente>[/<job>]/<KEY>.
 export async function ssmSecrets({ profile, roleArn, externalId, region, path }) {
+  // Validazione leggera: un path malformato darebbe errori AWS oscuri a valle.
+  if (typeof path !== 'string' || !path.startsWith('/')) {
+    throw new Error("path SSM non valido: deve iniziare con '/' (es. /myapp/staging/...)")
+  }
   const ssm = new SSMClient(clientOpts({ profile, roleArn, externalId, region }))
   const prefix = path.replace(/\/$/, '') + '/'
   const names = []

@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-lambda'
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from './awsClient.js'
+import { fmtAgo, identityT } from '../i18n.js'
 
 // RuntimeProvider per Lambda. Due profili di salute:
 //  - on-demand (webhook/event): finestra breve; 0 invocazioni = `idle` (ok, nessuno l'ha chiamata).
@@ -20,10 +21,11 @@ function fmtCount(n) {
   return String(n)
 }
 
-function fmtDur(min) {
-  if (min % 1440 === 0) return `${min / 1440}g`
-  if (min >= 60) return `${Math.round(min / 60)}h`
-  return `${min}m`
+// Durata compatta con unità tradotte (g/h/m IT, d/h/m EN). `t` di default = identità.
+function fmtDur(min, t = identityT) {
+  if (min % 1440 === 0) return `${min / 1440}${t('time.unit.d')}`
+  if (min >= 60) return `${Math.round(min / 60)}${t('time.unit.h')}`
+  return `${min}${t('time.unit.m')}`
 }
 
 function parseSchedule(s) {
@@ -44,7 +46,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   // Cron col proprio schedule EventBridge DISABLED (dallo state TF) → ferma di proposito.
   // Niente allarme, niente chiamate metriche inutili.
   if (isCron && opts.scheduleState === 'DISABLED') {
-    return { status: 'disabled', summary: t('lambda.cron.disabled', { sched: fmtDur(schedMin) }), schedule: cfg.schedule }
+    return { status: 'disabled', summary: t('lambda.cron.disabled', { sched: fmtDur(schedMin, t) }), schedule: cfg.schedule }
   }
 
   const lambda = new LambdaClient(opts3)
@@ -111,7 +113,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (invocations === 0) {
       return {
         status: 'down',
-        summary: t('lambda.cron.down', { window: fmtDur(windowMin), sched: fmtDur(schedMin) }),
+        summary: t('lambda.cron.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }),
         invocations: 0,
         errors,
         throttles,
@@ -123,7 +125,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
     return {
       status,
-      summary: `${parts.join(' · ')} (${fmtDur(windowMin)})`,
+      summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
       invocations,
       errors,
       throttles,
@@ -135,7 +137,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   if (invocations === 0) {
     return {
       status: 'idle',
-      summary: `${aliasInfo}${t('lambda.idle', { window: fmtDur(windowMin) })}`,
+      summary: `${aliasInfo}${t('lambda.idle', { window: fmtDur(windowMin, t) })}`,
       invocations: 0,
       errors,
       throttles,
@@ -164,4 +166,26 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     p95Ms: Math.round(p95),
     timeoutSec,
   }
+}
+
+// #2 build/deploy zero-config per Lambda: versione pubblicata + ultima modifica.
+// Se c'è un alias, riporta la versione a cui punta. Permessi: lambda:GetFunctionConfiguration
+// (+ lambda:GetAlias se `alias`). Ritorna { version, lastModified } o null.
+export async function lambdaBuildInfo(cfg, aws) {
+  const lambda = new LambdaClient(clientOpts(aws))
+  const conf = await lambda.send(
+    new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
+  )
+  let version = conf.Version // di norma "$LATEST"
+  if (cfg.alias) {
+    try {
+      const alias = await lambda.send(
+        new GetAliasCommand({ FunctionName: cfg.function, Name: cfg.alias }),
+      )
+      if (alias.FunctionVersion) version = alias.FunctionVersion
+    } catch {
+      /* alias assente: tieni la versione della config */
+    }
+  }
+  return { version, lastModified: conf.LastModified ?? null }
 }

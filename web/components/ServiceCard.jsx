@@ -37,6 +37,7 @@ export default function ServiceCard({ service, onRemove, t = (k) => k }) {
   const runtime = service.checks?.runtime
   const drift = service.checks?.drift
   const secrets = service.checks?.secrets
+  const security = service.checks?.security
   const links = service.links ?? {}
   const account = service.account
 
@@ -85,7 +86,7 @@ export default function ServiceCard({ service, onRemove, t = (k) => k }) {
         )}
 
         {version && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.version')}>{t('card.label.version')}</RowLabel>}>
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.build')}>{t('card.label.build')}</RowLabel>}>
             <Space size={4}>
               <CheckBadge status={version.status} />
               <span>{version.summary ?? version.reason ?? '—'}</span>
@@ -116,6 +117,15 @@ export default function ServiceCard({ service, onRemove, t = (k) => k }) {
             <Space size={4}>
               <CheckBadge status={secrets.status} />
               <span>{secrets.summary ?? secrets.reason ?? '—'}</span>
+            </Space>
+          </Descriptions.Item>
+        )}
+
+        {security && (
+          <Descriptions.Item label={<RowLabel tip={t('card.tip.security')}>{t('card.label.security')}</RowLabel>}>
+            <Space size={4}>
+              <CheckBadge status={security.status} />
+              <span>{security.summary ?? security.reason ?? '—'}</span>
             </Space>
           </Descriptions.Item>
         )}
