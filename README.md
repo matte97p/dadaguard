@@ -1,17 +1,33 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Dadaguard" width="128">
+  <img src="assets/logo.png" alt="Dadaguard" width="120">
 </p>
 
-# Dadaguard
-
-Watchdog DevOps **local-first**: *il mio stack è su **e coerente**?* Correla lo stato reale di **AWS + secret + Terraform** — **senza LLM**, 100% deterministico.
-
-Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la versione deployata è quella attesa? il runtime reale (task *running* vs *desired*) è a posto? i secret che il servizio usa esistono? lo stato combacia con Terraform? Un servizio "verde" altrove qui può diventare **giallo**.
+<h1 align="center">Dadaguard</h1>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Dadaguard — la dashboard in azione" width="760"><br>
-  <sub><a href="assets/demo.mp4">▶ video completo</a> · girato da <a href="https://github.com/matte97p/demowright">demowright</a> sui dati di <code>DADAGUARD_DEMO=1</code></sub>
+  Il tuo <code>200&nbsp;OK</code> mente. Dadaguard diventa <b>giallo</b> quando un servizio è <b>su</b> ma non <b>coerente</b> —<br>
+  versione, runtime, secret, Terraform. Watchdog DevOps · local-first · read-only · <b>no-LLM</b>.
 </p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/matte97p/dadaguard?color=7c3aed" alt="release">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+  <a href="https://github.com/matte97p/dadaguard/pkgs/container/dadaguard"><img src="https://img.shields.io/badge/ghcr.io-dadaguard-2496ED?logo=docker&logoColor=white" alt="container image"></a>
+  <a href="https://github.com/matte97p/dadaguard/stargazers"><img src="https://img.shields.io/github/stars/matte97p/dadaguard?style=social" alt="stars"></a>
+</p>
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Dadaguard in azione" width="760"><br>
+  <sub><a href="assets/demo.mp4">▶ video completo</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a></sub>
+</p>
+
+**Provalo in 10 secondi, senza AWS** — immagine pubblica, dati finti, zero config:
+```bash
+docker run -p 3001:3001 -e DADAGUARD_DEMO=1 ghcr.io/matte97p/dadaguard:latest
+# → http://localhost:3001
+```
+
+Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la versione deployata è quella attesa? il runtime reale (task *running* vs *desired*) è a posto? i secret che il servizio usa esistono? lo stato combacia con Terraform? Un servizio "verde" altrove qui può diventare **giallo**.
 
 ## Segnali
 - **Liveness** + latenza
