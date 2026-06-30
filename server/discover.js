@@ -29,8 +29,8 @@ async function filterActiveLambda(aws, names, days) {
   const cw = new CloudWatchClient(clientOpts(aws))
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - days * 86400 * 1000)
-  const queries = names.map((n, i) => ({
-    Id: `m${i}`,
+  const mkQuery = (n, i) => ({
+    Id: `m${i}`, // l'indice è GLOBALE su `names` → riconducibile anche fra i batch
     MetricStat: {
       Metric: {
         Namespace: 'AWS/Lambda',
@@ -41,14 +41,19 @@ async function filterActiveLambda(aws, names, days) {
       Stat: 'Sum',
     },
     ReturnData: true,
-  }))
-  const res = await cw.send(
-    new GetMetricDataCommand({ StartTime: startTime, EndTime: endTime, MetricDataQueries: queries }),
-  )
+  })
   const active = new Set()
-  for (const r of res.MetricDataResults ?? []) {
-    const sum = (r.Values ?? []).reduce((a, b) => a + b, 0)
-    if (sum > 0) active.add(names[Number(r.Id.slice(1))])
+  // GetMetricData ammette al massimo 500 query per chiamata → batch (con >500 lambda crasherebbe).
+  const BATCH = 500
+  for (let start = 0; start < names.length; start += BATCH) {
+    const queries = names.slice(start, start + BATCH).map((n, j) => mkQuery(n, start + j))
+    const res = await cw.send(
+      new GetMetricDataCommand({ StartTime: startTime, EndTime: endTime, MetricDataQueries: queries }),
+    )
+    for (const r of res.MetricDataResults ?? []) {
+      const sum = (r.Values ?? []).reduce((a, b) => a + b, 0)
+      if (sum > 0) active.add(names[Number(r.Id.slice(1))])
+    }
   }
   return names.filter((n) => active.has(n))
 }
