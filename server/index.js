@@ -14,9 +14,10 @@ import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
 import { recentEvents } from './events.js'
 import { nearLimitQuotas } from './quotas.js'
+import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck } from './demo.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -54,6 +55,16 @@ app.get('/api/status', async (req, res) => {
   try {
     if (isDemo) return res.json(demoStatus(req.query.lang))
     res.json(await getStatus(req.query.lang))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// #6 meta-salute: Dadaguard riesce a raggiungere/assumere ogni account? (STS, read-only)
+app.get('/api/selfcheck', async (_req, res) => {
+  try {
+    if (isDemo) return res.json(demoSelfcheck())
+    res.json(await selfCheck(loadConfig().accounts))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
