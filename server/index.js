@@ -13,6 +13,7 @@ import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
 import { recentEvents } from './events.js'
+import { nearLimitQuotas } from './quotas.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE } from './mode.js'
 import { log } from './log.js'
@@ -180,6 +181,15 @@ app.get('/api/logs', async (req, res) => {
         limit: req.query.limit ? Number(req.query.limit) : 100,
       }),
     )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Service Quotas vicine al limite, per account (on-demand, read-only).
+app.get('/api/quotas', async (_req, res) => {
+  try {
+    res.json(await nearLimitQuotas(loadConfig().accounts))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

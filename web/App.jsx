@@ -28,6 +28,7 @@ import {
   DiffOutlined,
   PieChartOutlined,
   PartitionOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons'
 import ServiceCard from './components/ServiceCard.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -38,6 +39,7 @@ import CostsDrawer from './components/CostsDrawer.jsx'
 import TopologyDrawer from './components/TopologyDrawer.jsx'
 import LogsDrawer from './components/LogsDrawer.jsx'
 import EventsDrawer from './components/EventsDrawer.jsx'
+import QuotasDrawer from './components/QuotasDrawer.jsx'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -51,6 +53,7 @@ export default function App() {
   const [driftOpen, setDriftOpen] = useState(false)
   const [costsOpen, setCostsOpen] = useState(false)
   const [topoOpen, setTopoOpen] = useState(false)
+  const [quotasOpen, setQuotasOpen] = useState(false)
   const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
   const [eventsService, setEventsService] = useState(null) // ... e gli eventi recenti
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
@@ -237,6 +240,9 @@ export default function App() {
             <Button icon={<PartitionOutlined />} onClick={() => setTopoOpen(true)}>
               {t('btn.topology')}
             </Button>
+            <Button icon={<DashboardOutlined />} onClick={() => setQuotasOpen(true)}>
+              {t('btn.quotas')}
+            </Button>
             {caps.fullDrift && (
               <Button icon={<DiffOutlined />} onClick={() => setDriftOpen(true)}>
                 {t('btn.drift')}
@@ -349,6 +355,7 @@ export default function App() {
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
         <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
+        <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} t={t} />
       </Layout>
     </ConfigProvider>
   )

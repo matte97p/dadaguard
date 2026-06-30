@@ -57,6 +57,7 @@ data "aws_iam_policy_document" "readonly" {
       "ec2:DescribeInstances", "ec2:DescribeInstanceStatus",
       "cloudwatch:GetMetricData",
       "cloudwatch:DescribeAlarms", # allarmi in stato ALARM correlati alla risorsa
+      "servicequotas:ListServiceQuotas", # quote vicine al limite (uso vs limite via CloudWatch)
       "scheduler:GetSchedule", "scheduler:ListSchedules",
       "sqs:GetQueueUrl", "sqs:GetQueueAttributes",   # #3 runtime SQS (profondità coda)
       "dynamodb:DescribeTable",                       # #3 runtime DynamoDB (stato tabella)
