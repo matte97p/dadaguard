@@ -1,0 +1,22 @@
+# Copia in terraform.tfvars e compila con i tuoi valori. terraform.tfvars e' gitignored.
+
+region      = "eu-central-1"
+cluster_arn = "arn:aws:ecs:eu-central-1:111111111111:cluster/mio-cluster"
+vpc_id      = "vpc-0123456789abcdef0"
+subnet_ids  = ["subnet-aaaa1111", "subnet-bbbb2222"] # private, con NAT
+
+# Immagine: lascia la GHCR pubblica per partire, oppure punta a una tua registry.
+# image = "ghcr.io/matte97p/dadaguard:v0.1.0"
+
+# Un ARN per ogni account che vuoi monitorare (il ruolo creato da
+# ../dadaguard-readonly-role.example.tf, applicato in quell'account).
+readonly_role_arns = [
+  "arn:aws:iam::222222222222:role/dadaguard-readonly", # staging
+  "arn:aws:iam::333333333333:role/dadaguard-readonly", # production
+]
+
+# Due parametri SSM SecureString nell'account host:
+#  - config: lo YAML di services.yaml (vedi ../../services.example.yaml), usa roleArn+externalId
+#  - tunnel: il token del Cloudflare Tunnel
+config_ssm_arn       = "arn:aws:ssm:eu-central-1:111111111111:parameter/dadaguard/config"
+tunnel_token_ssm_arn = "arn:aws:ssm:eu-central-1:111111111111:parameter/dadaguard/tunnel-token"
