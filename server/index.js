@@ -9,6 +9,7 @@ import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts } from './costs.js'
 import { deduceTopology } from './topology/deduce.js'
+import { networkTopology } from './topology/network.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud } from './mode.js'
 
@@ -126,6 +127,17 @@ app.get('/api/topology', async (_req, res) => {
   try {
     const { accounts, services } = loadConfig()
     res.json(await deduceTopology(services, accounts))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Topologia di RETE: VPC → subnet → servizio + egress (NAT/IGW). On-demand (tab "Rete").
+// Read-only; chi non sta in una VPC (es. Lambda non-VPC) finisce nel gruppo "senza VPC".
+app.get('/api/network', async (_req, res) => {
+  try {
+    const { accounts, services } = loadConfig()
+    res.json(await networkTopology(services, accounts))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
