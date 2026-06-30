@@ -167,5 +167,10 @@ export function demoEvents() {
       { ts: now - 120000, message: '(service web) deployment ECS-svc completed' },
       { ts: now - 60000, message: '(service web) has reached a steady state' },
     ],
+    changes: [
+      { ts: now - 130000, eventName: 'UpdateService', user: 'github-actions', source: 'ecs.amazonaws.com', errorCode: null },
+      { ts: now - 900000, eventName: 'RegisterTaskDefinition', user: 'github-actions', source: 'ecs.amazonaws.com', errorCode: null },
+      { ts: now - 3600000, eventName: 'PutScalingPolicy', user: 'matteo', source: 'application-autoscaling.amazonaws.com', errorCode: 'AccessDenied' },
+    ],
   }
 }

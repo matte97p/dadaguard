@@ -74,6 +74,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "ChangesReadOnly",
+      "Effect": "Allow",
+      "Action": ["cloudtrail:LookupEvents"],
+      "Resource": "*"
+    },
+    {
       "Sid": "TerraformStateReadOnly",
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:ListBucket"],
