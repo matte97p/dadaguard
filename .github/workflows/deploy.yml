@@ -13,13 +13,16 @@ permissions:
   id-token: write # necessario per l'OIDC
   contents: read
 
+# Config dell'ambiente di deploy via GitHub repo *variables* (Settings → Variables):
+# ECR_REPOSITORY, ECS_CLUSTER, AWS_DEPLOY_ROLE_ARN — così il repo pubblico non hardcoda
+# account id/ARN. Chi fa fork e vuole un proprio deploy imposta le sue.
 env:
   AWS_REGION: eu-central-1
-  ECR: 708895069864.dkr.ecr.eu-central-1.amazonaws.com/dadaguard
-  CLUSTER: cato-management
+  ECR: ${{ vars.ECR_REPOSITORY }}
+  CLUSTER: ${{ vars.ECS_CLUSTER }}
   SERVICE: dadaguard
   CONTAINER: dadaguard
-  ROLE_ARN: arn:aws:iam::708895069864:role/cato-management-gha-dadaguard-deploy
+  ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 
 jobs:
   deploy:
