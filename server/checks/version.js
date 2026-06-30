@@ -87,7 +87,9 @@ const BUILDERS = {
   async lambda(cfg, aws, expected, t) {
     const b = await lambdaBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
-    const ver = `v${b.version}`
+    // $LATEST = funzione non versionata (nessuna versione pubblicata/alias): mostralo com'è,
+    // il prefisso "v" ha senso solo davanti a un numero.
+    const ver = b.version === '$LATEST' ? '$LATEST' : `v${b.version}`
     const ago = b.lastModified ? fmtAgo(b.lastModified, t) : '—'
     return decideStatus({ key, summary: t('build.lambda', { ver, ago }) }, expected, b.version, t)
   },
