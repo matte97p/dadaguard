@@ -12,6 +12,10 @@
 //   lb    — Application Load Balancer: i servizi dietro i suoi target group (ECS via
 //           loadBalancers, EC2 via target di tipo instance) sono ciò che l'ALB serve → ne dipende.
 //           Permessi: elasticloadbalancing:DescribeTargetGroups/DescribeTargetHealth.
+//   iam   — policy del ruolo (inline + customer-managed): le Resource a cui il servizio può accedere
+//           → dipendenza. È il segnale più affidabile quando le connessioni passano per Secrets
+//           Manager (l'endpoint non è nelle env, ma il permesso IAM verso la risorsa resta esplicito).
+//           Permessi: iam:ListRolePolicies/GetRolePolicy/ListAttachedRolePolicies/GetPolicy/GetPolicyVersion.
 //   net   — regole di ingress dei security group: se l'SG del servizio T ammette come
 //           sorgente l'SG del servizio A, allora A può raggiungere T → A dipende da T.
 //           Permesso: ec2:DescribeSecurityGroups (+ describe già concessi per i singoli tipi).
@@ -34,6 +38,14 @@ import {
   DescribeTargetGroupsCommand,
   DescribeTargetHealthCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
+import {
+  IAMClient,
+  ListRolePoliciesCommand,
+  GetRolePolicyCommand,
+  ListAttachedRolePoliciesCommand,
+  GetPolicyCommand,
+  GetPolicyVersionCommand,
+} from '@aws-sdk/client-iam'
 import { clientOpts } from '../runtime/awsClient.js'
 
 // Credenziali/region per un servizio: dall'account, con override di region per-servizio.
@@ -51,17 +63,21 @@ function awsFor(service, accounts) {
 // Token < 5 caratteri scartati: troppo corti → rischio di falso positivo nel substring match.
 async function identifiers(service, aws) {
   const cfg = service.aws ?? {}
-  const ids = []
-  if (cfg.type === 'lambda' && cfg.function) ids.push(cfg.function)
-  if (cfg.type === 'ecs') {
-    if (cfg.service) ids.push(cfg.service)
-    if (cfg.cluster && cfg.service) ids.push(`${cfg.cluster}/${cfg.service}`)
+  // Identificativi generici: il nome del servizio + ogni nome/ARN/id di risorsa dichiarato nel cfg
+  // (function, cluster, service, name, instanceId, arn, table, queue, stream, topic, domain, …).
+  // Così il match "per ARN" (event source, Step Functions, IAM) copre tutti i tipi senza casistiche
+  // per tipo. Dagli ARN estraiamo anche il nome-risorsa finale (dopo l'ultimo : o /).
+  const ids = [service.name]
+  for (const [k, v] of Object.entries(cfg)) {
+    if (k === 'type' || k === 'region' || typeof v !== 'string') continue
+    ids.push(v)
+    if (v.startsWith('arn:')) {
+      const tail = v.split(/[:/]/).pop()
+      if (tail) ids.push(tail)
+    }
   }
-  if (cfg.type === 'alb' && cfg.name) ids.push(cfg.name)
-  if (cfg.type === 'ec2' && cfg.instanceId) ids.push(cfg.instanceId)
+  if (cfg.type === 'ecs' && cfg.cluster && cfg.service) ids.push(`${cfg.cluster}/${cfg.service}`)
   if (cfg.type === 'rds') {
-    if (cfg.cluster) ids.push(cfg.cluster)
-    if (cfg.instance) ids.push(cfg.instance)
     // l'endpoint host è l'identificativo più specifico (lo si trova nelle env DB_HOST/DATABASE_URL).
     try {
       const rds = new RDSClient(clientOpts(aws))
@@ -79,13 +95,14 @@ async function identifiers(service, aws) {
       /* endpoint non leggibile: resta l'id del cluster/istanza */
     }
   }
-  return ids.filter((t) => t && t.length >= 5).map((t) => t.toLowerCase())
+  return [...new Set(ids)].filter((t) => t && t.length >= 5).map((t) => t.toLowerCase())
 }
 
 // Riferimenti che una Lambda "emette": valori env (concatenati, mai esposti) + ARN delle sorgenti evento.
 async function lambdaReferences(service, aws) {
   const lambda = new LambdaClient(clientOpts(aws))
   let env = ''
+  let role = null
   const sources = []
   try {
     const conf = await lambda.send(
@@ -94,6 +111,7 @@ async function lambdaReferences(service, aws) {
     env = Object.values(conf.Environment?.Variables ?? {})
       .join(' \n ')
       .toLowerCase()
+    role = conf.Role ?? null // ARN del ruolo di esecuzione → sorgente 'iam'
   } catch {
     /* niente env leggibili */
   }
@@ -105,7 +123,7 @@ async function lambdaReferences(service, aws) {
   } catch {
     /* permesso lambda:ListEventSourceMappings assente → niente archi 'event' */
   }
-  return { env, sources }
+  return { env, sources, role }
 }
 
 // Info ECS lette UNA volta per servizio (una DescribeServices + una DescribeTaskDefinition): env
@@ -122,16 +140,18 @@ async function ecsInfo(service, aws) {
     const tgArns = (svc?.loadBalancers ?? []).map((lb) => lb.targetGroupArn).filter(Boolean)
     const tdArn = svc?.deployments?.find((d) => d.status === 'PRIMARY')?.taskDefinition ?? svc?.taskDefinition
     let env = ''
+    let roleArn = null
     if (tdArn) {
       const td = await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: tdArn }))
       const vals = []
       for (const c of td.taskDefinition?.containerDefinitions ?? [])
         for (const e of c.environment ?? []) if (e.value) vals.push(e.value)
       env = vals.join(' \n ').toLowerCase()
+      roleArn = td.taskDefinition?.taskRoleArn ?? null // ruolo del task → sorgente 'iam'
     }
-    return { env, tgArns }
+    return { env, tgArns, roleArn }
   } catch {
-    return { env: '', tgArns: [] }
+    return { env: '', tgArns: [], roleArn: null }
   }
 }
 
@@ -159,6 +179,59 @@ export function matchByArn(arn, idList, self) {
   const cands = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => arnTokens.has(tok)))
   const same = cands.filter((t) => t.account === self.account)
   return (same.length ? same : cands)[0]?.name ?? null
+}
+
+// Estrae gli ARN dalle Resource degli statement Allow di un policy document IAM. Puro e testabile.
+export function collectResourceArns(policyDoc) {
+  const out = new Set()
+  const stmts = Array.isArray(policyDoc?.Statement) ? policyDoc.Statement : [policyDoc?.Statement].filter(Boolean)
+  for (const st of stmts) {
+    if (st.Effect && st.Effect !== 'Allow') continue
+    const res = Array.isArray(st.Resource) ? st.Resource : [st.Resource]
+    for (const r of res) if (typeof r === 'string' && r.startsWith('arn:')) out.add(r)
+  }
+  return [...out]
+}
+
+// Legge le policy (inline + customer-managed) del ruolo e ne raccoglie gli ARN Resource: a cosa il
+// servizio può accedere. È il segnale più ricco quando le connection string stanno in Secrets Manager
+// (l'endpoint non è nelle env, ma il permesso IAM verso la risorsa resta esplicito). Cache per ruolo
+// (più servizi lo condividono). Le managed AWS-owned (arn:aws:iam::aws:policy/…) sono saltate: danno
+// permessi generici (log/metriche), non risorse del cliente. Best effort: senza iam:* niente archi.
+async function iamResourceArns(roleArn, aws, cache) {
+  if (cache.has(roleArn)) return cache.get(roleArn)
+  const arns = new Set()
+  const roleName = roleArn.split('/').pop()
+  try {
+    const iam = new IAMClient(clientOpts(aws))
+    const inline = await iam.send(new ListRolePoliciesCommand({ RoleName: roleName }))
+    for (const name of inline.PolicyNames ?? []) {
+      const p = await iam.send(new GetRolePolicyCommand({ RoleName: roleName, PolicyName: name }))
+      try {
+        for (const a of collectResourceArns(JSON.parse(decodeURIComponent(p.PolicyDocument)))) arns.add(a)
+      } catch {
+        /* documento non parsabile */
+      }
+    }
+    const attached = await iam.send(new ListAttachedRolePoliciesCommand({ RoleName: roleName }))
+    for (const ap of attached.AttachedPolicies ?? []) {
+      if (!ap.PolicyArn || ap.PolicyArn.startsWith('arn:aws:iam::aws:policy/')) continue
+      const pol = await iam.send(new GetPolicyCommand({ PolicyArn: ap.PolicyArn }))
+      const ver = pol.Policy?.DefaultVersionId
+      if (!ver) continue
+      const pv = await iam.send(new GetPolicyVersionCommand({ PolicyArn: ap.PolicyArn, VersionId: ver }))
+      try {
+        for (const a of collectResourceArns(JSON.parse(decodeURIComponent(pv.PolicyVersion?.Document ?? '{}')))) arns.add(a)
+      } catch {
+        /* documento non parsabile */
+      }
+    }
+  } catch {
+    /* permessi iam:* assenti → niente archi 'iam' */
+  }
+  const list = [...arns]
+  cache.set(roleArn, list)
+  return list
 }
 
 // Security group esposti da un servizio (per la sorgente di rete).
@@ -316,6 +389,7 @@ export async function deduceTopology(services, accounts) {
 
   const edges = []
   const extra = new Map()
+  const roleByService = new Map() // nome servizio → ARN del ruolo (per la sorgente 'iam')
   const push = (source, target, via) => {
     const e = edges.find((x) => x.source === source && x.target === target)
     if (e) {
@@ -344,7 +418,8 @@ export async function deduceTopology(services, accounts) {
       const self = { name: s.name, account: s.account ?? '__none__' }
 
       if (type === 'lambda' && s.aws.function) {
-        const { env, sources } = await lambdaReferences(s, awsFor(s, accounts))
+        const { env, sources, role } = await lambdaReferences(s, awsFor(s, accounts))
+        if (role) roleByService.set(s.name, role)
         // Match a TOKEN ESATTO (non substring): le env sono già stringhe separate; tokenizzo su
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
@@ -392,6 +467,23 @@ export async function deduceTopology(services, accounts) {
 
   // ALB → servizi dietro i target group.
   await deduceLoadBalancers(services, accounts, ecsData, push).catch(() => {})
+
+  // IAM → risorse a cui il ruolo del servizio può accedere (dipendenza dedotta dai permessi).
+  const roleCache = new Map()
+  await Promise.all(
+    services.map(async (s) => {
+      const type = s.aws?.type
+      const roleArn =
+        type === 'lambda' ? roleByService.get(s.name) : type === 'ecs' ? ecsData.get(s.name)?.roleArn : null
+      if (!roleArn) return
+      const self = { name: s.name, account: s.account ?? '__none__' }
+      const arns = await iamResourceArns(roleArn, awsFor(s, accounts), roleCache)
+      for (const arn of arns) {
+        const matched = matchByArn(arn, idList, self)
+        if (matched) push(s.name, matched, 'iam')
+      }
+    }),
+  ).catch(() => {})
 
   // rete (security group) — best effort, non blocca se manca il permesso.
   await deduceBySecurityGroups(services, accounts, push).catch(() => {})

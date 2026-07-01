@@ -8,12 +8,14 @@ All notable changes to Dadaguard are documented here. Format based on
 ### Added
 - **Topology, upgraded** — the dependency view is now **its own page**, auto-laid-out with dagre, and
   infers far more than before. `env` references are read from **ECS task definitions** too (not only
-  Lambda) — so an ECS/Fargate stack finally shows its wiring; plus two new sources: **Step Functions**
-  (the resources a state machine orchestrates → `flow` edges) and **Application Load Balancers** (the
-  ECS/EC2 services behind each target group → `lb` edges). Demo mode now ships a fully-wired sample
-  graph, so the feature is visible with no AWS connection. New read-only permission:
-  `states:DescribeStateMachine` (the Terraform role modules already granted it; only the JSON policy
-  example was missing it).
+  Lambda) — so an ECS/Fargate stack finally shows its wiring; plus new sources: **Step Functions**
+  (resources a state machine orchestrates → `flow` edges), **Application Load Balancers** (the ECS/EC2
+  services behind each target group → `lb` edges), and **IAM role policies** (the resources a service's
+  role can reach → `iam` edges — the strongest signal when connection strings live in Secrets Manager,
+  so the DB/queues stop looking isolated; reuses the `iam:*` read grants the security check already
+  needs). Demo mode now ships a fully-wired sample graph, so the feature is visible with no AWS
+  connection. New read-only permission: `states:DescribeStateMachine` (the Terraform role modules
+  already granted it; only the JSON policy example was missing it).
 - **Multi-page navigation** — Dadaguard is no longer one page with pop-out panels: Dashboard, Costs,
   Waste, Topology and Quotas are now real pages with their own URLs (react-router; deep links and the
   browser Back button work). The filter bar lives **on every page** and its state persists as you move

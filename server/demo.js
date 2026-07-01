@@ -165,6 +165,7 @@ export function demoTopology() {
       { source: 'public-lb', target: 'web', vias: ['lb'] }, // target degradato → rosso
       { source: 'order-flow', target: 'checkout-api', vias: ['flow'] }, // flow su target sano → rosa
       { source: 'order-flow', target: 'payments-worker', vias: ['flow'] }, // rosso
+      { source: 'nightly-report', target: 'events-stream', vias: ['iam'] }, // iam su target sano → teal scuro
     ],
     extraNodes: [{ id: 'ext:sqs:email-queue', type: 'sqs', label: 'email-queue' }],
   }

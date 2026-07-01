@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchEnvTargets, matchByArn, extractArns } from '../server/topology/deduce.js'
+import { matchEnvTargets, matchByArn, extractArns, collectResourceArns } from '../server/topology/deduce.js'
 
 const idList = [
   { name: 'webhook-stg', account: 'staging', ids: ['cato-staging-webhook'] },
@@ -56,4 +56,24 @@ test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () 
   assert.equal(matchByArn(arn, idList, { name: 'orchestrator', account: 'staging' }), 'webhook-stg')
   // ARN che non punta a nulla di tracciato → null
   assert.equal(matchByArn('arn:aws:s3:::qualche-bucket', idList, { name: 'x', account: 'staging' }), null)
+})
+
+test('collectResourceArns: pesca gli ARN Resource dai soli statement Allow', () => {
+  const doc = {
+    Statement: [
+      { Effect: 'Allow', Action: 'rds-db:connect', Resource: 'arn:aws:rds:eu-west-1:111:cluster:avvista-prod-db' },
+      { Effect: 'Allow', Action: ['sqs:SendMessage'], Resource: ['arn:aws:sqs:eu-west-1:111:prod-queue', '*'] },
+      { Effect: 'Deny', Action: '*', Resource: 'arn:aws:s3:::segreto' }, // Deny → ignorato
+    ],
+  }
+  assert.deepEqual(collectResourceArns(doc), [
+    'arn:aws:rds:eu-west-1:111:cluster:avvista-prod-db',
+    'arn:aws:sqs:eu-west-1:111:prod-queue',
+  ])
+  assert.deepEqual(collectResourceArns({}), [])
+  // statement singolo (oggetto, non array)
+  assert.deepEqual(
+    collectResourceArns({ Statement: { Effect: 'Allow', Resource: 'arn:aws:sns:eu-west-1:111:topic' } }),
+    ['arn:aws:sns:eu-west-1:111:topic'],
+  )
 })
