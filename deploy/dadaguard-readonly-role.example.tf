@@ -127,6 +127,7 @@ data "aws_iam_policy_document" "readonly" {
       "sso:DescribePermissionSet",
       "sso:ListAccountsForProvisionedPermissionSet",
       "sso:ListAccountAssignments",
+      "sso:GetInlinePolicyForPermissionSet",
       "identitystore:DescribeUser",
       "identitystore:DescribeGroup",
     ]

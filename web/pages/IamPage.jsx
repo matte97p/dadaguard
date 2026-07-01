@@ -264,19 +264,51 @@ function ResourceView({ services, t, initialResource }) {
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}
-      {data && data.matches.length === 0 && <Empty description={t('iam.noAccess')} style={{ marginTop: 8 }} />}
-      {data &&
-        data.matches.map((m) => (
-          <div key={m.arn} style={CARD}>
-            <Text strong>{m.policy}</Text>
-            <div style={{ marginTop: 8 }}>
-              <Entities entities={m.entities} t={t} />
+      {data && data.matches.length === 0 && (data.ssoMatches?.length ?? 0) === 0 && (
+        <Empty description={t('iam.noAccess')} style={{ marginTop: 8 }} />
+      )}
+
+      {data && data.matches.length > 0 && (
+        <>
+          <Text type="secondary" style={{ display: 'block' }}>
+            {t('iam.viaPolicy')}
+          </Text>
+          {data.matches.map((m) => (
+            <div key={m.arn} style={CARD}>
+              <Text strong>{m.policy}</Text>
+              <div style={{ marginTop: 8 }}>
+                <Entities entities={m.entities} t={t} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ActionTags actions={m.actions} />
+              </div>
             </div>
-            <div style={{ marginTop: 10 }}>
-              <ActionTags actions={m.actions} />
+          ))}
+        </>
+      )}
+
+      {data && (data.ssoMatches?.length ?? 0) > 0 && (
+        <>
+          <Text type="secondary" style={{ display: 'block' }}>
+            {t('iam.viaSso')}
+          </Text>
+          {data.ssoMatches.map((m, i) => (
+            <div key={i} style={CARD}>
+              <Text strong>{m.permissionSet}</Text>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {m.assignments.map((a, j) => (
+                  <Tag key={j} color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
+                    {a.name} <span style={{ opacity: 0.6 }}>· {a.account}</span>
+                  </Tag>
+                ))}
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ActionTags actions={m.actions} />
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </>
+      )}
     </Space>
   )
 }

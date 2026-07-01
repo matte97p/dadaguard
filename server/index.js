@@ -21,7 +21,7 @@ import { isCloud, MODE, isDemo } from './mode.js'
 import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
-import { ssoAccess } from './sso.js'
+import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -217,7 +217,11 @@ app.get('/api/iam/access', async (req, res) => {
   try {
     if (isDemo) return res.json(demoIamAccess(req.query.needle))
     const { accounts } = await resolveServices()
-    res.json(await accessToResource(accounts, req.query.account, req.query.needle))
+    const [byPolicy, viaSso] = await Promise.all([
+      accessToResource(accounts, req.query.account, req.query.needle),
+      ssoAccessToResource(accounts, req.query.needle).catch(() => []),
+    ])
+    res.json({ needle: byPolicy.needle, matches: byPolicy.matches, ssoMatches: viaSso })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -291,7 +291,16 @@ export function demoIamAccess(needle) {
   const matches = all
     .filter((m) => m.on.some((k) => q.includes(k) || k.includes(q)))
     .map(({ on, ...m }) => m)
-  return { needle, matches }
+  const ssoAll = [
+    {
+      permissionSet: 'avvista-db-operator',
+      actions: ['rds-db:connect'],
+      assignments: [{ account: 'Production', type: 'group', name: 'dba' }],
+      on: ['user-db'],
+    },
+  ]
+  const ssoMatches = ssoAll.filter((m) => m.on.some((k) => q.includes(k) || k.includes(q))).map(({ on, ...m }) => m)
+  return { needle, matches, ssoMatches }
 }
 
 export function demoSsoAccess() {
