@@ -12,7 +12,7 @@ import {
   ListAccountAssignmentsCommand,
   GetInlinePolicyForPermissionSetCommand,
 } from '@aws-sdk/client-sso-admin'
-import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand } from '@aws-sdk/client-identitystore'
+import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand, ListGroupMembershipsCommand } from '@aws-sdk/client-identitystore'
 import { OrganizationsClient, ListAccountsCommand } from '@aws-sdk/client-organizations'
 import { clientOpts } from './runtime/awsClient.js'
 import { parseStatements } from './iam.js'
@@ -72,6 +72,49 @@ async function orgAccountNames(acc) {
   return m
 }
 
+// Risolutore di principal con cache: per un USER ritorna { name }, per un GROUP ritorna anche i
+// { members } (chi c'è dentro), così un'assegnazione a gruppo non resta opaca. Best effort sui membri.
+function makeResolver(idstore, identityStoreId) {
+  const cache = new Map()
+  return async (type, id) => {
+    const k = `${type}:${id}`
+    if (cache.has(k)) return cache.get(k)
+    let out = { name: id }
+    try {
+      if (type === 'USER') {
+        const u = await idstore.send(new DescribeUserCommand({ IdentityStoreId: identityStoreId, UserId: id }))
+        out = { name: u.UserName || u.DisplayName || id }
+      } else {
+        const g = await idstore.send(new DescribeGroupCommand({ IdentityStoreId: identityStoreId, GroupId: id }))
+        const members = []
+        try {
+          let mt
+          do {
+            const o = await idstore.send(new ListGroupMembershipsCommand({ IdentityStoreId: identityStoreId, GroupId: id, NextToken: mt, MaxResults: 100 }))
+            for (const m of o.GroupMemberships ?? []) {
+              const uid = m.MemberId?.UserId
+              if (!uid) continue
+              try {
+                members.push((await idstore.send(new DescribeUserCommand({ IdentityStoreId: identityStoreId, UserId: uid }))).UserName || uid)
+              } catch {
+                /* membro non leggibile */
+              }
+            }
+            mt = o.NextToken
+          } while (mt)
+        } catch {
+          /* identitystore:ListGroupMemberships non concesso → gruppo senza elenco membri */
+        }
+        out = { name: g.DisplayName || id, members: members.sort() }
+      }
+    } catch {
+      /* directory non leggibile → resta l'id */
+    }
+    cache.set(k, out)
+    return out
+  }
+}
+
 export async function ssoAccess(accounts) {
   const inst = await findInstance(accounts)
   if (!inst) return { available: false, permissionSets: [] }
@@ -82,25 +125,7 @@ export async function ssoAccess(accounts) {
   const orgNames = await orgAccountNames(inst.acc)
   const nameOf = (id) => orgNames[id] || labels[id] || id
 
-  const nameCache = new Map()
-  const resolve = async (type, id) => {
-    const k = `${type}:${id}`
-    if (nameCache.has(k)) return nameCache.get(k)
-    let name = id
-    try {
-      if (type === 'USER') {
-        const u = await idstore.send(new DescribeUserCommand({ IdentityStoreId: inst.identityStoreId, UserId: id }))
-        name = u.UserName || u.DisplayName || id
-      } else {
-        const g = await idstore.send(new DescribeGroupCommand({ IdentityStoreId: inst.identityStoreId, GroupId: id }))
-        name = g.DisplayName || id
-      }
-    } catch {
-      /* directory non leggibile → resta l'id */
-    }
-    nameCache.set(k, name)
-    return name
-  }
+  const resolve = makeResolver(idstore, inst.identityStoreId)
 
   // tutti i permission set dell'istanza
   const psArns = []
@@ -140,7 +165,8 @@ export async function ssoAccess(accounts) {
                 new ListAccountAssignmentsCommand({ InstanceArn: inst.instanceArn, AccountId: acctId, PermissionSetArn: psArn, NextToken: aat, MaxResults: 100 }),
               )
               for (const a of o.AccountAssignments ?? []) {
-                assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
+                const p = await resolve(a.PrincipalType, a.PrincipalId)
+                assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: p.name, members: p.members })
               }
               aat = o.NextToken
             } while (aat)
@@ -170,20 +196,7 @@ export async function ssoAccessToResource(accounts, needle) {
   const labels = accountLabels(accounts)
   const orgNames = await orgAccountNames(inst.acc)
   const nameOf = (id) => orgNames[id] || labels[id] || id
-  const nameCache = new Map()
-  const resolve = async (type, id) => {
-    const k = `${type}:${id}`
-    if (nameCache.has(k)) return nameCache.get(k)
-    let name = id
-    try {
-      if (type === 'USER') name = (await idstore.send(new DescribeUserCommand({ IdentityStoreId: inst.identityStoreId, UserId: id }))).UserName || id
-      else name = (await idstore.send(new DescribeGroupCommand({ IdentityStoreId: inst.identityStoreId, GroupId: id }))).DisplayName || id
-    } catch {
-      /* directory non leggibile */
-    }
-    nameCache.set(k, name)
-    return name
-  }
+  const resolve = makeResolver(idstore, inst.identityStoreId)
 
   const psArns = []
   let t
@@ -227,7 +240,10 @@ export async function ssoAccessToResource(accounts, needle) {
             let aat
             do {
               const o = await sso.send(new ListAccountAssignmentsCommand({ InstanceArn: inst.instanceArn, AccountId: acctId, PermissionSetArn: psArn, NextToken: aat, MaxResults: 100 }))
-              for (const a of o.AccountAssignments ?? []) assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
+              for (const a of o.AccountAssignments ?? []) {
+                const p = await resolve(a.PrincipalType, a.PrincipalId)
+                assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: p.name, members: p.members })
+              }
               aat = o.NextToken
             } while (aat)
           } catch {

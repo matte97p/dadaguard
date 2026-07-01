@@ -22,7 +22,7 @@ All notable changes to Dadaguard are documented here. Format based on
   (roles/services) *and* SSO permission sets (people/groups via their inline policy), so "who can reach
   the prod DB?" is answered no matter how access is granted. **SSO access**: the *real* human access via Identity Center —
   permission set → people/groups → account (with SSO there are no IAM users/groups to look at, so the
-  first two lenses show empty user/group columns; this one shows how access actually works). Read-only,
+  first two lenses show empty user/group columns; this one shows how access actually works — groups are expanded to their members, so you see who's actually inside). Read-only,
   no secret values are ever read. New read-only permissions: `iam:ListPolicies`/`ListEntitiesForPolicy`,
   and — for the SSO lens, on the account hosting Identity Center — `sso:List*`/`DescribePermissionSet`
   + `identitystore:DescribeUser`/`DescribeGroup`.

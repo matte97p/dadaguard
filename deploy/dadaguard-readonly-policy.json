@@ -78,7 +78,8 @@
         "sso:ListAccountAssignments",
         "sso:GetInlinePolicyForPermissionSet",
         "identitystore:DescribeUser",
-        "identitystore:DescribeGroup"
+        "identitystore:DescribeGroup",
+        "identitystore:ListGroupMemberships"
       ],
       "Resource": "*"
     },
