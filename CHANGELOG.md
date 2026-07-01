@@ -30,11 +30,11 @@ All notable changes to Dadaguard are documented here. Format based on
   rate), SageMaker (endpoint invocations/errors/latency) — all via CloudWatch and auto-discovered.
 - **Calmer cards** — metadata (build sha, timestamps) is dimmed so the eye lands on status first;
   the Terraform-drift row is now the Terraform logo colored by state (green/red/yellow), no text.
-- **Throttling resilience** — CloudWatch `GetMetricData` is now **batched**: the metric-based providers
-  (Lambda, Bedrock, SageMaker, SES, OpenSearch) share one call per credentials+window (≤500 metrics)
-  instead of one per service. Plus adaptive retry (client-side rate limiting under 429) and a 5-min
-  resolved-services cache, so busy dashboards stop hitting `TooManyRequests`.
-  Tunables: `DADAGUARD_AWS_MAX_ATTEMPTS`, `DADAGUARD_DISCOVERY_TTL_MS`, `DADAGUARD_CONCURRENCY`.
+- **Throttling resilience** — several layers so busy dashboards stop hitting `TooManyRequests`:
+  CloudWatch `GetMetricData` is **batched** (one call per credentials+window, ≤500 metrics, instead of
+  one per service); AWS clients **share one credential provider per account** (a single STS AssumeRole
+  instead of one per client); adaptive retry (client-side rate limiting under 429); and a 5-min
+  resolved-services cache. Tunables: `DADAGUARD_AWS_MAX_ATTEMPTS`, `DADAGUARD_DISCOVERY_TTL_MS`, `DADAGUARD_CONCURRENCY`.
 - **Terraform badge** — the "Terraform-compliant" row is now a green/red badge, readable at a glance.
 
 ### Changed
