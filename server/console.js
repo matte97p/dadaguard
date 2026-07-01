@@ -54,6 +54,16 @@ export function consoleUrl(service, accountRegion) {
       return `${base}/apigateway/main/apis?region=${r}`
     case 'bedrock':
       return `${base}/bedrock/home?region=${r}#/` // console Bedrock (region); nessun deep-link per singolo modello
+    case 'sagemaker':
+      return a.endpoint
+        ? `${base}/sagemaker/home?region=${r}#/endpoints/${enc(a.endpoint)}`
+        : `${base}/sagemaker/home?region=${r}`
+    case 'ses':
+      return `${base}/ses/home?region=${r}#/account`
+    case 'opensearch':
+      return a.domain
+        ? `${base}/aos/home?region=${r}#opensearch/domains/${enc(a.domain)}`
+        : `${base}/aos/home?region=${r}`
     default:
       return null
   }

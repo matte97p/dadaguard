@@ -103,6 +103,9 @@ services:
 #   aws: { type: s3, bucket: my-bucket }             # S3 (esistenza + esposizione pubblica)
 #   aws: { type: kinesis, stream: my-stream }        # Kinesis (stato stream + shard)
 #   aws: { type: bedrock, model: anthropic.claude-3-5-sonnet-20241022-v2:0 } # Bedrock: uso/errori/throttle per modello (CloudWatch)
+#   aws: { type: sagemaker, endpoint: my-endpoint }  # SageMaker: invocazioni/errori/latenza (CloudWatch)
+#   aws: { type: ses }                               # SES: inviate/bounce%/complaint% (account, CloudWatch)
+#   aws: { type: opensearch, domain: my-domain, clientId: "111122223333" } # OpenSearch: ClusterStatus + nodi
 # Backup RDS: il check "backups" si applica da sé ai servizi type rds (recency ultimo snapshot;
 # soglia backupMaxAgeDays, default 2). Allarmi CloudWatch: correlati per dimensione, riga solo se attivi.
 # Log recenti (pannello on-demand): automatici per lambda (/aws/lambda/<fn>) ed ecs (dal task def).

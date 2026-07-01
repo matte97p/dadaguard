@@ -19,6 +19,9 @@ import { snsRuntime } from '../runtime/sns.js'
 import { s3Runtime } from '../runtime/s3.js'
 import { kinesisRuntime } from '../runtime/kinesis.js'
 import { bedrockRuntime } from '../runtime/bedrock.js'
+import { opensearchRuntime } from '../runtime/opensearch.js'
+import { sesRuntime } from '../runtime/ses.js'
+import { sagemakerRuntime } from '../runtime/sagemaker.js'
 
 export const key = 'runtime'
 
@@ -41,6 +44,9 @@ const PROVIDERS = {
   s3: s3Runtime,
   kinesis: kinesisRuntime,
   bedrock: bedrockRuntime,
+  opensearch: opensearchRuntime,
+  ses: sesRuntime,
+  sagemaker: sagemakerRuntime,
 }
 
 export async function run(service, ctx) {
