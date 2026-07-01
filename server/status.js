@@ -33,11 +33,13 @@ function rollup(checks) {
   )
 }
 
-export async function getStatus(lang) {
+// Risolve la lista EFFETTIVA di account + servizi: config (+ org) e auto-discovery/merge.
+// Condivisa tra getStatus e gli endpoint per-servizio (logs/events), così anche i servizi
+// SCOPERTI (non in services.yaml) sono risolvibili per nome — altrimenti darebbero 404.
+export async function resolveServices() {
   const { accounts: declaredAccounts, services: declared, org } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
-  const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
 
   // #8 AWS Organizations: enumera i membri (ListAccounts) e aggiungili agli account, ciascuno
   // col ruolo read-only assunto cross-account. Se fallisce, logga e prosegue con quelli espliciti.
@@ -49,26 +51,26 @@ export async function getStatus(lang) {
     }
   }
 
-  // Auto-discovery zero-config: nessun servizio dichiarato → scoprili dagli account
-  // (read-only, in memoria). services.yaml resta un override; se c'è, questo non scatta.
+  // Auto-discovery: nessun servizio dichiarato → scoprili dagli account (read-only, in memoria);
+  // con watchlist presente e DADAGUARD_DISCOVER attivo, unisci gli scoperti ai dichiarati (i
+  // dichiarati vincono e mantengono gli override).
   let discovered = null
   if (services.length === 0) {
     services = await autoDiscoverServices(accounts)
-    if (services.length) {
-      discovered = { count: services.length, accounts: Object.keys(accounts) }
-      log.info('auto-discovery', discovered)
-    }
+    if (services.length) discovered = { count: services.length, accounts: Object.keys(accounts) }
   } else if (autoDiscover) {
-    // Watchlist presente + DADAGUARD_DISCOVER=1: unisci i servizi scoperti a quelli dichiarati.
-    // I dichiarati vincono (mantengono gli override); si aggiungono solo le risorse non in watchlist.
     const before = services.length
     services = mergeServices(services, await autoDiscoverServices(accounts))
     const added = services.length - before
-    if (added > 0) {
-      discovered = { count: added, accounts: Object.keys(accounts) }
-      log.info('auto-discovery (unita alla watchlist)', discovered)
-    }
+    if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
+  return { accounts, services, discovered }
+}
+
+export async function getStatus(lang) {
+  const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
+  const { accounts, services, discovered } = await resolveServices()
+  if (discovered) log.info('auto-discovery', discovered)
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
   // così il drift non rilegge S3 per ogni servizio.
