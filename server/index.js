@@ -18,8 +18,9 @@ import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
+import { collectFindings } from './security.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -216,6 +217,17 @@ app.get('/api/iam/access', async (req, res) => {
     if (isDemo) return res.json(demoIamAccess(req.query.needle))
     const { accounts } = await resolveServices()
     res.json(await accessToResource(accounts, req.query.account, req.query.needle))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Findings di sicurezza/governance aggregati (superficie pubblica, scadenze, secret, igiene IAM…).
+app.get('/api/security', async (_req, res) => {
+  try {
+    if (isDemo) return res.json(demoSecurity())
+    const { accounts, services } = await resolveServices()
+    res.json(await collectFindings(accounts, services))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
