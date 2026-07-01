@@ -8,6 +8,25 @@ const API_PORT = process.env.PORT || 3001
 export default defineConfig({
   root: '.',
   plugins: [react()],
+  build: {
+    // Separiamo i vendor grossi in chunk propri: React Flow (~180 kB) nel suo (serve solo alla
+    // Topologia) e antd a parte, così i vendor — che cambiano di rado — restano in cache del browser
+    // tra un deploy e l'altro e cambia solo il piccolo chunk dell'app. antd da solo è ~800 kB
+    // minificato (gzip ~250): è la maggior parte del peso e non si spezza utilmente — per una
+    // dashboard interna è accettabile, quindi il limite di warning è tarato sopra quella soglia.
+    chunkSizeWarningLimit: 850,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('reactflow') || id.includes('@reactflow') || id.includes('@xyflow')) return 'flow'
+          if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'antd'
+          if (id.includes('react') || id.includes('scheduler')) return 'react'
+          return 'vendor'
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
