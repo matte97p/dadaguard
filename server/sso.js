@@ -22,17 +22,20 @@ function credsFor(acc) {
 
 // Prova gli account finché uno espone un'istanza Identity Center (di norma il management).
 async function findInstance(accounts) {
-  // Account configurati + credenziali "locali" del task (nessun profile/roleArn → default chain):
-  // il fallback locale rende la vista zero-config in prod, dove il servizio gira nell'account
-  // management (Identity Center in-account) senza dover dichiarare un account nel services.yaml.
+  // Account configurati + credenziali "locali" del task (nessun profile/roleArn → default chain).
+  // Un account MEMBRO vede l'istanza (ListInstances) ma non può gestirla: validiamo con una
+  // ListPermissionSets, così scegliamo l'account con i permessi SSO admin (management/delegated) e
+  // NON falliamo con 403 scegliendo un account che vede solo l'istanza. Zero-config in prod via task role.
   const candidates = [...Object.entries(accounts ?? {}), ['__task__', {}]]
   for (const [key, acc] of candidates) {
     try {
-      const o = await new SSOAdminClient(clientOpts(credsFor(acc))).send(new ListInstancesCommand({}))
-      const inst = o.Instances?.[0]
-      if (inst?.InstanceArn) return { acc, key, instanceArn: inst.InstanceArn, identityStoreId: inst.IdentityStoreId }
+      const sso = new SSOAdminClient(clientOpts(credsFor(acc)))
+      const inst = (await sso.send(new ListInstancesCommand({}))).Instances?.[0]
+      if (!inst?.InstanceArn) continue
+      await sso.send(new ListPermissionSetsCommand({ InstanceArn: inst.InstanceArn, MaxResults: 1 }))
+      return { acc, key, instanceArn: inst.InstanceArn, identityStoreId: inst.IdentityStoreId }
     } catch {
-      /* account senza accesso a Identity Center */
+      /* niente istanza o permessi SSO insufficienti su questo account → prova il prossimo */
     }
   }
   return null
