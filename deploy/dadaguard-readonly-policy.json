@@ -76,6 +76,7 @@
         "sso:DescribePermissionSet",
         "sso:ListAccountsForProvisionedPermissionSet",
         "sso:ListAccountAssignments",
+        "sso:GetInlinePolicyForPermissionSet",
         "identitystore:DescribeUser",
         "identitystore:DescribeGroup"
       ],

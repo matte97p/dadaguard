@@ -10,10 +10,12 @@ import {
   DescribePermissionSetCommand,
   ListAccountsForProvisionedPermissionSetCommand,
   ListAccountAssignmentsCommand,
+  GetInlinePolicyForPermissionSetCommand,
 } from '@aws-sdk/client-sso-admin'
 import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand } from '@aws-sdk/client-identitystore'
 import { OrganizationsClient, ListAccountsCommand } from '@aws-sdk/client-organizations'
 import { clientOpts } from './runtime/awsClient.js'
+import { parseStatements } from './iam.js'
 
 const SSO_REGION = process.env.DADAGUARD_SSO_REGION || 'eu-central-1' // dove vive Identity Center
 
@@ -152,4 +154,90 @@ export async function ssoAccess(accounts) {
   )
   permissionSets.sort((a, b) => a.name.localeCompare(b.name))
   return { available: true, permissionSets }
+}
+
+// Lato SSO della vista "per risorsa": quali permission set concedono accesso al `needle` (match negli
+// ARN Resource della loro INLINE policy — dove finiscono gli accessi specifici tipo rds-db:connect) e
+// chi li detiene. Completa la lente unendo l'accesso umano (SSO) a quello dei ruoli/servizi (policy IAM).
+export async function ssoAccessToResource(accounts, needle) {
+  const q = String(needle || '').toLowerCase()
+  if (!q) return []
+  const inst = await findInstance(accounts)
+  if (!inst) return []
+
+  const sso = new SSOAdminClient(clientOpts(credsFor(inst.acc)))
+  const idstore = new IdentitystoreClient(clientOpts(credsFor(inst.acc)))
+  const labels = accountLabels(accounts)
+  const orgNames = await orgAccountNames(inst.acc)
+  const nameOf = (id) => orgNames[id] || labels[id] || id
+  const nameCache = new Map()
+  const resolve = async (type, id) => {
+    const k = `${type}:${id}`
+    if (nameCache.has(k)) return nameCache.get(k)
+    let name = id
+    try {
+      if (type === 'USER') name = (await idstore.send(new DescribeUserCommand({ IdentityStoreId: inst.identityStoreId, UserId: id }))).UserName || id
+      else name = (await idstore.send(new DescribeGroupCommand({ IdentityStoreId: inst.identityStoreId, GroupId: id }))).DisplayName || id
+    } catch {
+      /* directory non leggibile */
+    }
+    nameCache.set(k, name)
+    return name
+  }
+
+  const psArns = []
+  let t
+  do {
+    const o = await sso.send(new ListPermissionSetsCommand({ InstanceArn: inst.instanceArn, NextToken: t, MaxResults: 100 }))
+    psArns.push(...(o.PermissionSets ?? []))
+    t = o.NextToken
+  } while (t)
+
+  const matches = []
+  await Promise.all(
+    psArns.map(async (psArn) => {
+      let stmts = []
+      try {
+        const inl = await sso.send(new GetInlinePolicyForPermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn }))
+        if (!inl.InlinePolicy) return
+        stmts = parseStatements(JSON.parse(inl.InlinePolicy))
+      } catch {
+        return
+      }
+      const hit = stmts.filter((s) => s.resources.some((r) => r.toLowerCase().includes(q)))
+      if (!hit.length) return
+      const actions = [...new Set(hit.flatMap((s) => s.actions))]
+      let name = psArn
+      try {
+        name = (await sso.send(new DescribePermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn }))).PermissionSet?.Name || psArn
+      } catch {
+        /* nome non leggibile */
+      }
+      const assignments = []
+      const acctIds = []
+      let at
+      do {
+        const o = await sso.send(new ListAccountsForProvisionedPermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn, NextToken: at, MaxResults: 100 }))
+        acctIds.push(...(o.AccountIds ?? []))
+        at = o.NextToken
+      } while (at)
+      await Promise.all(
+        acctIds.map(async (acctId) => {
+          try {
+            let aat
+            do {
+              const o = await sso.send(new ListAccountAssignmentsCommand({ InstanceArn: inst.instanceArn, AccountId: acctId, PermissionSetArn: psArn, NextToken: aat, MaxResults: 100 }))
+              for (const a of o.AccountAssignments ?? []) assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
+              aat = o.NextToken
+            } while (aat)
+          } catch {
+            /* nessuna assegnazione leggibile */
+          }
+        }),
+      )
+      matches.push({ permissionSet: name, actions, assignments })
+    }),
+  )
+  matches.sort((a, b) => a.permissionSet.localeCompare(b.permissionSet))
+  return matches
 }
