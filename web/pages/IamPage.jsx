@@ -63,6 +63,33 @@ function Entities({ entities, t }) {
   )
 }
 
+// Assegnazioni SSO: ogni riga è una persona (blu) o un gruppo (viola); per i gruppi elenca i membri,
+// così "chi c'è dentro" non resta opaco.
+function Assignments({ items, t }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {items.map((a, i) => (
+        <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+          <Tag color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
+            {a.type === 'group' ? `${t('iam.group')}: ` : ''}
+            {a.name} <span style={{ opacity: 0.65 }}>· {a.account}</span>
+          </Tag>
+          {a.type === 'group' &&
+            (a.members?.length ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {a.members.join(', ')}
+              </Text>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic' }}>
+                {t('iam.noMembers')}
+              </Text>
+            ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // --- Vista "Per policy": elenco policy per account + dettaglio (chi la usa / a cosa dà accesso). ---
 function PolicyView({ t, initialSel }) {
   const [data, setData] = useState(null)
@@ -295,12 +322,8 @@ function ResourceView({ services, t, initialResource }) {
           {data.ssoMatches.map((m, i) => (
             <div key={i} style={CARD}>
               <Text strong>{m.permissionSet}</Text>
-              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {m.assignments.map((a, j) => (
-                  <Tag key={j} color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
-                    {a.name} <span style={{ opacity: 0.6 }}>· {a.account}</span>
-                  </Tag>
-                ))}
+              <div style={{ marginTop: 8 }}>
+                <Assignments items={m.assignments} t={t} />
               </div>
               <div style={{ marginTop: 10 }}>
                 <ActionTags actions={m.actions} />
@@ -350,12 +373,8 @@ function SsoView({ t }) {
         {ps.map((p) => (
           <div key={p.name} style={CARD}>
             <Text strong>{p.name}</Text>
-            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {p.assignments.map((a, i) => (
-                <Tag key={i} color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
-                  {a.name} <span style={{ opacity: 0.6 }}>· {a.account}</span>
-                </Tag>
-              ))}
+            <div style={{ marginTop: 8 }}>
+              <Assignments items={p.assignments} t={t} />
             </div>
           </div>
         ))}

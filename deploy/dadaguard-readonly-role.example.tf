@@ -130,6 +130,7 @@ data "aws_iam_policy_document" "readonly" {
       "sso:GetInlinePolicyForPermissionSet",
       "identitystore:DescribeUser",
       "identitystore:DescribeGroup",
+      "identitystore:ListGroupMemberships",
     ]
     resources = ["*"]
   }

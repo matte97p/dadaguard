@@ -295,7 +295,7 @@ export function demoIamAccess(needle) {
     {
       permissionSet: 'avvista-db-operator',
       actions: ['rds-db:connect'],
-      assignments: [{ account: 'Production', type: 'group', name: 'dba' }],
+      assignments: [{ account: 'Production', type: 'group', name: 'dba', members: ['db.admin'] }],
       on: ['user-db'],
     },
   ]
@@ -310,19 +310,19 @@ export function demoSsoAccess() {
       {
         name: 'AdministratorAccess',
         assignments: [
-          { account: 'Production', type: 'group', name: 'platform-admins' },
-          { account: 'Staging', type: 'group', name: 'platform-admins' },
+          { account: 'Production', type: 'group', name: 'platform-admins', members: ['matteo.perino', 'alice.rossi'] },
+          { account: 'Staging', type: 'group', name: 'platform-admins', members: ['matteo.perino', 'alice.rossi'] },
         ],
       },
       {
         name: 'BillingView',
-        assignments: [{ account: 'Production', type: 'group', name: 'finance' }],
+        assignments: [{ account: 'Production', type: 'group', name: 'finance', members: ['carla.bianchi'] }],
       },
       {
         name: 'ReadOnly',
         assignments: [
-          { account: 'Production', type: 'group', name: 'engineering' },
-          { account: 'Staging', type: 'group', name: 'engineering' },
+          { account: 'Production', type: 'group', name: 'engineering', members: ['dev.uno', 'dev.due'] },
+          { account: 'Staging', type: 'group', name: 'engineering', members: ['dev.uno', 'dev.due'] },
           { account: 'Production', type: 'user', name: 'revisore-esterno' },
         ],
       },
