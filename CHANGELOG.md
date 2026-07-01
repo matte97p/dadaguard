@@ -7,10 +7,13 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ### Added
 - **Security page** — a new **Security** page: security & governance findings aggregated in one list,
-  filterable by category and sorted by severity. First category **public surface**: security groups
-  open to `0.0.0.0/0` on sensitive ports, RDS `publicly accessible`, internet-facing ALBs, and S3
-  buckets without a complete Public Access Block. Read-only; the page is a container more categories
-  plug into (expiries, stale secrets, IAM hygiene).
+  filterable by category and sorted by severity. Categories: **public surface** (SGs open to
+  `0.0.0.0/0` on sensitive ports, RDS `publicly accessible`, internet-facing ALBs, S3 without a
+  complete Public Access Block), **expiring** (ACM certs within 30 days), **IAM hygiene** (policies
+  with `Action`/`Resource` `"*"`, IAM users without MFA, access keys not rotated in 90+ days), and
+  **stale secrets** (Secrets Manager not rotated in 90+ days — metadata only, never the value).
+  Read-only, best-effort. New read-only permissions: `acm:ListCertificates`/`DescribeCertificate`,
+  `iam:ListUsers`/`ListAccessKeys`/`ListMFADevices`, `secretsmanager:ListSecrets`.
 - **IAM explorer** — a new **IAM** page with two lenses. **By policy**: pick a customer-managed policy
   and see who uses it (roles/users/groups) and what it grants (actions by service + resource ARNs).
   **By resource**: pick a service and see which policies touch it, who holds them and with what actions
