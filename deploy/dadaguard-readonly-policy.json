@@ -39,7 +39,9 @@
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeSubnets",
         "ec2:DescribeVpcs",
-        "ec2:DescribeInternetGateways"
+        "ec2:DescribeInternetGateways",
+        "events:ListRules",
+        "events:ListTargetsByRule"
       ],
       "Resource": "*"
     },

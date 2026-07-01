@@ -45,8 +45,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
 
   // Cron col proprio schedule EventBridge DISABLED (dallo state TF) → ferma di proposito.
   // Niente allarme, niente chiamate metriche inutili.
-  if (isCron && opts.scheduleState === 'DISABLED') {
-    return { status: 'disabled', summary: t('lambda.cron.disabled', { sched: fmtDur(schedMin, t) }), schedule: cfg.schedule }
+  if (isCron && (opts.scheduleState ?? cfg.scheduleState) === 'DISABLED') {
+    return { status: 'disabled', summary: t('lambda.cron.disabled', { sched: fmtDur(schedMin, t) }), schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr }
   }
 
   const lambda = new LambdaClient(opts3)
@@ -118,6 +118,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
         errors,
         throttles,
         schedule: cfg.schedule,
+        scheduleExpr: cfg.scheduleExpr,
       }
     }
     const status = errors > 0 || throttles > 0 ? 'degraded' : 'up'
@@ -130,6 +131,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       errors,
       throttles,
       schedule: cfg.schedule,
+      scheduleExpr: cfg.scheduleExpr,
     }
   }
 
