@@ -10,7 +10,7 @@
 import { ecsBuildInfo } from '../runtime/ecs.js'
 import { lambdaBuildInfo } from '../runtime/lambda.js'
 import { ec2BuildInfo } from '../runtime/ec2.js'
-import { isThrottle } from '../runtime/awsClient.js'
+import { cleanAwsReason } from '../runtime/awsClient.js'
 import { fmtAgo, fmtDuration } from '../i18n.js'
 
 const TIMEOUT_MS = 5000
@@ -104,9 +104,8 @@ async function compute(service, ctx, expected, t) {
     try {
       return await BUILDERS[cfg.type](cfg, aws, expected, t)
     } catch (err) {
-      // Sotto throttling (burst di discovery su molti servizi) mostriamo un messaggio pulito, non
-      // l'eccezione grezza "TooManyRequestsException: HTTP 429": è transitorio, si risolve al refresh.
-      return { key, status: 'unknown', reason: isThrottle(err) ? t('version.throttled') : err.message }
+      // Messaggio pulito e azionabile invece dell'eccezione SDK grezza (throttle/denied/notfound/expired/…).
+      return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
     }
   }
 

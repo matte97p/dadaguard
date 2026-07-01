@@ -6,7 +6,7 @@ import {
   DescribeDBClusterSnapshotsCommand,
   DescribeDBSnapshotsCommand,
 } from '@aws-sdk/client-rds'
-import { clientOpts } from '../runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from '../runtime/awsClient.js'
 
 export const key = 'backups'
 
@@ -38,6 +38,6 @@ export async function run(service, ctx) {
     const maxAge = cfg.backupMaxAgeDays ?? 2
     return { key, status: days > maxAge ? 'degraded' : 'up', summary: t('backups.last', { days }) }
   } catch (err) {
-    return { key, status: 'unknown', reason: err.message }
+    return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
   }
 }

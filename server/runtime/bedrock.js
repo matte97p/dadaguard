@@ -1,5 +1,6 @@
 import { metricValues } from './cw.js'
 import { identityT } from '../i18n.js'
+import { fmtMs, fmtCount } from '../util/format.js'
 
 // RuntimeProvider Amazon Bedrock. Serverless: guardiamo le metriche d'uso su una finestra (CloudWatch
 // AWS/Bedrock, via il batcher condiviso): invocazioni, errori client/server, throttling, latenza.
@@ -29,8 +30,8 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const errors = Math.round(m.cerr + m.serr)
   const throttles = Math.round(m.thr)
   const status = throttles > 0 || m.serr > 0 || errors > 0 ? 'degraded' : 'up'
-  const parts = [t('bedrock.invocations', { n: Math.round(m.inv) }), t('bedrock.errors', { n: errors })]
+  const parts = [t('bedrock.invocations', { n: fmtCount(Math.round(m.inv)) }), t('bedrock.errors', { n: errors })]
   if (throttles > 0) parts.push(t('bedrock.throttled', { n: throttles }))
-  if (m.lat > 0) parts.push(t('bedrock.latency', { ms: Math.round(m.lat) }))
+  if (m.lat > 0) parts.push(t('bedrock.latency', { d: fmtMs(Math.round(m.lat)) }))
   return { status, summary: `${parts.join(' · ')} (${winL})` }
 }

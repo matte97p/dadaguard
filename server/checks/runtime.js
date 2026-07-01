@@ -22,6 +22,7 @@ import { bedrockRuntime } from '../runtime/bedrock.js'
 import { opensearchRuntime } from '../runtime/opensearch.js'
 import { sesRuntime } from '../runtime/ses.js'
 import { sagemakerRuntime } from '../runtime/sagemaker.js'
+import { cleanAwsReason } from '../runtime/awsClient.js'
 
 export const key = 'runtime'
 
@@ -74,7 +75,7 @@ export async function run(service, ctx) {
     return { key, ...(await provider(cfg, aws, extra)) }
   } catch (err) {
     // creds mancanti, region assente, accesso negato, risorsa non trovata:
-    // degrada con grazia, non rompere la card.
-    return { key, status: 'unknown', reason: err.message }
+    // degrada con grazia (messaggio pulito, non l'eccezione SDK grezza), non rompere la card.
+    return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
   }
 }

@@ -6,6 +6,7 @@ import {
   HistoryOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons'
+import { fmtMs } from '../format.js'
 
 // Logo Terraform (SVG inline) colorato per stato del drift: la card mostra solo il logo, il testo
 // (sì/no · diffs) va nel tooltip. Verde=conforme, rosso=drift, giallo=stato ignoto.
@@ -130,7 +131,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
                   : liveness.reason ?? '—'}
               </span>
               {typeof liveness.latencyMs === 'number' && (
-                <Text type="secondary">· {liveness.latencyMs}ms</Text>
+                <Text type="secondary">· {fmtMs(liveness.latencyMs)}</Text>
               )}
             </Space>
           </Descriptions.Item>

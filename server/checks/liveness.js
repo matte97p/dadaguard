@@ -32,12 +32,16 @@ export async function run(service, ctx) {
     return { key, status, httpStatus, latencyMs }
   } catch (err) {
     const latencyMs = Math.round(performance.now() - startedAt)
-    return {
-      key,
-      status: 'down',
-      latencyMs,
-      reason: err.name === 'AbortError' ? t('liveness.timeout', { ms: TIMEOUT_MS }) : err.message,
-    }
+    // Messaggi distinti per causa invece dell'err.message grezzo del fetch: timeout / DNS / connessione
+    // rifiutata / TLS / irraggiungibile. La causa vera del fetch undici sta in err.cause.code.
+    const code = err.cause?.code || err.code || ''
+    let reason
+    if (err.name === 'AbortError') reason = t('liveness.timeout', { ms: TIMEOUT_MS })
+    else if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') reason = t('liveness.dns')
+    else if (code === 'ECONNREFUSED' || code === 'ECONNRESET') reason = t('liveness.refused')
+    else if (/CERT|TLS|SSL|SELF_SIGNED/i.test(code) || /certificate/i.test(err.message || '')) reason = t('liveness.tls')
+    else reason = t('liveness.unreachable')
+    return { key, status: 'down', latencyMs, reason }
   } finally {
     clearTimeout(timer)
   }

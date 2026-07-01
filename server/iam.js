@@ -7,7 +7,7 @@ import {
   GetPolicyVersionCommand,
   ListEntitiesForPolicyCommand,
 } from '@aws-sdk/client-iam'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 // IAM è globale: la region non conta, ma il client ne vuole una. Credenziali dall'account.
 function awsForAccount(acc) {
@@ -49,7 +49,7 @@ export async function listPolicies(accounts) {
         policies.sort((a, b) => b.attachments - a.attachments || a.name.localeCompare(b.name))
         out.push({ account: key, label: acc.label ?? key, color: acc.color, policies })
       } catch (err) {
-        out.push({ account: key, label: acc.label ?? key, color: acc.color, error: err.message })
+        out.push({ account: key, label: acc.label ?? key, color: acc.color, error: cleanAwsReason(err) })
       }
     }),
   )

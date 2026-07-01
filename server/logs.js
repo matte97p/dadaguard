@@ -10,7 +10,7 @@ import {
   DescribeServicesCommand,
   DescribeTaskDefinitionCommand,
 } from '@aws-sdk/client-ecs'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 // pattern CloudWatch: eventi che contengono uno di questi termini (OR)
 const ERROR_PATTERN = '?ERROR ?Error ?error ?Exception ?exception ?FATAL ?CRITICAL ?Traceback'
@@ -64,6 +64,6 @@ export async function recentLogs(service, accounts, { errorsOnly = false, minute
     const events = (out.events ?? []).map((e) => ({ ts: e.timestamp, message: (e.message ?? '').trimEnd() }))
     return { logGroup, events, truncated: Boolean(out.nextToken) }
   } catch (err) {
-    return { logGroup, error: err.message } // es. group inesistente / permessi
+    return { logGroup, error: cleanAwsReason(err) } // es. group inesistente / permessi
   }
 }
