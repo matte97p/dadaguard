@@ -74,6 +74,7 @@ const STRINGS = {
       'Esposizioni note correlate al servizio: regole di security group aperte a internet (0.0.0.0/0) su porte sensibili, e policy IAM del suo ruolo con wildcard ampie (Action/Resource «*»). Solo lettura.',
     'card.tip.runtime':
       'Il compute reale combacia col desiderato: i task/istanze attesi sono su e in salute, gli errori bassi. «p95 805ms» = il 95% delle chiamate finisce entro 805ms (la coda lenta, non la media). Un «HTTP 200» da solo non lo dice.',
+    'card.cron.tip': 'Cron: cadenza dedotta da EventBridge; se salta la finestra attesa diventa un allarme.',
     'card.tip.drift':
       'La risorsa reale combacia con quella dichiarata in Terraform (runtime, memoria, timeout). Confronto leggero, senza «terraform plan».',
     'card.tip.secret': 'I secret che il servizio usa esistono davvero nel secret manager (Doppler/SSM).',
@@ -282,6 +283,7 @@ const STRINGS = {
       "Known exposures correlated to the service: security-group rules open to the internet (0.0.0.0/0) on sensitive ports, and the role's IAM policies with broad wildcards (Action/Resource «*»). Read-only.",
     'card.tip.runtime':
       'Real compute matches desired: expected tasks/instances are up and healthy, errors low. «p95 805ms» = 95% of calls finish within 805ms (the slow tail, not the average). An «HTTP 200» alone won’t tell you.',
+    'card.cron.tip': 'Cron: cadence inferred from EventBridge; if it misses its window it turns into an alarm.',
     'card.tip.drift':
       'The real resource matches what’s declared in Terraform (runtime, memory, timeout). Light check, no «terraform plan».',
     'card.tip.secret': 'The secrets the service uses actually exist in the secret manager (Doppler/SSM).',

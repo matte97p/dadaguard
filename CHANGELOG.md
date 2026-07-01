@@ -10,6 +10,10 @@ All notable changes to Dadaguard are documented here. Format based on
   backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
 - **Cost month selector** — the Costs drawer can pick the reference month (last 12 months), not just
   the current MTD; the backend takes `?month=YYYY-MM` (defaults to the current month).
+- **Cron auto-detection** — discovered Lambdas get their schedule inferred from EventBridge Rules, so
+  cron functions are recognised as such: the card shows a ⏰ cadence badge and the **dead-man switch**
+  fires when a cron misses its expected window (instead of showing it as idle). New read-only
+  permissions: `events:ListRules`, `events:ListTargetsByRule`.
 
 ### Changed
 - **Auto-discovery merges with the watchlist, on by default** — discovered services are now added to

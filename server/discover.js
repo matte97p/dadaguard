@@ -11,6 +11,7 @@ import {
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from './runtime/awsClient.js'
 import { managedResources } from './terraform/state.js'
+import { scheduleForLambdas, minutesToSchedule } from './schedules.js'
 
 async function listLambda(aws) {
   const client = new LambdaClient(clientOpts(aws))
@@ -110,10 +111,11 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   const aws = { profile, roleArn, externalId, region }
   const ex = exclude ? new RegExp(exclude) : null
 
-  let [lambdas, ecs, asgs] = await Promise.all([
+  let [lambdas, ecs, asgs, schedules] = await Promise.all([
     listLambda(aws).catch(() => []),
     listEcs(aws).catch(() => []),
     listAsg(aws).catch(() => []),
+    scheduleForLambdas(aws).catch(() => new Map()),
   ])
 
   let activeInfo = null
@@ -130,11 +132,16 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   }
 
   const candidates = [
-    ...lambdas.map((n) => ({
-      name: n,
-      kind: 'lambda',
-      aws: { type: 'lambda', function: n, windowMinutes: 60 },
-    })),
+    ...lambdas.map((n) => {
+      const svcAws = { type: 'lambda', function: n, windowMinutes: 60 }
+      const sched = schedules.get(n)
+      if (sched?.minutes) {
+        svcAws.schedule = minutesToSchedule(sched.minutes) // cadenza attesa → attiva il dead-man switch
+        svcAws.scheduleExpr = sched.expr // espressione originale, per la UI
+        svcAws.scheduleState = sched.state // ENABLED/DISABLED → 'disabled' se la rule è spenta di proposito
+      }
+      return { name: n, kind: 'lambda', aws: svcAws }
+    }),
     ...ecs.map((e) => ({
       name: e.service,
       kind: 'ecs',

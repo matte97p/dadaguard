@@ -81,6 +81,8 @@ data "aws_iam_policy_document" "readonly" {
       "ec2:DescribeSubnets",          # vista Rete: subnet → VPC, AZ, pubblica/privata
       "ec2:DescribeVpcs",             # vista Rete: nome/CIDR della VPC
       "ec2:DescribeInternetGateways", # vista Rete: egress (IGW); NAT gateway già concesso in WasteReadOnly
+      "events:ListRules",             # cron: EventBridge Rule schedulata → cadenza per il dead-man switch
+      "events:ListTargetsByRule",     # cron: quale Lambda innesca la rule
     ]
     resources = ["*"]
   }

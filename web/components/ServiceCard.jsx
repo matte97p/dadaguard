@@ -1,5 +1,5 @@
 import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
-import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined, HistoryOutlined } from '@ant-design/icons'
+import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined } from '@ant-design/icons'
 
 const STATUS = {
   up: { status: 'success', tag: 'success' },
@@ -54,6 +54,13 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
       title={<Badge status={overall.status} text={service.name} />}
       extra={
         <Space size={8}>
+          {runtime?.schedule && (
+            <Tooltip title={runtime.scheduleExpr || t('card.cron.tip')}>
+              <Tag icon={<ClockCircleOutlined />} style={{ marginInlineEnd: 0 }}>
+                {runtime.schedule}
+              </Tag>
+            </Tooltip>
+          )}
           <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
             {overallText}
           </Tag>
