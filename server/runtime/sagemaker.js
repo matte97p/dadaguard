@@ -1,5 +1,6 @@
 import { metricValues } from './cw.js'
 import { identityT } from '../i18n.js'
+import { fmtMs, fmtCount } from '../util/format.js'
 
 // RuntimeProvider SageMaker (endpoint di inferenza). Serverless-ish: guardiamo le metriche d'uso
 // CloudWatch AWS/SageMaker per EndpointName (invocazioni, errori 4xx/5xx, latenza del modello).
@@ -26,7 +27,7 @@ export async function sagemakerRuntime(cfg, aws, opts = {}) {
   if (!m.inv && !m.e4 && !m.e5) return { status: 'idle', summary: t('sagemaker.idle', { window: winL }) }
   const errors = Math.round(m.e4 + m.e5)
   const status = errors > 0 ? 'degraded' : 'up'
-  const parts = [t('sagemaker.invocations', { n: Math.round(m.inv) }), t('sagemaker.errors', { n: errors })]
-  if (m.lat > 0) parts.push(t('sagemaker.latency', { ms: Math.round(m.lat / 1000) }))
+  const parts = [t('sagemaker.invocations', { n: fmtCount(Math.round(m.inv)) }), t('sagemaker.errors', { n: errors })]
+  if (m.lat > 0) parts.push(t('sagemaker.latency', { d: fmtMs(Math.round(m.lat / 1000)) }))
   return { status, summary: `${parts.join(' · ')} (${winL})` }
 }

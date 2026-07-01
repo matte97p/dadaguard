@@ -4,7 +4,7 @@
 // Permessi: servicequotas:ListServiceQuotas, cloudwatch:GetMetricData.
 import { ServiceQuotasClient, ListServiceQuotasCommand } from '@aws-sdk/client-service-quotas'
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 // service code curati (estendibile): i più soggetti a saturazione.
 const SERVICE_CODES = ['lambda', 'ec2', 'vpc', 'rds', 'dynamodb', 'kinesis', 'elasticloadbalancing']
@@ -79,7 +79,7 @@ export async function nearLimitQuotas(accounts) {
         const quotas = lists.flat().sort((x, y) => y.pct - x.pct)
         return { account: key, label: a.label ?? key, color: a.color ?? null, quotas }
       } catch (err) {
-        return { account: key, label: a.label ?? key, color: a.color ?? null, error: err.message }
+        return { account: key, label: a.label ?? key, color: a.color ?? null, error: cleanAwsReason(err) }
       }
     }),
   )

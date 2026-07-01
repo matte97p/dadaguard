@@ -46,6 +46,37 @@ export function isThrottle(err) {
   )
 }
 
+// Fallback EN leggibili: usati quando cleanAwsReason è chiamata senza `t` (endpoint che non propagano
+// la lingua) — così l'utente vede comunque un messaggio pulito, mai la chiave i18n grezza.
+const AWS_REASON_EN = {
+  throttled: 'AWS rate limit — retry on refresh',
+  denied: 'access denied (insufficient permissions)',
+  notfound: 'resource not found',
+  expired: 'credentials expired — log in again',
+  timeout: 'timeout',
+  error: 'AWS error',
+}
+
+function awsReasonKey(err) {
+  if (isThrottle(err)) return 'throttled'
+  const name = err?.name || ''
+  if (/AccessDenied|Unauthorized|Forbidden/i.test(name)) return 'denied'
+  if (/NotFound|NoSuchEntity|NoSuchKey|NoSuchBucket/i.test(name)) return 'notfound'
+  if (/Expired(Token|Credentials)|CredentialsError|InvalidClientTokenId/i.test(name)) return 'expired'
+  if (name === 'AbortError' || /Timeout/i.test(name)) return 'timeout'
+  return null
+}
+
+// Traduce un errore AWS in un messaggio pulito e azionabile per l'utente, invece dell'eccezione SDK
+// grezza (es. "AccessDenied: User ... is not authorized to perform ..."). Con `t` localizza (it/en);
+// senza `t` ripiega sui testi EN. `err.message` resta il fallback per gli errori non riconosciuti.
+export function cleanAwsReason(err, t = (k) => k) {
+  const k = awsReasonKey(err)
+  if (!k) return err?.message || AWS_REASON_EN.error
+  const tr = t('aws.' + k)
+  return tr === 'aws.' + k ? AWS_REASON_EN[k] : tr // t identità/assente → EN leggibile, non la chiave
+}
+
 export function clientOpts(aws = {}) {
   // Retry ADATTIVO: sotto throttling (429/TooManyRequests) l'SDK applica un rate-limit client-side e
   // ritenta con backoff, invece di far fallire subito. maxAttempts alzato (override: DADAGUARD_AWS_MAX_ATTEMPTS).

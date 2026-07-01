@@ -3,7 +3,7 @@
 // API di scrittura (chi/cosa/quando) — la "causa" dietro un servizio diventato giallo/rosso.
 // Read-only, on-demand. Permesso: cloudtrail:LookupEvents (eventi di management, ~90gg).
 import { CloudTrailClient, LookupEventsCommand } from '@aws-sdk/client-cloudtrail'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 // Identificatore della risorsa per la lookup CloudTrail (ResourceName). Puro/testabile.
 export function resourceName(service) {
@@ -68,6 +68,6 @@ export async function recentChanges(service, accounts, { hours = 24, limit = 15 
     })
     return { changes }
   } catch (err) {
-    return { error: err.message }
+    return { error: cleanAwsReason(err) }
   }
 }

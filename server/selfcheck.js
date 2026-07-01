@@ -1,5 +1,5 @@
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 // #6 META-SALUTE: la plumbing del watchdog stesso. Se Dadaguard non riesce ad assumere il
 // ruolo read-only in un account (credenziali scadute, trust rotta, ExternalId sbagliato),
@@ -28,7 +28,7 @@ export async function selfCheck(accounts) {
           via: a.roleArn ? 'roleArn' : a.profile ? 'profile' : 'default',
         }
       } catch (err) {
-        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: err.message }
+        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: cleanAwsReason(err) }
       }
     }),
   )

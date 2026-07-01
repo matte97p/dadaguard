@@ -4,7 +4,7 @@
 // fetch-on-load). Copertura oggi: Lambda (runtime/memory/timeout/handler).
 // Il plan completo resta un'azione on-demand separata.
 import { getLambdaConfig } from '../runtime/lambdaConfig.js'
-import { isThrottle } from '../runtime/awsClient.js'
+import { cleanAwsReason } from '../runtime/awsClient.js'
 
 export const key = 'drift'
 
@@ -39,6 +39,6 @@ export async function run(service, ctx) {
     if (!diffs.length) return { key, status: 'up', summary: t('drift.insync') }
     return { key, status: 'degraded', summary: t('drift.diverge', { diffs: diffs.join(', ') }) }
   } catch (err) {
-    return { key, status: 'unknown', reason: isThrottle(err) ? t('drift.throttled') : err.message }
+    return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
   }
 }

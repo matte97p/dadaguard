@@ -1,5 +1,6 @@
 import { metricValues } from './cw.js'
 import { identityT } from '../i18n.js'
+import { fmtCount } from '../util/format.js'
 
 // RuntimeProvider SES (invio email). Metriche CloudWatch AWS/SES a livello account: volume inviato,
 // bounce e complaint. Il segnale chiave è la DELIVERABILITY: AWS sospende l'invio se il bounce rate
@@ -28,7 +29,7 @@ export async function sesRuntime(cfg, aws, opts = {}) {
   // Soglie di reputazione AWS: oltre queste l'account rischia la sospensione.
   const status = bounceRate > 5 || complaintRate > 0.1 ? 'degraded' : 'up'
   const parts = [
-    t('ses.sent', { n: Math.round(m.send) }),
+    t('ses.sent', { n: fmtCount(Math.round(m.send)) }),
     t('ses.bounce', { p: bounceRate.toFixed(1) }),
     t('ses.complaint', { p: complaintRate.toFixed(2) }),
   ]

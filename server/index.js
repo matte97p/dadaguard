@@ -18,6 +18,7 @@ import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
+import { cleanAwsReason } from './runtime/awsClient.js'
 import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
@@ -128,7 +129,7 @@ app.get('/api/waste', async (_req, res) => {
             ...(await findWaste({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })),
           }
         } catch (err) {
-          out[key] = { label: a.label ?? key, error: err.message }
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err) }
         }
       }),
     )
@@ -155,7 +156,7 @@ app.get('/api/costs', async (req, res) => {
             ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })),
           }
         } catch (err) {
-          out[key] = { label: a.label ?? key, error: err.message }
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err) }
         }
       }),
     )

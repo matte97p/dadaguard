@@ -1,8 +1,9 @@
 import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
 import { metricValues } from './cw.js'
-import { clientOpts } from './awsClient.js'
+import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig } from './lambdaConfig.js'
 import { fmtAgo, identityT } from '../i18n.js'
+import { fmtMs, fmtCount } from '../util/format.js'
 
 // RuntimeProvider per Lambda. Due profili di salute:
 //  - on-demand (webhook/event): finestra breve; 0 invocazioni = `idle` (ok, nessuno l'ha chiamata).
@@ -13,26 +14,11 @@ import { fmtAgo, identityT } from '../i18n.js'
 const DEFAULT_WINDOW_MIN = 60 // idle on-demand: 60 min di silenzio prima di "a riposo" (era 15, troppo aggressivo)
 const TIMEOUT_WARN = 0.8
 
-function fmtCount(n) {
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k'
-  return String(n)
-}
-
 // Durata compatta con unità tradotte (g/h/m IT, d/h/m EN). `t` di default = identità.
 function fmtDur(min, t = identityT) {
   if (min % 1440 === 0) return `${min / 1440}${t('time.unit.d')}`
   if (min >= 60) return `${Math.round(min / 60)}${t('time.unit.h')}`
   return `${min}${t('time.unit.m')}`
-}
-
-// Latenza leggibile: ms sotto il secondo, s fino al minuto, poi "Xm Ys" (245759ms → "4m 6s").
-// I ms grezzi di una p95 lunga (minuti) sono illeggibili a colpo d'occhio.
-function fmtMs(ms) {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
-  const m = Math.floor(ms / 60000)
-  const s = Math.round((ms % 60000) / 1000)
-  return s ? `${m}m ${s}s` : `${m}m`
 }
 
 function parseSchedule(s) {
@@ -69,7 +55,10 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       )
       aliasInfo = `${cfg.alias}→v${alias.FunctionVersion} · `
     } catch (err) {
-      return { status: 'unknown', reason: t('lambda.aliasnotfound', { alias: cfg.alias, name: err.name }) }
+      // Alias davvero assente vs errore AWS (throttle/denied/...): messaggi distinti, non err.name grezzo.
+      const reason =
+        err.name === 'ResourceNotFoundException' ? t('lambda.aliasnotfound', { alias: cfg.alias }) : cleanAwsReason(err, t)
+      return { status: 'unknown', reason }
     }
   }
 

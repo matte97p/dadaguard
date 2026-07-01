@@ -4,7 +4,7 @@
 import { ECSClient, DescribeServicesCommand } from '@aws-sdk/client-ecs'
 import { RDSClient, DescribeEventsCommand } from '@aws-sdk/client-rds'
 import { AutoScalingClient, DescribeScalingActivitiesCommand } from '@aws-sdk/client-auto-scaling'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 
 export async function recentEvents(service, accounts, { limit = 30 } = {}) {
   const cfg = service.aws ?? {}
@@ -37,7 +37,7 @@ export async function recentEvents(service, accounts, { limit = 30 } = {}) {
       return { events: (out.Activities ?? []).map((a) => ({ ts: a.StartTime, message: `${a.StatusCode}: ${a.Description}` })) }
     }
   } catch (err) {
-    return { error: err.message }
+    return { error: cleanAwsReason(err) }
   }
   return { notApplicable: true }
 }

@@ -3,6 +3,7 @@
 // Si applica solo ai servizi con `doppler: { project, config, compareWith? }`.
 import { dopplerSecrets } from '../secrets/doppler.js'
 import { ssmSecrets } from '../secrets/ssm.js'
+import { cleanAwsReason } from '../runtime/awsClient.js'
 
 export const key = 'secrets'
 
@@ -21,7 +22,7 @@ export async function run(service, ctx) {
       if (!r.count) return { key, status: 'degraded', summary: t('secrets.none', { path: service.ssm.path }) }
       return { key, status: 'up', summary: t('secrets.present', { n: r.count }), count: r.count }
     } catch (err) {
-      return { key, status: 'unknown', reason: `SSM: ${err.message}` }
+      return { key, status: 'unknown', reason: `SSM: ${cleanAwsReason(err, t)}` }
     }
   }
 

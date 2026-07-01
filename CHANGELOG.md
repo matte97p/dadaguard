@@ -96,6 +96,19 @@ All notable changes to Dadaguard are documented here. Format based on
   rendered raw i18n keys (e.g. `bedrock.invocations`) because those strings lived only in the web
   dictionary, never in the server one. Added all it/en strings; a new test fails if any `namespace.key`
   used in a runtime/check is absent from the server dictionary, so a new provider can't ship untranslated.
+- **Clean AWS error messages** — throttling, access-denied, not-found, expired-token and timeout errors
+  now show a readable, localized message in cards/drawers instead of the raw SDK exception. A shared
+  `cleanAwsReason()` covers every check and endpoint (runtime, backups, version, drift, secrets, logs,
+  quotas, IAM, self-check, events, changes, waste, costs, liveness); Lambda alias errors distinguish
+  "alias missing" from a real AWS error.
+- **Humanized numbers** — latency reads `4m 6s`/`450ms` (shared `fmtMs`) and invocation/item counts are
+  compacted with `fmtCount`, across Bedrock/SageMaker/SES/DynamoDB and the client-side latency chip.
+- **Plural forms** — the web i18n gained a `{n#singular#plural}` form; fixed "1 servizi", "1 volumi",
+  "1 risorse" and friends in the status summary, Waste, Discover and Dashboard.
+- **Fully-translated strings** — the Topology "down" edge label and the Waste "/month" suffix were
+  hardcoded Italian (stayed Italian in English mode); now translated. Waste also gets an empty state.
+- **Redacted drift output** — the full `terragrunt plan` shown in the drift drawer now masks attribute
+  string values (`key = (redacted)`, both sides of a `->` diff), so a non-`sensitive` value can't leak.
 
 ## [0.2.0] — 2026-06-30
 
