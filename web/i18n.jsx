@@ -104,7 +104,7 @@ const STRINGS = {
     'preset.namePlaceholder': 'Nome del preset',
     'content.lastFetch': 'Ultimo fetch:',
     'content.noServices': 'Nessun servizio per questi filtri',
-    'content.servicesCount': 'servizi',
+    'content.servicesCount': '{n} {n#servizio#servizi}',
     'content.errorPrefix': 'Errore:',
 
     'status.down': 'giù',
@@ -211,13 +211,15 @@ const STRINGS = {
     'waste.level.waste': 'spreco',
     'waste.level.check': 'da verificare',
     'waste.empty': 'nessuno spreco rilevato 🎉',
-    'waste.eip.title': '{n} Elastic IP non associati · ~${cost}/mese',
+    'waste.perMonth': '~${v}/mese',
+    'waste.noAccounts': 'Nessun account con risorse da mostrare.',
+    'waste.eip.title': '{n} Elastic IP {n#non associato#non associati} · ~${cost}/mese',
     'waste.eip.reason':
       'Allocati ma non collegati a nessuna risorsa: AWS li fattura proprio perché inutilizzati. Rilasciali se non servono.',
     'waste.nat.title': '{n} NAT Gateway · ~${cost}/mese',
     'waste.nat.reason':
       'Costo fisso, non uno spreco di per sé: serve quando una subnet privata deve uscire su internet. È spreco solo se nella sua VPC non c’è più nulla che lo usa.',
-    'waste.ebs.title': '{n} volumi EBS staccati · {gb} GB',
+    'waste.ebs.title': '{n} {n#volume EBS staccato#volumi EBS staccati} · {gb} GB',
     'waste.ebs.reason':
       'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
 
@@ -235,6 +237,7 @@ const STRINGS = {
     'topo.legend.lb': 'load balancer',
     'topo.legend.net': 'rete (security group)',
     'topo.legend.down': 'dipendenza giù',
+    'topo.edge.down': 'giù',
     'topo.loading': 'Deduco le dipendenze da AWS…',
     'topo.noServices': 'Nessun servizio',
     'topo.noRelations':
@@ -290,7 +293,7 @@ const STRINGS = {
     'drift.running': 'In corso… può richiedere qualche minuto (la prima volta scarica i provider).',
     'drift.failed': 'Plan fallito (exit {code})',
     'drift.drift': '⚠ DRIFT: la realtà differisce dallo state Terraform',
-    'drift.pending': '↑ {n} risorse da applicare: definite in Terraform ma non ancora create (non è drift)',
+    'drift.pending': '↑ {n} {n#risorsa#risorse} da applicare: definite in Terraform ma non ancora create (non è drift)',
     'drift.nochanges': '✓ No changes: infra allineata allo state',
     'drift.nooutput': '(nessun output)',
 
@@ -299,17 +302,17 @@ const STRINGS = {
     'discover.account': 'Account',
     'discover.hideCron': 'Nascondi cron / scale / housekeeper',
     'discover.scan': 'Scansiona',
-    'discover.resources': '{n} risorse',
+    'discover.resources': '{n} {n#risorsa#risorse}',
     'discover.active': ' · attive {kept}/{total}',
     'discover.unmanaged': ' · {n} non in TF',
     'discover.all': 'tutti',
     'discover.empty': 'Niente trovato',
     'discover.already': '(già)',
     'discover.notInTf': '⚠ non in TF',
-    'discover.added': '{n} aggiunti alla watchlist',
+    'discover.added': '{n} {n#aggiunto#aggiunti} alla watchlist',
     'discover.autoTitle': 'Auto-discovery attiva',
     'discover.autoDesc':
-      '{n} servizi scoperti in automatico dai tuoi account AWS (nessun services.yaml). Crea services.yaml per fissare la watchlist, le versioni attese e gli account.',
+      '{n} {n#servizio scoperto#servizi scoperti} in automatico dai tuoi account AWS (nessun services.yaml). Crea services.yaml per fissare la watchlist, le versioni attese e gli account.',
     'demo.title': 'Modalità demo — dati finti',
     'demo.desc':
       'Stai vedendo una flotta di esempio, nessuna connessione ad AWS. Per i tuoi dati reali avvia senza DADAGUARD_DEMO.',
@@ -407,7 +410,7 @@ const STRINGS = {
     'preset.namePlaceholder': 'Preset name',
     'content.lastFetch': 'Last fetch:',
     'content.noServices': 'No service matches these filters',
-    'content.servicesCount': 'services',
+    'content.servicesCount': '{n} {n#service#services}',
     'content.errorPrefix': 'Error:',
 
     'status.down': 'down',
@@ -514,13 +517,15 @@ const STRINGS = {
     'waste.level.waste': 'waste',
     'waste.level.check': 'to check',
     'waste.empty': 'no waste detected 🎉',
-    'waste.eip.title': '{n} unattached Elastic IPs · ~${cost}/mo',
+    'waste.perMonth': '~${v}/mo',
+    'waste.noAccounts': 'No account with resources to show.',
+    'waste.eip.title': '{n} unattached {n#Elastic IP#Elastic IPs} · ~${cost}/mo',
     'waste.eip.reason':
       "Allocated but attached to nothing: AWS bills them precisely because they're idle. Release them if unused.",
-    'waste.nat.title': '{n} NAT Gateways · ~${cost}/mo',
+    'waste.nat.title': '{n} {n#NAT Gateway#NAT Gateways} · ~${cost}/mo',
     'waste.nat.reason':
       'Fixed cost, not waste per se: needed when a private subnet must reach the internet. Only waste if nothing in its VPC uses it anymore.',
-    'waste.ebs.title': '{n} detached EBS volumes · {gb} GB',
+    'waste.ebs.title': '{n} detached {n#EBS volume#EBS volumes} · {gb} GB',
     'waste.ebs.reason':
       'In "available" state: not attached to any instance, so you pay for idle storage. Snapshot and delete them if unused.',
 
@@ -538,6 +543,7 @@ const STRINGS = {
     'topo.legend.lb': 'load balancer',
     'topo.legend.net': 'network (security group)',
     'topo.legend.down': 'dependency down',
+    'topo.edge.down': 'down',
     'topo.loading': 'Inferring dependencies from AWS…',
     'topo.noServices': 'No service',
     'topo.noRelations':
@@ -593,7 +599,7 @@ const STRINGS = {
     'drift.running': 'Running… may take a few minutes (first run downloads the providers).',
     'drift.failed': 'Plan failed (exit {code})',
     'drift.drift': '⚠ DRIFT: reality differs from the Terraform state',
-    'drift.pending': '↑ {n} resources to apply: defined in Terraform but not created yet (not drift)',
+    'drift.pending': '↑ {n} {n#resource#resources} to apply: defined in Terraform but not created yet (not drift)',
     'drift.nochanges': '✓ No changes: infra matches the state',
     'drift.nooutput': '(no output)',
 
@@ -602,7 +608,7 @@ const STRINGS = {
     'discover.account': 'Account',
     'discover.hideCron': 'Hide cron / scale / housekeeper',
     'discover.scan': 'Scan',
-    'discover.resources': '{n} resources',
+    'discover.resources': '{n} {n#resource#resources}',
     'discover.active': ' · active {kept}/{total}',
     'discover.unmanaged': ' · {n} not in TF',
     'discover.all': 'all',
@@ -612,7 +618,7 @@ const STRINGS = {
     'discover.added': '{n} added to the watchlist',
     'discover.autoTitle': 'Auto-discovery on',
     'discover.autoDesc':
-      '{n} services auto-discovered from your AWS accounts (no services.yaml). Create a services.yaml to pin the watchlist, expected versions and accounts.',
+      '{n} {n#service#services} auto-discovered from your AWS accounts (no services.yaml). Create a services.yaml to pin the watchlist, expected versions and accounts.',
     'demo.title': 'Demo mode — fake data',
     'demo.desc':
       'You are viewing a sample fleet, no AWS connection. For your real data, start without DADAGUARD_DEMO.',
@@ -628,6 +634,9 @@ const STRINGS = {
 
 function interpolate(s, vars) {
   if (!vars) return s
+  // Forma plurale: {var#singolare#plurale} sceglie in base a vars[var] (1 → singolare, altrimenti plurale),
+  // es. '{n} {n#servizio#servizi}'. Va risolta prima delle sostituzioni normali {var}.
+  s = s.replace(/\{(\w+)#([^#{}]*)#([^{}]*)\}/g, (_, k, one, other) => (Number(vars[k]) === 1 ? one : other))
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
   return s
 }

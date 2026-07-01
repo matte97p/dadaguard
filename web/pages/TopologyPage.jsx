@@ -28,7 +28,7 @@ const VIA = {
 }
 
 // --- Vista "Dipendenze": grafo a livelli, nodi colorati per stato, archi per provenienza. ---
-function buildGraph(services, topo, dark) {
+function buildGraph(services, topo, dark, t) {
   const statusByName = new Map(services.map((s) => [s.name, s.overall]))
 
   const nodeList = [
@@ -95,7 +95,7 @@ function buildGraph(services, topo, dark) {
         strokeWidth: broken ? 2 : 1.5,
         strokeDasharray: primary === 'net' && !broken ? '5 5' : undefined,
       },
-      label: broken ? '⚠ giù' : undefined,
+      label: broken ? `⚠ ${t('topo.edge.down')}` : undefined,
     }
   })
 
@@ -285,8 +285,8 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   )
 
   const { nodes, edges, usedVias, isolated } = useMemo(
-    () => buildGraph(services, topo, dark),
-    [services, topo, dark],
+    () => buildGraph(services, topo, dark, t),
+    [services, topo, dark, t],
   )
   const hasEdges = edges.length > 0
   const netGraph = useMemo(
