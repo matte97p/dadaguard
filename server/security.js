@@ -5,7 +5,20 @@ import { EC2Client, DescribeSecurityGroupsCommand } from '@aws-sdk/client-ec2'
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds'
 import { ElasticLoadBalancingV2Client, DescribeLoadBalancersCommand } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { S3Client, GetBucketPolicyStatusCommand, GetPublicAccessBlockCommand } from '@aws-sdk/client-s3'
+import { ACMClient, ListCertificatesCommand, DescribeCertificateCommand } from '@aws-sdk/client-acm'
+import {
+  IAMClient,
+  ListPoliciesCommand,
+  GetPolicyVersionCommand,
+  ListUsersCommand,
+  ListAccessKeysCommand,
+  ListMFADevicesCommand,
+} from '@aws-sdk/client-iam'
+import { SecretsManagerClient, ListSecretsCommand } from '@aws-sdk/client-secrets-manager'
 import { clientOpts } from './runtime/awsClient.js'
+import { parseStatements } from './iam.js'
+
+const DAY = 86400000
 
 // Porte che, esposte a 0.0.0.0/0, sono un rischio (80/443 sono normali → non le segnaliamo).
 const SENSITIVE_PORTS = { 22: 'SSH', 3389: 'RDP', 3306: 'MySQL', 5432: 'Postgres', 6379: 'Redis', 27017: 'MongoDB', 9200: 'Elasticsearch' }
@@ -131,11 +144,163 @@ export async function publicSurface(accounts, services) {
   return findings
 }
 
+// Scadenze: certificati ACM entro 30 giorni (o già scaduti). Un pass per account.
+export async function expiring(accounts) {
+  const findings = []
+  const now = Date.now()
+  await Promise.all(
+    Object.entries(accounts ?? {}).map(async ([key, acc]) => {
+      try {
+        const acm = new ACMClient(clientOpts(awsForAccount(acc)))
+        let token
+        do {
+          const o = await acm.send(new ListCertificatesCommand({ NextToken: token, MaxItems: 100 }))
+          for (const c of o.CertificateSummaryList ?? []) {
+            let notAfter = c.NotAfter
+            if (!notAfter) {
+              try {
+                notAfter = (await acm.send(new DescribeCertificateCommand({ CertificateArn: c.CertificateArn }))).Certificate?.NotAfter
+              } catch {
+                /* non leggibile */
+              }
+            }
+            if (!notAfter) continue
+            const days = Math.round((new Date(notAfter).getTime() - now) / DAY)
+            if (days > 30) continue
+            findings.push({
+              category: 'expiring',
+              severity: days <= 7 ? 'high' : 'medium',
+              account: key,
+              accountLabel: acc.label ?? key,
+              resource: c.DomainName || c.CertificateArn,
+              detail: days < 0 ? `certificato ACM scaduto da ${-days}g` : `certificato ACM scade tra ${days}g`,
+            })
+          }
+          token = o.NextToken
+        } while (token)
+      } catch {
+        /* acm:ListCertificates assente → niente questo controllo */
+      }
+    }),
+  )
+  return findings
+}
+
+// Igiene IAM: policy troppo larghe (wildcard), utenti senza MFA, access key non ruotate.
+export async function iamHygiene(accounts) {
+  const findings = []
+  const now = Date.now()
+  await Promise.all(
+    Object.entries(accounts ?? {}).map(async ([key, acc]) => {
+      const label = acc.label ?? key
+      const iam = new IAMClient(clientOpts(awsForAccount(acc)))
+
+      try {
+        let marker
+        do {
+          const o = await iam.send(new ListPoliciesCommand({ Scope: 'Local', OnlyAttached: true, MaxItems: 200, Marker: marker }))
+          for (const p of o.Policies ?? []) {
+            if (!p.DefaultVersionId) continue
+            try {
+              const pv = await iam.send(new GetPolicyVersionCommand({ PolicyArn: p.Arn, VersionId: p.DefaultVersionId }))
+              const stmts = parseStatements(JSON.parse(decodeURIComponent(pv.PolicyVersion?.Document ?? '{}')))
+              const wildAction = stmts.some((s) => s.actions.includes('*'))
+              const wildBoth = stmts.some((s) => s.actions.includes('*') && s.resources.includes('*'))
+              if (wildBoth)
+                findings.push({ category: 'iam', severity: 'high', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*" e Resource:"*" (admin)' })
+              else if (wildAction)
+                findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*"' })
+            } catch {
+              /* documento non parsabile */
+            }
+          }
+          marker = o.IsTruncated ? o.Marker : undefined
+        } while (marker)
+      } catch {
+        /* niente policy leggibili */
+      }
+
+      try {
+        let marker
+        do {
+          const o = await iam.send(new ListUsersCommand({ Marker: marker, MaxItems: 200 }))
+          await Promise.all(
+            (o.Users ?? []).map(async (u) => {
+              try {
+                const mfa = await iam.send(new ListMFADevicesCommand({ UserName: u.UserName }))
+                if ((mfa.MFADevices ?? []).length === 0)
+                  findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: u.UserName, detail: 'utente IAM senza MFA' })
+              } catch {
+                /* non leggibile */
+              }
+              try {
+                const ak = await iam.send(new ListAccessKeysCommand({ UserName: u.UserName }))
+                for (const k of ak.AccessKeyMetadata ?? []) {
+                  if (k.Status !== 'Active' || !k.CreateDate) continue
+                  const days = Math.round((now - new Date(k.CreateDate).getTime()) / DAY)
+                  if (days >= 90)
+                    findings.push({ category: 'iam', severity: days >= 180 ? 'high' : 'medium', account: key, accountLabel: label, resource: u.UserName, detail: `access key attiva da ${days}g (non ruotata)` })
+                }
+              } catch {
+                /* non leggibile */
+              }
+            }),
+          )
+          marker = o.IsTruncated ? o.Marker : undefined
+        } while (marker)
+      } catch {
+        /* iam:ListUsers assente → niente controlli su utenti */
+      }
+    }),
+  )
+  return findings
+}
+
+// Secret stantii: Secrets Manager non ruotati da ≥90 giorni. Solo metadati (data), mai il valore.
+export async function staleSecrets(accounts) {
+  const findings = []
+  const now = Date.now()
+  await Promise.all(
+    Object.entries(accounts ?? {}).map(async ([key, acc]) => {
+      try {
+        const sm = new SecretsManagerClient(clientOpts(awsForAccount(acc)))
+        let token
+        do {
+          const o = await sm.send(new ListSecretsCommand({ NextToken: token, MaxResults: 100 }))
+          for (const s of o.SecretList ?? []) {
+            const last = s.LastRotatedDate || s.LastChangedDate
+            if (!last) continue
+            const days = Math.round((now - new Date(last).getTime()) / DAY)
+            if (days < 90) continue
+            findings.push({
+              category: 'secret',
+              severity: days >= 180 ? 'medium' : 'low',
+              account: key,
+              accountLabel: acc.label ?? key,
+              resource: s.Name,
+              detail: s.RotationEnabled ? `secret non ruotato da ${days}g` : `secret non ruotato da ${days}g (rotazione off)`,
+            })
+          }
+          token = o.NextToken
+        } while (token)
+      } catch {
+        /* secretsmanager:ListSecrets assente → niente questo controllo */
+      }
+    }),
+  )
+  return findings
+}
+
 const SEVERITY_RANK = { high: 0, medium: 1, low: 2, info: 3 }
 
 // Aggrega tutti i collector di findings, ordinati per severità.
 export async function collectFindings(accounts, services) {
-  const groups = await Promise.all([publicSurface(accounts, services).catch(() => [])])
+  const groups = await Promise.all([
+    publicSurface(accounts, services).catch(() => []),
+    expiring(accounts).catch(() => []),
+    iamHygiene(accounts).catch(() => []),
+    staleSecrets(accounts).catch(() => []),
+  ])
   const findings = groups
     .flat()
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))

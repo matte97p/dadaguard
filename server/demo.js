@@ -292,6 +292,11 @@ export function demoSecurity() {
       { category: 'public', severity: 'high', account: 'staging', accountLabel: 'Staging', resource: 'legacy-api', detail: 'security group aperto a 0.0.0.0/0 · tcp 22 (SSH)' },
       { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: 'bucket S3 senza Public Access Block completo' },
       { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: 'ALB internet-facing' },
+      { category: 'expiring', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'shop.example.com', detail: 'certificato ACM scade tra 12g' },
+      { category: 'iam', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'legacy-admin', detail: 'policy con Action:"*" e Resource:"*" (admin)' },
+      { category: 'iam', severity: 'medium', account: 'staging', accountLabel: 'Staging', resource: 'ci-deployer', detail: 'utente IAM senza MFA' },
+      { category: 'iam', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'legacy-bot', detail: 'access key attiva da 240g (non ruotata)' },
+      { category: 'secret', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'prod/user-db', detail: 'secret non ruotato da 210g' },
     ],
   }
 }

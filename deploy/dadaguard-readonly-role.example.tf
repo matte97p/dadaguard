@@ -115,6 +115,12 @@ data "aws_iam_policy_document" "readonly" {
       "iam:GetPolicyVersion",
       "iam:ListPolicies",
       "iam:ListEntitiesForPolicy",
+      "iam:ListUsers",
+      "iam:ListAccessKeys",
+      "iam:ListMFADevices",
+      "acm:ListCertificates",
+      "acm:DescribeCertificate",
+      "secretsmanager:ListSecrets",
     ]
     resources = ["*"]
   }
