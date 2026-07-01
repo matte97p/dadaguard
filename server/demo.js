@@ -85,6 +85,15 @@ export function demoStatus(lang = 'it') {
     svc('events-stream', 'prod', 'kinesis', 'eu-west-1', {
       runtime: { key: 'runtime', status: 'up', summary: pick(L, 'ACTIVE · 4 shard', 'ACTIVE · 4 shards') },
     }),
+
+    svc('public-lb', 'prod', 'alb', 'eu-west-1', {
+      runtime: { key: 'runtime', status: 'up', summary: pick(L, '2 target group · 5/5 sani', '2 target groups · 5/5 healthy') },
+      drift: { key: 'drift', status: 'up', summary: pick(L, 'sì', 'yes') },
+    }),
+
+    svc('order-flow', 'prod', 'sfn', 'eu-west-1', {
+      runtime: { key: 'runtime', status: 'up', summary: pick(L, '12 esecuzioni · 0 fallite (24h)', '12 executions · 0 failed (24h)') },
+    }),
   ]
 
   return {
@@ -133,6 +142,31 @@ export function demoQuotas() {
         ],
       },
     ],
+  }
+}
+
+// Topologia dipendenze finta, coerente coi servizi della flotta demo: mostra tutte le provenienze
+// d'arco (env/event/net/flow/declared) e alcune dipendenze degradate (arco rosso), più una coda
+// esterna non tracciata (extraNode). Serve a far vedere la feature senza una connessione AWS.
+export function demoTopology() {
+  return {
+    edges: [
+      { source: 'checkout-api', target: 'payments-worker', vias: ['env'] }, // target degradato → rosso
+      { source: 'checkout-api', target: 'user-db', vias: ['net'] }, // target degradato → rosso
+      { source: 'checkout-api', target: 'sessions', vias: ['net'] }, // net su target sano → teal
+      { source: 'payments-worker', target: 'user-db', vias: ['env'] }, // rosso
+      { source: 'payments-worker', target: 'events-stream', vias: ['event'] }, // event → viola
+      { source: 'web', target: 'user-db', vias: ['net'] }, // rosso
+      { source: 'web', target: 'sessions', vias: ['env'] }, // env su target sano → blu
+      { source: 'image-resizer', target: 'public-assets', vias: ['env'] }, // rosso
+      { source: 'legacy-api', target: 'sessions', vias: ['declared'] }, // declared → grigio
+      { source: 'notifier', target: 'ext:sqs:email-queue', vias: ['event'] }, // coda esterna
+      { source: 'public-lb', target: 'checkout-api', vias: ['lb'] }, // lb su target sano → arancione
+      { source: 'public-lb', target: 'web', vias: ['lb'] }, // target degradato → rosso
+      { source: 'order-flow', target: 'checkout-api', vias: ['flow'] }, // flow su target sano → rosa
+      { source: 'order-flow', target: 'payments-worker', vias: ['flow'] }, // rosso
+    ],
+    extraNodes: [{ id: 'ext:sqs:email-queue', type: 'sqs', label: 'email-queue' }],
   }
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchEnvTargets } from '../server/topology/deduce.js'
+import { matchEnvTargets, matchByArn, extractArns } from '../server/topology/deduce.js'
 
 const idList = [
   { name: 'webhook-stg', account: 'staging', ids: ['acme-staging-webhook'] },
@@ -32,4 +32,28 @@ test('non matcha se stesso (token posseduto solo dal self)', () => {
     idList,
   )
   assert.deepEqual(out, []) // il self è escluso e nessun altro possiede quel token
+})
+
+test('extractArns: pesca gli ARN da una definizione Step Functions', () => {
+  const def = JSON.stringify({
+    States: {
+      Pay: { Resource: 'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook', Next: 'Q' },
+      Q: { Resource: 'arn:aws:sqs:eu-west-1:111:prod-queue' },
+    },
+  })
+  const arns = extractArns(def)
+  assert.deepEqual(arns, [
+    'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook',
+    'arn:aws:sqs:eu-west-1:111:prod-queue',
+  ])
+  assert.deepEqual(extractArns(''), [])
+  assert.deepEqual(extractArns(undefined), [])
+})
+
+test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () => {
+  // "acme-staging-webhook" esiste in staging e production: da uno step SFN staging vince lo staging.
+  const arn = 'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook'
+  assert.equal(matchByArn(arn, idList, { name: 'orchestrator', account: 'staging' }), 'webhook-stg')
+  // ARN che non punta a nulla di tracciato → null
+  assert.equal(matchByArn('arn:aws:s3:::qualche-bucket', idList, { name: 'x', account: 'staging' }), null)
 })
