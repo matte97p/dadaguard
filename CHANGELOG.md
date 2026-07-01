@@ -20,7 +20,9 @@ All notable changes to Dadaguard are documented here. Format based on
   the aggregate drawers (Costs/Waste/Quotas/Meta-health) narrow to the accounts still visible.
 - **Filter presets** — save, recall and delete named filter combinations (localStorage).
 - **Compact filter bar + decluttered topology** — the filter bar is one compact icon row; the Topology
-  dependency view graphs only connected services and lists the isolated ones (e.g. crons) in a side panel.
+  dependency view graphs only connected services (auto-laid out top-down with dagre, orthogonal
+  `smoothstep` edges — no more overlapping nodes or crossing curves) and lists the isolated ones
+  (e.g. crons) in a side panel.
 - **Discovered services fully wired** — logs/events/topology now work for auto-discovered services too
   (were 404 / edge-less); a shared 60s-cached resolved list also curbs AWS "Rate exceeded" throttling.
 - **Amazon Bedrock** — new service type: per-model usage from CloudWatch (invocations, client/server

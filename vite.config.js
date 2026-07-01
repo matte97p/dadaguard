@@ -14,12 +14,13 @@ export default defineConfig({
     // tra un deploy e l'altro e cambia solo il piccolo chunk dell'app. antd da solo è ~800 kB
     // minificato (gzip ~250): è la maggior parte del peso e non si spezza utilmente — per una
     // dashboard interna è accettabile, quindi il limite di warning è tarato sopra quella soglia.
-    chunkSizeWarningLimit: 850,
+    chunkSizeWarningLimit: 950, // antd con tutti i componenti usati (filtri, drawer, preset) sta ~880 kB
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return
-          if (id.includes('reactflow') || id.includes('@reactflow') || id.includes('@xyflow')) return 'flow'
+          if (id.includes('reactflow') || id.includes('@reactflow') || id.includes('@xyflow') || id.includes('dagre'))
+            return 'flow'
           if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'antd'
           if (id.includes('react') || id.includes('scheduler')) return 'react'
           return 'vendor'
