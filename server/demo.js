@@ -255,6 +255,37 @@ export function demoIamPolicy(arn) {
   )
 }
 
+export function demoIamAccess(needle) {
+  const q = String(needle || '').toLowerCase()
+  const all = [
+    {
+      policy: 'payments-db-access',
+      arn: 'arn:aws:iam::111122223333:policy/payments-db-access',
+      actions: ['rds-db:connect', 'secretsmanager:GetSecretValue'],
+      entities: { roles: ['payments-worker-role', 'checkout-api-task'], users: [], groups: [] },
+      on: ['user-db'],
+    },
+    {
+      policy: 'checkout-runtime',
+      arn: 'arn:aws:iam::111122223333:policy/checkout-runtime',
+      actions: ['sqs:SendMessage', 'sqs:GetQueueAttributes'],
+      entities: { roles: ['checkout-api-task'], users: [], groups: [] },
+      on: ['events-stream'],
+    },
+    {
+      policy: 'read-only-audit',
+      arn: 'arn:aws:iam::111122223333:policy/read-only-audit',
+      actions: ['cloudwatch:Get*', 'ec2:Describe*'],
+      entities: { roles: ['auditor'], users: ['revisore-esterno'], groups: ['security', 'finance'] },
+      on: ['user-db', 'events-stream', 'public-assets', 'web', 'checkout-api'],
+    },
+  ]
+  const matches = all
+    .filter((m) => m.on.some((k) => q.includes(k) || k.includes(q)))
+    .map(({ on, ...m }) => m)
+  return { needle, matches }
+}
+
 export function demoLogs() {
   const now = Date.now()
   return {

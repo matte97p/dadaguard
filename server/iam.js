@@ -87,3 +87,56 @@ export async function policyDetail(accounts, accountKey, policyArn) {
     },
   }
 }
+
+function entitiesOf(ent) {
+  return {
+    roles: (ent.PolicyRoles ?? []).map((r) => r.RoleName),
+    users: (ent.PolicyUsers ?? []).map((u) => u.UserName),
+    groups: (ent.PolicyGroups ?? []).map((g) => g.GroupName),
+  }
+}
+
+// Vista "per risorsa": quali policy customer-managed toccano una risorsa (match per sottostringa
+// dell'ARN sul termine cercato, es. il nome del servizio) e — per ognuna — chi la usa e con quali
+// azioni. On-demand: scansiona le policy dell'account, ma solo alla richiesta esplicita.
+export async function accessToResource(accounts, accountKey, needle) {
+  const acc = accounts?.[accountKey]
+  if (!acc) throw new Error('account non trovato')
+  const q = String(needle || '').toLowerCase()
+  if (!q) return { needle, matches: [] }
+  const iam = new IAMClient(clientOpts(awsForAccount(acc)))
+
+  const policies = []
+  let marker
+  do {
+    const o = await iam.send(new ListPoliciesCommand({ Scope: 'Local', MaxItems: 200, Marker: marker }))
+    for (const p of o.Policies ?? []) policies.push({ arn: p.Arn, name: p.PolicyName, ver: p.DefaultVersionId })
+    marker = o.IsTruncated ? o.Marker : undefined
+  } while (marker)
+
+  const matches = []
+  await Promise.all(
+    policies.map(async (p) => {
+      if (!p.ver) return
+      let statements = []
+      try {
+        const pv = await iam.send(new GetPolicyVersionCommand({ PolicyArn: p.arn, VersionId: p.ver }))
+        statements = parseStatements(JSON.parse(decodeURIComponent(pv.PolicyVersion?.Document ?? '{}')))
+      } catch {
+        return
+      }
+      const hit = statements.filter((s) => s.resources.some((r) => r.toLowerCase().includes(q)))
+      if (!hit.length) return
+      const actions = [...new Set(hit.flatMap((s) => s.actions))]
+      let entities = { roles: [], users: [], groups: [] }
+      try {
+        entities = entitiesOf(await iam.send(new ListEntitiesForPolicyCommand({ PolicyArn: p.arn })))
+      } catch {
+        /* non elencabile */
+      }
+      matches.push({ policy: p.name, arn: p.arn, actions, entities })
+    }),
+  )
+  matches.sort((a, b) => a.policy.localeCompare(b.policy))
+  return { needle, matches }
+}

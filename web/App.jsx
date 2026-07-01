@@ -479,7 +479,7 @@ export default function App() {
               }
             />
             <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} />} />
-            <Route path="/iam" element={<IamPage t={t} />} />
+            <Route path="/iam" element={<IamPage services={services} t={t} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>
