@@ -70,7 +70,14 @@
         "iam:ListMFADevices",
         "acm:ListCertificates",
         "acm:DescribeCertificate",
-        "secretsmanager:ListSecrets"
+        "secretsmanager:ListSecrets",
+        "sso:ListInstances",
+        "sso:ListPermissionSets",
+        "sso:DescribePermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListAccountAssignments",
+        "identitystore:DescribeUser",
+        "identitystore:DescribeGroup"
       ],
       "Resource": "*"
     },

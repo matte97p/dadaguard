@@ -1,0 +1,127 @@
+// Accesso "umano" reale: AWS Identity Center (SSO). Le persone non sono IAM user/group ma membri
+// della directory, a cui vengono assegnati dei permission set su certi account; ogni assegnazione
+// si materializza come ruolo AWSReservedSSO_* nell'account. Qui leggiamo permission set →
+// utenti/gruppi assegnati → account. Sola lettura. L'istanza Identity Center vive in un solo account
+// (il management): la troviamo provando gli account configurati.
+import {
+  SSOAdminClient,
+  ListInstancesCommand,
+  ListPermissionSetsCommand,
+  DescribePermissionSetCommand,
+  ListAccountsForProvisionedPermissionSetCommand,
+  ListAccountAssignmentsCommand,
+} from '@aws-sdk/client-sso-admin'
+import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand } from '@aws-sdk/client-identitystore'
+import { clientOpts } from './runtime/awsClient.js'
+
+const SSO_REGION = process.env.DADAGUARD_SSO_REGION || 'eu-central-1' // dove vive Identity Center
+
+function credsFor(acc) {
+  return { profile: acc?.profile, roleArn: acc?.roleArn, externalId: acc?.externalId, region: SSO_REGION }
+}
+
+// Prova gli account finché uno espone un'istanza Identity Center (di norma il management).
+async function findInstance(accounts) {
+  for (const [key, acc] of Object.entries(accounts ?? {})) {
+    try {
+      const o = await new SSOAdminClient(clientOpts(credsFor(acc))).send(new ListInstancesCommand({}))
+      const inst = o.Instances?.[0]
+      if (inst?.InstanceArn) return { acc, key, instanceArn: inst.InstanceArn, identityStoreId: inst.IdentityStoreId }
+    } catch {
+      /* account senza accesso a Identity Center */
+    }
+  }
+  return null
+}
+
+// account id (12 cifre dal roleArn) → label leggibile.
+function accountLabels(accounts) {
+  const m = {}
+  for (const [key, acc] of Object.entries(accounts ?? {})) {
+    const id = acc.roleArn?.match(/:(\d{12}):/)?.[1]
+    if (id) m[id] = acc.label ?? key
+  }
+  return m
+}
+
+export async function ssoAccess(accounts) {
+  const inst = await findInstance(accounts)
+  if (!inst) return { available: false, permissionSets: [] }
+
+  const sso = new SSOAdminClient(clientOpts(credsFor(inst.acc)))
+  const idstore = new IdentitystoreClient(clientOpts(credsFor(inst.acc)))
+  const labels = accountLabels(accounts)
+
+  const nameCache = new Map()
+  const resolve = async (type, id) => {
+    const k = `${type}:${id}`
+    if (nameCache.has(k)) return nameCache.get(k)
+    let name = id
+    try {
+      if (type === 'USER') {
+        const u = await idstore.send(new DescribeUserCommand({ IdentityStoreId: inst.identityStoreId, UserId: id }))
+        name = u.UserName || u.DisplayName || id
+      } else {
+        const g = await idstore.send(new DescribeGroupCommand({ IdentityStoreId: inst.identityStoreId, GroupId: id }))
+        name = g.DisplayName || id
+      }
+    } catch {
+      /* directory non leggibile → resta l'id */
+    }
+    nameCache.set(k, name)
+    return name
+  }
+
+  // tutti i permission set dell'istanza
+  const psArns = []
+  let t
+  do {
+    const o = await sso.send(new ListPermissionSetsCommand({ InstanceArn: inst.instanceArn, NextToken: t, MaxResults: 100 }))
+    psArns.push(...(o.PermissionSets ?? []))
+    t = o.NextToken
+  } while (t)
+
+  const permissionSets = []
+  await Promise.all(
+    psArns.map(async (psArn) => {
+      let name = psArn
+      try {
+        name = (await sso.send(new DescribePermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn }))).PermissionSet?.Name || psArn
+      } catch {
+        /* nome non leggibile */
+      }
+      const acctIds = []
+      let at
+      do {
+        const o = await sso.send(
+          new ListAccountsForProvisionedPermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn, NextToken: at, MaxResults: 100 }),
+        )
+        acctIds.push(...(o.AccountIds ?? []))
+        at = o.NextToken
+      } while (at)
+
+      const assignments = []
+      await Promise.all(
+        acctIds.map(async (acctId) => {
+          try {
+            let aat
+            do {
+              const o = await sso.send(
+                new ListAccountAssignmentsCommand({ InstanceArn: inst.instanceArn, AccountId: acctId, PermissionSetArn: psArn, NextToken: aat, MaxResults: 100 }),
+              )
+              for (const a of o.AccountAssignments ?? []) {
+                assignments.push({ account: labels[acctId] || acctId, type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
+              }
+              aat = o.NextToken
+            } while (aat)
+          } catch {
+            /* nessuna assegnazione leggibile su questo account */
+          }
+        }),
+      )
+      if (assignments.length) permissionSets.push({ name, assignments })
+    }),
+  )
+  permissionSets.sort((a, b) => a.name.localeCompare(b.name))
+  return { available: true, permissionSets }
+}
