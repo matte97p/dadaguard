@@ -338,7 +338,7 @@ function SsoView({ t }) {
 export default function IamPage({ services = [], t = (k) => k }) {
   const [params] = useSearchParams()
   const paramView = params.get('view')
-  const [view, setView] = useState(['resource', 'sso'].includes(paramView) ? paramView : 'policy')
+  const [view, setView] = useState(['policy', 'resource'].includes(paramView) ? paramView : 'sso')
   // preselezione quando si arriva da un link della pagina Sicurezza
   const initialSel = paramView === 'policy' && params.get('arn') ? { account: params.get('account'), arn: params.get('arn') } : null
   const initialResource =
@@ -351,9 +351,9 @@ export default function IamPage({ services = [], t = (k) => k }) {
         extra={
           <Segmented
             options={[
+              { label: t('iam.bySso'), value: 'sso' },
               { label: t('iam.byPolicy'), value: 'policy' },
               { label: t('iam.byResource'), value: 'resource' },
-              { label: t('iam.bySso'), value: 'sso' },
             ]}
             value={view}
             onChange={setView}
