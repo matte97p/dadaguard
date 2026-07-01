@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { List, Tag, Alert, Space, Typography, Spin } from 'antd'
+import { List, Tag, Alert, Space, Typography, Spin, Empty } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 
 const { Text } = Typography
@@ -66,7 +66,8 @@ export default function WastePage({ accountLabels, t = (k) => k }) {
       )}
       {error && <Alert type="error" message={error} showIcon />}
 
-      {data && (
+      {data && entries.length === 0 && <Empty description={t('waste.noAccounts')} style={{ marginTop: 24 }} />}
+      {data && entries.length > 0 && (
         <div style={PANEL_GRID}>
           {entries.map(([key, v]) => {
             const items = v.error ? [] : buildItems(v, t)
@@ -77,7 +78,7 @@ export default function WastePage({ accountLabels, t = (k) => k }) {
                   {v.error ? (
                     <Text type="danger">{v.error}</Text>
                   ) : (
-                    <Text strong>~${v.estMonthlyUsd}/mese</Text>
+                    <Text strong>{t('waste.perMonth', { v: v.estMonthlyUsd })}</Text>
                   )}
                 </Space>
                 {!v.error && (

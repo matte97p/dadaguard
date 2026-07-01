@@ -26,7 +26,7 @@ export default function StatusSummary({ services = [], t = (k) => k }) {
         </Space>
       ))}
       <Text type="secondary">
-        · {services.length} {t('content.servicesCount')}
+        · {t('content.servicesCount', { n: services.length })}
       </Text>
     </Space>
   )
