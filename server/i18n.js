@@ -9,7 +9,6 @@ const S = {
     'version.fieldmissing': "campo '{field}' assente nel payload",
     'version.timeout': 'timeout',
     'version.notjson': 'health non leggibile come JSON',
-    'version.throttled': 'rate limit AWS — riprovo al refresh',
     'liveness.timeout': 'timeout >{ms}ms',
     'liveness.dns': 'host non risolto (DNS)',
     'liveness.refused': 'connessione rifiutata',
@@ -147,7 +146,6 @@ const S = {
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
     'drift.handler': 'handler diverso da Terraform',
     'drift.stateunreadable': 'state TF non leggibile',
-    'drift.throttled': 'rate limit AWS — riprovo al refresh',
 
     'runtime.unsupported': "runtime '{type}' non ancora supportato",
 
@@ -176,7 +174,6 @@ const S = {
     'version.fieldmissing': "field '{field}' missing in payload",
     'version.timeout': 'timeout',
     'version.notjson': 'health not readable as JSON',
-    'version.throttled': 'AWS rate limit — retry on refresh',
     'liveness.timeout': 'timeout >{ms}ms',
     'liveness.dns': 'host not resolved (DNS)',
     'liveness.refused': 'connection refused',
@@ -314,7 +311,6 @@ const S = {
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
     'drift.handler': 'handler differs from Terraform',
     'drift.stateunreadable': 'TF state not readable',
-    'drift.throttled': 'AWS rate limit — retry on refresh',
 
     'runtime.unsupported': "runtime '{type}' not supported yet",
 

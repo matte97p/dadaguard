@@ -228,12 +228,12 @@ export default function App() {
     for (const s of filtered) {
       const key = s.account?.key ?? '__none__'
       if (!m.has(key)) {
-        m.set(key, { key, label: s.account?.label ?? 'Senza account', color: s.account?.color, services: [] })
+        m.set(key, { key, label: s.account?.label ?? t('filter.noAccount'), color: s.account?.color, services: [] })
       }
       m.get(key).services.push(s)
     }
     return [...m.values()]
-  }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly])
+  }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly, t])
 
   // Account (per label) dopo il filtro servizi completo → per la Topologia (che filtra i servizi).
   const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
