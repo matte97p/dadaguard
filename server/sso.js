@@ -22,7 +22,11 @@ function credsFor(acc) {
 
 // Prova gli account finché uno espone un'istanza Identity Center (di norma il management).
 async function findInstance(accounts) {
-  for (const [key, acc] of Object.entries(accounts ?? {})) {
+  // Account configurati + credenziali "locali" del task (nessun profile/roleArn → default chain):
+  // il fallback locale rende la vista zero-config in prod, dove il servizio gira nell'account
+  // management (Identity Center in-account) senza dover dichiarare un account nel services.yaml.
+  const candidates = [...Object.entries(accounts ?? {}), ['__task__', {}]]
+  for (const [key, acc] of candidates) {
     try {
       const o = await new SSOAdminClient(clientOpts(credsFor(acc))).send(new ListInstancesCommand({}))
       const inst = o.Instances?.[0]
