@@ -114,7 +114,12 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
         </Space>
       }
     >
-      <Descriptions column={1} size="small">
+      <Descriptions
+        column={1}
+        size="small"
+        labelStyle={{ fontSize: 12, opacity: 0.65 }}
+        contentStyle={{ fontSize: 12.5 }}
+      >
         {liveness && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.reachable')}>{t('card.label.reachable')}</RowLabel>}>
             <Space size={4}>
