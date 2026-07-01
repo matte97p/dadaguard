@@ -4,14 +4,25 @@ import { clientOpts } from './runtime/awsClient.js'
 // Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
 // → SEMPRE on-demand. Separiamo per RECORD_TYPE: il CONSUMO (usage, per servizio) dai CREDITI/rimborsi,
 // così il netto è leggibile → consumo lordo + crediti (negativi) = quanto paghi davvero.
-export async function getCosts({ profile, roleArn, externalId }) {
+// Intervallo del mese di riferimento per Cost Explorer (End è ESCLUSIVO). `month` = 'YYYY-MM'
+// (assente/non valido → mese corrente). Per il mese in corso l'End è cappato a domani, così non si
+// chiedono date future. Puro/testabile.
+export function monthRange(month, now) {
+  const valid = typeof month === 'string' && /^\d{4}-\d{2}$/.test(month)
+  const y = valid ? Number(month.slice(0, 4)) : now.getUTCFullYear()
+  const m = valid ? Number(month.slice(5, 7)) : now.getUTCMonth() + 1 // 1-12
+  const start = `${y}-${String(m).padStart(2, '0')}-01`
+  const firstOfNext = new Date(Date.UTC(y, m, 1)) // primo del mese successivo (End esclusivo)
+  const tomorrow = new Date(now)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const end = (firstOfNext <= tomorrow ? firstOfNext : tomorrow).toISOString().slice(0, 10)
+  return { start, end }
+}
+
+export async function getCosts({ profile, roleArn, externalId, month }) {
   const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
 
-  const now = new Date()
-  const start = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`
-  const endD = new Date(now)
-  endD.setUTCDate(endD.getUTCDate() + 1) // End è esclusivo in CE: +1 giorno per includere oggi
-  const end = endD.toISOString().slice(0, 10)
+  const { start, end } = monthRange(month, new Date())
 
   // paginazione: con molti servizi i Groups arrivano su più pagine (NextPageToken) → vanno
   // accumulati tutti, altrimenti il consumo risulta troncato (e il netto sbagliato).

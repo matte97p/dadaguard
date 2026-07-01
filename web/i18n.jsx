@@ -101,7 +101,9 @@ const STRINGS = {
     'type.s3': 'S3',
     'type.kinesis': 'Kinesis',
 
-    'costs.title': 'Costi · mese corrente',
+    'costs.title': 'Costi',
+    'costs.month': 'Mese',
+    'costs.current': 'corrente',
     'costs.desc':
       'Spesa reale MTD: consumo per servizio meno crediti/rimborsi = netto (quanto paghi). Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
     'costs.net': 'netto',
@@ -307,7 +309,9 @@ const STRINGS = {
     'type.s3': 'S3',
     'type.kinesis': 'Kinesis',
 
-    'costs.title': 'Costs · current month',
+    'costs.title': 'Costs',
+    'costs.month': 'Month',
+    'costs.current': 'current',
     'costs.desc':
       'Real spend MTD: usage per service minus credits/refunds = net (what you pay). Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
     'costs.net': 'net',

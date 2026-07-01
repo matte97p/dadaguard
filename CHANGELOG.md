@@ -8,6 +8,8 @@ All notable changes to Dadaguard are documented here. Format based on
 ### Added
 - **Log window selector** — the recent-logs drawer now offers 1h / 6h / 24h (was fixed at 1h); the
   backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
+- **Cost month selector** — the Costs drawer can pick the reference month (last 12 months), not just
+  the current MTD; the backend takes `?month=YYYY-MM` (defaults to the current month).
 
 ### Changed
 - **Auto-discovery merges with the watchlist, on by default** — discovered services are now added to
