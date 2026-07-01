@@ -53,7 +53,8 @@ niente profili SSO, ma un **task role** che assume un ruolo read-only in ogni ac
    account usa `roleArn` + `externalId` invece di `profile` (vedi `services.example.yaml`).
    In cloud il config si versiona in SSM/TF, non si edita dalla dashboard.
 4. **Cloudflare**: sidecar `cloudflared` (Tunnel) + un'Access application che
-   limita l'ingresso al team.
+   limita l'ingresso al team. Guida passo-passo (tunnel, route, Access, gotcha):
+   [`CLOUDFLARE_ZERO_TRUST.md`](CLOUDFLARE_ZERO_TRUST.md).
 
 ## Build & run locale del container
 

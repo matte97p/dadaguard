@@ -15,7 +15,8 @@ Deploy AWS-native di Dadaguard: un servizio ECS Fargate (container app + sidecar
 
 ## Prerequisiti (NON creati da qui)
 1. Una VPC con **subnet private + NAT** e un **cluster ECS** nell'account host.
-2. Un **Cloudflare Tunnel** già creato → il suo **token**.
+2. Un **Cloudflare Tunnel** già creato → il suo **token** (come crearlo, con route e
+   Access: [`../CLOUDFLARE_ZERO_TRUST.md`](../CLOUDFLARE_ZERO_TRUST.md)).
 3. In **ogni account da monitorare**, il ruolo `dadaguard-readonly`
    (applica [`../dadaguard-readonly-role.example.tf`](../dadaguard-readonly-role.example.tf)).
 4. Due **parametri SSM SecureString** nell'account host:
