@@ -3,7 +3,7 @@ import {
   GetAliasCommand,
   GetFunctionConfigurationCommand,
 } from '@aws-sdk/client-lambda'
-import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
+import { metricValues } from './cw.js'
 import { clientOpts } from './awsClient.js'
 import { fmtAgo, identityT } from '../i18n.js'
 
@@ -77,36 +77,18 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     }
   }
 
-  // Metriche sulla finestra.
-  const cw = new CloudWatchClient(opts3)
-  const endTime = new Date()
-  const startTime = new Date(endTime.getTime() - windowMin * 60 * 1000)
-  const period = Math.min(windowMin * 60, 86400)
+  // Metriche sulla finestra (batch CloudWatch condiviso: più servizi → poche GetMetricData).
   const dims = [{ Name: 'FunctionName', Value: cfg.function }]
-  const q = (id, name, stat) => ({
-    Id: id,
-    MetricStat: {
-      Metric: { Namespace: 'AWS/Lambda', MetricName: name, Dimensions: dims },
-      Period: period,
-      Stat: stat,
-    },
-    ReturnData: true,
-  })
-
-  const queries = [q('inv', 'Invocations', 'Sum'), q('err', 'Errors', 'Sum'), q('thr', 'Throttles', 'Sum')]
-  if (!isCron) queries.push(q('dur', 'Duration', 'p95'))
-
-  const res = await cw.send(
-    new GetMetricDataCommand({ StartTime: startTime, EndTime: endTime, MetricDataQueries: queries }),
-  )
-  const agg = (id, how = 'sum') => {
-    const vals = res.MetricDataResults?.find((r) => r.Id === id)?.Values ?? []
-    if (!vals.length) return 0
-    return how === 'max' ? Math.max(...vals) : vals.reduce((a, b) => a + b, 0)
-  }
-  const invocations = agg('inv')
-  const errors = agg('err')
-  const throttles = agg('thr')
+  const queries = [
+    ['inv', 'Invocations', 'Sum'],
+    ['err', 'Errors', 'Sum'],
+    ['thr', 'Throttles', 'Sum'],
+  ]
+  if (!isCron) queries.push(['dur', 'Duration', 'p95']) // p95 → il batcher aggrega col max dei punti
+  const m = await metricValues(aws, 'AWS/Lambda', dims, queries, windowMin)
+  const invocations = m.inv
+  const errors = m.err
+  const throttles = m.thr
 
   // --- Cron: dead man's switch ---
   if (isCron) {
@@ -146,7 +128,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     }
   }
 
-  const p95 = agg('dur', 'max')
+  const p95 = m.dur
   const errRate = (errors / invocations) * 100
   const nearTimeout = timeoutSec && p95 >= timeoutSec * 1000 * TIMEOUT_WARN
   const status = throttles > 0 || errors > 0 || nearTimeout ? 'degraded' : 'up'
