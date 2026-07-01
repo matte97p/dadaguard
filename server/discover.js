@@ -8,7 +8,7 @@ import {
   AutoScalingClient,
   DescribeAutoScalingGroupsCommand,
 } from '@aws-sdk/client-auto-scaling'
-import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
+import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from './runtime/awsClient.js'
 import { managedResources } from './terraform/state.js'
 import { scheduleForLambdas, minutesToSchedule } from './schedules.js'
@@ -94,6 +94,26 @@ async function listAsg(aws) {
   return groups.map((g) => g.AutoScalingGroupName).sort()
 }
 
+// Modelli Bedrock EFFETTIVAMENTE invocati: dai metric di CloudWatch (AWS/Bedrock) leggo i ModelId
+// che hanno una metrica Invocations. Non è il catalogo (centinaia di foundation model), ma solo
+// ciò che l'account ha davvero usato di recente → candidati sensati. Permesso: cloudwatch:ListMetrics.
+async function listBedrockModels(aws) {
+  const cw = new CloudWatchClient(clientOpts(aws))
+  const models = new Set()
+  let token
+  do {
+    const out = await cw.send(
+      new ListMetricsCommand({ Namespace: 'AWS/Bedrock', MetricName: 'Invocations', NextToken: token }),
+    )
+    for (const m of out.Metrics ?? []) {
+      const dim = (m.Dimensions ?? []).find((d) => d.Name === 'ModelId')
+      if (dim?.Value) models.add(dim.Value)
+    }
+    token = out.NextToken
+  } while (token)
+  return [...models].sort()
+}
+
 // Mappa i candidati discovery → voci servizio pronte per getStatus (in memoria, read-only).
 // Pura/testabile. Usata dall'auto-discovery zero-config (server/autodiscover.js).
 // region: se passata (sweep multi-region #8) viene iniettata in aws.region del servizio.
@@ -111,11 +131,12 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   const aws = { profile, roleArn, externalId, region }
   const ex = exclude ? new RegExp(exclude) : null
 
-  let [lambdas, ecs, asgs, schedules] = await Promise.all([
+  let [lambdas, ecs, asgs, schedules, bedrockModels] = await Promise.all([
     listLambda(aws).catch(() => []),
     listEcs(aws).catch(() => []),
     listAsg(aws).catch(() => []),
     scheduleForLambdas(aws).catch(() => new Map()),
+    listBedrockModels(aws).catch(() => []),
   ])
 
   let activeInfo = null
@@ -129,6 +150,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     lambdas = lambdas.filter((n) => !ex.test(n))
     ecs = ecs.filter((e) => !ex.test(e.service))
     asgs = asgs.filter((n) => !ex.test(n))
+    bedrockModels = bedrockModels.filter((m) => !ex.test(m))
   }
 
   const candidates = [
@@ -148,6 +170,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       aws: { type: 'ecs', cluster: e.cluster, service: e.service },
     })),
     ...asgs.map((n) => ({ name: n, kind: 'asg', aws: { type: 'asg', asg: n } })),
+    ...bedrockModels.map((model) => ({ name: model, kind: 'bedrock', aws: { type: 'bedrock', model } })),
   ]
 
   // #7: confronto con lo state Terraform → managed true/false per candidato.

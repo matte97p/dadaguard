@@ -24,7 +24,8 @@ All notable changes to Dadaguard are documented here. Format based on
 - **Discovered services fully wired** — logs/events/topology now work for auto-discovered services too
   (were 404 / edge-less); a shared 60s-cached resolved list also curbs AWS "Rate exceeded" throttling.
 - **Amazon Bedrock** — new service type: per-model usage from CloudWatch (invocations, client/server
-  errors, throttling, latency). Declare it with `aws: { type: bedrock, model: <modelId> }`.
+  errors, throttling, latency). Auto-discovered from the models you've actually invoked (CloudWatch
+  `ListMetrics`), or declared with `aws: { type: bedrock, model: <modelId> }`.
 - **Terraform badge** — the "Terraform-compliant" row is now a green/red badge, readable at a glance.
 
 ### Changed
