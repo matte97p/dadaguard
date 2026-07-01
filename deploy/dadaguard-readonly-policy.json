@@ -62,7 +62,9 @@
         "iam:ListRolePolicies",
         "iam:GetRolePolicy",
         "iam:GetPolicy",
-        "iam:GetPolicyVersion"
+        "iam:GetPolicyVersion",
+        "iam:ListPolicies",
+        "iam:ListEntitiesForPolicy"
       ],
       "Resource": "*"
     },

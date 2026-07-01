@@ -18,7 +18,8 @@ import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy } from './demo.js'
+import { listPolicies, policyDetail } from './iam.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -182,6 +183,28 @@ app.get('/api/network', async (_req, res) => {
     if (isDemo) return res.json({})
     const { accounts, services } = await resolveServices()
     res.json(await networkTopology(services, accounts))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// IAM policy explorer (read-only, on-demand): elenco policy customer-managed per account…
+app.get('/api/iam/policies', async (_req, res) => {
+  try {
+    if (isDemo) return res.json(demoIamPolicies())
+    const { accounts } = await resolveServices()
+    res.json(await listPolicies(accounts))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// …e il dettaglio di una policy: chi la usa (ruoli/utenti/gruppi) + a cosa dà accesso.
+app.get('/api/iam/policy', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoIamPolicy(req.query.arn))
+    const { accounts } = await resolveServices()
+    res.json(await policyDetail(accounts, req.query.account, req.query.arn))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

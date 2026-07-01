@@ -113,6 +113,8 @@ data "aws_iam_policy_document" "readonly" {
       "iam:GetRolePolicy",
       "iam:GetPolicy",
       "iam:GetPolicyVersion",
+      "iam:ListPolicies",
+      "iam:ListEntitiesForPolicy",
     ]
     resources = ["*"]
   }

@@ -171,6 +171,90 @@ export function demoTopology() {
   }
 }
 
+// IAM policy explorer finto: poche policy customer-managed con entità e permessi coerenti.
+export function demoIamPolicies() {
+  return {
+    accounts: [
+      {
+        account: 'prod',
+        label: 'Production',
+        color: '#cf1322',
+        policies: [
+          { arn: 'arn:aws:iam::111122223333:policy/read-only-audit', name: 'read-only-audit', attachments: 6 },
+          { arn: 'arn:aws:iam::111122223333:policy/payments-db-access', name: 'payments-db-access', attachments: 2 },
+          { arn: 'arn:aws:iam::111122223333:policy/checkout-runtime', name: 'checkout-runtime', attachments: 1 },
+        ],
+      },
+      {
+        account: 'staging',
+        label: 'Staging',
+        color: '#1677ff',
+        policies: [{ arn: 'arn:aws:iam::444455556666:policy/webhook-runtime', name: 'webhook-runtime', attachments: 1 }],
+      },
+    ],
+  }
+}
+
+export function demoIamPolicy(arn) {
+  const byArn = {
+    'arn:aws:iam::111122223333:policy/payments-db-access': {
+      name: 'payments-db-access',
+      description: 'Accesso al cluster pagamenti e al suo secret',
+      attachments: 2,
+      statements: [
+        { actions: ['rds-db:connect'], resources: ['arn:aws:rds-db:eu-west-1:111122223333:dbuser/user-db/app'] },
+        {
+          actions: ['secretsmanager:GetSecretValue'],
+          resources: ['arn:aws:secretsmanager:eu-west-1:111122223333:secret:prod/user-db-*'],
+        },
+        { actions: ['kms:Decrypt'], resources: ['arn:aws:kms:eu-west-1:111122223333:key/*'] },
+      ],
+      entities: { roles: ['payments-worker-role', 'checkout-api-task'], users: [], groups: [] },
+    },
+    'arn:aws:iam::111122223333:policy/checkout-runtime': {
+      name: 'checkout-runtime',
+      description: 'Runtime di checkout-api',
+      attachments: 1,
+      statements: [
+        {
+          actions: ['sqs:SendMessage', 'sqs:GetQueueAttributes'],
+          resources: ['arn:aws:sqs:eu-west-1:111122223333:events-stream'],
+        },
+        { actions: ['s3:GetObject', 's3:PutObject'], resources: ['arn:aws:s3:::public-assets/*'] },
+      ],
+      entities: { roles: ['checkout-api-task'], users: [], groups: [] },
+    },
+    'arn:aws:iam::111122223333:policy/read-only-audit': {
+      name: 'read-only-audit',
+      description: 'Sola lettura per i revisori',
+      attachments: 6,
+      statements: [{ actions: ['cloudwatch:Get*', 'logs:FilterLogEvents', 'ec2:Describe*'], resources: ['*'] }],
+      entities: { roles: ['auditor'], users: ['revisore-esterno'], groups: ['security', 'finance'] },
+    },
+    'arn:aws:iam::444455556666:policy/webhook-runtime': {
+      name: 'webhook-runtime',
+      description: 'Runtime del webhook di staging',
+      attachments: 1,
+      statements: [
+        {
+          actions: ['lambda:InvokeFunction'],
+          resources: ['arn:aws:lambda:eu-west-1:444455556666:function:cato-staging-webhook'],
+        },
+      ],
+      entities: { roles: ['cato-staging-webhook-role'], users: [], groups: [] },
+    },
+  }
+  return (
+    byArn[arn] ?? {
+      name: (arn || '').split('/').pop() || 'policy',
+      description: null,
+      attachments: 0,
+      statements: [],
+      entities: { roles: [], users: [], groups: [] },
+    }
+  )
+}
+
 export function demoLogs() {
   const now = Date.now()
   return {
