@@ -2,7 +2,7 @@ import express from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { getStatus, resolveServices } from './status.js'
+import { getStatus, resolveServices, invalidateServicesCache } from './status.js'
 import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
@@ -270,7 +270,9 @@ app.get('/api/drift/job/:id', (req, res) => {
 // Watchlist = services.yaml. Scrive SOLO il config locale, mai su AWS.
 app.post('/api/watchlist/add', requireLocal('Watchlist'), (req, res) => {
   try {
-    res.json({ added: addServices(req.body?.entries ?? []) })
+    const added = addServices(req.body?.entries ?? [])
+    invalidateServicesCache() // watchlist cambiata → ricalcola la lista al prossimo giro
+    res.json({ added })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -278,7 +280,9 @@ app.post('/api/watchlist/add', requireLocal('Watchlist'), (req, res) => {
 
 app.post('/api/watchlist/remove', requireLocal('Watchlist'), (req, res) => {
   try {
-    res.json({ removed: removeService(req.body?.name) })
+    const removed = removeService(req.body?.name)
+    invalidateServicesCache()
+    res.json({ removed })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

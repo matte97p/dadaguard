@@ -36,7 +36,19 @@ function rollup(checks) {
 // Risolve la lista EFFETTIVA di account + servizi: config (+ org) e auto-discovery/merge.
 // Condivisa tra getStatus e gli endpoint per-servizio (logs/events), così anche i servizi
 // SCOPERTI (non in services.yaml) sono risolvibili per nome — altrimenti darebbero 404.
+//
+// Cache breve: la discovery gira su OGNI endpoint per-servizio (status, logs, events, topology,
+// network) → senza cache sono molte chiamate AWS ripetute a ogni refresh (throttling "Rate
+// exceeded"). Cachiamo solo QUALI servizi esistono (cambia di rado); i CHECK restano freschi, li
+// rifà getStatus a ogni chiamata. Invalidata quando la watchlist viene modificata.
+let _resolveCache = null
+const RESOLVE_TTL_MS = 60_000
+export function invalidateServicesCache() {
+  _resolveCache = null
+}
+
 export async function resolveServices() {
+  if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
   const { accounts: declaredAccounts, services: declared, org } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
@@ -64,7 +76,9 @@ export async function resolveServices() {
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  return { accounts, services, discovered }
+  const value = { accounts, services, discovered }
+  _resolveCache = { at: Date.now(), value }
+  return value
 }
 
 export async function getStatus(lang) {
