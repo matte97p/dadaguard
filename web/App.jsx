@@ -59,6 +59,15 @@ import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 const { Header, Content } = Layout
 const { Title, Text } = Typography
 
+// Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
+const QUICK_PRESETS = [
+  { key: 'problems', labelKey: 'filter.problemsOnly', filters: { problemsOnly: true } },
+  { key: 'cron', labelKey: 'filter.schedule.cron', filters: { scheduleFilter: 'cron' } },
+  { key: 'ondemand', labelKey: 'filter.schedule.ondemand', filters: { scheduleFilter: 'ondemand' } },
+  { key: 'idle', labelKey: 'preset.quick.idle', filters: { statusFilter: ['idle'] } },
+  { key: 'untracked', labelKey: 'filter.tf.unmanaged', filters: { managedFilter: 'unmanaged' } },
+]
+
 export default function App() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -521,6 +530,16 @@ export default function App() {
                 trigger={['click']}
                 menu={{
                   items: [
+                    {
+                      type: 'group',
+                      label: t('preset.quick'),
+                      children: QUICK_PRESETS.map((qp) => ({
+                        key: `q_${qp.key}`,
+                        label: t(qp.labelKey),
+                        onClick: () => applyPreset(qp.filters),
+                      })),
+                    },
+                    { type: 'divider' },
                     ...(presets.length
                       ? presets.map((p) => ({
                           key: p.name,
