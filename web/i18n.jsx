@@ -156,7 +156,8 @@ const STRINGS = {
     'logs.button': 'Log recenti',
     'logs.errorsOnly': 'Solo errori',
     'logs.refresh': 'Aggiorna',
-    'logs.warning': 'Log grezzi della risorsa (ultima ora, max ~100 righe). Possono contenere dati sensibili.',
+    'logs.warning': 'Log grezzi della risorsa (finestra scelta, max ~100 righe). Possono contenere dati sensibili.',
+    'logs.window': 'Finestra',
     'logs.loading': 'Leggo i log da CloudWatch…',
     'logs.notApplicable':
       'Nessun log applicativo per questo tipo (solo Lambda/ECS, oppure imposta aws.logGroup).',
@@ -361,7 +362,8 @@ const STRINGS = {
     'logs.button': 'Recent logs',
     'logs.errorsOnly': 'Errors only',
     'logs.refresh': 'Refresh',
-    'logs.warning': 'Raw resource logs (last hour, up to ~100 lines). May contain sensitive data.',
+    'logs.warning': 'Raw resource logs (selected window, up to ~100 lines). May contain sensitive data.',
+    'logs.window': 'Window',
     'logs.loading': 'Reading logs from CloudWatch…',
     'logs.notApplicable':
       'No application logs for this type (Lambda/ECS only, or set aws.logGroup).',

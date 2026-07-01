@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Switch, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
+import { Drawer, Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
@@ -38,6 +38,7 @@ function parseEvent(message) {
 // Read-only/zero storage. service = nome (apre quando truthy).
 export default function LogsDrawer({ service, onClose, t = (k) => k }) {
   const [errorsOnly, setErrorsOnly] = useState(false)
+  const [minutes, setMinutes] = useState(60) // finestra log: 1h / 6h / 24h
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -52,7 +53,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
     let stale = false
     setLoading(true)
     setError(null)
-    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}`)
+    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}&minutes=${minutes}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -60,7 +61,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
     return () => {
       stale = true
     }
-  }, [service, errorsOnly, reloadKey])
+  }, [service, errorsOnly, minutes, reloadKey])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
@@ -81,6 +82,19 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
           <Space size={6}>
             <Switch checked={showNoise} onChange={setShowNoise} />
             <Text>{t('logs.showNoise')}</Text>
+          </Space>
+          <Space size={6}>
+            <Text>{t('logs.window')}</Text>
+            <Segmented
+              size="small"
+              value={minutes}
+              onChange={setMinutes}
+              options={[
+                { label: '1h', value: 60 },
+                { label: '6h', value: 360 },
+                { label: '24h', value: 1440 },
+              ]}
+            />
           </Space>
         </Space>
         <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => setReloadKey((k) => k + 1)}>
