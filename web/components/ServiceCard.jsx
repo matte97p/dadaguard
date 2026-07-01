@@ -1,5 +1,22 @@
 import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
-import { DeleteOutlined, QuestionCircleOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  QuestionCircleOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  ClockCircleOutlined,
+} from '@ant-design/icons'
+
+// Logo Terraform (SVG inline) colorato per stato del drift: la card mostra solo il logo, il testo
+// (sì/no · diffs) va nel tooltip. Verde=conforme, rosso=drift, giallo=stato ignoto.
+const TF_COLOR = { up: '#52c41a', degraded: '#ff4d4f', down: '#ff4d4f', unknown: '#faad14' }
+function TerraformIcon({ color, size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true">
+      <path d="M1.44 0v7.575l6.561 3.79V3.787zm21.12 4.227l-6.561 3.789v7.577l6.561-3.789zM8.72 4.23v7.575l6.562 3.79V8.019zm0 8.405v7.574L15.282 24v-7.578z" />
+    </svg>
+  )
+}
 
 const STATUS = {
   up: { status: 'success', tag: 'success' },
@@ -64,6 +81,13 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
           <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
             {overallText}
           </Tag>
+          {drift && (
+            <Tooltip title={`${t('card.label.drift')}: ${drift.summary ?? drift.reason ?? '—'}`}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help' }}>
+                <TerraformIcon color={TF_COLOR[drift.status] ?? '#8c8c8c'} />
+              </span>
+            </Tooltip>
+          )}
           {onLogs && hasLogs && (
             <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
               <FileTextOutlined />
@@ -128,16 +152,6 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
           </Descriptions.Item>
         )}
 
-        {drift && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.drift')}>{t('card.label.drift')}</RowLabel>}>
-            <Tag
-              color={drift.status === 'up' ? 'success' : drift.status === 'unknown' ? 'default' : 'error'}
-              style={{ marginInlineEnd: 0 }}
-            >
-              {drift.summary ?? drift.reason ?? '—'}
-            </Tag>
-          </Descriptions.Item>
-        )}
 
         {secrets && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.secret')}>{t('card.label.secret')}</RowLabel>}>
