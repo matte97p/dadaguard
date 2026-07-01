@@ -46,7 +46,7 @@ test('demoTopology: ogni arco punta a un servizio reale o a un extraNode', () =>
   }
   // la demo deve esercitare tutte le provenienze, legenda inclusa
   const vias = new Set(edges.flatMap((e) => e.vias))
-  for (const v of ['declared', 'env', 'event', 'flow', 'lb', 'net']) {
+  for (const v of ['declared', 'env', 'event', 'flow', 'iam', 'lb', 'net']) {
     assert.ok(vias.has(v), `la topologia demo non copre la provenienza ${v}`)
   }
 })

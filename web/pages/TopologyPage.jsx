@@ -22,6 +22,7 @@ const VIA = {
   env: { color: '#1677ff' },
   event: { color: '#7c3aed' },
   flow: { color: '#eb2f96' },
+  iam: { color: '#08979c' },
   lb: { color: '#fa8c16' },
   net: { color: '#13c2c2' },
 }
