@@ -91,6 +91,12 @@ All notable changes to Dadaguard are documented here. Format based on
   those declared in `services.yaml` (declared ones win and keep their overrides), instead of running
   only when the watchlist is empty. Works in cloud too. Opt out with `DADAGUARD_DISCOVER=0`.
 
+### Fixed
+- **Missing server-side translations** — Bedrock, SageMaker, SES and OpenSearch runtime summaries
+  rendered raw i18n keys (e.g. `bedrock.invocations`) because those strings lived only in the web
+  dictionary, never in the server one. Added all it/en strings; a new test fails if any `namespace.key`
+  used in a runtime/check is absent from the server dictionary, so a new provider can't ship untranslated.
+
 ## [0.2.0] — 2026-06-30
 
 Adoption, trust and scale — the jump from "deep tool" to "the dashboard a DevOps reaches for".
