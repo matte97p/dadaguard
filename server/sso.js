@@ -86,8 +86,12 @@ function makeResolver(idstore, identityStoreId) {
         out = { name: u.UserName || u.DisplayName || id }
       } else {
         const g = await idstore.send(new DescribeGroupCommand({ IdentityStoreId: identityStoreId, GroupId: id }))
-        const members = []
+        // members: undefined = non abbiamo potuto leggerli (manca ListGroupMemberships); [] = gruppo
+        // davvero vuoto; [...] = i membri. Distinguere i due casi vuoti evita di dire "non leggibili"
+        // quando il gruppo semplicemente non ha nessuno dentro.
+        let members
         try {
+          const list = []
           let mt
           do {
             const o = await idstore.send(new ListGroupMembershipsCommand({ IdentityStoreId: identityStoreId, GroupId: id, NextToken: mt, MaxResults: 100 }))
@@ -95,17 +99,18 @@ function makeResolver(idstore, identityStoreId) {
               const uid = m.MemberId?.UserId
               if (!uid) continue
               try {
-                members.push((await idstore.send(new DescribeUserCommand({ IdentityStoreId: identityStoreId, UserId: uid }))).UserName || uid)
+                list.push((await idstore.send(new DescribeUserCommand({ IdentityStoreId: identityStoreId, UserId: uid }))).UserName || uid)
               } catch {
                 /* membro non leggibile */
               }
             }
             mt = o.NextToken
           } while (mt)
+          members = list.sort() // riuscito: [] se vuoto, altrimenti l'elenco
         } catch {
-          /* identitystore:ListGroupMemberships non concesso → gruppo senza elenco membri */
+          members = undefined // identitystore:ListGroupMemberships non concesso → non sappiamo chi c'è
         }
-        out = { name: g.DisplayName || id, members: members.sort() }
+        out = { name: g.DisplayName || id, members }
       }
     } catch {
       /* directory non leggibile → resta l'id */
