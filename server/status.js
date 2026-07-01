@@ -128,7 +128,7 @@ export async function getStatus(lang) {
       )
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
-      const cu = consoleUrl(service) // #5 deep-link alla risorsa AWS esatta
+      const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
       return {
         name: service.name,
         links: { ...(service.links ?? {}), ...(cu ? { [t('link.console')]: cu } : {}) },
