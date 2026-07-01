@@ -4,10 +4,12 @@
 // #5: da ogni card un click ti porta sulla risorsa giusta (il "dove" dopo il "perché").
 const enc = encodeURIComponent
 
-export function consoleUrl(service) {
+export function consoleUrl(service, accountRegion) {
   const a = service?.aws
   if (!a?.type) return null
-  const region = a.region || service.region || 'us-east-1'
+  // I servizi senza `region` esplicita ereditano quella dell'account (dove la risorsa
+  // vive davvero): senza questo fallback il deep-link punterebbe a us-east-1 e non la troverebbe.
+  const region = a.region || service.region || accountRegion || 'us-east-1'
   const r = enc(region)
   const base = `https://${region}.console.aws.amazon.com`
 

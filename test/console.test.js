@@ -17,6 +17,16 @@ test('region fallback su service.region', () => {
   assert.match(u, /ap-south-1/)
 })
 
+test('region fallback sull’account quando il servizio non la specifica', () => {
+  const u = consoleUrl({ aws: { type: 'rds', cluster: 'db1' } }, 'eu-central-1')
+  assert.match(u, /eu-central-1\.console\.aws\.amazon\.com\/rds\/home\?region=eu-central-1#database:id=db1;is-cluster=true/)
+})
+
+test('service.region ha precedenza sulla region dell’account', () => {
+  const u = consoleUrl({ region: 'ap-south-1', aws: { type: 'lambda', function: 'f' } }, 'eu-central-1')
+  assert.match(u, /ap-south-1/)
+})
+
 test('identificatori mancanti / tipo ignoto → null', () => {
   assert.equal(consoleUrl({ aws: { type: 'lambda' } }), null)
   assert.equal(consoleUrl({ aws: { type: 'qualcosa' } }), null)
