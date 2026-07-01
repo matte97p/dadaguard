@@ -89,6 +89,16 @@ export function classifyPlan(status, exitCode, output) {
   return { kind, counts }
 }
 
+// Redazione di sicurezza: il plan può contenere in chiaro valori di attributi NON marcati `sensitive`
+// (es. una connection string dentro una env var). Prima di esporre l'output alla UI mascheriamo i
+// VALORI stringa — a destra di `=`, e da entrambi i lati di `->` nei diff — tenendo struttura, nomi
+// degli attributi e i tipi/nomi di risorsa (che stanno tra virgolette ma non sono segreti).
+export function redactPlan(text) {
+  return String(text ?? '')
+    .replace(/(=|->)(\s*)"(?:[^"\\]|\\.)*"/g, '$1$2(redacted)') // valore dopo = o ->
+    .replace(/"(?:[^"\\]|\\.)*"(\s*->)/g, '(redacted)$1') // valore prima di -> (lato "vecchio" del diff)
+}
+
 export function getJob(id) {
   const j = jobs.get(id)
   if (!j) return null
@@ -100,6 +110,6 @@ export function getJob(id) {
     counts, // { add, change, destroy } | null
     drift: kind === 'drift', // retro-compat
     layer: j.layer,
-    output: j.output.slice(-12000), // cap per non spingere MB nel browser
+    output: redactPlan(j.output.slice(-12000)), // cap + redazione dei valori (nessun secret in chiaro)
   }
 }
