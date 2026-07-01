@@ -78,7 +78,10 @@ All notable changes to Dadaguard are documented here. Format based on
   CloudWatch `GetMetricData` is **batched** (one call per credentials+window, ≤500 metrics, instead of
   one per service); AWS clients **share one credential provider per account** (a single STS AssumeRole
   instead of one per client); adaptive retry (client-side rate limiting under 429); and a 5-min
-  resolved-services cache. Tunables: `DADAGUARD_AWS_MAX_ATTEMPTS`, `DADAGUARD_DISCOVERY_TTL_MS`, `DADAGUARD_CONCURRENCY`.
+  resolved-services cache, plus a shared cache + single-flight for Lambda `GetFunctionConfiguration`
+  (build/drift/runtime read the same function's config in one refresh → one control-plane call instead
+  of three, and repeat refreshes reuse it for a TTL — the main reason a cron fleet stopped hitting 429).
+  Tunables: `DADAGUARD_AWS_MAX_ATTEMPTS`, `DADAGUARD_DISCOVERY_TTL_MS`, `DADAGUARD_CONCURRENCY`, `DADAGUARD_LAMBDA_CFG_TTL_MS`.
   And when a burst still exhausts the retries, the build field shows a clean *"AWS rate limit — retry on
   refresh"* instead of the raw `TooManyRequestsException: HTTP 429` SDK exception.
 - **Terraform badge** — the "Terraform-compliant" row is now a green/red badge, readable at a glance.

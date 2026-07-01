@@ -120,6 +120,7 @@ const S = {
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
     'drift.handler': 'handler diverso da Terraform',
     'drift.stateunreadable': 'state TF non leggibile',
+    'drift.throttled': 'rate limit AWS — riprovo al refresh',
 
     'runtime.unsupported': "runtime '{type}' non ancora supportato",
 
@@ -259,6 +260,7 @@ const S = {
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
     'drift.handler': 'handler differs from Terraform',
     'drift.stateunreadable': 'TF state not readable',
+    'drift.throttled': 'AWS rate limit — retry on refresh',
 
     'runtime.unsupported': "runtime '{type}' not supported yet",
 

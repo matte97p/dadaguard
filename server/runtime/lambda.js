@@ -1,10 +1,7 @@
-import {
-  LambdaClient,
-  GetAliasCommand,
-  GetFunctionConfigurationCommand,
-} from '@aws-sdk/client-lambda'
+import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
 import { metricValues } from './cw.js'
 import { clientOpts } from './awsClient.js'
+import { getLambdaConfig } from './lambdaConfig.js'
 import { fmtAgo, identityT } from '../i18n.js'
 
 // RuntimeProvider per Lambda. Due profili di salute:
@@ -80,9 +77,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   let timeoutSec = null
   if (!isCron) {
     try {
-      const conf = await lambda.send(
-        new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
-      )
+      const conf = await getLambdaConfig(cfg.function, aws)
       timeoutSec = conf.Timeout ?? null
     } catch {
       /* niente confronto timeout */
@@ -171,9 +166,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
 // (+ lambda:GetAlias se `alias`). Ritorna { version, lastModified } o null.
 export async function lambdaBuildInfo(cfg, aws) {
   const lambda = new LambdaClient(clientOpts(aws))
-  const conf = await lambda.send(
-    new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
-  )
+  const conf = await getLambdaConfig(cfg.function, aws)
   let version = conf.Version // di norma "$LATEST"
   if (cfg.alias) {
     try {
