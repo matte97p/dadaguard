@@ -6,7 +6,7 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
-- **Topology, upgraded** — the dependency view is now **full-screen**, auto-laid-out with dagre, and
+- **Topology, upgraded** — the dependency view is now **its own page**, auto-laid-out with dagre, and
   infers far more than before. `env` references are read from **ECS task definitions** too (not only
   Lambda) — so an ECS/Fargate stack finally shows its wiring; plus two new sources: **Step Functions**
   (the resources a state machine orchestrates → `flow` edges) and **Application Load Balancers** (the
@@ -14,11 +14,11 @@ All notable changes to Dadaguard are documented here. Format based on
   graph, so the feature is visible with no AWS connection. New read-only permission:
   `states:DescribeStateMachine` (the Terraform role modules already granted it; only the JSON policy
   example was missing it).
-- **Aggregate panels open near-fullscreen** — Costs, Waste, Quotas and Meta-health now open as a
-  centered modal (were narrow side drawers) with accounts laid out side-by-side, so a multi-account
-  fleet fills the width instead of a long single column. The modal height follows the content, so a
-  short panel doesn't leave half the screen blank. Each carries the same "filter from the dashboard
-  bar" hint as Topology (the bar is covered while a panel is open).
+- **Multi-page navigation** — Dadaguard is no longer one page with pop-out panels: Dashboard, Costs,
+  Waste, Topology and Quotas are now real pages with their own URLs (react-router; deep links and the
+  browser Back button work). The filter bar lives **on every page** and its state persists as you move
+  between them — Dashboard and Topology get the full bar, the per-account pages (Costs/Waste/Quotas)
+  show just Account + Region. Drift, Discover and Meta-health stay as pop-up panels opened from the header.
 - **Log window selector** — the recent-logs drawer now offers 1h / 6h / 24h (was fixed at 1h); the
   backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
 - **Cost month selector** — the Costs drawer can pick the reference month (last 12 months), not just

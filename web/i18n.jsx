@@ -20,6 +20,7 @@ export function resolveLang(saved, mode) {
 const STRINGS = {
   it: {
     'app.subtitle': 'il watchdog del tuo stack',
+    'btn.dashboard': 'Dashboard',
     'btn.waste': 'Sprechi',
     'btn.costs': 'Costi',
     'btn.topology': 'Topologia',
@@ -49,7 +50,6 @@ const STRINGS = {
     'filter.tf.unmanaged': 'Non gestiti da TF',
     'filter.problemsOnly': 'Solo problemi',
     'filter.reset': 'Azzera filtri',
-    'panel.filterHint': 'Filtra dalla barra della dashboard',
     'preset.label': 'Preset',
     'preset.quick': 'Rapidi',
     'preset.quick.idle': 'A riposo',
@@ -178,7 +178,6 @@ const STRINGS = {
       'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
 
     'topo.title': 'Topologia',
-    'topo.filterHint': 'Filtra dalla barra della dashboard',
     'topo.isolated': 'Servizi isolati · {n}',
     'topo.tab.deps': 'Dipendenze',
     'topo.tab.net': 'Rete',
@@ -279,6 +278,7 @@ const STRINGS = {
   },
   en: {
     'app.subtitle': "your stack's watchdog",
+    'btn.dashboard': 'Dashboard',
     'btn.waste': 'Waste',
     'btn.costs': 'Costs',
     'btn.topology': 'Topology',
@@ -308,7 +308,6 @@ const STRINGS = {
     'filter.tf.unmanaged': 'Not TF-managed',
     'filter.problemsOnly': 'Problems only',
     'filter.reset': 'Clear filters',
-    'panel.filterHint': 'Filter from the dashboard bar',
     'preset.label': 'Presets',
     'preset.quick': 'Quick',
     'preset.quick.idle': 'Idle',
@@ -437,7 +436,6 @@ const STRINGS = {
       'In "available" state: not attached to any instance, so you pay for idle storage. Snapshot and delete them if unused.',
 
     'topo.title': 'Topology',
-    'topo.filterHint': 'Filter from the dashboard bar',
     'topo.isolated': 'Isolated services · {n}',
     'topo.tab.deps': 'Dependencies',
     'topo.tab.net': 'Network',
