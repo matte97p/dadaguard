@@ -294,6 +294,33 @@ export function demoIamAccess(needle) {
   return { needle, matches }
 }
 
+export function demoSsoAccess() {
+  return {
+    available: true,
+    permissionSets: [
+      {
+        name: 'AdministratorAccess',
+        assignments: [
+          { account: 'Production', type: 'group', name: 'platform-admins' },
+          { account: 'Staging', type: 'group', name: 'platform-admins' },
+        ],
+      },
+      {
+        name: 'BillingView',
+        assignments: [{ account: 'Production', type: 'group', name: 'finance' }],
+      },
+      {
+        name: 'ReadOnly',
+        assignments: [
+          { account: 'Production', type: 'group', name: 'engineering' },
+          { account: 'Staging', type: 'group', name: 'engineering' },
+          { account: 'Production', type: 'user', name: 'revisore-esterno' },
+        ],
+      },
+    ],
+  }
+}
+
 export function demoSecurity() {
   return {
     findings: [

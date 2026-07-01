@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Badge, Space, Segmented, Select } from 'antd'
-import { PageIntro } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -281,12 +281,64 @@ function ResourceView({ services, t, initialResource }) {
   )
 }
 
-// Pagina IAM: due lenti. "Per policy" = da una policy a chi la usa e cosa concede. "Per risorsa" =
-// da una risorsa (servizio) a chi ci accede. Sola lettura, nessun valore di secret. On-demand.
+// --- Vista "Accesso SSO": Identity Center → permission set → utenti/gruppi assegnati, per account.
+// È il modo reale in cui gli umani hanno accesso (non IAM user/group). ---
+function SsoView({ t }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    fetch('/api/iam/sso')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading)
+    return (
+      <div style={{ textAlign: 'center', padding: 32 }}>
+        <Spin tip={t('iam.ssoLoading')} />
+      </div>
+    )
+  if (error) return <Alert type="error" showIcon message={error} />
+  if (data && !data.available) return <Empty description={t('iam.ssoNone')} style={{ marginTop: 24 }} />
+  const ps = data?.permissionSets ?? []
+  if (data && ps.length === 0) return <Empty description={t('iam.ssoEmpty')} style={{ marginTop: 24 }} />
+
+  return (
+    <>
+      <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+        {t('iam.ssoDesc')}
+      </Text>
+      <div style={PANEL_GRID}>
+        {ps.map((p) => (
+          <div key={p.name} style={CARD}>
+            <Text strong>{p.name}</Text>
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {p.assignments.map((a, i) => (
+                <Tag key={i} color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
+                  {a.name} <span style={{ opacity: 0.6 }}>· {a.account}</span>
+                </Tag>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// Pagina IAM: tre lenti. "Per policy" = da una policy a chi la usa e cosa concede. "Per risorsa" =
+// da una risorsa (servizio) a chi ci accede. "Accesso SSO" = come gli umani hanno accesso davvero
+// (Identity Center). Sola lettura, nessun valore di secret. On-demand.
 export default function IamPage({ services = [], t = (k) => k }) {
   const [params] = useSearchParams()
   const paramView = params.get('view')
-  const [view, setView] = useState(paramView === 'resource' ? 'resource' : 'policy')
+  const [view, setView] = useState(['resource', 'sso'].includes(paramView) ? paramView : 'policy')
   // preselezione quando si arriva da un link della pagina Sicurezza
   const initialSel = paramView === 'policy' && params.get('arn') ? { account: params.get('account'), arn: params.get('arn') } : null
   const initialResource =
@@ -301,6 +353,7 @@ export default function IamPage({ services = [], t = (k) => k }) {
             options={[
               { label: t('iam.byPolicy'), value: 'policy' },
               { label: t('iam.byResource'), value: 'resource' },
+              { label: t('iam.bySso'), value: 'sso' },
             ]}
             value={view}
             onChange={setView}
@@ -309,8 +362,10 @@ export default function IamPage({ services = [], t = (k) => k }) {
       />
       {view === 'policy' ? (
         <PolicyView t={t} initialSel={initialSel} />
-      ) : (
+      ) : view === 'resource' ? (
         <ResourceView services={services} t={t} initialResource={initialResource} />
+      ) : (
+        <SsoView t={t} />
       )}
     </>
   )

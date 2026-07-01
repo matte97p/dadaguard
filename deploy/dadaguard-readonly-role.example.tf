@@ -121,6 +121,14 @@ data "aws_iam_policy_document" "readonly" {
       "acm:ListCertificates",
       "acm:DescribeCertificate",
       "secretsmanager:ListSecrets",
+      # Identity Center (vista "Accesso SSO") — utile SOLO sull'account che ospita Identity Center (di norma management)
+      "sso:ListInstances",
+      "sso:ListPermissionSets",
+      "sso:DescribePermissionSet",
+      "sso:ListAccountsForProvisionedPermissionSet",
+      "sso:ListAccountAssignments",
+      "identitystore:DescribeUser",
+      "identitystore:DescribeGroup",
     ]
     resources = ["*"]
   }
