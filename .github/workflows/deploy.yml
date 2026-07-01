@@ -13,6 +13,13 @@ permissions:
   id-token: write # necessario per l'OIDC
   contents: read
 
+# Un solo deploy per volta: una nuova push su main cancella quello ancora in corso,
+# così vince SEMPRE l'ultimo commit (niente run parallele che si sovrascrivono a vicenda
+# ri-deployando codice vecchio).
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 # Config dell'ambiente di deploy via GitHub repo *variables* (Settings → Variables):
 # AWS_REGION, ECR_REPOSITORY, ECS_CLUSTER, AWS_DEPLOY_ROLE_ARN — così il repo pubblico non
 # hardcoda nulla di specifico. Chi fa fork e vuole un proprio deploy imposta le sue.
