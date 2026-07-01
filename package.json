@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Dadaguard — the watchdog for your stack. Local-first: is my stack up AND coherent? across AWS + Doppler + Terraform.",
   "scripts": {
-    "dev": "concurrently -n server,web -c green,cyan \"node server/index.js\" \"vite\"",
+    "dev": "concurrently -n server,web -c green,cyan \"node --watch server/index.js\" \"vite\"",
     "server": "node server/index.js",
     "discover": "node scripts/discover.js",
     "check": "node scripts/check.js",
