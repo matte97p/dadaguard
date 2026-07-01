@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Spin, Alert, Empty, Typography, Divider, Space, Badge, Select } from 'antd'
+import { Spin, Alert, Empty, Typography, Space, Badge, Select } from 'antd'
+import PanelModal, { PANEL_GRID, PANEL_CARD } from './PanelModal.jsx'
 
 const { Text } = Typography
 
@@ -60,29 +61,34 @@ export default function CostsDrawer({ open, onClose, accountLabels, t = (k) => k
   })
 
   return (
-    <Drawer title={t('costs.title')} placement="right" width={560} open={open} onClose={onClose}>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center" wrap>
-        <Text type="secondary">{t('costs.desc')}</Text>
+    <PanelModal
+      open={open}
+      onClose={onClose}
+      title={t('costs.title')}
+      hint={t('panel.filterHint')}
+      extra={
         <Space size={6}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {t('costs.month')}
           </Text>
           <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
         </Space>
-      </Space>
-      <Divider />
+      }
+    >
+      <Text type="secondary">{t('costs.desc')}</Text>
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
           <Spin />
         </div>
       )}
-      {error && <Alert type="error" showIcon message={error} />}
-      {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} />}
+      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
+      {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} style={{ marginTop: 24 }} />}
 
-      {accounts.map(([key, acc]) => {
+      <div style={{ ...PANEL_GRID, marginTop: 16 }}>
+        {accounts.map(([key, acc]) => {
         if (acc.error) {
           return (
-            <div key={key} style={{ marginBottom: 24 }}>
+            <div key={key} style={PANEL_CARD}>
               <Space>
                 {acc.color && <Badge color={acc.color} />}
                 <Text strong>{acc.label}</Text>
@@ -95,7 +101,7 @@ export default function CostsDrawer({ open, onClose, accountLabels, t = (k) => k
         const hasCredits = Math.abs(acc.credits ?? 0) > 0.005
         const max = Math.max(1, ...items.map((i) => Math.abs(i.amount)), Math.abs(acc.credits ?? 0))
         return (
-          <div key={key} style={{ marginBottom: 28 }}>
+          <div key={key} style={PANEL_CARD}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <Space>
                 {acc.color && <Badge color={acc.color} />}
@@ -137,6 +143,7 @@ export default function CostsDrawer({ open, onClose, accountLabels, t = (k) => k
           </div>
         )
       })}
-    </Drawer>
+      </div>
+    </PanelModal>
   )
 }

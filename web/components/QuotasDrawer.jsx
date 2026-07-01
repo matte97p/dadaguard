@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Spin, Alert, Empty, Typography, Space, Badge, Progress } from 'antd'
+import { Spin, Alert, Empty, Typography, Space, Badge, Progress } from 'antd'
+import PanelModal, { PANEL_GRID, PANEL_CARD } from './PanelModal.jsx'
 
 const { Text } = Typography
 
@@ -24,7 +25,7 @@ export default function QuotasDrawer({ open, onClose, accountLabels, t = (k) => 
   const anyQuota = accounts.some((a) => (a.quotas ?? []).length)
 
   return (
-    <Drawer title={t('quotas.title')} placement="right" width={560} open={open} onClose={onClose}>
+    <PanelModal open={open} onClose={onClose} title={t('quotas.title')} hint={t('panel.filterHint')}>
       <Text type="secondary">{t('quotas.desc')}</Text>
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
@@ -37,10 +38,11 @@ export default function QuotasDrawer({ open, onClose, accountLabels, t = (k) => 
         <Empty description={t('quotas.none')} style={{ marginTop: 24 }} />
       )}
 
+      <div style={{ ...PANEL_GRID, marginTop: 16 }}>
       {accounts.map(
         (a) =>
           (a.error || (a.quotas ?? []).length > 0) && (
-            <div key={a.account} style={{ marginTop: 16 }}>
+            <div key={a.account} style={PANEL_CARD}>
               <Space>
                 {a.color && <Badge color={a.color} />}
                 <Text strong>{a.label}</Text>
@@ -73,6 +75,7 @@ export default function QuotasDrawer({ open, onClose, accountLabels, t = (k) => 
             </div>
           ),
       )}
-    </Drawer>
+      </div>
+    </PanelModal>
   )
 }

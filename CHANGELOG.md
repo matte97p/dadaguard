@@ -14,6 +14,11 @@ All notable changes to Dadaguard are documented here. Format based on
   graph, so the feature is visible with no AWS connection. New read-only permission:
   `states:DescribeStateMachine` (the Terraform role modules already granted it; only the JSON policy
   example was missing it).
+- **Aggregate panels open near-fullscreen** — Costs, Waste, Quotas and Meta-health now open as a
+  centered modal (were narrow side drawers) with accounts laid out side-by-side, so a multi-account
+  fleet fills the width instead of a long single column. The modal height follows the content, so a
+  short panel doesn't leave half the screen blank. Each carries the same "filter from the dashboard
+  bar" hint as Topology (the bar is covered while a panel is open).
 - **Log window selector** — the recent-logs drawer now offers 1h / 6h / 24h (was fixed at 1h); the
   backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
 - **Cost month selector** — the Costs drawer can pick the reference month (last 12 months), not just

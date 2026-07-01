@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Drawer, List, Tag, Alert, Space, Typography, Spin } from 'antd'
+import { List, Tag, Alert, Space, Typography, Spin } from 'antd'
+import PanelModal, { PANEL_GRID, PANEL_CARD } from './PanelModal.jsx'
 
 const { Text } = Typography
 
@@ -56,7 +57,7 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (
-    <Drawer title={t('waste.title')} open={open} onClose={onClose} width={520}>
+    <PanelModal open={open} onClose={onClose} title={t('waste.title')} hint={t('panel.filterHint')}>
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
@@ -65,13 +66,14 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
       {error && <Alert type="error" message={error} showIcon />}
 
       {data && (
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <>
           <Text type="secondary">{t('waste.desc', { total })}</Text>
 
+          <div style={{ ...PANEL_GRID, marginTop: 16 }}>
           {entries.map(([key, v]) => {
             const items = v.error ? [] : buildItems(v, t)
             return (
-              <div key={key}>
+              <div key={key} style={PANEL_CARD}>
                 <Space>
                   <Tag color={v.color || 'default'}>{v.label}</Tag>
                   {v.error ? (
@@ -110,8 +112,9 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
               </div>
             )
           })}
-        </Space>
+          </div>
+        </>
       )}
-    </Drawer>
+    </PanelModal>
   )
 }
