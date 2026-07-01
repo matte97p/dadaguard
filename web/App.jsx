@@ -27,6 +27,7 @@ import {
   DashboardOutlined,
   AppstoreOutlined,
   ApiOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -39,6 +40,7 @@ import CostsPage from './pages/CostsPage.jsx'
 import WastePage from './pages/WastePage.jsx'
 import QuotasPage from './pages/QuotasPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
+import IamPage from './pages/IamPage.jsx'
 import logo from '../assets/logo.png'
 
 const { Header, Content } = Layout
@@ -61,6 +63,7 @@ const NAV = [
   { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [] },
 ]
 
 export default function App() {
@@ -358,7 +361,7 @@ export default function App() {
             <img src={logo} alt="Dadaguard" style={{ width: 32, height: 32, borderRadius: 8, display: 'block' }} />
             <div>
               <Title level={5} style={{ margin: 0, lineHeight: 1.2 }}>
-                Dadaguard 🐶
+                Dadaguard
               </Title>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {t('app.subtitle')}
@@ -443,7 +446,7 @@ export default function App() {
             />
           )}
 
-          {data && <FilterBar {...filterProps} />}
+          {data && activeNav.fields.length > 0 && <FilterBar {...filterProps} />}
 
           <Routes>
             <Route
@@ -476,6 +479,7 @@ export default function App() {
               }
             />
             <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} />} />
+            <Route path="/iam" element={<IamPage t={t} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>
