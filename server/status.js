@@ -147,6 +147,7 @@ export async function getStatus(lang) {
           : null,
         region: service.aws?.region ?? acct?.region ?? null,
         type: service.aws?.type ?? null,
+        managed: service.managed ?? null, // #7 gestito da Terraform (se noto) → filtro FE
         dependsOn: service.dependsOn ?? [], // relazioni dichiarate (grafo dipendenze)
         overall: rollup(checks),
         checks,

@@ -4,7 +4,7 @@ import { Drawer, Spin, Alert, Empty, Typography, Space, Badge, Progress } from '
 const { Text } = Typography
 
 // Service Quotas vicine al limite, per account. On-demand (Service Quotas + CloudWatch).
-export default function QuotasDrawer({ open, onClose, t = (k) => k }) {
+export default function QuotasDrawer({ open, onClose, accountLabels, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -20,7 +20,7 @@ export default function QuotasDrawer({ open, onClose, t = (k) => k }) {
       .finally(() => setLoading(false))
   }, [open])
 
-  const accounts = data?.accounts ?? []
+  const accounts = (data?.accounts ?? []).filter((a) => !accountLabels || accountLabels.has(a.label))
   const anyQuota = accounts.some((a) => (a.quotas ?? []).length)
 
   return (
