@@ -18,8 +18,8 @@ import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy } from './demo.js'
-import { listPolicies, policyDetail } from './iam.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess } from './demo.js'
+import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -205,6 +205,17 @@ app.get('/api/iam/policy', async (req, res) => {
     if (isDemo) return res.json(demoIamPolicy(req.query.arn))
     const { accounts } = await resolveServices()
     res.json(await policyDetail(accounts, req.query.account, req.query.arn))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Vista "per risorsa": chi accede a una risorsa (match sull'ARN) e con quali azioni.
+app.get('/api/iam/access', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoIamAccess(req.query.needle))
+    const { accounts } = await resolveServices()
+    res.json(await accessToResource(accounts, req.query.account, req.query.needle))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

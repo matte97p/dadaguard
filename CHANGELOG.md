@@ -6,9 +6,10 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
-- **IAM policy explorer** — a new **IAM** page: pick a customer-managed policy and see **who uses it**
-  (roles / users / groups, via `iam:ListEntitiesForPolicy`) and **what it grants** (actions grouped by
-  service + the resource ARNs). Read-only, no secret values are ever read. New read-only permissions:
+- **IAM explorer** — a new **IAM** page with two lenses. **By policy**: pick a customer-managed policy
+  and see who uses it (roles/users/groups) and what it grants (actions by service + resource ARNs).
+  **By resource**: pick a service and see which policies touch it, who holds them and with what actions
+  ("who can reach the prod DB?"). Read-only, no secret values are ever read. New read-only permissions:
   `iam:ListPolicies`, `iam:ListEntitiesForPolicy` (the other `iam:*` reads were already granted).
 - **Topology, upgraded** — the dependency view is now **its own page**, auto-laid-out with dagre, and
   infers far more than before. `env` references are read from **ECS task definitions** too (not only
