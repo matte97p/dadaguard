@@ -22,6 +22,7 @@
         "ec2:DescribeInstances",
         "ec2:DescribeInstanceStatus",
         "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
         "scheduler:GetSchedule",
         "scheduler:ListSchedules",
         "sqs:GetQueueUrl",
