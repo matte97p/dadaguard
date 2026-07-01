@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { List, Tag, Alert, Space, Typography, Spin } from 'antd'
-import PanelModal, { PANEL_GRID, PANEL_CARD } from './PanelModal.jsx'
+import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -32,13 +32,13 @@ function buildItems(v, t) {
   return out
 }
 
-export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k }) {
+// Pagina Sprechi: risorse a costo fisso che sembrano inutilizzate, per account. On-demand.
+export default function WastePage({ accountLabels, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!open) return
     setLoading(true)
     setError(null)
     fetch('/api/waste')
@@ -47,9 +47,9 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
         if (d.error) throw new Error(d.error)
         setData(d)
       })
-      .catch((e) => setError(e.message)) // errore HTTP/parse → Alert visibile, mai muto
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [])
 
   const entries = (data ? Object.entries(data) : []).filter(
     ([, v]) => !accountLabels || accountLabels.has(v.label),
@@ -57,7 +57,8 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (
-    <PanelModal open={open} onClose={onClose} title={t('waste.title')} hint={t('panel.filterHint')}>
+    <>
+      <PageIntro title={t('waste.title')} desc={data ? t('waste.desc', { total }) : undefined} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
@@ -66,10 +67,7 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
       {error && <Alert type="error" message={error} showIcon />}
 
       {data && (
-        <>
-          <Text type="secondary">{t('waste.desc', { total })}</Text>
-
-          <div style={{ ...PANEL_GRID, marginTop: 16 }}>
+        <div style={PANEL_GRID}>
           {entries.map(([key, v]) => {
             const items = v.error ? [] : buildItems(v, t)
             return (
@@ -112,9 +110,8 @@ export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k
               </div>
             )
           })}
-          </div>
-        </>
+        </div>
       )}
-    </PanelModal>
+    </>
   )
 }

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
+import { PageIntro } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -48,8 +49,7 @@ function buildGraph(services, topo, dark) {
     .filter((s) => !connected.has(s.name))
     .map((s) => ({ name: s.name, status: s.overall, type: s.type }))
 
-  // Auto-layout con dagre: DAG dall'alto verso il basso, nodi allineati per livello e archi puliti,
-  // invece del posizionamento manuale che si sovrapponeva.
+  // Auto-layout con dagre: DAG dall'alto verso il basso, nodi allineati per livello e archi puliti.
   const NODE_W = 200
   const NODE_H = 44
   const g = new dagre.graphlib.Graph()
@@ -102,8 +102,7 @@ function buildGraph(services, topo, dark) {
   return { nodes, edges: rfEdges, usedVias, isolated }
 }
 
-// --- Vista "Rete": box VPC (un account può averne più d'una) che contengono i servizi, più un
-// bucket "Senza VPC" per chi non è in una VPC (es. Lambda non-VPC: girano sulla rete gestita da AWS). ---
+// --- Vista "Rete": box VPC che contengono i servizi, più un bucket "Senza VPC". ---
 function buildNetworkGraph(net, dark, t) {
   const groups = []
   for (const acc of net.accounts ?? []) {
@@ -210,7 +209,7 @@ function Legend({ usedVias, t }) {
   const keys = Object.keys(VIA).filter((k) => usedVias.has(k))
   if (!keys.length) return null
   return (
-    <Space size={12} wrap style={{ marginTop: 8 }}>
+    <Space size={12} wrap style={{ marginBottom: 8 }}>
       {keys.map((k) => (
         <Space key={k} size={4}>
           <span
@@ -237,16 +236,17 @@ function Legend({ usedVias, t }) {
 }
 
 const CANVAS = {
-  height: 'calc(100vh - 200px)',
-  marginTop: 8,
+  height: 'calc(100vh - 280px)',
+  minHeight: 420,
   border: '1px solid rgba(128,128,128,0.2)',
   borderRadius: 8,
   position: 'relative',
 }
 
-// Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/SG). "Rete" = dove vive
-// ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
-export default function TopologyDrawer({ open, onClose, services = [], accountLabels, dark, t = (k) => k }) {
+// Pagina Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/flow/lb/SG).
+// "Rete" = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
+// `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
+export default function TopologyPage({ services = [], accountLabels, dark, t = (k) => k }) {
   const [view, setView] = useState('deps')
   const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
   const [loading, setLoading] = useState(false)
@@ -255,9 +255,8 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
 
-  // Dipendenze: fetch all'apertura.
+  // Dipendenze: fetch al mount della pagina.
   useEffect(() => {
-    if (!open) return
     setLoading(true)
     setError(null)
     fetch('/api/topology')
@@ -265,11 +264,11 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
       .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [] }))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [])
 
   // Rete: fetch pigro la prima volta che apri la tab (più chiamate AWS → solo se serve).
   useEffect(() => {
-    if (!open || view !== 'net' || net) return
+    if (view !== 'net' || net) return
     setNetLoading(true)
     setNetError(null)
     fetch('/api/network')
@@ -277,24 +276,16 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
       .then(setNet)
       .catch((e) => setNetError(e.message))
       .finally(() => setNetLoading(false))
-  }, [open, view, net])
+  }, [view, net])
 
-  // alla chiusura svuota la cache rete → riapertura = dati freschi
-  useEffect(() => {
-    if (!open) setNet(null)
-  }, [open])
-
-  // I servizi arrivano GIÀ filtrati dai filtri globali della dashboard. La vista Rete la restringo
-  // agli stessi account (per label) quando i filtri lasciano visibili solo alcuni account.
-  const shownServices = services
   const shownNet = useMemo(
     () => (!net || !accountLabels ? net : { accounts: (net.accounts ?? []).filter((a) => accountLabels.has(a.label)) }),
     [net, accountLabels],
   )
 
   const { nodes, edges, usedVias, isolated } = useMemo(
-    () => buildGraph(shownServices, topo, dark),
-    [shownServices, topo, dark],
+    () => buildGraph(services, topo, dark),
+    [services, topo, dark],
   )
   const hasEdges = edges.length > 0
   const netGraph = useMemo(
@@ -303,33 +294,31 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
   )
 
   return (
-    <Drawer title={t('topo.title')} placement="right" width="100%" open={open} onClose={onClose}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-        <Segmented
-          options={[
-            { label: t('topo.tab.deps'), value: 'deps' },
-            { label: t('topo.tab.net'), value: 'net' },
-          ]}
-          value={view}
-          onChange={setView}
-        />
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('topo.filterHint')}
-        </Text>
-      </Space>
+    <>
+      <PageIntro
+        title={t('topo.title')}
+        desc={t('topo.desc')}
+        extra={
+          <Segmented
+            options={[
+              { label: t('topo.tab.deps'), value: 'deps' },
+              { label: t('topo.tab.net'), value: 'net' },
+            ]}
+            value={view}
+            onChange={setView}
+          />
+        }
+      />
 
       {view === 'deps' ? (
         <>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('topo.desc')}
-          </Text>
-          {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
+          {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
           <Legend usedVias={usedVias} t={t} />
           {loading ? (
             <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Spin tip={t('topo.loading')} />
             </div>
-          ) : shownServices.length === 0 ? (
+          ) : services.length === 0 ? (
             <div style={CANVAS}>
               <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
             </div>
@@ -337,7 +326,14 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
                 {hasEdges ? (
-                  <ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }} colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    fitView
+                    fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+                    colorMode={dark ? 'dark' : 'light'}
+                    proOptions={{ hideAttribution: true }}
+                  >
                     <Background />
                     <Controls showInteractive={false} />
                   </ReactFlow>
@@ -416,6 +412,6 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
           </div>
         </>
       )}
-    </Drawer>
+    </>
   )
 }

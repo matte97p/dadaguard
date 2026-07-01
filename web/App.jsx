@@ -1,24 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   ConfigProvider,
   theme,
   Layout,
-  Row,
-  Col,
   Typography,
   Button,
-  Spin,
-  Alert,
-  Empty,
   Space,
-  Divider,
   Badge,
-  Select,
   Segmented,
-  Input,
-  Dropdown,
   Modal,
-  Tooltip,
+  Input,
+  Alert,
   message,
 } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
@@ -33,28 +26,20 @@ import {
   PieChartOutlined,
   PartitionOutlined,
   DashboardOutlined,
-  ApiOutlined,
-  SaveOutlined,
-  DeleteOutlined,
-  TeamOutlined,
   AppstoreOutlined,
-  AlertOutlined,
-  GlobalOutlined,
-  ClockCircleOutlined,
-  DeploymentUnitOutlined,
-  WarningOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
-import ServiceCard from './components/ServiceCard.jsx'
+import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
-import StatusSummary from './components/StatusSummary.jsx'
-import WasteDrawer from './components/WasteDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
-import CostsDrawer from './components/CostsDrawer.jsx'
-import TopologyDrawer from './components/TopologyDrawer.jsx'
 import LogsDrawer from './components/LogsDrawer.jsx'
 import EventsDrawer from './components/EventsDrawer.jsx'
-import QuotasDrawer from './components/QuotasDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
+import DashboardPage from './pages/DashboardPage.jsx'
+import CostsPage from './pages/CostsPage.jsx'
+import WastePage from './pages/WastePage.jsx'
+import QuotasPage from './pages/QuotasPage.jsx'
+import TopologyPage from './pages/TopologyPage.jsx'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -68,16 +53,25 @@ const QUICK_PRESETS = [
   { key: 'untracked', labelKey: 'filter.tf.unmanaged', filters: { managedFilter: 'unmanaged' } },
 ]
 
+// Pagine di navigazione: le viste "aggregate" (Costi/Sprechi/Quote) sono per-account → barra filtri
+// ridotta ad Account + Regione; Dashboard e Topologia filtrano singoli servizi → barra piena.
+const NAV = [
+  { to: '/', key: 'dashboard', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL },
+  { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
+  { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+]
+
 export default function App() {
+  const location = useLocation()
+  const navigate = useNavigate()
+
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [discoverOpen, setDiscoverOpen] = useState(false)
-  const [wasteOpen, setWasteOpen] = useState(false)
   const [driftOpen, setDriftOpen] = useState(false)
-  const [costsOpen, setCostsOpen] = useState(false)
-  const [topoOpen, setTopoOpen] = useState(false)
-  const [quotasOpen, setQuotasOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const [health, setHealth] = useState(null) // #6 meta-salute (raggiungibilità account)
   const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
@@ -86,7 +80,8 @@ export default function App() {
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
 
-  // Filtri: account singolo (switch) + region multi-select.
+  // Filtri: account singolo (switch) + region/type/status multi. Lo stato vive qui e persiste
+  // mentre si naviga tra le pagine; ogni pagina mostra solo il sottoinsieme di controlli sensato.
   const [accountFilter, setAccountFilter] = useState('all')
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
@@ -101,7 +96,6 @@ export default function App() {
   }, [dark])
 
   // Lingua effettiva: preferenza salvata, altrimenti IT in locale / lingua browser in cloud.
-  // Il server traduce i summary nella stessa lingua via ?lang=.
   const lang = resolveLang(langPref, data?.mode)
   const t = useMemo(() => makeT(lang), [lang])
   const setLang = useCallback((l) => {
@@ -118,7 +112,7 @@ export default function App() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         setData(await res.json())
       } catch (err) {
-        if (err.name === 'AbortError') return // risposta stale (lingua cambiata): scartala, non toccare lo stato
+        if (err.name === 'AbortError') return // risposta stale (lingua cambiata): scartala
         setError(err.message)
       } finally {
         if (!signal?.aborted) setLoading(false)
@@ -155,7 +149,6 @@ export default function App() {
         }
         load()
       } catch (err) {
-        // Senza feedback l'utente non sa che il remove è fallito (permessi file, 409 cloud).
         message.error(err.message)
       }
     },
@@ -170,8 +163,6 @@ export default function App() {
   }, [load])
 
   const services = data?.services ?? []
-  // capabilities = cosa permette la modalità corrente (vedi server/mode.js). Data-driven:
-  // niente controllo dell'env duplicato lato client. Fallback se un server vecchio non le manda.
   const isCloud = data?.mode === 'cloud'
   const caps = data?.capabilities ?? { watchlist: !isCloud, discover: !isCloud, fullDrift: !isCloud }
 
@@ -189,9 +180,7 @@ export default function App() {
 
   const regionOptions = useMemo(
     () =>
-      [...new Set(services.map((s) => s.region).filter(Boolean))]
-        .sort()
-        .map((r) => ({ value: r, label: r })),
+      [...new Set(services.map((s) => s.region).filter(Boolean))].sort().map((r) => ({ value: r, label: r })),
     [services],
   )
 
@@ -233,20 +222,27 @@ export default function App() {
     for (const s of filtered) {
       const key = s.account?.key ?? '__none__'
       if (!m.has(key)) {
-        m.set(key, {
-          key,
-          label: s.account?.label ?? 'Senza account',
-          color: s.account?.color,
-          services: [],
-        })
+        m.set(key, { key, label: s.account?.label ?? 'Senza account', color: s.account?.color, services: [] })
       }
       m.get(key).services.push(s)
     }
     return [...m.values()]
   }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly])
 
-  // Account (per label) attualmente visibili → filtro applicato ai drawer aggregati e alla vista Rete.
+  // Account (per label) dopo il filtro servizi completo → per la Topologia (che filtra i servizi).
   const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
+
+  // Account visibili applicando SOLO Account + Regione → per i pannelli aggregati (Costi/Sprechi/Quote),
+  // che sono per-account e non devono risentire dei filtri di tipo/stato/schedule.
+  const aggregateLabels = useMemo(() => {
+    const s = new Set()
+    for (const svc of services) {
+      if (accountFilter !== 'all' && (svc.account?.key ?? '__none__') !== accountFilter) continue
+      if (regionFilter.length && !regionFilter.includes(svc.region)) continue
+      s.add(svc.account?.label ?? t('filter.noAccount'))
+    }
+    return s
+  }, [services, accountFilter, regionFilter, t])
 
   const filtersActive =
     accountFilter !== 'all' ||
@@ -307,6 +303,39 @@ export default function App() {
     token: { colorPrimary: '#7c3aed', borderRadius: 8 },
   }
 
+  const activeNav = NAV.find((n) => n.to === location.pathname) ?? NAV[0]
+  const filterProps = {
+    fields: activeNav.fields,
+    nameQuery,
+    setNameQuery,
+    accountFilter,
+    setAccountFilter,
+    typeFilter,
+    setTypeFilter,
+    statusFilter,
+    setStatusFilter,
+    regionFilter,
+    setRegionFilter,
+    scheduleFilter,
+    setScheduleFilter,
+    managedFilter,
+    setManagedFilter,
+    problemsOnly,
+    setProblemsOnly,
+    accountOptions,
+    typeOptions,
+    statusOptions,
+    regionOptions,
+    filtersActive,
+    resetFilters,
+    presets,
+    quickPresets: QUICK_PRESETS,
+    applyPreset,
+    deletePreset,
+    onSavePreset: () => setSavePresetOpen(true),
+    t,
+  }
+
   return (
     <ConfigProvider theme={themeConfig}>
       <Layout style={{ minHeight: '100vh' }}>
@@ -321,6 +350,8 @@ export default function App() {
             paddingBlock: 10,
             background: dark ? '#1f1f1f' : '#fff',
             borderBottom: `1px solid ${dark ? '#303030' : '#f0f0f0'}`,
+            gap: 12,
+            flexWrap: 'wrap',
           }}
         >
           <Space>
@@ -334,18 +365,32 @@ export default function App() {
               </Text>
             </div>
           </Space>
+
+          {/* Navigazione tra le pagine */}
+          <Space wrap>
+            {NAV.map((n) => {
+              const active = n.to === location.pathname
+              return (
+                <Button
+                  key={n.key}
+                  type={active ? 'primary' : 'text'}
+                  ghost={active}
+                  icon={n.icon}
+                  onClick={() => navigate(n.to)}
+                >
+                  {t(`btn.${n.key}`)}
+                </Button>
+              )
+            })}
+          </Space>
+
           <Space wrap>
             <Badge
               dot
               status={health?.status === 'up' ? 'success' : health?.status === 'down' ? 'error' : 'default'}
               offset={[-2, 4]}
             >
-              <Button
-                type="text"
-                icon={<ApiOutlined />}
-                onClick={() => setHealthOpen(true)}
-                title={t('health.title')}
-              />
+              <Button type="text" icon={<ApiOutlined />} onClick={() => setHealthOpen(true)} title={t('health.title')} />
             </Badge>
             <Segmented
               size="small"
@@ -362,18 +407,6 @@ export default function App() {
               onClick={() => setDark((d) => !d)}
               title={dark ? t('btn.themeLight') : t('btn.themeDark')}
             />
-            <Button icon={<DollarOutlined />} onClick={() => setWasteOpen(true)}>
-              {t('btn.waste')}
-            </Button>
-            <Button icon={<PieChartOutlined />} onClick={() => setCostsOpen(true)}>
-              {t('btn.costs')}
-            </Button>
-            <Button icon={<PartitionOutlined />} onClick={() => setTopoOpen(true)}>
-              {t('btn.topology')}
-            </Button>
-            <Button icon={<DashboardOutlined />} onClick={() => setQuotasOpen(true)}>
-              {t('btn.quotas')}
-            </Button>
             {caps.fullDrift && (
               <Button icon={<DiffOutlined />} onClick={() => setDriftOpen(true)}>
                 {t('btn.drift')}
@@ -399,15 +432,6 @@ export default function App() {
         </Header>
 
         <Content style={{ padding: 24 }}>
-          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-            {data ? <StatusSummary services={groups.flatMap((g) => g.services)} t={t} /> : <span />}
-            {data?.generatedAt && (
-              <Text type="secondary">
-                {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
-              </Text>
-            )}
-          </Space>
-
           {data?.mode === 'demo' && (
             <Alert
               type="warning"
@@ -419,203 +443,44 @@ export default function App() {
             />
           )}
 
-          {data?.discovered && (
-            <Alert
-              type="info"
-              showIcon
-              closable
-              style={{ marginBottom: 16 }}
-              message={t('discover.autoTitle')}
-              description={t('discover.autoDesc', { n: data.discovered.count })}
+          {data && <FilterBar {...filterProps} />}
+
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <DashboardPage
+                  data={data}
+                  groups={groups}
+                  caps={caps}
+                  loading={loading}
+                  error={error}
+                  onRemove={removeService}
+                  onLogs={setLogsService}
+                  onEvents={setEventsService}
+                  t={t}
+                />
+              }
             />
-          )}
-
-          {data && (
-            <Space style={{ marginBottom: 16 }} wrap size={8}>
-              <Input.Search
-                allowClear
-                size="small"
-                placeholder={t('filter.searchName')}
-                value={nameQuery}
-                onChange={(e) => setNameQuery(e.target.value)}
-                style={{ width: 180 }}
-              />
-              <Select
-                size="small"
-                value={accountFilter}
-                onChange={setAccountFilter}
-                options={accountOptions}
-                style={{ minWidth: 140 }}
-                suffixIcon={<TeamOutlined />}
-              />
-              <Select
-                size="small"
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder={t('filter.type')}
-                value={typeFilter}
-                onChange={setTypeFilter}
-                options={typeOptions}
-                style={{ minWidth: 120 }}
-                suffixIcon={<AppstoreOutlined />}
-              />
-              <Select
-                size="small"
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder={t('filter.status')}
-                value={statusFilter}
-                onChange={setStatusFilter}
-                options={statusOptions}
-                style={{ minWidth: 120 }}
-                suffixIcon={<AlertOutlined />}
-              />
-              <Select
-                size="small"
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder={t('filter.region')}
-                value={regionFilter}
-                onChange={setRegionFilter}
-                options={regionOptions}
-                style={{ minWidth: 120 }}
-                suffixIcon={<GlobalOutlined />}
-              />
-              <Tooltip title={t('filter.scheduleTip')}>
-                <Select
-                  size="small"
-                  value={scheduleFilter}
-                  onChange={setScheduleFilter}
-                  style={{ minWidth: 130 }}
-                  suffixIcon={<ClockCircleOutlined />}
-                  options={[
-                    { value: 'all', label: t('filter.schedule.all') },
-                    { value: 'cron', label: t('filter.schedule.cron') },
-                    { value: 'ondemand', label: t('filter.schedule.ondemand') },
-                  ]}
+            <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} />} />
+            <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} />} />
+            <Route
+              path="/topologia"
+              element={
+                <TopologyPage
+                  services={groups.flatMap((g) => g.services)}
+                  accountLabels={visibleLabels}
+                  dark={dark}
+                  t={t}
                 />
-              </Tooltip>
-              <Tooltip title={t('filter.tfTip')}>
-                <Select
-                  size="small"
-                  value={managedFilter}
-                  onChange={setManagedFilter}
-                  style={{ minWidth: 130 }}
-                  suffixIcon={<DeploymentUnitOutlined />}
-                  options={[
-                    { value: 'all', label: t('filter.tf.all') },
-                    { value: 'managed', label: t('filter.tf.managed') },
-                    { value: 'unmanaged', label: t('filter.tf.unmanaged') },
-                  ]}
-                />
-              </Tooltip>
-              <Tooltip title={t('filter.problemsOnly')}>
-                <Button
-                  size="small"
-                  type={problemsOnly ? 'primary' : 'default'}
-                  danger={problemsOnly}
-                  icon={<WarningOutlined />}
-                  onClick={() => setProblemsOnly((v) => !v)}
-                />
-              </Tooltip>
-              {filtersActive && (
-                <Button type="link" size="small" onClick={resetFilters}>
-                  {t('filter.reset')}
-                </Button>
-              )}
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: [
-                    {
-                      type: 'group',
-                      label: t('preset.quick'),
-                      children: QUICK_PRESETS.map((qp) => ({
-                        key: `q_${qp.key}`,
-                        label: t(qp.labelKey),
-                        onClick: () => applyPreset(qp.filters),
-                      })),
-                    },
-                    { type: 'divider' },
-                    ...(presets.length
-                      ? presets.map((p) => ({
-                          key: p.name,
-                          onClick: () => applyPreset(p.filters),
-                          label: (
-                            <span
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                minWidth: 170,
-                                gap: 16,
-                              }}
-                            >
-                              {p.name}
-                              <DeleteOutlined
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  deletePreset(p.name)
-                                }}
-                                style={{ color: '#bfbfbf' }}
-                              />
-                            </span>
-                          ),
-                        }))
-                      : [{ key: '__none', label: t('preset.none'), disabled: true }]),
-                    { type: 'divider' },
-                    { key: '__save', icon: <SaveOutlined />, label: t('preset.save'), onClick: () => setSavePresetOpen(true) },
-                  ],
-                }}
-              >
-                <Button size="small" icon={<SaveOutlined />}>
-                  {t('preset.label')}
-                </Button>
-              </Dropdown>
-            </Space>
-          )}
-
-          {error && (
-            <Alert type="error" message={`${t('content.errorPrefix')} ${error}`} style={{ marginBottom: 16 }} showIcon />
-          )}
-          {loading && !data && (
-            <div style={{ textAlign: 'center', padding: 48 }}>
-              <Spin size="large" />
-            </div>
-          )}
-          {data && groups.length === 0 && (
-            <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />
-          )}
-
-          {groups.map((g) => (
-            <div key={g.key} style={{ marginBottom: 8 }}>
-              <Divider orientation="left" orientationMargin={0}>
-                <Space size={6}>
-                  {g.color && <Badge color={g.color} />}
-                  <Text strong>{g.label}</Text>
-                  <Text type="secondary">({g.services.length})</Text>
-                </Space>
-              </Divider>
-              <Row gutter={[16, 16]}>
-                {g.services.map((svc) => (
-                  <Col key={svc.name} xs={24} sm={12} md={8} lg={6}>
-                    <ServiceCard
-                      service={svc}
-                      onRemove={caps.watchlist ? removeService : undefined}
-                      onLogs={setLogsService}
-                      onEvents={setEventsService}
-                      t={t}
-                    />
-                  </Col>
-                ))}
-              </Row>
-            </div>
-          ))}
+              }
+            />
+            <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </Content>
 
+        {/* Popup (azioni contestuali), montati una volta a livello app */}
         <DiscoverDrawer
           open={discoverOpen}
           onClose={() => setDiscoverOpen(false)}
@@ -623,21 +488,16 @@ export default function App() {
           onAdded={load}
           t={t}
         />
-        <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} accountLabels={visibleLabels} t={t} />
-        <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} accountLabels={visibleLabels} t={t} />
-        <TopologyDrawer
-          open={topoOpen}
-          onClose={() => setTopoOpen(false)}
-          services={groups.flatMap((g) => g.services)}
-          accountLabels={visibleLabels}
-          dark={dark}
-          t={t}
-        />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
         <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
-        <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} accountLabels={visibleLabels} t={t} />
-        <MetaHealthDrawer open={healthOpen} onClose={() => setHealthOpen(false)} health={health} accountLabels={visibleLabels} t={t} />
+        <MetaHealthDrawer
+          open={healthOpen}
+          onClose={() => setHealthOpen(false)}
+          health={health}
+          accountLabels={aggregateLabels}
+          t={t}
+        />
 
         <Modal
           open={savePresetOpen}
