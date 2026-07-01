@@ -33,7 +33,19 @@ function buildGraph(services, topo, dark) {
   const idset = new Set(nodeList.map((n) => n.id))
   const edges = (topo.edges ?? []).filter((e) => idset.has(e.source) && idset.has(e.target))
 
-  const depsOf = new Map([...idset].map((id) => [id, []]))
+  // Separa i nodi COLLEGATI (in almeno un arco) dagli ISOLATI: solo i collegati vanno nel grafo,
+  // gli isolati (es. le tante cron scollegate) finiscono in una lista a lato → canvas leggibile.
+  const connected = new Set()
+  for (const e of edges) {
+    connected.add(e.source)
+    connected.add(e.target)
+  }
+  const connectedList = nodeList.filter((n) => connected.has(n.id))
+  const isolated = services
+    .filter((s) => !connected.has(s.name))
+    .map((s) => ({ name: s.name, status: s.overall, type: s.type }))
+
+  const depsOf = new Map([...connected].map((id) => [id, []]))
   for (const e of edges) depsOf.get(e.source).push(e.target)
   const level = new Map()
   const depth = (id, seen = new Set()) => {
@@ -45,10 +57,10 @@ function buildGraph(services, topo, dark) {
     level.set(id, v)
     return v
   }
-  nodeList.forEach((n) => depth(n.id))
+  connectedList.forEach((n) => depth(n.id))
 
   const perLevel = new Map()
-  const nodes = nodeList.map((n) => {
+  const nodes = connectedList.map((n) => {
     const l = level.get(n.id) ?? 0
     const idx = perLevel.get(l) ?? 0
     perLevel.set(l, idx + 1)
@@ -89,7 +101,7 @@ function buildGraph(services, topo, dark) {
   })
 
   const usedVias = new Set(edges.flatMap((e) => e.vias ?? []))
-  return { nodes, edges: rfEdges, usedVias }
+  return { nodes, edges: rfEdges, usedVias, isolated }
 }
 
 // --- Vista "Rete": box VPC (un account può averne più d'una) che contengono i servizi, più un
@@ -282,7 +294,7 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
     [net, accountLabels],
   )
 
-  const { nodes, edges, usedVias } = useMemo(
+  const { nodes, edges, usedVias, isolated } = useMemo(
     () => buildGraph(shownServices, topo, dark),
     [shownServices, topo, dark],
   )
@@ -315,24 +327,63 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
           </Text>
           {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
           <Legend usedVias={usedVias} t={t} />
-          <div style={CANVAS}>
-            {loading ? (
-              <div style={{ textAlign: 'center', paddingTop: 120 }}>
-                <Spin tip={t('topo.loading')} />
-              </div>
-            ) : shownServices.length === 0 ? (
+          {loading ? (
+            <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Spin tip={t('topo.loading')} />
+            </div>
+          ) : shownServices.length === 0 ? (
+            <div style={CANVAS}>
               <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
-            ) : (
-              <ReactFlow nodes={nodes} edges={edges} fitView colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
-                <Background />
-                <Controls showInteractive={false} />
-              </ReactFlow>
-            )}
-          </div>
-          {!loading && !hasEdges && shownServices.length > 0 && (
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-              {t('topo.noRelations')}
-            </Text>
+            </div>
+          ) : (
+            <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                {hasEdges ? (
+                  <ReactFlow nodes={nodes} edges={edges} fitView colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
+                    <Background />
+                    <Controls showInteractive={false} />
+                  </ReactFlow>
+                ) : (
+                  <Empty style={{ paddingTop: 80 }} description={t('topo.noRelations')} />
+                )}
+              </div>
+              {isolated.length > 0 && (
+                <div
+                  style={{
+                    width: 230,
+                    borderLeft: '1px solid rgba(128,128,128,0.2)',
+                    overflowY: 'auto',
+                    padding: '8px 4px 8px 12px',
+                  }}
+                >
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {t('topo.isolated', { n: isolated.length })}
+                  </Text>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {isolated.map((s) => (
+                      <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            background: STATUS_COLOR[s.status] ?? '#8c8c8c',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                        {s.type && (
+                          <Text type="secondary" style={{ fontSize: 10 }}>
+                            · {s.type}
+                          </Text>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </>
       ) : (

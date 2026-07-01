@@ -18,6 +18,11 @@ All notable changes to Dadaguard are documented here. Format based on
   (multi), region, cron/on-demand, and Terraform-managed, plus a "problems only" toggle and a clear
   button. Filters apply **everywhere**: cards, Topology (its duplicate account selector is gone), and
   the aggregate drawers (Costs/Waste/Quotas/Meta-health) narrow to the accounts still visible.
+- **Filter presets** — save, recall and delete named filter combinations (localStorage).
+- **Compact filter bar + decluttered topology** — the filter bar is one compact icon row; the Topology
+  dependency view graphs only connected services and lists the isolated ones (e.g. crons) in a side panel.
+- **Discovered services fully wired** — logs/events/topology now work for auto-discovered services too
+  (were 404 / edge-less); a shared 60s-cached resolved list also curbs AWS "Rate exceeded" throttling.
 
 ### Changed
 - **Auto-discovery merges with the watchlist, on by default** — discovered services are now added to

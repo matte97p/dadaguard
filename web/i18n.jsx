@@ -36,6 +36,11 @@ const STRINGS = {
     'filter.allTypes': 'Tutti i tipi',
     'filter.allStatuses': 'Tutti gli stati',
     'filter.searchName': 'Cerca per nome',
+    'filter.type': 'Tipo',
+    'filter.status': 'Stato',
+    'filter.region': 'Region',
+    'filter.scheduleTip': 'Trigger: cron o on-demand',
+    'filter.tfTip': 'Gestione Terraform',
     'filter.schedule.all': 'Cron + on-demand',
     'filter.schedule.cron': 'Solo cron',
     'filter.schedule.ondemand': 'Solo on-demand',
@@ -150,6 +155,7 @@ const STRINGS = {
 
     'topo.title': 'Topologia',
     'topo.filterHint': 'Filtra dalla barra della dashboard',
+    'topo.isolated': 'Servizi isolati · {n}',
     'topo.tab.deps': 'Dipendenze',
     'topo.tab.net': 'Rete',
     'topo.desc':
@@ -263,6 +269,11 @@ const STRINGS = {
     'filter.allTypes': 'All types',
     'filter.allStatuses': 'All statuses',
     'filter.searchName': 'Search by name',
+    'filter.type': 'Type',
+    'filter.status': 'Status',
+    'filter.region': 'Region',
+    'filter.scheduleTip': 'Trigger: cron or on-demand',
+    'filter.tfTip': 'Terraform management',
     'filter.schedule.all': 'Cron + on-demand',
     'filter.schedule.cron': 'Cron only',
     'filter.schedule.ondemand': 'On-demand only',
@@ -377,6 +388,7 @@ const STRINGS = {
 
     'topo.title': 'Topology',
     'topo.filterHint': 'Filter from the dashboard bar',
+    'topo.isolated': 'Isolated services · {n}',
     'topo.tab.deps': 'Dependencies',
     'topo.tab.net': 'Network',
     'topo.desc':

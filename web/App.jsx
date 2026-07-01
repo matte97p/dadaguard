@@ -16,9 +16,9 @@ import {
   Select,
   Segmented,
   Input,
-  Switch,
   Dropdown,
   Modal,
+  Tooltip,
   message,
 } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
@@ -36,6 +36,13 @@ import {
   ApiOutlined,
   SaveOutlined,
   DeleteOutlined,
+  TeamOutlined,
+  AppstoreOutlined,
+  AlertOutlined,
+  GlobalOutlined,
+  ClockCircleOutlined,
+  DeploymentUnitOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import ServiceCard from './components/ServiceCard.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -415,74 +422,96 @@ export default function App() {
           )}
 
           {data && (
-            <Space style={{ marginBottom: 16 }} wrap>
+            <Space style={{ marginBottom: 16 }} wrap size={8}>
               <Input.Search
                 allowClear
+                size="small"
                 placeholder={t('filter.searchName')}
                 value={nameQuery}
                 onChange={(e) => setNameQuery(e.target.value)}
-                style={{ width: 200 }}
+                style={{ width: 180 }}
               />
               <Select
+                size="small"
                 value={accountFilter}
                 onChange={setAccountFilter}
                 options={accountOptions}
-                style={{ minWidth: 160 }}
+                style={{ minWidth: 140 }}
+                suffixIcon={<TeamOutlined />}
               />
               <Select
+                size="small"
                 mode="multiple"
                 allowClear
                 maxTagCount="responsive"
-                placeholder={t('filter.allTypes')}
+                placeholder={t('filter.type')}
                 value={typeFilter}
                 onChange={setTypeFilter}
                 options={typeOptions}
-                style={{ minWidth: 150 }}
+                style={{ minWidth: 120 }}
+                suffixIcon={<AppstoreOutlined />}
               />
               <Select
+                size="small"
                 mode="multiple"
                 allowClear
                 maxTagCount="responsive"
-                placeholder={t('filter.allStatuses')}
+                placeholder={t('filter.status')}
                 value={statusFilter}
                 onChange={setStatusFilter}
                 options={statusOptions}
-                style={{ minWidth: 150 }}
+                style={{ minWidth: 120 }}
+                suffixIcon={<AlertOutlined />}
               />
               <Select
+                size="small"
                 mode="multiple"
                 allowClear
                 maxTagCount="responsive"
-                placeholder={t('filter.allRegions')}
+                placeholder={t('filter.region')}
                 value={regionFilter}
                 onChange={setRegionFilter}
                 options={regionOptions}
-                style={{ minWidth: 160 }}
+                style={{ minWidth: 120 }}
+                suffixIcon={<GlobalOutlined />}
               />
-              <Select
-                value={scheduleFilter}
-                onChange={setScheduleFilter}
-                style={{ minWidth: 150 }}
-                options={[
-                  { value: 'all', label: t('filter.schedule.all') },
-                  { value: 'cron', label: t('filter.schedule.cron') },
-                  { value: 'ondemand', label: t('filter.schedule.ondemand') },
-                ]}
-              />
-              <Select
-                value={managedFilter}
-                onChange={setManagedFilter}
-                style={{ minWidth: 150 }}
-                options={[
-                  { value: 'all', label: t('filter.tf.all') },
-                  { value: 'managed', label: t('filter.tf.managed') },
-                  { value: 'unmanaged', label: t('filter.tf.unmanaged') },
-                ]}
-              />
-              <Space size={6}>
-                <Switch size="small" checked={problemsOnly} onChange={setProblemsOnly} />
-                <Text>{t('filter.problemsOnly')}</Text>
-              </Space>
+              <Tooltip title={t('filter.scheduleTip')}>
+                <Select
+                  size="small"
+                  value={scheduleFilter}
+                  onChange={setScheduleFilter}
+                  style={{ minWidth: 130 }}
+                  suffixIcon={<ClockCircleOutlined />}
+                  options={[
+                    { value: 'all', label: t('filter.schedule.all') },
+                    { value: 'cron', label: t('filter.schedule.cron') },
+                    { value: 'ondemand', label: t('filter.schedule.ondemand') },
+                  ]}
+                />
+              </Tooltip>
+              <Tooltip title={t('filter.tfTip')}>
+                <Select
+                  size="small"
+                  value={managedFilter}
+                  onChange={setManagedFilter}
+                  style={{ minWidth: 130 }}
+                  suffixIcon={<DeploymentUnitOutlined />}
+                  options={[
+                    { value: 'all', label: t('filter.tf.all') },
+                    { value: 'managed', label: t('filter.tf.managed') },
+                    { value: 'unmanaged', label: t('filter.tf.unmanaged') },
+                  ]}
+                />
+              </Tooltip>
+              <Tooltip title={t('filter.problemsOnly')}>
+                <Button
+                  size="small"
+                  type={problemsOnly ? 'primary' : 'default'}
+                  danger={problemsOnly}
+                  icon={<WarningOutlined />}
+                  onClick={() => setProblemsOnly((v) => !v)}
+                />
+              </Tooltip>
               {filtersActive && (
                 <Button type="link" size="small" onClick={resetFilters}>
                   {t('filter.reset')}
