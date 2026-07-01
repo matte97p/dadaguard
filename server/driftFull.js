@@ -90,13 +90,39 @@ export function classifyPlan(status, exitCode, output) {
 }
 
 // Redazione di sicurezza: il plan può contenere in chiaro valori di attributi NON marcati `sensitive`
-// (es. una connection string dentro una env var). Prima di esporre l'output alla UI mascheriamo i
-// VALORI stringa — a destra di `=`, e da entrambi i lati di `->` nei diff — tenendo struttura, nomi
-// degli attributi e i tipi/nomi di risorsa (che stanno tra virgolette ma non sono segreti).
+// (es. una connection string in una env var, o un secret in `user_data`). Prima di esporre l'output alla
+// UI mascheriamo i VALORI stringa tenendo struttura, nomi attributo e tipi/nomi di risorsa. Copriamo:
+//   - assegnazioni `attr = "valore"` e diff `"vecchio" -> "nuovo"` (entrambi i lati);
+//   - elementi di lista/set (`+ "x.example.com",`) — una riga che è solo una stringa quotata;
+//   - corpi heredoc (`<<-EOT … EOT`), dove user_data / policy inline / secret finiscono per intero.
 export function redactPlan(text) {
-  return String(text ?? '')
-    .replace(/(=|->)(\s*)"(?:[^"\\]|\\.)*"/g, '$1$2(redacted)') // valore dopo = o ->
-    .replace(/"(?:[^"\\]|\\.)*"(\s*->)/g, '(redacted)$1') // valore prima di -> (lato "vecchio" del diff)
+  const lines = String(text ?? '').split('\n')
+  const out = []
+  let heredocEnd = null
+  for (const line of lines) {
+    if (heredocEnd !== null) {
+      // dentro un heredoc: il corpo è già rappresentato dal marker inserito all'apertura; mostro solo
+      // la riga di chiusura (il terminatore) per non perdere la struttura.
+      if (line.trim() === heredocEnd) {
+        out.push(line)
+        heredocEnd = null
+      }
+      continue
+    }
+    const open = line.match(/<<[-~]?\s*"?([A-Za-z0-9_]+)"?/)
+    if (open) {
+      out.push(line, '        (redacted)') // apertura heredoc + un marker unico per tutto il corpo
+      heredocEnd = open[1]
+      continue
+    }
+    out.push(
+      line
+        .replace(/(=|->)(\s*)"(?:[^"\\]|\\.)*"/g, '$1$2(redacted)') // valore dopo = o ->
+        .replace(/"(?:[^"\\]|\\.)*"(\s*->)/g, '(redacted)$1') // lato "vecchio" del diff
+        .replace(/^(\s*[-+~#]?\s*)"(?:[^"\\]|\\.)*"(,?\s*)$/, '$1(redacted)$2'), // elemento di lista/set
+    )
+  }
+  return out.join('\n')
 }
 
 export function getJob(id) {
@@ -110,6 +136,6 @@ export function getJob(id) {
     counts, // { add, change, destroy } | null
     drift: kind === 'drift', // retro-compat
     layer: j.layer,
-    output: redactPlan(j.output.slice(-12000)), // cap + redazione dei valori (nessun secret in chiaro)
+    output: redactPlan(j.output).slice(-12000), // redazione PRIMA del cap: il taglio non lascia frammenti in chiaro
   }
 }

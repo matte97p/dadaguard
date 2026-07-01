@@ -107,8 +107,10 @@ All notable changes to Dadaguard are documented here. Format based on
   "1 risorse" and friends in the status summary, Waste, Discover and Dashboard.
 - **Fully-translated strings** — the Topology "down" edge label and the Waste "/month" suffix were
   hardcoded Italian (stayed Italian in English mode); now translated. Waste also gets an empty state.
-- **Redacted drift output** — the full `terragrunt plan` shown in the drift drawer now masks attribute
-  string values (`key = (redacted)`, both sides of a `->` diff), so a non-`sensitive` value can't leak.
+- **Redacted drift output** — the full `terragrunt plan` shown in the drift drawer masks attribute
+  string values: `key = (redacted)`, both sides of a `->` diff, **list/set elements**, and **heredoc
+  bodies** (`user_data`, inline policies) — the places secrets most often hide — so a non-`sensitive`
+  value can't leak. Redaction runs before the size cap, so truncation can't expose a fragment either.
 
 ## [0.2.0] — 2026-06-30
 

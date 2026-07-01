@@ -28,3 +28,24 @@ test('classifyPlan: solo aggiunte = pending (non drift)', () => {
 test('classifyPlan: change/destroy = drift', () => {
   assert.equal(classifyPlan('done', 2, 'Plan: 0 to add, 1 to change, 2 to destroy').kind, 'drift')
 })
+
+test('redactPlan: reda gli elementi di lista/set (riga = una sola stringa quotata)', () => {
+  const out = redactPlan('      + "https://secret.example.com",\n      + "https://api.internal",')
+  assert.doesNotMatch(out, /example\.com|internal/)
+  assert.match(out, /\(redacted\)/)
+})
+
+test('redactPlan: reda il corpo di un heredoc, tenendo apertura e chiusura', () => {
+  const plan = ['  ~ user_data = <<-EOT', '        export DB_PASS=supersecret', '        curl https://internal/x', '    EOT'].join('\n')
+  const out = redactPlan(plan)
+  assert.doesNotMatch(out, /supersecret|internal/)
+  assert.match(out, /<<-EOT/) // apertura mostrata
+  assert.match(out, /EOT/) // chiusura mostrata
+  assert.match(out, /\(redacted\)/)
+})
+
+test('redactPlan: non tocca la riga header di risorsa con heredoc-like assente', () => {
+  const out = redactPlan('  ~ resource "aws_s3_bucket" "logs" {')
+  assert.match(out, /"aws_s3_bucket"/)
+  assert.match(out, /"logs"/)
+})
