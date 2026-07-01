@@ -68,7 +68,8 @@ All notable changes to Dadaguard are documented here. Format based on
 - **More service types** — OpenSearch (cluster status + nodes), SES (send volume, bounce/complaint
   rate), SageMaker (endpoint invocations/errors/latency) — all via CloudWatch and auto-discovered.
 - **Calmer cards** — metadata (build sha, timestamps) is dimmed so the eye lands on status first;
-  the Terraform-drift row is now the Terraform logo colored by state (green/red/yellow), no text.
+  the Terraform-drift row is now the Terraform logo colored by state (green/red/yellow), no text;
+  long execution latencies are humanized (`p95 245759ms` → `p95 4m 6s`, near-timeout `(300s)` → `(5m)`).
 - **Truer Lambda states** — a function/cron that fails **100% of its invocations** is now **down**
   (was only "warning"); the cron dead-man window has a **10-min floor** so high-frequency crons (1m/5m)
   don't false-alarm on CloudWatch metric-publication lag; the on-demand idle threshold is **60 min**
@@ -78,6 +79,8 @@ All notable changes to Dadaguard are documented here. Format based on
   one per service); AWS clients **share one credential provider per account** (a single STS AssumeRole
   instead of one per client); adaptive retry (client-side rate limiting under 429); and a 5-min
   resolved-services cache. Tunables: `DADAGUARD_AWS_MAX_ATTEMPTS`, `DADAGUARD_DISCOVERY_TTL_MS`, `DADAGUARD_CONCURRENCY`.
+  And when a burst still exhausts the retries, the build field shows a clean *"AWS rate limit — retry on
+  refresh"* instead of the raw `TooManyRequestsException: HTTP 429` SDK exception.
 - **Terraform badge** — the "Terraform-compliant" row is now a green/red badge, readable at a glance.
 
 ### Changed

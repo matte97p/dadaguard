@@ -9,6 +9,7 @@ const S = {
     'version.fieldmissing': "campo '{field}' assente nel payload",
     'version.timeout': 'timeout',
     'version.notjson': 'health non leggibile come JSON',
+    'version.throttled': 'rate limit AWS — riprovo al refresh',
     'liveness.timeout': 'timeout >{ms}ms',
 
     // #2 Build/deploy zero-config — cosa gira e da quando (senza dichiarare nulla).
@@ -35,8 +36,8 @@ const S = {
     'lambda.idle': 'nessuna chiamata in {window} · in attesa',
     'lambda.calls': '{n} chiamate',
     'lambda.errpct': '{p}% errori',
-    'lambda.p95': 'p95 {ms}ms',
-    'lambda.neartimeout': 'vicina al timeout ({s}s)',
+    'lambda.p95': 'p95 {d}',
+    'lambda.neartimeout': 'vicina al timeout ({d})',
     'lambda.aliasnotfound': "alias '{alias}' non trovato ({name})",
 
     'ecs.tasks': '{running}/{desired} task attivi',
@@ -147,6 +148,7 @@ const S = {
     'version.fieldmissing': "field '{field}' missing in payload",
     'version.timeout': 'timeout',
     'version.notjson': 'health not readable as JSON',
+    'version.throttled': 'AWS rate limit — retry on refresh',
     'liveness.timeout': 'timeout >{ms}ms',
 
     // #2 build/deploy zero-config — what runs and since when (nothing to declare).
@@ -173,8 +175,8 @@ const S = {
     'lambda.idle': 'no call in {window} · idle',
     'lambda.calls': '{n} calls',
     'lambda.errpct': '{p}% errors',
-    'lambda.p95': 'p95 {ms}ms',
-    'lambda.neartimeout': 'near timeout ({s}s)',
+    'lambda.p95': 'p95 {d}',
+    'lambda.neartimeout': 'near timeout ({d})',
     'lambda.aliasnotfound': "alias '{alias}' not found ({name})",
 
     'ecs.tasks': '{running}/{desired} tasks running',

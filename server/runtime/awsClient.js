@@ -31,6 +31,21 @@ function credentialsFor(aws) {
   return undefined
 }
 
+// Riconosce gli errori di throttling AWS (429 / TooManyRequests / Throttling / "Rate exceeded"):
+// quando i retry adattivi non bastano (es. burst di discovery su molti servizi), permette di mostrare
+// un messaggio pulito invece dell'eccezione grezza dell'SDK.
+export function isThrottle(err) {
+  if (!err) return false
+  const name = err.name || ''
+  return (
+    err.$metadata?.httpStatusCode === 429 ||
+    name === 'TooManyRequestsException' ||
+    name === 'ThrottlingException' ||
+    name === 'Throttling' ||
+    /throttl|too\s*many\s*requests|rate exceeded/i.test(err.message || '')
+  )
+}
+
 export function clientOpts(aws = {}) {
   // Retry ADATTIVO: sotto throttling (429/TooManyRequests) l'SDK applica un rate-limit client-side e
   // ritenta con backoff, invece di far fallire subito. maxAttempts alzato (override: DADAGUARD_AWS_MAX_ATTEMPTS).

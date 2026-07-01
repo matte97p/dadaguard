@@ -28,6 +28,16 @@ function fmtDur(min, t = identityT) {
   return `${min}${t('time.unit.m')}`
 }
 
+// Latenza leggibile: ms sotto il secondo, s fino al minuto, poi "Xm Ys" (245759ms → "4m 6s").
+// I ms grezzi di una p95 lunga (minuti) sono illeggibili a colpo d'occhio.
+function fmtMs(ms) {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
+  const m = Math.floor(ms / 60000)
+  const s = Math.round((ms % 60000) / 1000)
+  return s ? `${m}m ${s}s` : `${m}m`
+}
+
 function parseSchedule(s) {
   if (s === 'daily') return 1440
   if (s === 'hourly') return 60
@@ -140,8 +150,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const parts = [
     t('lambda.calls', { n: fmtCount(invocations) }),
     t('lambda.errpct', { p: errRate < 0.05 ? '0' : errRate.toFixed(1) }),
-    p95 ? t('lambda.p95', { ms: Math.round(p95) }) : null,
-    nearTimeout ? t('lambda.neartimeout', { s: timeoutSec }) : null,
+    p95 ? t('lambda.p95', { d: fmtMs(Math.round(p95)) }) : null,
+    nearTimeout ? t('lambda.neartimeout', { d: fmtMs(timeoutSec * 1000) }) : null,
     throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
   ].filter(Boolean)
 
