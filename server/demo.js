@@ -180,6 +180,7 @@ export function demoIamPolicies() {
         label: 'Production',
         color: '#cf1322',
         policies: [
+          { arn: 'arn:aws:iam::111122223333:policy/legacy-admin', name: 'legacy-admin', attachments: 3 },
           { arn: 'arn:aws:iam::111122223333:policy/read-only-audit', name: 'read-only-audit', attachments: 6 },
           { arn: 'arn:aws:iam::111122223333:policy/payments-db-access', name: 'payments-db-access', attachments: 2 },
           { arn: 'arn:aws:iam::111122223333:policy/checkout-runtime', name: 'checkout-runtime', attachments: 1 },
@@ -197,6 +198,13 @@ export function demoIamPolicies() {
 
 export function demoIamPolicy(arn) {
   const byArn = {
+    'arn:aws:iam::111122223333:policy/legacy-admin': {
+      name: 'legacy-admin',
+      description: 'Policy legacy troppo ampia (da restringere)',
+      attachments: 3,
+      statements: [{ actions: ['*'], resources: ['*'] }],
+      entities: { roles: ['legacy-ops'], users: ['admin-bot'], groups: ['platform'] },
+    },
     'arn:aws:iam::111122223333:policy/payments-db-access': {
       name: 'payments-db-access',
       description: 'Accesso al cluster pagamenti e al suo secret',
@@ -290,13 +298,13 @@ export function demoSecurity() {
   return {
     findings: [
       { category: 'public', severity: 'high', account: 'staging', accountLabel: 'Staging', resource: 'legacy-api', detail: 'security group aperto a 0.0.0.0/0 · tcp 22 (SSH)' },
-      { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: 'bucket S3 senza Public Access Block completo' },
-      { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: 'ALB internet-facing' },
+      { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: 'bucket S3 senza Public Access Block completo', link: { view: 'resource', account: 'prod', needle: 'public-assets' } },
+      { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: 'ALB internet-facing', link: { view: 'resource', account: 'prod', needle: 'public-lb' } },
       { category: 'expiring', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'shop.example.com', detail: 'certificato ACM scade tra 12g' },
-      { category: 'iam', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'legacy-admin', detail: 'policy con Action:"*" e Resource:"*" (admin)' },
+      { category: 'iam', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'legacy-admin', detail: 'policy con Action:"*" e Resource:"*" (admin)', link: { view: 'policy', account: 'prod', arn: 'arn:aws:iam::111122223333:policy/legacy-admin' } },
       { category: 'iam', severity: 'medium', account: 'staging', accountLabel: 'Staging', resource: 'ci-deployer', detail: 'utente IAM senza MFA' },
       { category: 'iam', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'legacy-bot', detail: 'access key attiva da 240g (non ruotata)' },
-      { category: 'secret', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'prod/user-db', detail: 'secret non ruotato da 210g' },
+      { category: 'secret', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'prod/user-db', detail: 'secret non ruotato da 210g', link: { view: 'resource', account: 'prod', needle: 'prod/user-db' } },
     ],
   }
 }

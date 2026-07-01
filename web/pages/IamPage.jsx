@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Badge, Space, Segmented, Select } from 'antd'
 import { PageIntro } from './pageKit.jsx'
 
@@ -63,11 +64,11 @@ function Entities({ entities, t }) {
 }
 
 // --- Vista "Per policy": elenco policy per account + dettaglio (chi la usa / a cosa dà accesso). ---
-function PolicyView({ t }) {
+function PolicyView({ t, initialSel }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [sel, setSel] = useState(null)
+  const [sel, setSel] = useState(initialSel ?? null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState(null)
@@ -212,20 +213,23 @@ function PolicyView({ t }) {
 }
 
 // --- Vista "Per risorsa": scegli un servizio → quali policy lo toccano, chi le usa, con quali azioni. ---
-function ResourceView({ services, t }) {
-  const [resource, setResource] = useState(null) // `${accountKey}|${name}`
+function ResourceView({ services, t, initialResource }) {
+  const [resource, setResource] = useState(initialResource ?? null) // `${accountKey}|${name}`
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const options = useMemo(
-    () =>
-      services.map((s) => ({
-        value: `${s.account?.key ?? '__none__'}|${s.name}`,
-        label: `${s.name}${s.type ? ` · ${s.type}` : ''}`,
-      })),
-    [services],
-  )
+  const options = useMemo(() => {
+    const base = services.map((s) => ({
+      value: `${s.account?.key ?? '__none__'}|${s.name}`,
+      label: `${s.name}${s.type ? ` · ${s.type}` : ''}`,
+    }))
+    // se arriviamo da un link su una risorsa che non è un servizio monitorato (es. un secret),
+    // aggiungiamo comunque l'opzione così il Select mostra la selezione.
+    if (resource && !base.some((o) => o.value === resource))
+      base.unshift({ value: resource, label: resource.slice(resource.indexOf('|') + 1) })
+    return base
+  }, [services, resource])
 
   useEffect(() => {
     if (!resource) return
@@ -280,7 +284,13 @@ function ResourceView({ services, t }) {
 // Pagina IAM: due lenti. "Per policy" = da una policy a chi la usa e cosa concede. "Per risorsa" =
 // da una risorsa (servizio) a chi ci accede. Sola lettura, nessun valore di secret. On-demand.
 export default function IamPage({ services = [], t = (k) => k }) {
-  const [view, setView] = useState('policy')
+  const [params] = useSearchParams()
+  const paramView = params.get('view')
+  const [view, setView] = useState(paramView === 'resource' ? 'resource' : 'policy')
+  // preselezione quando si arriva da un link della pagina Sicurezza
+  const initialSel = paramView === 'policy' && params.get('arn') ? { account: params.get('account'), arn: params.get('arn') } : null
+  const initialResource =
+    paramView === 'resource' && params.get('needle') ? `${params.get('account')}|${params.get('needle')}` : null
   return (
     <>
       <PageIntro
@@ -297,7 +307,11 @@ export default function IamPage({ services = [], t = (k) => k }) {
           />
         }
       />
-      {view === 'policy' ? <PolicyView t={t} /> : <ResourceView services={services} t={t} />}
+      {view === 'policy' ? (
+        <PolicyView t={t} initialSel={initialSel} />
+      ) : (
+        <ResourceView services={services} t={t} initialResource={initialResource} />
+      )}
     </>
   )
 }

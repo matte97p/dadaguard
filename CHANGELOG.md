@@ -13,7 +13,9 @@ All notable changes to Dadaguard are documented here. Format based on
   with `Action`/`Resource` `"*"`, IAM users without MFA, access keys not rotated in 90+ days), and
   **stale secrets** (Secrets Manager not rotated in 90+ days — metadata only, never the value).
   Read-only, best-effort. New read-only permissions: `acm:ListCertificates`/`DescribeCertificate`,
-  `iam:ListUsers`/`ListAccessKeys`/`ListMFADevices`, `secretsmanager:ListSecrets`.
+  `iam:ListUsers`/`ListAccessKeys`/`ListMFADevices`, `secretsmanager:ListSecrets`. Relevant findings
+  **link into the IAM page**: a too-broad policy → its "by policy" view; an exposed resource or a stale
+  secret → the "by resource" view ("who can reach it").
 - **IAM explorer** — a new **IAM** page with two lenses. **By policy**: pick a customer-managed policy
   and see who uses it (roles/users/groups) and what it grants (actions by service + resource ARNs).
   **By resource**: pick a service and see which policies touch it, who holds them and with what actions

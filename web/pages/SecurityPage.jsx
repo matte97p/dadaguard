@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Segmented, Space } from 'antd'
 import { PageIntro } from './pageKit.jsx'
 
@@ -13,6 +14,16 @@ export default function SecurityPage({ t = (k) => k }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [cat, setCat] = useState('all')
+  const navigate = useNavigate()
+
+  // Alcuni finding rimandano alla pagina IAM: una policy troppo larga alla sua vista "per policy",
+  // una risorsa esposta / un secret alla vista "per risorsa" (chi ci accede).
+  const openLink = (link) => {
+    const p = new URLSearchParams({ view: link.view, account: link.account ?? '' })
+    if (link.arn) p.set('arn', link.arn)
+    if (link.needle) p.set('needle', link.needle)
+    navigate(`/iam?${p.toString()}`)
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -49,6 +60,7 @@ export default function SecurityPage({ t = (k) => k }) {
           {shown.map((f, i) => (
             <div
               key={i}
+              onClick={f.link ? () => openLink(f.link) : undefined}
               style={{
                 border: '1px solid rgba(128,128,128,0.18)',
                 borderRadius: 10,
@@ -57,6 +69,7 @@ export default function SecurityPage({ t = (k) => k }) {
                 alignItems: 'center',
                 gap: 12,
                 flexWrap: 'wrap',
+                cursor: f.link ? 'pointer' : 'default',
               }}
             >
               <Tag color={SEV_COLOR[f.severity] ?? 'default'} style={{ marginInlineEnd: 0, fontSize: 11 }}>
@@ -72,6 +85,9 @@ export default function SecurityPage({ t = (k) => k }) {
               <Text type="secondary" style={{ fontSize: 13, flex: 1, minWidth: 180 }}>
                 · {f.detail}
               </Text>
+              {f.link && (
+                <Text style={{ fontSize: 12, color: '#7c3aed', flexShrink: 0 }}>{t('sec.openIam')}</Text>
+              )}
             </div>
           ))}
         </Space>

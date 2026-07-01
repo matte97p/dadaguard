@@ -84,7 +84,7 @@ export async function publicSurface(accounts, services) {
           const rds = new RDSClient(clientOpts(awsFor(s, accounts)))
           const o = await rds.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: s.aws.instance }))
           if (o.DBInstances?.[0]?.PubliclyAccessible)
-            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'RDS publicly accessible' })
+            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'RDS publicly accessible', link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -102,7 +102,7 @@ export async function publicSurface(accounts, services) {
             new DescribeLoadBalancersCommand(s.aws.arn ? { LoadBalancerArns: [s.aws.arn] } : { Names: [s.aws.name] }),
           )
           if (o.LoadBalancers?.[0]?.Scheme === 'internet-facing')
-            findings.push({ category: 'public', severity: 'info', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'ALB internet-facing' })
+            findings.push({ category: 'public', severity: 'info', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'ALB internet-facing', link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -134,7 +134,7 @@ export async function publicSurface(accounts, services) {
             }
           }
           if (pub)
-            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'bucket S3 senza Public Access Block completo' })
+            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'bucket S3 senza Public Access Block completo', link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -207,9 +207,9 @@ export async function iamHygiene(accounts) {
               const wildAction = stmts.some((s) => s.actions.includes('*'))
               const wildBoth = stmts.some((s) => s.actions.includes('*') && s.resources.includes('*'))
               if (wildBoth)
-                findings.push({ category: 'iam', severity: 'high', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*" e Resource:"*" (admin)' })
+                findings.push({ category: 'iam', severity: 'high', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*" e Resource:"*" (admin)', link: { view: 'policy', account: key, arn: p.Arn } })
               else if (wildAction)
-                findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*"' })
+                findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*"', link: { view: 'policy', account: key, arn: p.Arn } })
             } catch {
               /* documento non parsabile */
             }
@@ -279,6 +279,7 @@ export async function staleSecrets(accounts) {
               accountLabel: acc.label ?? key,
               resource: s.Name,
               detail: s.RotationEnabled ? `secret non ruotato da ${days}g` : `secret non ruotato da ${days}g (rotazione off)`,
+              link: { view: 'resource', account: key, needle: s.Name },
             })
           }
           token = o.NextToken
