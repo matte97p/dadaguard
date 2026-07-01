@@ -52,6 +52,8 @@ export function consoleUrl(service, accountRegion) {
       return `${base}/acm/home?region=${r}#/certificates/list`
     case 'apigateway':
       return `${base}/apigateway/main/apis?region=${r}`
+    case 'bedrock':
+      return `${base}/bedrock/home?region=${r}#/` // console Bedrock (region); nessun deep-link per singolo modello
     default:
       return null
   }

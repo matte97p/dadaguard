@@ -18,6 +18,7 @@ import { cloudfrontRuntime } from '../runtime/cloudfront.js'
 import { snsRuntime } from '../runtime/sns.js'
 import { s3Runtime } from '../runtime/s3.js'
 import { kinesisRuntime } from '../runtime/kinesis.js'
+import { bedrockRuntime } from '../runtime/bedrock.js'
 
 export const key = 'runtime'
 
@@ -39,6 +40,7 @@ const PROVIDERS = {
   sns: snsRuntime,
   s3: s3Runtime,
   kinesis: kinesisRuntime,
+  bedrock: bedrockRuntime,
 }
 
 export async function run(service, ctx) {
