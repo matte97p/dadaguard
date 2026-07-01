@@ -114,6 +114,56 @@ async function listBedrockModels(aws) {
   return [...models].sort()
 }
 
+// Valori distinti di una dimension da ListMetrics (es. EndpointName per SageMaker). Best-effort.
+async function listMetricDimension(aws, namespace, metricName, dimName) {
+  const cw = new CloudWatchClient(clientOpts(aws))
+  const vals = new Set()
+  let token
+  do {
+    const r = await cw.send(new ListMetricsCommand({ Namespace: namespace, MetricName: metricName, NextToken: token }))
+    for (const m of r.Metrics ?? []) {
+      const v = (m.Dimensions ?? []).find((d) => d.Name === dimName)?.Value
+      if (v) vals.add(v)
+    }
+    token = r.NextToken
+  } while (token)
+  return [...vals].sort()
+}
+
+// Domini OpenSearch dai metric AWS/ES: salvo le dimension COMPLETE (ClientId+DomainName) perché
+// servono al provider per interrogare CloudWatch.
+async function listOpenSearchDomains(aws) {
+  const cw = new CloudWatchClient(clientOpts(aws))
+  const out = []
+  const seen = new Set()
+  let token
+  do {
+    const r = await cw.send(
+      new ListMetricsCommand({ Namespace: 'AWS/ES', MetricName: 'ClusterStatus.red', NextToken: token }),
+    )
+    for (const m of r.Metrics ?? []) {
+      const dims = m.Dimensions ?? []
+      const domain = dims.find((d) => d.Name === 'DomainName')?.Value
+      if (!domain || seen.has(domain)) continue
+      seen.add(domain)
+      out.push({
+        domain,
+        clientId: dims.find((d) => d.Name === 'ClientId')?.Value,
+        dimensions: dims.map((d) => ({ Name: d.Name, Value: d.Value })),
+      })
+    }
+    token = r.NextToken
+  } while (token)
+  return out.sort((a, b) => a.domain.localeCompare(b.domain))
+}
+
+// SES è attivo nell'account? (esistono metriche di invio)
+async function sesActive(aws) {
+  const cw = new CloudWatchClient(clientOpts(aws))
+  const r = await cw.send(new ListMetricsCommand({ Namespace: 'AWS/SES', MetricName: 'Send' }))
+  return (r.Metrics ?? []).length > 0
+}
+
 // Mappa i candidati discovery → voci servizio pronte per getStatus (in memoria, read-only).
 // Pura/testabile. Usata dall'auto-discovery zero-config (server/autodiscover.js).
 // region: se passata (sweep multi-region #8) viene iniettata in aws.region del servizio.
@@ -131,12 +181,15 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   const aws = { profile, roleArn, externalId, region }
   const ex = exclude ? new RegExp(exclude) : null
 
-  let [lambdas, ecs, asgs, schedules, bedrockModels] = await Promise.all([
+  let [lambdas, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses] = await Promise.all([
     listLambda(aws).catch(() => []),
     listEcs(aws).catch(() => []),
     listAsg(aws).catch(() => []),
     scheduleForLambdas(aws).catch(() => new Map()),
     listBedrockModels(aws).catch(() => []),
+    listMetricDimension(aws, 'AWS/SageMaker', 'Invocations', 'EndpointName').catch(() => []),
+    listOpenSearchDomains(aws).catch(() => []),
+    sesActive(aws).catch(() => false),
   ])
 
   let activeInfo = null
@@ -151,6 +204,8 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     ecs = ecs.filter((e) => !ex.test(e.service))
     asgs = asgs.filter((n) => !ex.test(n))
     bedrockModels = bedrockModels.filter((m) => !ex.test(m))
+    smEndpoints = smEndpoints.filter((n) => !ex.test(n))
+    osDomains = osDomains.filter((d) => !ex.test(d.domain))
   }
 
   const candidates = [
@@ -171,6 +226,13 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     })),
     ...asgs.map((n) => ({ name: n, kind: 'asg', aws: { type: 'asg', asg: n } })),
     ...bedrockModels.map((model) => ({ name: model, kind: 'bedrock', aws: { type: 'bedrock', model } })),
+    ...smEndpoints.map((endpoint) => ({ name: endpoint, kind: 'sagemaker', aws: { type: 'sagemaker', endpoint } })),
+    ...osDomains.map((d) => ({
+      name: d.domain,
+      kind: 'opensearch',
+      aws: { type: 'opensearch', domain: d.domain, clientId: d.clientId, dimensions: d.dimensions },
+    })),
+    ...(ses ? [{ name: 'ses', kind: 'ses', aws: { type: 'ses' } }] : []),
   ]
 
   // #7: confronto con lo state Terraform → managed true/false per candidato.

@@ -26,6 +26,10 @@ All notable changes to Dadaguard are documented here. Format based on
 - **Amazon Bedrock** — new service type: per-model usage from CloudWatch (invocations, client/server
   errors, throttling, latency). Auto-discovered from the models you've actually invoked (CloudWatch
   `ListMetrics`), or declared with `aws: { type: bedrock, model: <modelId> }`.
+- **More service types** — OpenSearch (cluster status + nodes), SES (send volume, bounce/complaint
+  rate), SageMaker (endpoint invocations/errors/latency) — all via CloudWatch and auto-discovered.
+- **Calmer cards** — metadata (build sha, timestamps) is dimmed so the eye lands on status first;
+  the Terraform-drift row is now the Terraform logo colored by state (green/red/yellow), no text.
 - **Terraform badge** — the "Terraform-compliant" row is now a green/red badge, readable at a glance.
 
 ### Changed
