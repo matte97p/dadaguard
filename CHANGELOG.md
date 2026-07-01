@@ -30,6 +30,10 @@ All notable changes to Dadaguard are documented here. Format based on
   rate), SageMaker (endpoint invocations/errors/latency) — all via CloudWatch and auto-discovered.
 - **Calmer cards** — metadata (build sha, timestamps) is dimmed so the eye lands on status first;
   the Terraform-drift row is now the Terraform logo colored by state (green/red/yellow), no text.
+- **Truer Lambda states** — a function/cron that fails **100% of its invocations** is now **down**
+  (was only "warning"); the cron dead-man window has a **10-min floor** so high-frequency crons (1m/5m)
+  don't false-alarm on CloudWatch metric-publication lag; the on-demand idle threshold is **60 min**
+  (was 15, too aggressive).
 - **Throttling resilience** — several layers so busy dashboards stop hitting `TooManyRequests`:
   CloudWatch `GetMetricData` is **batched** (one call per credentials+window, ≤500 metrics, instead of
   one per service); AWS clients **share one credential provider per account** (a single STS AssumeRole
