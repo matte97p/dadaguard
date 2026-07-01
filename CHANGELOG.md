@@ -16,7 +16,9 @@ All notable changes to Dadaguard are documented here. Format based on
   `iam:ListUsers`/`ListAccessKeys`/`ListMFADevices`, `secretsmanager:ListSecrets`. Relevant findings
   **link into the IAM page**: a too-broad policy → its "by policy" view; an exposed resource or a stale
   secret → the "by resource" view ("who can reach it").
-- **IAM explorer** — a new **IAM** page with three lenses. **By policy**: pick a customer-managed policy
+- **IAM explorer** — a new **IAM** page with up to three lenses, each shown only when it applies to the
+  account (no empty tabs): "by policy" appears only if there are customer-managed policies, "SSO access"
+  only if an Identity Center instance exists. **By policy**: pick a customer-managed policy
   and see who uses it (roles/users/groups) and what it grants (actions by service + resource ARNs).
   **By resource**: pick a service and see who can reach it — unified across **both** IAM policies
   (roles/services) *and* SSO permission sets (people/groups via their inline policy), so "who can reach
@@ -25,7 +27,7 @@ All notable changes to Dadaguard are documented here. Format based on
   first two lenses show empty user/group columns; this one shows how access actually works — groups are expanded to their members, so you see who's actually inside). Read-only,
   no secret values are ever read. New read-only permissions: `iam:ListPolicies`/`ListEntitiesForPolicy`,
   and — for the SSO lens, on the account hosting Identity Center — `sso:List*`/`DescribePermissionSet`
-  + `identitystore:DescribeUser`/`DescribeGroup`.
+  + `identitystore:DescribeUser`/`DescribeGroup`/`ListGroupMemberships`.
 - **Topology, upgraded** — the dependency view is now **its own page**, auto-laid-out with dagre, and
   infers far more than before. `env` references are read from **ECS task definitions** too (not only
   Lambda) — so an ECS/Fargate stack finally shows its wiring; plus new sources: **Step Functions**

@@ -323,6 +323,7 @@ export function demoSsoAccess() {
         assignments: [
           { account: 'Production', type: 'group', name: 'engineering', members: ['dev.uno', 'dev.due'] },
           { account: 'Staging', type: 'group', name: 'engineering', members: ['dev.uno', 'dev.due'] },
+          { account: 'Staging', type: 'group', name: 'interns', members: [] },
           { account: 'Production', type: 'user', name: 'revisore-esterno' },
         ],
       },

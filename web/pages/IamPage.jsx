@@ -67,23 +67,34 @@ function Entities({ entities, t }) {
 // così "chi c'è dentro" non resta opaco.
 function Assignments({ items, t }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {items.map((a, i) => (
-        <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+        <div key={i}>
           <Tag color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
             {a.type === 'group' ? `${t('iam.group')}: ` : ''}
             {a.name} <span style={{ opacity: 0.65 }}>· {a.account}</span>
           </Tag>
-          {a.type === 'group' &&
-            (a.members?.length ? (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {a.members.join(', ')}
-              </Text>
-            ) : (
-              <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic' }}>
-                {t('iam.noMembers')}
-              </Text>
-            ))}
+          {a.type === 'group' && (
+            <div style={{ marginTop: 6, marginInlineStart: 14 }}>
+              {a.members === undefined ? (
+                <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>
+                  {t('iam.membersUnreadable')}
+                </Text>
+              ) : a.members.length === 0 ? (
+                <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>
+                  {t('iam.emptyGroup')}
+                </Text>
+              ) : (
+                <Space size={[4, 4]} wrap>
+                  {a.members.map((m) => (
+                    <Tag key={m} style={{ marginInlineEnd: 0, fontSize: 12 }}>
+                      {m}
+                    </Tag>
+                  ))}
+                </Space>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -91,24 +102,11 @@ function Assignments({ items, t }) {
 }
 
 // --- Vista "Per policy": elenco policy per account + dettaglio (chi la usa / a cosa dà accesso). ---
-function PolicyView({ t, initialSel }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+function PolicyView({ t, initialSel, data, error }) {
   const [sel, setSel] = useState(initialSel ?? null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState(null)
-
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetch('/api/iam/policies')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
 
   useEffect(() => {
     if (!sel) return
@@ -125,12 +123,6 @@ function PolicyView({ t, initialSel }) {
   const accounts = data?.accounts ?? []
   const hasAny = accounts.some((a) => (a.policies ?? []).length || a.error)
 
-  if (loading)
-    return (
-      <div style={{ textAlign: 'center', padding: 32 }}>
-        <Spin tip={t('iam.loading')} />
-      </div>
-    )
   if (error) return <Alert type="error" showIcon message={error} />
   if (data && !hasAny) return <Empty description={t('iam.none')} style={{ marginTop: 24 }} />
 
@@ -338,31 +330,11 @@ function ResourceView({ services, t, initialResource }) {
 
 // --- Vista "Accesso SSO": Identity Center → permission set → utenti/gruppi assegnati, per account.
 // È il modo reale in cui gli umani hanno accesso (non IAM user/group). ---
-function SsoView({ t }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetch('/api/iam/sso')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading)
-    return (
-      <div style={{ textAlign: 'center', padding: 32 }}>
-        <Spin tip={t('iam.ssoLoading')} />
-      </div>
-    )
+function SsoView({ t, data, error }) {
   if (error) return <Alert type="error" showIcon message={error} />
   if (data && !data.available) return <Empty description={t('iam.ssoNone')} style={{ marginTop: 24 }} />
   const ps = data?.permissionSets ?? []
-  if (data && ps.length === 0) return <Empty description={t('iam.ssoEmpty')} style={{ marginTop: 24 }} />
+  if (ps.length === 0) return <Empty description={t('iam.ssoEmpty')} style={{ marginTop: 24 }} />
 
   return (
     <>
@@ -383,40 +355,87 @@ function SsoView({ t }) {
   )
 }
 
-// Pagina IAM: tre lenti. "Per policy" = da una policy a chi la usa e cosa concede. "Per risorsa" =
-// da una risorsa (servizio) a chi ci accede. "Accesso SSO" = come gli umani hanno accesso davvero
-// (Identity Center). Sola lettura, nessun valore di secret. On-demand.
+// Pagina IAM: fino a tre lenti, ma mostriamo solo quelle che hanno senso per QUESTO account AWS.
+// "Accesso SSO" = come gli umani hanno accesso davvero (Identity Center); appare solo se c'è un'istanza
+// Identity Center. "Per risorsa" = da una risorsa a chi ci accede; appare se ci sono servizi/risorse.
+// "Per policy" = da una customer-managed policy a chi la usa e cosa concede; appare solo se l'account ha
+// davvero delle policy custom (chi usa solo SSO + policy AWS-managed non ne ha, e la lente resta nascosta).
+// I dati di SSO e policy si caricano qui una volta sola e si passano alle viste. Sola lettura, on-demand.
 export default function IamPage({ services = [], t = (k) => k }) {
   const [params] = useSearchParams()
   const paramView = params.get('view')
-  const [view, setView] = useState(['policy', 'resource'].includes(paramView) ? paramView : 'sso')
+  const [sso, setSso] = useState({ loading: true })
+  const [policies, setPolicies] = useState({ loading: true })
+  const [view, setView] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/iam/sso')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setSso({ data: d }))
+      .catch((e) => setSso({ error: e.message }))
+    fetch('/api/iam/policies')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setPolicies({ data: d }))
+      .catch((e) => setPolicies({ error: e.message }))
+  }, [])
+
+  const settled = !sso.loading && !policies.loading
+  const hasSso = !!sso.data?.available
+  const hasPolicies = (policies.data?.accounts ?? []).some((a) => (a.policies ?? []).length > 0)
+  const hasResources = services.length > 0
+  const lenses = useMemo(
+    () =>
+      [
+        hasSso && { label: t('iam.bySso'), value: 'sso' },
+        hasResources && { label: t('iam.byResource'), value: 'resource' },
+        hasPolicies && { label: t('iam.byPolicy'), value: 'policy' },
+      ].filter(Boolean),
+    [hasSso, hasResources, hasPolicies, t],
+  )
+
+  // Fissa la vista di default appena si conoscono le lenti disponibili (rispetta ?view= se valido).
+  useEffect(() => {
+    if (!settled || view) return
+    const avail = lenses.map((l) => l.value)
+    setView((avail.includes(paramView) && paramView) || avail[0] || 'none')
+  }, [settled, view, lenses, paramView])
+
   // preselezione quando si arriva da un link della pagina Sicurezza
   const initialSel = paramView === 'policy' && params.get('arn') ? { account: params.get('account'), arn: params.get('arn') } : null
   const initialResource =
     paramView === 'resource' && params.get('needle') ? `${params.get('account')}|${params.get('needle')}` : null
+
+  if (!settled || !view)
+    return (
+      <>
+        <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
+        <div style={{ textAlign: 'center', padding: 32 }}>
+          <Spin tip={t('iam.loading')} />
+        </div>
+      </>
+    )
+
+  if (view === 'none')
+    return (
+      <>
+        <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
+        <Empty description={t('iam.nothing')} style={{ marginTop: 24 }} />
+      </>
+    )
+
   return (
     <>
       <PageIntro
         title={t('iam.title')}
         desc={t('iam.desc')}
-        extra={
-          <Segmented
-            options={[
-              { label: t('iam.bySso'), value: 'sso' },
-              { label: t('iam.byPolicy'), value: 'policy' },
-              { label: t('iam.byResource'), value: 'resource' },
-            ]}
-            value={view}
-            onChange={setView}
-          />
-        }
+        extra={lenses.length > 1 ? <Segmented options={lenses} value={view} onChange={setView} /> : null}
       />
       {view === 'policy' ? (
-        <PolicyView t={t} initialSel={initialSel} />
+        <PolicyView t={t} initialSel={initialSel} data={policies.data} error={policies.error} />
       ) : view === 'resource' ? (
         <ResourceView services={services} t={t} initialResource={initialResource} />
       ) : (
-        <SsoView t={t} />
+        <SsoView t={t} data={sso.data} error={sso.error} />
       )}
     </>
   )
