@@ -17,6 +17,8 @@ import {
   Segmented,
   Input,
   Switch,
+  Dropdown,
+  Modal,
   message,
 } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
@@ -32,6 +34,8 @@ import {
   PartitionOutlined,
   DashboardOutlined,
   ApiOutlined,
+  SaveOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import ServiceCard from './components/ServiceCard.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -248,6 +252,40 @@ export default function App() {
     setProblemsOnly(false)
   }, [])
 
+  // Filtri preimpostati: combinazioni salvate in locale, richiamabili con un clic.
+  const [presets, setPresets] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dadaguard-presets') || '[]')
+    } catch {
+      return []
+    }
+  })
+  const [savePresetOpen, setSavePresetOpen] = useState(false)
+  const [presetName, setPresetName] = useState('')
+  const persistPresets = (next) => {
+    setPresets(next)
+    localStorage.setItem('dadaguard-presets', JSON.stringify(next))
+  }
+  const applyPreset = (f) => {
+    setAccountFilter(f.accountFilter ?? 'all')
+    setRegionFilter(f.regionFilter ?? [])
+    setTypeFilter(f.typeFilter ?? [])
+    setStatusFilter(f.statusFilter ?? [])
+    setScheduleFilter(f.scheduleFilter ?? 'all')
+    setManagedFilter(f.managedFilter ?? 'all')
+    setNameQuery(f.nameQuery ?? '')
+    setProblemsOnly(Boolean(f.problemsOnly))
+  }
+  const saveCurrentPreset = () => {
+    const n = presetName.trim()
+    if (!n) return
+    const filters = { accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly }
+    persistPresets([...presets.filter((p) => p.name !== n), { name: n, filters }])
+    setSavePresetOpen(false)
+    setPresetName('')
+  }
+  const deletePreset = (name) => persistPresets(presets.filter((p) => p.name !== name))
+
   const themeConfig = {
     algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: { colorPrimary: '#7c3aed', borderRadius: 8 },
@@ -450,6 +488,45 @@ export default function App() {
                   {t('filter.reset')}
                 </Button>
               )}
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    ...(presets.length
+                      ? presets.map((p) => ({
+                          key: p.name,
+                          onClick: () => applyPreset(p.filters),
+                          label: (
+                            <span
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                minWidth: 170,
+                                gap: 16,
+                              }}
+                            >
+                              {p.name}
+                              <DeleteOutlined
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deletePreset(p.name)
+                                }}
+                                style={{ color: '#bfbfbf' }}
+                              />
+                            </span>
+                          ),
+                        }))
+                      : [{ key: '__none', label: t('preset.none'), disabled: true }]),
+                    { type: 'divider' },
+                    { key: '__save', icon: <SaveOutlined />, label: t('preset.save'), onClick: () => setSavePresetOpen(true) },
+                  ],
+                }}
+              >
+                <Button size="small" icon={<SaveOutlined />}>
+                  {t('preset.label')}
+                </Button>
+              </Dropdown>
             </Space>
           )}
 
@@ -513,6 +590,22 @@ export default function App() {
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
         <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} accountLabels={visibleLabels} t={t} />
         <MetaHealthDrawer open={healthOpen} onClose={() => setHealthOpen(false)} health={health} accountLabels={visibleLabels} t={t} />
+
+        <Modal
+          open={savePresetOpen}
+          title={t('preset.saveTitle')}
+          okText={t('preset.saveOk')}
+          cancelText={t('card.removeCancel')}
+          onOk={saveCurrentPreset}
+          onCancel={() => setSavePresetOpen(false)}
+        >
+          <Input
+            placeholder={t('preset.namePlaceholder')}
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            onPressEnter={saveCurrentPreset}
+          />
+        </Modal>
       </Layout>
     </ConfigProvider>
   )
