@@ -111,6 +111,10 @@ All notable changes to Dadaguard are documented here. Format based on
   string values: `key = (redacted)`, both sides of a `->` diff, **list/set elements**, and **heredoc
   bodies** (`user_data`, inline policies) — the places secrets most often hide — so a non-`sensitive`
   value can't leak. Redaction runs before the size cap, so truncation can't expose a fragment either.
+- **Post-audit polish** — API Gateway request count is compacted (`137k`), the "no account" label is
+  translated (was hardcoded Italian, stayed IT in English), and dead/duplicate i18n keys left by the
+  error/format refactor were removed (server `version.throttled`/`drift.throttled`, 17 web summary keys
+  that duplicated the server ones and had already drifted).
 
 ## [0.2.0] — 2026-06-30
 
