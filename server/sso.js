@@ -12,6 +12,7 @@ import {
   ListAccountAssignmentsCommand,
 } from '@aws-sdk/client-sso-admin'
 import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand } from '@aws-sdk/client-identitystore'
+import { OrganizationsClient, ListAccountsCommand } from '@aws-sdk/client-organizations'
 import { clientOpts } from './runtime/awsClient.js'
 
 const SSO_REGION = process.env.DADAGUARD_SSO_REGION || 'eu-central-1' // dove vive Identity Center
@@ -41,12 +42,30 @@ async function findInstance(accounts) {
   return null
 }
 
-// account id (12 cifre dal roleArn) → label leggibile.
+// account id (12 cifre dal roleArn) → label leggibile (fallback quando Organizations non è leggibile).
 function accountLabels(accounts) {
   const m = {}
   for (const [key, acc] of Object.entries(accounts ?? {})) {
     const id = acc.roleArn?.match(/:(\d{12}):/)?.[1]
     if (id) m[id] = acc.label ?? key
+  }
+  return m
+}
+
+// Nomi account dall'organizzazione (id → nome) così i tag non mostrano numeri criptici. Best effort:
+// serve organizations:ListAccounts (l'account che ospita SSO è di norma anche l'org management).
+async function orgAccountNames(acc) {
+  const m = {}
+  try {
+    const org = new OrganizationsClient(clientOpts({ ...credsFor(acc), region: 'us-east-1' }))
+    let t
+    do {
+      const o = await org.send(new ListAccountsCommand({ NextToken: t, MaxResults: 20 }))
+      for (const a of o.Accounts ?? []) if (a.Id) m[a.Id] = a.Name || a.Id
+      t = o.NextToken
+    } while (t)
+  } catch {
+    /* organizations:ListAccounts non concesso → si ripiega su label/id */
   }
   return m
 }
@@ -58,6 +77,8 @@ export async function ssoAccess(accounts) {
   const sso = new SSOAdminClient(clientOpts(credsFor(inst.acc)))
   const idstore = new IdentitystoreClient(clientOpts(credsFor(inst.acc)))
   const labels = accountLabels(accounts)
+  const orgNames = await orgAccountNames(inst.acc)
+  const nameOf = (id) => orgNames[id] || labels[id] || id
 
   const nameCache = new Map()
   const resolve = async (type, id) => {
@@ -117,7 +138,7 @@ export async function ssoAccess(accounts) {
                 new ListAccountAssignmentsCommand({ InstanceArn: inst.instanceArn, AccountId: acctId, PermissionSetArn: psArn, NextToken: aat, MaxResults: 100 }),
               )
               for (const a of o.AccountAssignments ?? []) {
-                assignments.push({ account: labels[acctId] || acctId, type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
+                assignments.push({ account: nameOf(acctId), type: (a.PrincipalType || '').toLowerCase(), name: await resolve(a.PrincipalType, a.PrincipalId) })
               }
               aat = o.NextToken
             } while (aat)
