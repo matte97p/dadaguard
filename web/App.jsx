@@ -20,7 +20,6 @@ import {
   RadarChartOutlined,
   MoonOutlined,
   SunOutlined,
-  SafetyCertificateOutlined,
   DollarOutlined,
   DiffOutlined,
   PieChartOutlined,
@@ -40,6 +39,7 @@ import CostsPage from './pages/CostsPage.jsx'
 import WastePage from './pages/WastePage.jsx'
 import QuotasPage from './pages/QuotasPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
+import logo from '../assets/logo.png'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -355,7 +355,7 @@ export default function App() {
           }}
         >
           <Space>
-            <SafetyCertificateOutlined style={{ fontSize: 24, color: '#7c3aed' }} />
+            <img src={logo} alt="Dadaguard" style={{ width: 32, height: 32, borderRadius: 8, display: 'block' }} />
             <div>
               <Title level={5} style={{ margin: 0, lineHeight: 1.2 }}>
                 Dadaguard 🐶
