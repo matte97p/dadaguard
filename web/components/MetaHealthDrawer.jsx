@@ -3,8 +3,8 @@ import { Drawer, List, Badge, Typography, Tag, Space } from 'antd'
 const { Text, Paragraph } = Typography
 
 // #6 Meta-salute: Dadaguard riesce a raggiungere/assumere ogni account? (sonda STS)
-export default function MetaHealthDrawer({ open, onClose, health, t }) {
-  const accounts = health?.accounts ?? []
+export default function MetaHealthDrawer({ open, onClose, health, accountLabels, t }) {
+  const accounts = (health?.accounts ?? []).filter((a) => !accountLabels || accountLabels.has(a.label))
   return (
     <Drawer title={t('health.title')} open={open} onClose={onClose} width={440}>
       <Paragraph type="secondary">{t('health.desc')}</Paragraph>

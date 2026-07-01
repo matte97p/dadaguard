@@ -14,6 +14,10 @@ All notable changes to Dadaguard are documented here. Format based on
   cron functions are recognised as such: the card shows a ⏰ cadence badge and the **dead-man switch**
   fires when a cron misses its expected window (instead of showing it as idle). New read-only
   permissions: `events:ListRules`, `events:ListTargetsByRule`.
+- **Rich, global filters** — the dashboard bar now filters by name search, account, type, status
+  (multi), region, cron/on-demand, and Terraform-managed, plus a "problems only" toggle and a clear
+  button. Filters apply **everywhere**: cards, Topology (its duplicate account selector is gone), and
+  the aggregate drawers (Costs/Waste/Quotas/Meta-health) narrow to the accounts still visible.
 
 ### Changed
 - **Auto-discovery merges with the watchlist, on by default** — discovered services are now added to

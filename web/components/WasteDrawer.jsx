@@ -31,7 +31,7 @@ function buildItems(v, t) {
   return out
 }
 
-export default function WasteDrawer({ open, onClose, t = (k) => k }) {
+export default function WasteDrawer({ open, onClose, accountLabels, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -50,7 +50,9 @@ export default function WasteDrawer({ open, onClose, t = (k) => k }) {
       .finally(() => setLoading(false))
   }, [open])
 
-  const entries = data ? Object.entries(data) : []
+  const entries = (data ? Object.entries(data) : []).filter(
+    ([, v]) => !accountLabels || accountLabels.has(v.label),
+  )
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
 
   return (

@@ -15,6 +15,8 @@ import {
   Badge,
   Select,
   Segmented,
+  Input,
+  Switch,
   message,
 } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
@@ -68,6 +70,11 @@ export default function App() {
   const [accountFilter, setAccountFilter] = useState('all')
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
+  const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…
+  const [scheduleFilter, setScheduleFilter] = useState('all') // all | cron | ondemand
+  const [managedFilter, setManagedFilter] = useState('all') // all | managed | unmanaged (Terraform)
+  const [nameQuery, setNameQuery] = useState('')
+  const [problemsOnly, setProblemsOnly] = useState(false) // scorciatoia: solo degraded/down
 
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
@@ -178,13 +185,30 @@ export default function App() {
     [services, t],
   )
 
+  const statusOptions = useMemo(
+    () =>
+      [...new Set(services.map((s) => s.overall).filter(Boolean))]
+        .sort()
+        .map((v) => ({ value: v, label: t(`card.status.${v}`) })),
+    [services, t],
+  )
+
   const groups = useMemo(() => {
-    const filtered = services.filter(
-      (s) =>
+    const q = nameQuery.trim().toLowerCase()
+    const filtered = services.filter((s) => {
+      const cron = Boolean(s.checks?.runtime?.schedule)
+      return (
         (accountFilter === 'all' || (s.account?.key ?? '__none__') === accountFilter) &&
         (regionFilter.length === 0 || regionFilter.includes(s.region)) &&
-        (typeFilter.length === 0 || typeFilter.includes(s.type)),
-    )
+        (typeFilter.length === 0 || typeFilter.includes(s.type)) &&
+        (statusFilter.length === 0 || statusFilter.includes(s.overall)) &&
+        (scheduleFilter === 'all' || (scheduleFilter === 'cron') === cron) &&
+        (managedFilter === 'all' ||
+          (managedFilter === 'managed' ? s.managed === true : s.managed === false)) &&
+        (!q || s.name.toLowerCase().includes(q)) &&
+        (!problemsOnly || s.overall === 'degraded' || s.overall === 'down')
+      )
+    })
     const m = new Map()
     for (const s of filtered) {
       const key = s.account?.key ?? '__none__'
@@ -199,7 +223,30 @@ export default function App() {
       m.get(key).services.push(s)
     }
     return [...m.values()]
-  }, [services, accountFilter, regionFilter, typeFilter])
+  }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly])
+
+  // Account (per label) attualmente visibili → filtro applicato ai drawer aggregati e alla vista Rete.
+  const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
+
+  const filtersActive =
+    accountFilter !== 'all' ||
+    regionFilter.length > 0 ||
+    typeFilter.length > 0 ||
+    statusFilter.length > 0 ||
+    scheduleFilter !== 'all' ||
+    managedFilter !== 'all' ||
+    nameQuery.trim() !== '' ||
+    problemsOnly
+  const resetFilters = useCallback(() => {
+    setAccountFilter('all')
+    setRegionFilter([])
+    setTypeFilter([])
+    setStatusFilter([])
+    setScheduleFilter('all')
+    setManagedFilter('all')
+    setNameQuery('')
+    setProblemsOnly(false)
+  }, [])
 
   const themeConfig = {
     algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
@@ -331,30 +378,78 @@ export default function App() {
 
           {data && (
             <Space style={{ marginBottom: 16 }} wrap>
+              <Input.Search
+                allowClear
+                placeholder={t('filter.searchName')}
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+                style={{ width: 200 }}
+              />
               <Select
                 value={accountFilter}
                 onChange={setAccountFilter}
                 options={accountOptions}
-                style={{ minWidth: 180 }}
+                style={{ minWidth: 160 }}
               />
               <Select
                 mode="multiple"
                 allowClear
-                placeholder={t('filter.allRegions')}
-                value={regionFilter}
-                onChange={setRegionFilter}
-                options={regionOptions}
-                style={{ minWidth: 200 }}
-              />
-              <Select
-                mode="multiple"
-                allowClear
+                maxTagCount="responsive"
                 placeholder={t('filter.allTypes')}
                 value={typeFilter}
                 onChange={setTypeFilter}
                 options={typeOptions}
-                style={{ minWidth: 180 }}
+                style={{ minWidth: 150 }}
               />
+              <Select
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                placeholder={t('filter.allStatuses')}
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusOptions}
+                style={{ minWidth: 150 }}
+              />
+              <Select
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                placeholder={t('filter.allRegions')}
+                value={regionFilter}
+                onChange={setRegionFilter}
+                options={regionOptions}
+                style={{ minWidth: 160 }}
+              />
+              <Select
+                value={scheduleFilter}
+                onChange={setScheduleFilter}
+                style={{ minWidth: 150 }}
+                options={[
+                  { value: 'all', label: t('filter.schedule.all') },
+                  { value: 'cron', label: t('filter.schedule.cron') },
+                  { value: 'ondemand', label: t('filter.schedule.ondemand') },
+                ]}
+              />
+              <Select
+                value={managedFilter}
+                onChange={setManagedFilter}
+                style={{ minWidth: 150 }}
+                options={[
+                  { value: 'all', label: t('filter.tf.all') },
+                  { value: 'managed', label: t('filter.tf.managed') },
+                  { value: 'unmanaged', label: t('filter.tf.unmanaged') },
+                ]}
+              />
+              <Space size={6}>
+                <Switch size="small" checked={problemsOnly} onChange={setProblemsOnly} />
+                <Text>{t('filter.problemsOnly')}</Text>
+              </Space>
+              {filtersActive && (
+                <Button type="link" size="small" onClick={resetFilters}>
+                  {t('filter.reset')}
+                </Button>
+              )}
             </Space>
           )}
 
@@ -403,20 +498,21 @@ export default function App() {
           onAdded={load}
           t={t}
         />
-        <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} t={t} />
-        <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} t={t} />
+        <WasteDrawer open={wasteOpen} onClose={() => setWasteOpen(false)} accountLabels={visibleLabels} t={t} />
+        <CostsDrawer open={costsOpen} onClose={() => setCostsOpen(false)} accountLabels={visibleLabels} t={t} />
         <TopologyDrawer
           open={topoOpen}
           onClose={() => setTopoOpen(false)}
           services={groups.flatMap((g) => g.services)}
+          accountLabels={visibleLabels}
           dark={dark}
           t={t}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
         <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
-        <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} t={t} />
-        <MetaHealthDrawer open={healthOpen} onClose={() => setHealthOpen(false)} health={health} t={t} />
+        <QuotasDrawer open={quotasOpen} onClose={() => setQuotasOpen(false)} accountLabels={visibleLabels} t={t} />
+        <MetaHealthDrawer open={healthOpen} onClose={() => setHealthOpen(false)} health={health} accountLabels={visibleLabels} t={t} />
       </Layout>
     </ConfigProvider>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Drawer, Segmented, Select, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -236,7 +236,7 @@ const CANVAS = {
 
 // Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/SG). "Rete" = dove vive
 // ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
-export default function TopologyDrawer({ open, onClose, services = [], dark, t = (k) => k }) {
+export default function TopologyDrawer({ open, onClose, services = [], accountLabels, dark, t = (k) => k }) {
   const [view, setView] = useState('deps')
   const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
   const [loading, setLoading] = useState(false)
@@ -244,23 +244,6 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
   const [net, setNet] = useState(null)
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
-  const [acct, setAcct] = useState('all')
-
-  // account presenti (dai servizi) → opzioni del filtro. Un account alla volta, non tutti insieme.
-  const accountOpts = useMemo(() => {
-    const seen = new Map()
-    for (const s of services) {
-      const k = s.account?.key ?? '__none__'
-      if (!seen.has(k)) seen.set(k, s.account?.label ?? k)
-    }
-    return [...seen].map(([value, label]) => ({ value, label }))
-  }, [services])
-
-  // default = primo account (così parte mostrandone uno solo); resta valido se ancora presente.
-  useEffect(() => {
-    if (!open) return
-    setAcct((cur) => (accountOpts.some((o) => o.value === cur) ? cur : accountOpts[0]?.value ?? 'all'))
-  }, [open, accountOpts])
 
   // Dipendenze: fetch all'apertura.
   useEffect(() => {
@@ -291,14 +274,12 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
     if (!open) setNet(null)
   }, [open])
 
-  // filtro account applicato a entrambe le viste
-  const shownServices = useMemo(
-    () => (acct === 'all' ? services : services.filter((s) => (s.account?.key ?? '__none__') === acct)),
-    [services, acct],
-  )
+  // I servizi arrivano GIÀ filtrati dai filtri globali della dashboard. La vista Rete la restringo
+  // agli stessi account (per label) quando i filtri lasciano visibili solo alcuni account.
+  const shownServices = services
   const shownNet = useMemo(
-    () => (!net || acct === 'all' ? net : { accounts: (net.accounts ?? []).filter((a) => a.account === acct) }),
-    [net, acct],
+    () => (!net || !accountLabels ? net : { accounts: (net.accounts ?? []).filter((a) => accountLabels.has(a.label)) }),
+    [net, accountLabels],
   )
 
   const { nodes, edges, usedVias } = useMemo(
@@ -322,15 +303,9 @@ export default function TopologyDrawer({ open, onClose, services = [], dark, t =
           value={view}
           onChange={setView}
         />
-        {accountOpts.length > 1 && (
-          <Select
-            size="small"
-            value={acct}
-            onChange={setAcct}
-            style={{ minWidth: 200 }}
-            options={[...accountOpts, { value: 'all', label: t('filter.allAccounts') }]}
-          />
-        )}
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('topo.filterHint')}
+        </Text>
       </Space>
 
       {view === 'deps' ? (

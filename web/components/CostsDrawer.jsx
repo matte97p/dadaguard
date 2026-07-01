@@ -28,7 +28,7 @@ function Bar({ label, amount, max, credit, t }) {
 
 // Costi MTD per account: CONSUMO per servizio (viola) + CREDITI/rimborsi (verde) = netto.
 // Fetch on-demand (Cost Explorer è a pagamento).
-export default function CostsDrawer({ open, onClose, t = (k) => k }) {
+export default function CostsDrawer({ open, onClose, accountLabels, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -48,7 +48,9 @@ export default function CostsDrawer({ open, onClose, t = (k) => k }) {
       .finally(() => setLoading(false))
   }, [open, month])
 
-  const accounts = data ? Object.entries(data) : []
+  const accounts = (data ? Object.entries(data) : []).filter(
+    ([, acc]) => !accountLabels || accountLabels.has(acc.label),
+  )
   const now = new Date()
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
