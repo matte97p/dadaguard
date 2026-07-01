@@ -136,10 +136,11 @@ app.get('/api/waste', async (_req, res) => {
 })
 
 // Costi: spesa MTD per servizio AWS, per account. On-demand (Cost Explorer è a pagamento).
-app.get('/api/costs', async (_req, res) => {
+app.get('/api/costs', async (req, res) => {
   try {
     if (isDemo) return res.json(demoCosts())
     const { accounts } = loadConfig()
+    const month = req.query.month // 'YYYY-MM' opzionale (default: mese corrente)
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
@@ -148,7 +149,7 @@ app.get('/api/costs', async (_req, res) => {
           out[key] = {
             label: a.label ?? key,
             color: a.color ?? null,
-            ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId })),
+            ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })),
           }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: err.message }

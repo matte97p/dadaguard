@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Spin, Alert, Empty, Typography, Divider, Space, Badge } from 'antd'
+import { Drawer, Spin, Alert, Empty, Typography, Divider, Space, Badge, Select } from 'antd'
 
 const { Text } = Typography
 
@@ -32,23 +32,42 @@ export default function CostsDrawer({ open, onClose, t = (k) => k }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [month, setMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
 
   useEffect(() => {
     if (!open) return
     setLoading(true)
     setError(null)
-    fetch('/api/costs')
+    fetch(`/api/costs?month=${month}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [open, month])
 
   const accounts = data ? Object.entries(data) : []
+  const now = new Date()
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    return { value, label: i === 0 ? `${label} · ${t('costs.current')}` : label }
+  })
 
   return (
     <Drawer title={t('costs.title')} placement="right" width={560} open={open} onClose={onClose}>
-      <Text type="secondary">{t('costs.desc')}</Text>
+      <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center" wrap>
+        <Text type="secondary">{t('costs.desc')}</Text>
+        <Space size={6}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('costs.month')}
+          </Text>
+          <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
+        </Space>
+      </Space>
       <Divider />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
