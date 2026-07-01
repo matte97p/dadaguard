@@ -18,7 +18,7 @@ import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology } from './demo.js'
 import { log } from './log.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -167,7 +167,7 @@ app.get('/api/costs', async (req, res) => {
 // delle env var sono usati solo per il match e non escono mai dal server.
 app.get('/api/topology', async (_req, res) => {
   try {
-    if (isDemo) return res.json({ edges: [], extraNodes: [] })
+    if (isDemo) return res.json(demoTopology())
     const { accounts, services } = await resolveServices()
     res.json(await deduceTopology(services, accounts))
   } catch (err) {

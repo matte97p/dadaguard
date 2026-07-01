@@ -6,6 +6,14 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Topology, upgraded** — the dependency view is now **full-screen**, auto-laid-out with dagre, and
+  infers far more than before. `env` references are read from **ECS task definitions** too (not only
+  Lambda) — so an ECS/Fargate stack finally shows its wiring; plus two new sources: **Step Functions**
+  (the resources a state machine orchestrates → `flow` edges) and **Application Load Balancers** (the
+  ECS/EC2 services behind each target group → `lb` edges). Demo mode now ships a fully-wired sample
+  graph, so the feature is visible with no AWS connection. New read-only permission:
+  `states:DescribeStateMachine` (the Terraform role modules already granted it; only the JSON policy
+  example was missing it).
 - **Log window selector** — the recent-logs drawer now offers 1h / 6h / 24h (was fixed at 1h); the
   backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
 - **Cost month selector** — the Costs drawer can pick the reference month (last 12 months), not just

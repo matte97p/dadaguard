@@ -20,6 +20,8 @@ const VIA = {
   declared: { color: '#8c8c8c' },
   env: { color: '#1677ff' },
   event: { color: '#7c3aed' },
+  flow: { color: '#eb2f96' },
+  lb: { color: '#fa8c16' },
   net: { color: '#13c2c2' },
 }
 
@@ -235,7 +237,7 @@ function Legend({ usedVias, t }) {
 }
 
 const CANVAS = {
-  height: '64vh',
+  height: 'calc(100vh - 200px)',
   marginTop: 8,
   border: '1px solid rgba(128,128,128,0.2)',
   borderRadius: 8,
@@ -301,7 +303,7 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
   )
 
   return (
-    <Drawer title={t('topo.title')} placement="right" width={840} open={open} onClose={onClose}>
+    <Drawer title={t('topo.title')} placement="right" width="100%" open={open} onClose={onClose}>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
         <Segmented
           options={[
@@ -335,7 +337,7 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
                 {hasEdges ? (
-                  <ReactFlow nodes={nodes} edges={edges} fitView colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
+                  <ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }} colorMode={dark ? 'dark' : 'light'} proOptions={{ hideAttribution: true }}>
                     <Background />
                     <Controls showInteractive={false} />
                   </ReactFlow>

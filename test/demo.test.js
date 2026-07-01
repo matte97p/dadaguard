@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents } from '../server/demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoTopology } from '../server/demo.js'
 
 test('demoStatus: forma valida + ogni check ha uno status', () => {
   const s = demoStatus('it')
@@ -32,4 +32,21 @@ test('demo drawer: forme coerenti', () => {
   assert.ok(demoQuotas().accounts[0].quotas.length > 0)
   assert.ok(demoLogs().events.length > 0)
   assert.ok(demoEvents().events.length > 0)
+})
+
+test('demoTopology: ogni arco punta a un servizio reale o a un extraNode', () => {
+  const { edges, extraNodes } = demoTopology()
+  const names = new Set(demoStatus('en').services.map((s) => s.name))
+  const extraIds = new Set(extraNodes.map((n) => n.id))
+  const known = (id) => names.has(id) || extraIds.has(id)
+  for (const e of edges) {
+    assert.ok(known(e.source), `arco da servizio inesistente: ${e.source}`)
+    assert.ok(known(e.target), `arco verso nodo inesistente: ${e.target}`)
+    assert.ok(e.vias?.length, `arco senza provenienza: ${e.source}->${e.target}`)
+  }
+  // la demo deve esercitare tutte le provenienze, legenda inclusa
+  const vias = new Set(edges.flatMap((e) => e.vias))
+  for (const v of ['declared', 'env', 'event', 'flow', 'lb', 'net']) {
+    assert.ok(vias.has(v), `la topologia demo non copre la provenienza ${v}`)
+  }
 })

@@ -28,7 +28,9 @@
         "sqs:GetQueueUrl",
         "sqs:GetQueueAttributes",
         "dynamodb:DescribeTable",
-        "elasticache:DescribeCacheClusters"
+        "elasticache:DescribeCacheClusters",
+        "states:DescribeStateMachine",
+        "states:ListExecutions"
       ],
       "Resource": "*"
     },
