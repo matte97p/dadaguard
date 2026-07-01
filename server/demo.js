@@ -286,6 +286,16 @@ export function demoIamAccess(needle) {
   return { needle, matches }
 }
 
+export function demoSecurity() {
+  return {
+    findings: [
+      { category: 'public', severity: 'high', account: 'staging', accountLabel: 'Staging', resource: 'legacy-api', detail: 'security group aperto a 0.0.0.0/0 · tcp 22 (SSH)' },
+      { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: 'bucket S3 senza Public Access Block completo' },
+      { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: 'ALB internet-facing' },
+    ],
+  }
+}
+
 export function demoLogs() {
   const now = Date.now()
   return {

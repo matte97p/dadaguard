@@ -28,6 +28,7 @@ import {
   AppstoreOutlined,
   ApiOutlined,
   SafetyOutlined,
+  AlertOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -41,6 +42,7 @@ import WastePage from './pages/WastePage.jsx'
 import QuotasPage from './pages/QuotasPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
+import SecurityPage from './pages/SecurityPage.jsx'
 import logo from '../assets/logo.png'
 
 const { Header, Content } = Layout
@@ -64,6 +66,7 @@ const NAV = [
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [] },
+  { to: '/sicurezza', key: 'security', icon: <AlertOutlined />, fields: [] },
 ]
 
 export default function App() {
@@ -480,6 +483,7 @@ export default function App() {
             />
             <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} />} />
             <Route path="/iam" element={<IamPage services={services} t={t} />} />
+            <Route path="/sicurezza" element={<SecurityPage t={t} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>
