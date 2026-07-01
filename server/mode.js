@@ -20,6 +20,14 @@ export const MODE = isDemo ? 'demo' : process.env.DADAGUARD_CONFIG ? 'cloud' : '
 export const isCloud = MODE === 'cloud'
 export const isLocal = MODE === 'local'
 
+// Auto-discovery PASSIVA (read-only, in memoria): scopre i servizi degli account e li unisce alla
+// watchlist. Diversa dal pulsante "Scopri servizi" (capabilities.discover, che SCRIVE la watchlist
+// ed è solo local): questa non scrive nulla → gira anche in cloud. ATTIVA DI DEFAULT (coerente con
+// lo spirito zero-config di Dadaguard); opt-out esplicito con DADAGUARD_DISCOVER=0. Con watchlist
+// vuota la discovery scatta comunque. Nota: gira a ogni /api/status (fetch-on-load), quindi con
+// molti account/region aggiunge chiamate AWS read-only a ogni refresh.
+export const autoDiscover = process.env.DADAGUARD_DISCOVER !== '0'
+
 // Cosa può fare la dashboard in questa modalità — una sola tabella, niente `if (env)` sparsi.
 // Tutto ciò che è `false` in cloud richiede un filesystem scrivibile o il repo Terraform locale.
 // I segnali di sola lettura (liveness, runtime, versione, secret-by-name, drift leggero, sprechi,
