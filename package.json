@@ -43,6 +43,7 @@
     "@aws-sdk/client-ssm": "^3.1075.0",
     "@aws-sdk/client-sts": "^3.1077.0",
     "@aws-sdk/credential-providers": "^3.1075.0",
+    "@dagrejs/dagre": "^3.0.0",
     "@xyflow/react": "^12.11.1",
     "antd": "^5.17.4",
     "express": "^4.19.2",

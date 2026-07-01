@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Drawer, Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import dagre from '@dagrejs/dagre'
 
 const { Text } = Typography
 
@@ -45,36 +46,30 @@ function buildGraph(services, topo, dark) {
     .filter((s) => !connected.has(s.name))
     .map((s) => ({ name: s.name, status: s.overall, type: s.type }))
 
-  const depsOf = new Map([...connected].map((id) => [id, []]))
-  for (const e of edges) depsOf.get(e.source).push(e.target)
-  const level = new Map()
-  const depth = (id, seen = new Set()) => {
-    if (level.has(id)) return level.get(id)
-    if (seen.has(id)) return 0
-    seen.add(id)
-    const d = depsOf.get(id) ?? []
-    const v = d.length ? 1 + Math.max(...d.map((x) => depth(x, seen))) : 0
-    level.set(id, v)
-    return v
-  }
-  connectedList.forEach((n) => depth(n.id))
+  // Auto-layout con dagre: DAG dall'alto verso il basso, nodi allineati per livello e archi puliti,
+  // invece del posizionamento manuale che si sovrapponeva.
+  const NODE_W = 200
+  const NODE_H = 44
+  const g = new dagre.graphlib.Graph()
+  g.setGraph({ rankdir: 'TB', nodesep: 36, ranksep: 64, marginx: 12, marginy: 12 })
+  g.setDefaultEdgeLabel(() => ({}))
+  connectedList.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }))
+  edges.forEach((e) => g.setEdge(e.source, e.target))
+  dagre.layout(g)
 
-  const perLevel = new Map()
   const nodes = connectedList.map((n) => {
-    const l = level.get(n.id) ?? 0
-    const idx = perLevel.get(l) ?? 0
-    perLevel.set(l, idx + 1)
+    const p = g.node(n.id)
     const color = n.external ? '#bfbfbf' : STATUS_COLOR[n.status] ?? '#8c8c8c'
     return {
       id: n.id,
-      position: { x: idx * 220, y: l * 130 },
+      position: { x: (p?.x ?? 0) - NODE_W / 2, y: (p?.y ?? 0) - NODE_H / 2 },
       data: { label: n.label },
       style: {
         border: `2px ${n.external ? 'dashed' : 'solid'} ${color}`,
         borderRadius: 8,
-        padding: 8,
+        padding: '6px 10px',
         fontSize: 12,
-        width: 190,
+        width: NODE_W,
         background: dark ? '#1f1f1f' : '#fff',
         color: dark ? '#e6e6e6' : '#000',
       },
@@ -89,6 +84,7 @@ function buildGraph(services, topo, dark) {
       id: `${e.source}->${e.target}`,
       source: e.source,
       target: e.target,
+      type: 'smoothstep',
       markerEnd: { type: MarkerType.ArrowClosed, color },
       animated: broken,
       style: {
@@ -372,10 +368,12 @@ export default function TopologyDrawer({ open, onClose, services = [], accountLa
                             flexShrink: 0,
                           }}
                         />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.name}
+                        </span>
                         {s.type && (
-                          <Text type="secondary" style={{ fontSize: 10 }}>
-                            · {s.type}
+                          <Text type="secondary" style={{ fontSize: 10, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                            {s.type}
                           </Text>
                         )}
                       </div>
