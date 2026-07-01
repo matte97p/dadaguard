@@ -130,10 +130,12 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
 
         {drift && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.drift')}>{t('card.label.drift')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={drift.status} />
-              <span>{drift.summary ?? drift.reason ?? '—'}</span>
-            </Space>
+            <Tag
+              color={drift.status === 'up' ? 'success' : drift.status === 'unknown' ? 'default' : 'error'}
+              style={{ marginInlineEnd: 0 }}
+            >
+              {drift.summary ?? drift.reason ?? '—'}
+            </Tag>
           </Descriptions.Item>
         )}
 
