@@ -3,8 +3,8 @@
 // describe AWS, SENZA `terraform plan` (troppo lento + lock sul backend per il
 // fetch-on-load). Copertura oggi: Lambda (runtime/memory/timeout/handler).
 // Il plan completo resta un'azione on-demand separata.
-import { LambdaClient, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
-import { clientOpts } from '../runtime/awsClient.js'
+import { getLambdaConfig } from '../runtime/lambdaConfig.js'
+import { isThrottle } from '../runtime/awsClient.js'
 
 export const key = 'drift'
 
@@ -24,9 +24,7 @@ export async function run(service, ctx) {
     region: cfg.region ?? ctx.region,
   }
   try {
-    const conf = await new LambdaClient(clientOpts(aws)).send(
-      new GetFunctionConfigurationCommand({ FunctionName: cfg.function }),
-    )
+    const conf = await getLambdaConfig(cfg.function, aws)
 
     // Formato: "reale (atteso da Terraform)" — così è chiaro quale lato è quale.
     const diffs = []
@@ -41,6 +39,6 @@ export async function run(service, ctx) {
     if (!diffs.length) return { key, status: 'up', summary: t('drift.insync') }
     return { key, status: 'degraded', summary: t('drift.diverge', { diffs: diffs.join(', ') }) }
   } catch (err) {
-    return { key, status: 'unknown', reason: err.message }
+    return { key, status: 'unknown', reason: isThrottle(err) ? t('drift.throttled') : err.message }
   }
 }
