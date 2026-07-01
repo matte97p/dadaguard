@@ -13,7 +13,7 @@ import { fmtAgo, identityT } from '../i18n.js'
 //    = `down` (la cron è saltata!). MA se lo schedule EventBridge è DISABLED (opts.scheduleState,
 //    dallo state TF) → `disabled` (ferma di proposito, non un allarme).
 // Permessi: cloudwatch:GetMetricData, lambda:GetFunctionConfiguration (+ lambda:GetAlias se `alias`).
-const DEFAULT_WINDOW_MIN = 15
+const DEFAULT_WINDOW_MIN = 60 // idle on-demand: 60 min di silenzio prima di "a riposo" (era 15, troppo aggressivo)
 const TIMEOUT_WARN = 0.8
 
 function fmtCount(n) {
@@ -41,7 +41,9 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const opts3 = clientOpts(aws)
   const isCron = Boolean(cfg.schedule)
   const schedMin = isCron ? parseSchedule(cfg.schedule) : null
-  const windowMin = isCron ? Math.round(schedMin * 1.2) : cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
+  // Cron: finestra = cadenza × 1.2, ma MINIMO 10 min per assorbire la latenza di pubblicazione delle
+  // metriche CloudWatch (~1-3 min) → niente falsi "GIÙ" sulle cron ad alta frequenza (1m/5m).
+  const windowMin = isCron ? Math.max(Math.round(schedMin * 1.2), 10) : cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
 
   // Cron col proprio schedule EventBridge DISABLED (dallo state TF) → ferma di proposito.
   // Niente allarme, niente chiamate metriche inutili.
@@ -103,7 +105,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
         scheduleExpr: cfg.scheduleExpr,
       }
     }
-    const status = errors > 0 || throttles > 0 ? 'degraded' : 'up'
+    // Tutte le invocazioni falliscono → la cron di fatto non completa mai: GIÙ, non solo ATTENZIONE.
+    const status = errors >= invocations ? 'down' : throttles > 0 || errors > 0 ? 'degraded' : 'up'
     const parts = [t('lambda.runs', { n: invocations }), t('lambda.errors', { n: errors })]
     if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
     return {
@@ -131,7 +134,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const p95 = m.dur
   const errRate = (errors / invocations) * 100
   const nearTimeout = timeoutSec && p95 >= timeoutSec * 1000 * TIMEOUT_WARN
-  const status = throttles > 0 || errors > 0 || nearTimeout ? 'degraded' : 'up'
+  // 100% di errori = il servizio non funziona mai → GIÙ; errori parziali → ATTENZIONE.
+  const status = errors >= invocations ? 'down' : throttles > 0 || errors > 0 || nearTimeout ? 'degraded' : 'up'
 
   const parts = [
     t('lambda.calls', { n: fmtCount(invocations) }),
