@@ -42,7 +42,7 @@ function rollup(checks) {
 // exceeded"). Cachiamo solo QUALI servizi esistono (cambia di rado); i CHECK restano freschi, li
 // rifà getStatus a ogni chiamata. Invalidata quando la watchlist viene modificata.
 let _resolveCache = null
-const RESOLVE_TTL_MS = 60_000
+const RESOLVE_TTL_MS = Number(process.env.DADAGUARD_DISCOVERY_TTL_MS) || 300_000 // 5 min: la lista servizi cambia di rado
 export function invalidateServicesCache() {
   _resolveCache = null
 }
