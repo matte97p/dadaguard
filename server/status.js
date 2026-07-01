@@ -1,8 +1,8 @@
 import { loadConfig } from './config.js'
-import { autoDiscoverServices } from './autodiscover.js'
+import { autoDiscoverServices, mergeServices } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { consoleUrl } from './console.js'
-import { MODE, capabilities } from './mode.js'
+import { MODE, capabilities, autoDiscover } from './mode.js'
 import { makeT } from './i18n.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
@@ -57,6 +57,16 @@ export async function getStatus(lang) {
     if (services.length) {
       discovered = { count: services.length, accounts: Object.keys(accounts) }
       log.info('auto-discovery', discovered)
+    }
+  } else if (autoDiscover) {
+    // Watchlist presente + DADAGUARD_DISCOVER=1: unisci i servizi scoperti a quelli dichiarati.
+    // I dichiarati vincono (mantengono gli override); si aggiungono solo le risorse non in watchlist.
+    const before = services.length
+    services = mergeServices(services, await autoDiscoverServices(accounts))
+    const added = services.length - before
+    if (added > 0) {
+      discovered = { count: added, accounts: Object.keys(accounts) }
+      log.info('auto-discovery (unita alla watchlist)', discovered)
     }
   }
 

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { candidatesToServices } from '../server/discover.js'
+import { mergeServices, serviceKey } from '../server/autodiscover.js'
 
 test('candidatesToServices: mappa candidati → voci servizio con account', () => {
   const candidates = [
@@ -29,4 +30,29 @@ test('candidatesToServices: region iniettata in aws.region (sweep #8)', () => {
   assert.equal(candidatesToServices(c, 'prod', 'us-east-1')[0].aws.region, 'us-east-1')
   // senza region: aws invariato
   assert.equal('region' in candidatesToServices(c, 'prod')[0].aws, false)
+})
+
+test('mergeServices: i dichiarati vincono, gli scoperti duplicati sono scartati', () => {
+  const declared = [
+    { name: 'webhook', account: 'staging', aws: { type: 'lambda', function: 'cato-staging-webhook' }, expectedVersion: 'v2' },
+  ]
+  const discovered = [
+    // stessa risorsa del dichiarato (nome diverso) → NON aggiunto
+    { name: 'cato-staging-webhook', account: 'staging', aws: { type: 'lambda', function: 'cato-staging-webhook' } },
+    // risorsa nuova → aggiunta
+    { name: 'orders', account: 'staging', aws: { type: 'ecs', cluster: 'c', service: 'orders' } },
+  ]
+  const out = mergeServices(declared, discovered)
+  assert.equal(out.length, 2)
+  assert.equal(out[0].name, 'webhook') // dichiarato preservato…
+  assert.equal(out[0].expectedVersion, 'v2') // …con i suoi override
+  assert.equal(out[1].name, 'orders') // scoperto nuovo aggiunto
+})
+
+test('serviceKey: stessa risorsa → stessa chiave a prescindere dal name; account/tipo distinguono', () => {
+  const a = { name: 'x', account: 'prod', aws: { type: 'lambda', function: 'fn' } }
+  const b = { name: 'y', account: 'prod', aws: { type: 'lambda', function: 'fn' } }
+  assert.equal(serviceKey(a), serviceKey(b))
+  const c = { name: 'x', account: 'staging', aws: { type: 'lambda', function: 'fn' } }
+  assert.notEqual(serviceKey(a), serviceKey(c))
 })

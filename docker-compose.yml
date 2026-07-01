@@ -30,6 +30,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
       - AWS_REGION=${AWS_REGION:-eu-central-1}
+      # Auto-discovery on di default (unisce i servizi scoperti alla watchlist). Metti 0 per spegnerla.
+      - DADAGUARD_DISCOVER=${DADAGUARD_DISCOVER:-1}
     restart: unless-stopped
     healthcheck:
       # check leggero: /healthz conferma solo che il server è su, niente chiamate AWS

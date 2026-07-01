@@ -37,3 +37,19 @@ export async function autoDiscoverServices(accounts) {
   })
   return lists.flat()
 }
+
+// Identità di una risorsa AWS monitorata: account + tipo + identificatori. Serve a de-duplicare
+// quando si uniscono i servizi dichiarati (watchlist) con quelli scoperti: stessa risorsa = stessa
+// chiave, anche se il `name` differisce (la watchlist usa nomi umani, la discovery il nome AWS).
+const ID_FIELDS = ['function', 'cluster', 'service', 'instance', 'table', 'bucket', 'arn', 'id', 'stream', 'asg', 'instanceId', 'queue', 'url', 'topic']
+export function serviceKey(s) {
+  const a = s?.aws ?? {}
+  return `${s?.account ?? ''}|${a.type ?? ''}|${ID_FIELDS.map((f) => a[f] ?? '').join('|')}`
+}
+
+// Unione watchlist + servizi scoperti: i DICHIARATI vincono (conservano i loro override); un
+// servizio scoperto si aggiunge solo se la sua risorsa non è già in watchlist.
+export function mergeServices(declared, discovered) {
+  const seen = new Set((declared ?? []).map(serviceKey))
+  return [...(declared ?? []), ...(discovered ?? []).filter((s) => !seen.has(serviceKey(s)))]
+}

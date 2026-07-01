@@ -3,6 +3,17 @@
 All notable changes to Dadaguard are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/), versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Log window selector** — the recent-logs drawer now offers 1h / 6h / 24h (was fixed at 1h); the
+  backend already accepted `?minutes=`. The snapshot cap (~100 lines per call) still applies.
+
+### Changed
+- **Auto-discovery merges with the watchlist, on by default** — discovered services are now added to
+  those declared in `services.yaml` (declared ones win and keep their overrides), instead of running
+  only when the watchlist is empty. Works in cloud too. Opt out with `DADAGUARD_DISCOVER=0`.
+
 ## [0.2.0] — 2026-06-30
 
 Adoption, trust and scale — the jump from "deep tool" to "the dashboard a DevOps reaches for".
