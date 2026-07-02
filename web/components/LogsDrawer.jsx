@@ -127,7 +127,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
               <>
                 <div style={{ fontSize: 11, opacity: 0.6, margin: '4px 0' }}>
                   {rows.length}
-                  {hidden > 0 ? ` · ${hidden} ${t('logs.hidden')}` : ''}
+                  {hidden > 0 ? ` · ${t('logs.hidden', { n: hidden })}` : ''}
                 </div>
                 <div
                   style={{

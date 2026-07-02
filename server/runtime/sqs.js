@@ -13,8 +13,10 @@ export async function sqsRuntime(cfg, aws, opts = {}) {
   if (!/^https?:\/\//.test(String(url))) {
     try {
       url = (await client.send(new GetQueueUrlCommand({ QueueName: cfg.queue }))).QueueUrl
-    } catch {
-      return { status: 'unknown', reason: t('sqs.notfound') }
+    } catch (err) {
+      // solo "coda inesistente" è notfound; throttle/denied/... risalgono e li ripulisce cleanAwsReason a monte.
+      if (err.name === 'QueueDoesNotExist' || /NonExistentQueue/i.test(err.name || '')) return { status: 'unknown', reason: t('sqs.notfound') }
+      throw err
     }
   }
 

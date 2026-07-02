@@ -9,8 +9,10 @@ export async function s3Runtime(cfg, aws, opts = {}) {
   const s3 = new S3Client(clientOpts(aws))
   try {
     await s3.send(new HeadBucketCommand({ Bucket: cfg.bucket }))
-  } catch {
-    return { status: 'unknown', reason: t('s3.notfound') }
+  } catch (err) {
+    // 404 = bucket inesistente (notfound); 403/throttle risalgono e li ripulisce cleanAwsReason a monte.
+    if (err.name === 'NotFound' || err.name === 'NoSuchBucket' || err.$metadata?.httpStatusCode === 404) return { status: 'unknown', reason: t('s3.notfound') }
+    throw err
   }
   let isPublic = false
   try {

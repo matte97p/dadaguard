@@ -65,7 +65,7 @@ export default function QuotasPage({ accountLabels, t = (k) => k }) {
                           strokeColor={q.pct >= 90 ? '#ff4d4f' : '#faad14'}
                         />
                         <Text type="secondary" style={{ fontSize: 11 }}>
-                          {Math.round(q.used)} / {q.limit}
+                          {Math.round(q.used).toLocaleString()} / {Number(q.limit).toLocaleString()}
                         </Text>
                       </div>
                     ))}
