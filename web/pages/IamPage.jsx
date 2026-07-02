@@ -361,7 +361,7 @@ function SsoView({ t, data, error }) {
 // "Per policy" = da una customer-managed policy a chi la usa e cosa concede; appare solo se l'account ha
 // davvero delle policy custom (chi usa solo SSO + policy AWS-managed non ne ha, e la lente resta nascosta).
 // I dati di SSO e policy si caricano qui una volta sola e si passano alle viste. Sola lettura, on-demand.
-export default function IamPage({ services = [], t = (k) => k }) {
+export default function IamPage({ services = [], t = (k) => k, lang }) {
   const [params] = useSearchParams()
   const paramView = params.get('view')
   const [sso, setSso] = useState({ loading: true })
@@ -373,11 +373,11 @@ export default function IamPage({ services = [], t = (k) => k }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setSso({ data: d }))
       .catch((e) => setSso({ error: e.message }))
-    fetch('/api/iam/policies')
+    fetch(`/api/iam/policies?lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setPolicies({ data: d }))
       .catch((e) => setPolicies({ error: e.message }))
-  }, [])
+  }, [lang])
 
   const settled = !sso.loading && !policies.loading
   const hasSso = !!sso.data?.available

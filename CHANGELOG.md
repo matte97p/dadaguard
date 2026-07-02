@@ -115,6 +115,10 @@ All notable changes to Dadaguard are documented here. Format based on
   translated (was hardcoded Italian, stayed IT in English), and dead/duplicate i18n keys left by the
   error/format refactor were removed (server `version.throttled`/`drift.throttled`, 17 web summary keys
   that duplicated the server ones and had already drifted).
+- **Localized AWS errors on every route** — error messages on the on-demand routes (waste, costs, quotas,
+  logs, events, meta-health, IAM policies) are now localized too: the frontend sends `?lang=` and each
+  endpoint threads `t` down to `cleanAwsReason`. Before, only `/api/status` was localized and these fell
+  back to English.
 - **Robustness polish** — formatters guard against non-finite input (return `—`); the last fixed plurals
   (`iam.attachments`, `logs.hidden`) use the plural form; Quotas numbers get thousands separators; SQS/S3
   no longer mislabel throttle/access-denied as "not found" (they rethrow so `cleanAwsReason` handles it);

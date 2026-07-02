@@ -33,7 +33,7 @@ async function resolveLogGroup(service, aws) {
 }
 
 // Ritorna { logGroup, events:[{ts,message}], truncated } | { notApplicable } | { logGroup, error }.
-export async function recentLogs(service, accounts, { errorsOnly = false, minutes = 60, limit = 100 } = {}) {
+export async function recentLogs(service, accounts, { errorsOnly = false, minutes = 60, limit = 100, t = (k) => k } = {}) {
   const acct = service.account ? accounts[service.account] : null
   const aws = {
     profile: acct?.profile,
@@ -64,6 +64,6 @@ export async function recentLogs(service, accounts, { errorsOnly = false, minute
     const events = (out.events ?? []).map((e) => ({ ts: e.timestamp, message: (e.message ?? '').trimEnd() }))
     return { logGroup, events, truncated: Boolean(out.nextToken) }
   } catch (err) {
-    return { logGroup, error: cleanAwsReason(err) } // es. group inesistente / permessi
+    return { logGroup, error: cleanAwsReason(err, t) } // es. group inesistente / permessi
   }
 }

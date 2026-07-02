@@ -32,7 +32,7 @@ export function parseStatements(doc) {
 
 // Policy customer-managed per account (Scope=Local), ordinate per numero di attach. Best effort:
 // un account che non risponde finisce con { error } invece di far fallire tutto.
-export async function listPolicies(accounts) {
+export async function listPolicies(accounts, t = (k) => k) {
   const out = []
   await Promise.all(
     Object.entries(accounts ?? {}).map(async ([key, acc]) => {
@@ -49,7 +49,7 @@ export async function listPolicies(accounts) {
         policies.sort((a, b) => b.attachments - a.attachments || a.name.localeCompare(b.name))
         out.push({ account: key, label: acc.label ?? key, color: acc.color, policies })
       } catch (err) {
-        out.push({ account: key, label: acc.label ?? key, color: acc.color, error: cleanAwsReason(err) })
+        out.push({ account: key, label: acc.label ?? key, color: acc.color, error: cleanAwsReason(err, t) })
       }
     }),
   )

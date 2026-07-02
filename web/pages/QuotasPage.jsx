@@ -5,7 +5,7 @@ import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 const { Text } = Typography
 
 // Pagina Quote: Service Quotas vicine al limite, per account. On-demand (Service Quotas + CloudWatch).
-export default function QuotasPage({ accountLabels, t = (k) => k }) {
+export default function QuotasPage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -13,12 +13,12 @@ export default function QuotasPage({ accountLabels, t = (k) => k }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch('/api/quotas')
+    fetch(`/api/quotas?lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [lang])
 
   const accounts = (data?.accounts ?? []).filter((a) => !accountLabels || accountLabels.has(a.label))
   const anyQuota = accounts.some((a) => (a.quotas ?? []).length)

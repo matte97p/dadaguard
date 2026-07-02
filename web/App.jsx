@@ -130,12 +130,12 @@ export default function App() {
   // #6 meta-salute: una sonda STS per account (raggiungibilità). On-mount + a ogni refresh.
   const loadHealth = useCallback(async () => {
     try {
-      const r = await fetch('/api/selfcheck')
+      const r = await fetch(`/api/selfcheck?lang=${lang}`)
       if (r.ok) setHealth(await r.json())
     } catch {
       /* il pallino resta neutro: non è un errore della dashboard */
     }
-  }, [])
+  }, [lang])
 
   useEffect(() => {
     loadHealth()
@@ -468,8 +468,8 @@ export default function App() {
                 />
               }
             />
-            <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} />} />
-            <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} />} />
+            <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
+            <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route
               path="/topologia"
               element={
@@ -481,8 +481,8 @@ export default function App() {
                 />
               }
             />
-            <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} />} />
-            <Route path="/iam" element={<IamPage services={services} t={t} />} />
+            <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
+            <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
             <Route path="/sicurezza" element={<SecurityPage t={t} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -497,8 +497,8 @@ export default function App() {
           t={t}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
-        <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} />
-        <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} />
+        <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} lang={lang} />
+        <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} lang={lang} />
         <MetaHealthDrawer
           open={healthOpen}
           onClose={() => setHealthOpen(false)}

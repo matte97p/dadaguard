@@ -33,7 +33,7 @@ function buildItems(v, t) {
 }
 
 // Pagina Sprechi: risorse a costo fisso che sembrano inutilizzate, per account. On-demand.
-export default function WastePage({ accountLabels, t = (k) => k }) {
+export default function WastePage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -41,7 +41,7 @@ export default function WastePage({ accountLabels, t = (k) => k }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch('/api/waste')
+    fetch(`/api/waste?lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         if (d.error) throw new Error(d.error)
@@ -49,7 +49,7 @@ export default function WastePage({ accountLabels, t = (k) => k }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [lang])
 
   const entries = (data ? Object.entries(data) : []).filter(
     ([, v]) => !accountLabels || accountLabels.has(v.label),
