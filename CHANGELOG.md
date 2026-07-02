@@ -5,6 +5,8 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-02
+
 ### Added
 - **Security page** — a new **Security** page: security & governance findings aggregated in one list,
   filterable by category and sorted by severity. Categories: **public surface** (SGs open to
