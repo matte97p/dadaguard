@@ -35,7 +35,6 @@ const STRINGS = {
     'iam.membersUnreadable': '(membri non leggibili)',
     'iam.emptyGroup': '(nessun membro)',
     'iam.nothing': 'Nessun dato IAM da mostrare per questi account.',
-    'iam.ssoLoading': 'Leggo Identity Center…',
     'iam.ssoNone': 'Identity Center non raggiungibile da questi account (serve l’account management).',
     'iam.ssoEmpty': 'Nessuna assegnazione trovata',
     'iam.pickResource': 'Scegli una risorsa (servizio)…',
@@ -46,7 +45,7 @@ const STRINGS = {
     'iam.loading': 'Leggo le policy…',
     'iam.none': 'Nessuna policy customer-managed',
     'iam.pick': 'Scegli una policy dall’elenco a sinistra.',
-    'iam.attachments': '{n} attach',
+    'iam.attachments': '{n} {n#uso#usi}',
     'iam.whoHasIt': 'Chi ce l’ha',
     'iam.grants': 'A cosa dà accesso',
     'iam.roles': 'Ruoli',
@@ -77,9 +76,6 @@ const STRINGS = {
 
     'filter.allAccounts': 'Tutti gli account',
     'filter.noAccount': 'Senza account',
-    'filter.allRegions': 'Tutte le region',
-    'filter.allTypes': 'Tutti i tipi',
-    'filter.allStatuses': 'Tutti gli stati',
     'filter.searchName': 'Cerca per nome',
     'filter.type': 'Tipo',
     'filter.status': 'Stato',
@@ -125,7 +121,6 @@ const STRINGS = {
     'type.ses': 'SES',
     'type.sagemaker': 'SageMaker',
     'card.label.reachable': 'Raggiungibile',
-    'card.label.version': 'Versione',
     'card.label.build': 'Build',
     'card.expectedFrom': 'atteso da {from}',
     'card.label.runtime': 'Esecuzione',
@@ -139,8 +134,6 @@ const STRINGS = {
     'card.tip.backups':
       'Quanto è recente l’ultimo snapshot RDS: degraded se oltre soglia (default 2g), down se nessuno.',
     'card.tip.reachable': "L'endpoint pubblico risponde alle richieste, e con che latenza.",
-    'card.tip.version':
-      'La versione che gira davvero è quella che ti aspetti (confronto col tag/health atteso).',
     'card.tip.build':
       'Cosa gira e da quando, letto direttamente da AWS senza dichiarare nulla: tag immagine del task ECS, versione Lambda, AMI EC2 — con il «tempo fa» dell’ultimo deploy. Se dichiari una versione attesa, segnala anche il mismatch.',
     'card.tip.security':
@@ -148,8 +141,6 @@ const STRINGS = {
     'card.tip.runtime':
       'Il compute reale combacia col desiderato: i task/istanze attesi sono su e in salute, gli errori bassi. «p95 805ms» = il 95% delle chiamate finisce entro 805ms (la coda lenta, non la media). Un «HTTP 200» da solo non lo dice.',
     'card.cron.tip': 'Cron: cadenza dedotta da EventBridge; se salta la finestra attesa diventa un allarme.',
-    'card.tip.drift':
-      'La risorsa reale combacia con quella dichiarata in Terraform (runtime, memoria, timeout). Confronto leggero, senza «terraform plan».',
     'card.tip.secret': 'I secret che il servizio usa esistono davvero nel secret manager (Doppler/SSM).',
     'card.responds': 'risponde · HTTP {code}',
     'card.removeTitle': 'Togliere dalla watchlist?',
@@ -247,7 +238,7 @@ const STRINGS = {
     'logs.group': 'Log group',
     'logs.empty': 'Nessun evento nella finestra',
     'logs.showNoise': 'Mostra START/END/REPORT',
-    'logs.hidden': 'righe Lambda nascoste',
+    'logs.hidden': '{n} {n#riga Lambda nascosta#righe Lambda nascoste}',
 
     'events.title': 'Eventi e modifiche',
     'events.button': 'Eventi e modifiche',
@@ -324,7 +315,6 @@ const STRINGS = {
     'iam.membersUnreadable': '(members not readable)',
     'iam.emptyGroup': '(no members)',
     'iam.nothing': 'No IAM data to show for these accounts.',
-    'iam.ssoLoading': 'Reading Identity Center…',
     'iam.ssoNone': 'Identity Center not reachable from these accounts (needs the management account).',
     'iam.ssoEmpty': 'No assignments found',
     'iam.pickResource': 'Pick a resource (service)…',
@@ -335,7 +325,7 @@ const STRINGS = {
     'iam.loading': 'Reading policies…',
     'iam.none': 'No customer-managed policies',
     'iam.pick': 'Pick a policy from the list on the left.',
-    'iam.attachments': '{n} attached',
+    'iam.attachments': '{n} {n#attachment#attachments}',
     'iam.whoHasIt': 'Who has it',
     'iam.grants': 'What it grants',
     'iam.roles': 'Roles',
@@ -366,9 +356,6 @@ const STRINGS = {
 
     'filter.allAccounts': 'All accounts',
     'filter.noAccount': 'No account',
-    'filter.allRegions': 'All regions',
-    'filter.allTypes': 'All types',
-    'filter.allStatuses': 'All statuses',
     'filter.searchName': 'Search by name',
     'filter.type': 'Type',
     'filter.status': 'Status',
@@ -414,7 +401,6 @@ const STRINGS = {
     'type.ses': 'SES',
     'type.sagemaker': 'SageMaker',
     'card.label.reachable': 'Reachable',
-    'card.label.version': 'Version',
     'card.label.build': 'Build',
     'card.expectedFrom': 'expected from {from}',
     'card.label.runtime': 'Runtime',
@@ -428,8 +414,6 @@ const STRINGS = {
     'card.tip.backups':
       'How recent the latest RDS snapshot is: degraded if older than the threshold (default 2d), down if none.',
     'card.tip.reachable': 'The public endpoint answers requests, and with what latency.',
-    'card.tip.version':
-      'The version actually running is the one you expect (compared to the expected tag/health).',
     'card.tip.build':
       'What runs and since when, read straight from AWS with nothing to declare: ECS task image tag, Lambda version, EC2 AMI — with the «time ago» of the last deploy. If you declare an expected version, it also flags a mismatch.',
     'card.tip.security':
@@ -437,8 +421,6 @@ const STRINGS = {
     'card.tip.runtime':
       'Real compute matches desired: expected tasks/instances are up and healthy, errors low. «p95 805ms» = 95% of calls finish within 805ms (the slow tail, not the average). An «HTTP 200» alone won’t tell you.',
     'card.cron.tip': 'Cron: cadence inferred from EventBridge; if it misses its window it turns into an alarm.',
-    'card.tip.drift':
-      'The real resource matches what’s declared in Terraform (runtime, memory, timeout). Light check, no «terraform plan».',
     'card.tip.secret': 'The secrets the service uses actually exist in the secret manager (Doppler/SSM).',
     'card.responds': 'responds · HTTP {code}',
     'card.removeTitle': 'Remove from watchlist?',
@@ -536,7 +518,7 @@ const STRINGS = {
     'logs.group': 'Log group',
     'logs.empty': 'No events in the window',
     'logs.showNoise': 'Show START/END/REPORT',
-    'logs.hidden': 'Lambda lines hidden',
+    'logs.hidden': '{n} Lambda {n#line hidden#lines hidden}',
 
     'events.title': 'Events & changes',
     'events.button': 'Events & changes',
