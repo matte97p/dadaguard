@@ -6,7 +6,7 @@ const { Text } = Typography
 
 // Pannello "Eventi & modifiche" di un servizio: eventi operativi (ECS/RDS/ASG) + modifiche
 // CloudTrail (la "causa": chi/cosa/quando ha cambiato la risorsa). Snapshot on-demand.
-export default function EventsDrawer({ service, onClose, t = (k) => k }) {
+export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -20,7 +20,7 @@ export default function EventsDrawer({ service, onClose, t = (k) => k }) {
     let stale = false
     setLoading(true)
     setError(null)
-    fetch(`/api/events?service=${encodeURIComponent(service)}`)
+    fetch(`/api/events?service=${encodeURIComponent(service)}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -28,7 +28,7 @@ export default function EventsDrawer({ service, onClose, t = (k) => k }) {
     return () => {
       stale = true
     }
-  }, [service, reloadKey])
+  }, [service, reloadKey, lang])
 
   const fmt = (ts) => (ts ? new Date(ts).toLocaleString() : '')
 

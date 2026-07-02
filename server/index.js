@@ -19,6 +19,7 @@ import { selfCheck } from './selfcheck.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
+import { makeT } from './i18n.js'
 import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
@@ -66,10 +67,10 @@ app.get('/api/status', async (req, res) => {
 })
 
 // #6 meta-salute: Dadaguard riesce a raggiungere/assumere ogni account? (STS, read-only)
-app.get('/api/selfcheck', async (_req, res) => {
+app.get('/api/selfcheck', async (req, res) => {
   try {
     if (isDemo) return res.json(demoSelfcheck())
-    res.json(await selfCheck(loadConfig().accounts))
+    res.json(await selfCheck(loadConfig().accounts, makeT(req.query.lang)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -114,9 +115,10 @@ app.get('/api/discover', requireLocal('Scopri servizi'), async (req, res) => {
 })
 
 // #10 Sprechi: risorse orfane costose per ambiente (read-only EC2). On-demand.
-app.get('/api/waste', async (_req, res) => {
+app.get('/api/waste', async (req, res) => {
   try {
     if (isDemo) return res.json({})
+    const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const out = {}
     await Promise.all(
@@ -129,7 +131,7 @@ app.get('/api/waste', async (_req, res) => {
             ...(await findWaste({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })),
           }
         } catch (err) {
-          out[key] = { label: a.label ?? key, error: cleanAwsReason(err) }
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }
       }),
     )
@@ -143,6 +145,7 @@ app.get('/api/waste', async (_req, res) => {
 app.get('/api/costs', async (req, res) => {
   try {
     if (isDemo) return res.json(demoCosts())
+    const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const month = req.query.month // 'YYYY-MM' opzionale (default: mese corrente)
     const out = {}
@@ -156,7 +159,7 @@ app.get('/api/costs', async (req, res) => {
             ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })),
           }
         } catch (err) {
-          out[key] = { label: a.label ?? key, error: cleanAwsReason(err) }
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }
       }),
     )
@@ -192,11 +195,11 @@ app.get('/api/network', async (_req, res) => {
 })
 
 // IAM policy explorer (read-only, on-demand): elenco policy customer-managed per account…
-app.get('/api/iam/policies', async (_req, res) => {
+app.get('/api/iam/policies', async (req, res) => {
   try {
     if (isDemo) return res.json(demoIamPolicies())
     const { accounts } = await resolveServices()
-    res.json(await listPolicies(accounts))
+    res.json(await listPolicies(accounts, makeT(req.query.lang)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -262,6 +265,7 @@ app.get('/api/logs', async (req, res) => {
         errorsOnly: req.query.errorsOnly === 'true',
         minutes: req.query.minutes ? Number(req.query.minutes) : 60,
         limit: req.query.limit ? Number(req.query.limit) : 100,
+        t: makeT(req.query.lang),
       }),
     )
   } catch (err) {
@@ -270,10 +274,10 @@ app.get('/api/logs', async (req, res) => {
 })
 
 // Service Quotas vicine al limite, per account (on-demand, read-only).
-app.get('/api/quotas', async (_req, res) => {
+app.get('/api/quotas', async (req, res) => {
   try {
     if (isDemo) return res.json(demoQuotas())
-    res.json(await nearLimitQuotas(loadConfig().accounts))
+    res.json(await nearLimitQuotas(loadConfig().accounts, makeT(req.query.lang)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -287,7 +291,8 @@ app.get('/api/events', async (req, res) => {
     const svc = services.find((s) => s.name === req.query.service)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
     // Eventi operativi (ECS/RDS/ASG) + modifiche CloudTrail (la "causa"), in parallelo.
-    const [evt, chg] = await Promise.all([recentEvents(svc, accounts, {}), recentChanges(svc, accounts, {})])
+    const t = makeT(req.query.lang)
+    const [evt, chg] = await Promise.all([recentEvents(svc, accounts, { t }), recentChanges(svc, accounts, { t })])
     res.json({ ...evt, changes: chg.changes ?? null, changesError: chg.error })
   } catch (err) {
     res.status(500).json({ error: err.message })

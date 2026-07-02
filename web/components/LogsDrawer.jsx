@@ -36,7 +36,7 @@ function parseEvent(message) {
 
 // Pannello "Log recenti" di un servizio: snapshot on-demand (ultima finestra), niente tail live.
 // Read-only/zero storage. service = nome (apre quando truthy).
-export default function LogsDrawer({ service, onClose, t = (k) => k }) {
+export default function LogsDrawer({ service, onClose, t = (k) => k, lang }) {
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [minutes, setMinutes] = useState(60) // finestra log: 1h / 6h / 24h
   const [data, setData] = useState(null)
@@ -53,7 +53,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
     let stale = false
     setLoading(true)
     setError(null)
-    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}&minutes=${minutes}`)
+    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}&minutes=${minutes}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -61,7 +61,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k }) {
     return () => {
       stale = true
     }
-  }, [service, errorsOnly, minutes, reloadKey])
+  }, [service, errorsOnly, minutes, reloadKey, lang])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 

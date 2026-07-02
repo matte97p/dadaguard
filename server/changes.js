@@ -29,7 +29,7 @@ export function resourceName(service) {
   }
 }
 
-export async function recentChanges(service, accounts, { hours = 24, limit = 15 } = {}) {
+export async function recentChanges(service, accounts, { hours = 24, limit = 15, t = (k) => k } = {}) {
   const name = resourceName(service)
   if (!name) return { notApplicable: true }
   const acct = service.account ? accounts[service.account] : null
@@ -68,6 +68,6 @@ export async function recentChanges(service, accounts, { hours = 24, limit = 15 
     })
     return { changes }
   } catch (err) {
-    return { error: cleanAwsReason(err) }
+    return { error: cleanAwsReason(err, t) }
   }
 }

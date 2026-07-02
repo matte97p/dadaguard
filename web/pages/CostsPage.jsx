@@ -29,7 +29,7 @@ function Bar({ label, amount, max, credit, t }) {
 
 // Pagina Costi: consumo per servizio (viola) + crediti/rimborsi (verde) = netto, per account.
 // Cost Explorer è a pagamento → fetch on-mount e al cambio mese.
-export default function CostsPage({ accountLabels, t = (k) => k }) {
+export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -41,12 +41,12 @@ export default function CostsPage({ accountLabels, t = (k) => k }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch(`/api/costs?month=${month}`)
+    fetch(`/api/costs?month=${month}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [month])
+  }, [month, lang])
 
   const accounts = (data ? Object.entries(data) : []).filter(
     ([, acc]) => !accountLabels || accountLabels.has(acc.label),

@@ -67,7 +67,7 @@ async function quotasForCode(sq, cw, code) {
 }
 
 // Ritorna { accounts: [{ account, label, color, quotas: [...] , error? }] }.
-export async function nearLimitQuotas(accounts) {
+export async function nearLimitQuotas(accounts, t = (k) => k) {
   const out = await Promise.all(
     Object.entries(accounts).map(async ([key, a]) => {
       if (!a.profile && !a.roleArn) return null
@@ -79,7 +79,7 @@ export async function nearLimitQuotas(accounts) {
         const quotas = lists.flat().sort((x, y) => y.pct - x.pct)
         return { account: key, label: a.label ?? key, color: a.color ?? null, quotas }
       } catch (err) {
-        return { account: key, label: a.label ?? key, color: a.color ?? null, error: cleanAwsReason(err) }
+        return { account: key, label: a.label ?? key, color: a.color ?? null, error: cleanAwsReason(err, t) }
       }
     }),
   )

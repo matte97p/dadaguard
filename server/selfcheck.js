@@ -14,7 +14,7 @@ export function summarizeHealth(accounts) {
   return { allOk, anyFail, status: anyFail ? 'down' : allOk ? 'up' : 'unknown' }
 }
 
-export async function selfCheck(accounts) {
+export async function selfCheck(accounts, t = (k) => k) {
   const entries = Object.entries(accounts ?? {})
   const results = await Promise.all(
     entries.map(async ([key, a]) => {
@@ -28,7 +28,7 @@ export async function selfCheck(accounts) {
           via: a.roleArn ? 'roleArn' : a.profile ? 'profile' : 'default',
         }
       } catch (err) {
-        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: cleanAwsReason(err) }
+        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: cleanAwsReason(err, t) }
       }
     }),
   )
