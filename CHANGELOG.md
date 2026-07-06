@@ -5,6 +5,8 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-07-06
+
 ### Changed
 - **Automated releases** — publishing now happens on push to `main`, in line with the rest of the OSS
   family. `release.yml` compares `package.json` against the versions live on Docker Hub: when the
