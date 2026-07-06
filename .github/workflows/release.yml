@@ -1,16 +1,24 @@
-# Pubblica l'immagine OSS su GitHub Container Registry e crea la Release, quando spingi un tag v*.
-#   git tag v0.1.0 && git push origin v0.1.0
-# Distinto da deploy.yml (che deploya l'istanza Cato su ECR/ECS al push su main).
-# Nota: l'immagine eredita la visibilità del package GHCR — per l'OSS rendila "public"
-# nelle settings del package dopo il primo push.
+# Pubblica l'immagine OSS su GitHub Container Registry + Docker Hub e crea la GitHub Release.
+# Tre strade, tutte idempotenti (mai una versione doppia sul registry):
+#   1. Push su main col `version` di package.json bumpato → rilascia quella versione.
+#   2. Push su main SENZA bump ma con file dell'IMMAGINE cambiati (server/web/deps) → auto
+#      patch-bump: bumpa package.json, committa `[skip ci]`, e pubblica il nuovo patch.
+#   3. Push di un tag v* → release esplicita classica (il tag deve combaciare con package.json).
+# Push su main che tocca solo doc/test/CI → niente da fare. Allineato al pattern degli altri repo
+# OSS (demowright/pentest-framework/…): main → pubblica, deciso confrontando col registry + il diff.
+# "File spediti" = ciò che il Dockerfile mette nell'immagine (server + sorgenti frontend + package*),
+# non doc/test/.github/deploy (esclusi via .dockerignore).
+# Distinto da deploy.yml (che deploya l'istanza Cato interna su ECS a ogni push su main).
+# Nota: l'immagine eredita la visibilità del package GHCR — rendila "public" dopo il primo push.
 name: release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
 
 permissions:
-  contents: write # creare la GitHub Release
+  contents: write # creare tag + Release, e pushare l'eventuale commit di auto patch-bump
   packages: write # pushare su ghcr.io
 
 jobs:
@@ -18,10 +26,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # serve la history + i tag per diffare i file spediti col rilascio precedente
 
-      - uses: docker/setup-buildx-action@v3
+      # Decide la versione e SE pubblicare (vedi i tre modi in testa al file). Su main confronta la
+      # versione locale col registry (Docker Hub, che espone i tag pubblici): avanti → rilascia; uguale
+      # → auto patch-bump solo se è cambiato ciò che entra nell'immagine. `minor` (X.Y) è il tag mobile.
+      - id: plan
+        run: |
+          set -euo pipefail
+          LOCAL="$(node -p "require('./package.json').version")"
+          PUBLISH=false
+          V=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            if [[ "$V" != "$LOCAL" ]]; then
+              echo "::error::tag $GITHUB_REF_NAME non combacia con package.json ($LOCAL)"; exit 1
+            fi
+            PUBLISH=true
+          elif [[ "${{ github.repository_owner }}" != "matte97p" ]]; then
+            echo "::notice::fork — publish disabilitato"
+          else
+            PUBLISHED="$(curl -fsSL "https://hub.docker.com/v2/repositories/matte97/dadaguard/tags?page_size=100" \
+              | jq -r '.results[].name' 2>/dev/null || true)"
+            if ! grep -qx "$LOCAL" <<< "$PUBLISHED"; then
+              # package.json bumpato di proposito rispetto al registry → rilascia quella versione.
+              echo "::notice::$LOCAL non ancora pubblicata — rilascio"
+              V="$LOCAL"; PUBLISH=true
+            elif ! git rev-parse -q --verify "refs/tags/v$LOCAL" >/dev/null; then
+              echo "::notice::$LOCAL già pubblicata ma manca il tag v$LOCAL — niente diff, skip"
+            else
+              # Stessa versione live: patch-bump solo se è cambiato ciò che ENTRA nell'immagine
+              # (server + sorgenti frontend + dipendenze). Doc/test/CI/deploy non spediscono → no.
+              SHIP='server web index.html vite.config.js package.json package-lock.json'
+              if git diff --quiet "v$LOCAL" HEAD -- $SHIP; then
+                echo "::notice::nessun file spedito cambiato da v$LOCAL — skip"
+              else
+                npm version patch --no-git-tag-version >/dev/null
+                V="$(node -p "require('./package.json').version")"
+                echo "::notice::file spediti cambiati da v$LOCAL — auto patch-bump a $V"
+                git config user.name  "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                git commit -aqm "chore(release): $V — auto patch-bump (file spediti cambiati da v$LOCAL) [skip ci]"
+                git push origin HEAD:main
+                PUBLISH=true
+              fi
+            fi
+          fi
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          if [[ "$PUBLISH" == true ]]; then
+            echo "version=$V" >> "$GITHUB_OUTPUT"
+            echo "minor=${V%.*}" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: docker/login-action@v3
+      - if: steps.plan.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - if: steps.plan.outputs.publish == 'true'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -29,30 +91,38 @@ jobs:
 
       # Docker Hub IN PARALLELO a GHCR — solo per il CONTATORE pull pubblico (GHCR non lo espone).
       # Richiede il secret repo DOCKERHUB_TOKEN (access token read/write da hub.docker.com).
-      - uses: docker/login-action@v3
+      - if: steps.plan.outputs.publish == 'true'
+        uses: docker/login-action@v3
         with:
           username: matte97
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - id: meta
+      - if: steps.plan.outputs.publish == 'true'
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          # stessi tag pushati su entrambi i registry in un'unica build
+          # stessi tag pushati su entrambi i registry in un'unica build. La versione arriva da `plan`
+          # (su un push a main non c'è un tag ref da cui dedurla, come faceva type=semver).
           images: |
             ghcr.io/${{ github.repository }}
             docker.io/matte97/dadaguard
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.plan.outputs.version }}
+            type=raw,value=${{ steps.plan.outputs.minor }}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v6
+      - if: steps.plan.outputs.publish == 'true'
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - uses: softprops/action-gh-release@v2
+      # Crea (se manca) il tag git vX.Y.Z e la GitHub Release. Su un push a main è questo passo a
+      # staccare il tag — così un `chore(release):` mergiato pubblica senza `git tag` a mano.
+      - if: steps.plan.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.plan.outputs.version }}
           generate_release_notes: true
