@@ -1,5 +1,6 @@
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
+import { probeSurfaces, aggregateSurfaces } from './access.js'
 
 // #6 META-SALUTE: la plumbing del watchdog stesso. Se Dadaguard non riesce ad assumere il
 // ruolo read-only in un account (credenziali scadute, trust rotta, ExternalId sbagliato),
@@ -22,15 +23,26 @@ export async function selfCheck(accounts, t = (k) => k) {
       try {
         const sts = new STSClient(clientOpts(aws))
         const id = await sts.send(new GetCallerIdentityCommand({}))
+        // Riusa l'identità appena risolta per capire cosa il ruolo può fare (SimulatePrincipalPolicy):
+        // così l'header nasconde le superfici a cui questo account non ha accesso. `allowed` è interno
+        // (Set → non serializzabile): resta nella tupla per l'aggregazione, non finisce nella risposta.
+        const allowed = await probeSurfaces(aws, id.Arn)
         return {
           key, label: a.label ?? key, color: a.color ?? null,
           ok: true, account: id.Account ?? null, arn: id.Arn ?? null,
           via: a.roleArn ? 'roleArn' : a.profile ? 'profile' : 'default',
+          allowed,
         }
       } catch (err) {
-        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: cleanAwsReason(err, t) }
+        return { key, label: a.label ?? key, color: a.color ?? null, ok: false, error: cleanAwsReason(err, t), allowed: null }
       }
     }),
   )
-  return { accounts: results, ...summarizeHealth(results) }
+  // `surfaces`: stato per superficie aggregato su tutti gli account (allowed/denied/unknown) → l'header.
+  const surfaces = aggregateSurfaces(results.map((r) => r.allowed))
+  return {
+    accounts: results.map(({ allowed, ...rest }) => rest), // scarta il Set interno prima di serializzare
+    surfaces,
+    ...summarizeHealth(results),
+  }
 }
