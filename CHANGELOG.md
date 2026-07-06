@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Automated releases** — publishing now happens on push to `main`, in line with the rest of the OSS
+  family. `release.yml` compares `package.json` against the versions live on Docker Hub: when the
+  local version is ahead it builds and pushes the image to GHCR + Docker Hub and cuts the git tag +
+  GitHub Release — no manual `git tag` needed. Pushing shipped code (server, frontend sources, deps)
+  without bumping **auto patch-bumps** and publishes; changes that don't ship (docs, tests, CI) never
+  trigger a release. Pushing a `v*` tag still works as the explicit path.
+
 ## [0.4.0] — 2026-07-06
 
 ### Added
