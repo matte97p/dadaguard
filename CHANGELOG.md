@@ -5,6 +5,22 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-06
+
+### Added
+- **Access-aware header** — the header now hides the pages the assumed role can't reach (e.g. **Costs**
+  when the role lacks Cost Explorer). Access is resolved with `iam:SimulatePrincipalPolicy` (free,
+  read-only): AWS evaluates the effective policy, so wildcards, explicit denies and permission
+  boundaries are all honored — no parsing IAM documents by hand. `/api/selfcheck` reuses its STS
+  identity to report a per-surface `surfaces` map (`allowed`/`denied`/`unknown`), aggregated across
+  accounts: a page is hidden only when denied in **every** account, and shown on any allow or when
+  undeterminable (safe default — never an empty header). Gated surfaces: **Costs**
+  (`ce:GetCostAndUsage`), **Waste** (`ec2:DescribeVolumes`), **Quotas** (`servicequotas:ListServiceQuotas`),
+  **IAM** (`iam:ListPolicies`); Dashboard, Security and Topology stay visible (composite, degrade
+  gracefully). Results are cached per principal (2 min TTL, `DADAGUARD_ACCESS_TTL_MS`) while the STS
+  liveness probe stays live. Optional new read-only permission `iam:SimulatePrincipalPolicy`: without
+  it the header shows everything as before (no regression).
+
 ## [0.3.0] — 2026-07-02
 
 ### Added
