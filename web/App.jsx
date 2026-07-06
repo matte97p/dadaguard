@@ -310,6 +310,12 @@ export default function App() {
   }
 
   const activeNav = NAV.find((n) => n.to === location.pathname) ?? NAV[0]
+  // L'header nasconde le superfici a cui il ruolo assunto non ha accesso (deciso lato server via
+  // SimulatePrincipalPolicy → health.surfaces): 'denied' = negato in tutti gli account → via.
+  // 'allowed'/'unknown'/assente (selfcheck non ancora arrivato) → mostra: default sicuro, mai un
+  // header vuoto. Le rotte restano montate: un deep-link a una pagina nascosta funziona comunque.
+  const surfaces = health?.surfaces
+  const visibleNav = NAV.filter((n) => surfaces?.[n.key] !== 'denied')
   const filterProps = {
     fields: activeNav.fields,
     nameQuery,
@@ -372,9 +378,9 @@ export default function App() {
             </div>
           </Space>
 
-          {/* Navigazione tra le pagine */}
+          {/* Navigazione tra le pagine (senza le superfici non accessibili a questo ruolo) */}
           <Space wrap>
-            {NAV.map((n) => {
+            {visibleNav.map((n) => {
               const active = n.to === location.pathname
               return (
                 <Button
