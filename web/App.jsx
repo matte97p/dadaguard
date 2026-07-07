@@ -29,6 +29,7 @@ import {
   ApiOutlined,
   SafetyOutlined,
   AlertOutlined,
+  GiftOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -40,6 +41,7 @@ import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
 import WastePage from './pages/WastePage.jsx'
 import QuotasPage from './pages/QuotasPage.jsx'
+import FreeTierPage from './pages/FreeTierPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
@@ -65,6 +67,7 @@ const NAV = [
   { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  { to: '/freetier', key: 'freetier', icon: <GiftOutlined />, fields: [] },
   { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [] },
   { to: '/sicurezza', key: 'security', icon: <AlertOutlined />, fields: [] },
 ]
@@ -488,6 +491,7 @@ export default function App() {
               }
             />
             <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
+            <Route path="/freetier" element={<FreeTierPage t={t} lang={lang} />} />
             <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
             <Route path="/sicurezza" element={<SecurityPage t={t} />} />
             <Route path="*" element={<Navigate to="/" replace />} />

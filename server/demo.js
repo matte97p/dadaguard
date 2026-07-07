@@ -145,6 +145,17 @@ export function demoQuotas() {
   }
 }
 
+export function demoFreeTier() {
+  return {
+    items: [
+      { service: 'AWS CodeBuild', usageType: 'Build-Min:Linux:g1.small', region: null, unit: 'Minutes', used: 131, limit: 100, forecast: 190, pct: 131 },
+      { service: 'Amazon DynamoDB', usageType: 'Storage-ByteHrs', region: null, unit: 'GB-Mo', used: 21, limit: 25, forecast: 24, pct: 84 },
+      { service: 'AWS Lambda', usageType: 'Global-Request', region: null, unit: 'Requests', used: 210000, limit: 1000000, forecast: 480000, pct: 21 },
+      { service: 'Amazon S3', usageType: 'Requests-Tier1', region: null, unit: 'Requests', used: 400, limit: 2000, forecast: 900, pct: 20 },
+    ],
+  }
+}
+
 // Topologia dipendenze finta, coerente coi servizi della flotta demo: mostra tutte le provenienze
 // d'arco (env/event/net/flow/declared) e alcune dipendenze degradate (arco rosso), più una coda
 // esterna non tracciata (extraNode). Serve a far vedere la feature senza una connessione AWS.

@@ -257,6 +257,13 @@ const STRINGS = {
     'quotas.none': 'Nessuna quota vicina al limite 🎉',
     'quotas.noAccounts': 'Nessun account configurato',
 
+    'btn.freetier': 'Free Tier',
+    'freetier.title': 'Uso del Free Tier AWS',
+    'freetier.desc': 'Consumo mensile vs limite gratuito, per offerta (es. CodeBuild 100 min). Dato org-wide, letto dal payer. On-demand.',
+    'freetier.loading': 'Leggo il free tier…',
+    'freetier.none': 'Nessun uso del free tier rilevato',
+    'freetier.forecast': 'stima fine mese',
+
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
       'Esegue terragrunt plan sul layer scelto (lento: init + provider + refresh; mette un lock sul backend). Read-only sull’infra.',
@@ -536,6 +543,13 @@ const STRINGS = {
     'quotas.loading': 'Reading quotas…',
     'quotas.none': 'No quota near the limit 🎉',
     'quotas.noAccounts': 'No account configured',
+
+    'btn.freetier': 'Free Tier',
+    'freetier.title': 'AWS Free Tier usage',
+    'freetier.desc': 'Monthly usage vs free allowance, per offer (e.g. CodeBuild 100 min). Org-wide, read from the payer. On-demand.',
+    'freetier.loading': 'Reading free tier…',
+    'freetier.none': 'No free-tier usage detected',
+    'freetier.forecast': 'forecast EOM',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':

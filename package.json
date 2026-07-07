@@ -30,6 +30,7 @@
     "@aws-sdk/client-elastic-load-balancing-v2": "^3.1075.0",
     "@aws-sdk/client-elasticache": "^3.1076.0",
     "@aws-sdk/client-eventbridge": "^3.1077.0",
+    "@aws-sdk/client-freetier": "^3.1080.0",
     "@aws-sdk/client-iam": "^3.1076.0",
     "@aws-sdk/client-identitystore": "^3.1077.0",
     "@aws-sdk/client-kinesis": "^3.1076.0",
