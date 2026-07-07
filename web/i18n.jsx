@@ -172,6 +172,7 @@ const STRINGS = {
     'costs.desc':
       'Spesa reale MTD: consumo per servizio meno crediti/rimborsi = netto (quanto paghi). Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
     'costs.net': 'netto',
+    'costs.forecast': 'stima fine mese (lordo)',
     'costs.usage': 'consumo {v}',
     'costs.credits': 'crediti {v}',
     'costs.creditsRefunds': 'Crediti e rimborsi',
@@ -256,6 +257,13 @@ const STRINGS = {
     'quotas.loading': 'Leggo le quote…',
     'quotas.none': 'Nessuna quota vicina al limite 🎉',
     'quotas.noAccounts': 'Nessun account configurato',
+
+    'btn.freetier': 'Free Tier',
+    'freetier.title': 'Uso del Free Tier AWS',
+    'freetier.desc': 'Consumo mensile vs limite gratuito, per offerta (es. CodeBuild 100 min). Dato org-wide, letto dal payer. On-demand.',
+    'freetier.loading': 'Leggo il free tier…',
+    'freetier.none': 'Nessun uso del free tier rilevato',
+    'freetier.forecast': 'totale stimato a fine mese',
 
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
@@ -452,6 +460,7 @@ const STRINGS = {
     'costs.desc':
       'Real spend MTD: usage per service minus credits/refunds = net (what you pay). Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
     'costs.net': 'net',
+    'costs.forecast': 'est. month-end (gross)',
     'costs.usage': 'usage {v}',
     'costs.credits': 'credits {v}',
     'costs.creditsRefunds': 'Credits & refunds',
@@ -536,6 +545,13 @@ const STRINGS = {
     'quotas.loading': 'Reading quotas…',
     'quotas.none': 'No quota near the limit 🎉',
     'quotas.noAccounts': 'No account configured',
+
+    'btn.freetier': 'Free Tier',
+    'freetier.title': 'AWS Free Tier usage',
+    'freetier.desc': 'Monthly usage vs free allowance, per offer (e.g. CodeBuild 100 min). Org-wide, read from the payer. On-demand.',
+    'freetier.loading': 'Reading free tier…',
+    'freetier.none': 'No free-tier usage detected',
+    'freetier.forecast': 'est. month-end total',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':

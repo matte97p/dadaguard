@@ -116,7 +116,7 @@ export function demoCosts() {
         { service: 'AWS Lambda', amount: 12.4 },
         { service: 'Amazon CloudFront', amount: 9.1 },
       ],
-      gross: 251.8, credits: -40, total: 211.8, net: 211.8,
+      gross: 251.8, credits: -40, total: 211.8, net: 211.8, forecast: 305.0,
       period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
     },
     staging: {
@@ -125,7 +125,7 @@ export function demoCosts() {
         { service: 'Amazon Elastic Container Service', amount: 33.2 },
         { service: 'Amazon ElastiCache', amount: 18.0 },
       ],
-      gross: 51.2, credits: 0, total: 51.2, net: 51.2,
+      gross: 51.2, credits: 0, total: 51.2, net: 51.2, forecast: 78.0,
       period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
     },
   }
@@ -141,6 +141,17 @@ export function demoQuotas() {
           { name: 'VPC · Elastic IP addresses', used: 4, limit: 5, pct: 80 },
         ],
       },
+    ],
+  }
+}
+
+export function demoFreeTier() {
+  return {
+    items: [
+      { service: 'AWS CodeBuild', usageType: 'Build-Min:Linux:g1.small', region: null, unit: 'Minutes', used: 131, limit: 100, forecast: 190, pct: 131 },
+      { service: 'Amazon DynamoDB', usageType: 'Storage-ByteHrs', region: null, unit: 'GB-Mo', used: 21, limit: 25, forecast: 24, pct: 84 },
+      { service: 'AWS Lambda', usageType: 'Global-Request', region: null, unit: 'Requests', used: 210000, limit: 1000000, forecast: 480000, pct: 21 },
+      { service: 'Amazon S3', usageType: 'Requests-Tier1', region: null, unit: 'Requests', used: 400, limit: 2000, forecast: 900, pct: 20 },
     ],
   }
 }

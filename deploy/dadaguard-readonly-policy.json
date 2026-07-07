@@ -92,7 +92,7 @@
     {
       "Sid": "CostExplorer",
       "Effect": "Allow",
-      "Action": ["ce:GetCostAndUsage"],
+      "Action": ["ce:GetCostAndUsage", "ce:GetCostForecast"],
       "Resource": "*"
     },
     {
