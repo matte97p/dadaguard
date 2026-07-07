@@ -1,4 +1,4 @@
-import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer'
+import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from '@aws-sdk/client-cost-explorer'
 import { clientOpts } from './runtime/awsClient.js'
 
 // Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
@@ -65,4 +65,22 @@ export async function getCosts({ profile, roleArn, externalId, month }) {
   const gross = items.reduce((s, i) => s + i.amount, 0) // consumo lordo
   const total = gross + credits // netto = consumo + crediti
   return { period: { start, end }, currency: 'USD', items, gross, credits, total }
+}
+
+// Costo PREVISTO per i giorni RESTANTI del mese corrente (Cost Explorer GetCostForecast, UNBLENDED_COST).
+// Start = oggi (l'API non prevede il passato), End = primo del mese prossimo (esclusivo). Ritorna 0 se
+// il mese è di fatto finito. Il chiamante somma questo alla spesa MTD → stima di fine mese. Puro-ish.
+export async function getMonthEndForecast({ profile, roleArn, externalId }, now = new Date()) {
+  const start = now.toISOString().slice(0, 10)
+  const firstOfNext = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10)
+  if (start >= firstOfNext) return 0 // ultimo giorno del mese → nessun residuo da prevedere
+  const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
+  const res = await ce.send(
+    new GetCostForecastCommand({
+      TimePeriod: { Start: start, End: firstOfNext },
+      Granularity: 'MONTHLY',
+      Metric: 'UNBLENDED_COST',
+    }),
+  )
+  return Number(res.Total?.Amount ?? 0)
 }

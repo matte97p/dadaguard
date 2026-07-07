@@ -116,7 +116,7 @@ export function demoCosts() {
         { service: 'AWS Lambda', amount: 12.4 },
         { service: 'Amazon CloudFront', amount: 9.1 },
       ],
-      gross: 251.8, credits: -40, total: 211.8, net: 211.8,
+      gross: 251.8, credits: -40, total: 211.8, net: 211.8, forecast: 305.0,
       period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
     },
     staging: {
@@ -125,7 +125,7 @@ export function demoCosts() {
         { service: 'Amazon Elastic Container Service', amount: 33.2 },
         { service: 'Amazon ElastiCache', amount: 18.0 },
       ],
-      gross: 51.2, credits: 0, total: 51.2, net: 51.2,
+      gross: 51.2, credits: 0, total: 51.2, net: 51.2, forecast: 78.0,
       period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
     },
   }

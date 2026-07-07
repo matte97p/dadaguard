@@ -7,7 +7,7 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
-import { getCosts } from './costs.js'
+import { getCosts, getMonthEndForecast } from './costs.js'
 import { getFreeTierUsage } from './freetier.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
@@ -154,11 +154,19 @@ app.get('/api/costs', async (req, res) => {
       Object.entries(accounts).map(async ([key, a]) => {
         if (!a.profile && !a.roleArn) return
         try {
-          out[key] = {
-            label: a.label ?? key,
-            color: a.color ?? null,
-            ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })),
+          const cost = await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })
+          // Stima di fine mese SOLO per il mese corrente (l'API non prevede il passato). Best-effort: se
+          // GetCostForecast fallisce (dati insufficienti / permesso mancante) → forecast null, la UI mostra "—".
+          let forecast = null
+          const nowM = new Date()
+          const currentMonth = `${nowM.getUTCFullYear()}-${String(nowM.getUTCMonth() + 1).padStart(2, '0')}`
+          if (!month || month === currentMonth) {
+            const remaining = await getMonthEndForecast({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId }).catch(() => null)
+            // base LORDA (come GetCostForecast, che è unblended): gross MTD + previsione residua.
+            // Coerente con sé stessa; il `total` netto (post-crediti) resta il numero grande a fianco.
+            if (remaining != null) forecast = cost.gross + remaining
           }
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...cost, forecast }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }

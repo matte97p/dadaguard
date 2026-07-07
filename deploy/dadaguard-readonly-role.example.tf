@@ -145,7 +145,7 @@ data "aws_iam_policy_document" "readonly" {
   statement {
     sid       = "CostExplorer" # sezione costi (Cost Explorer, endpoint us-east-1)
     effect    = "Allow"
-    actions   = ["ce:GetCostAndUsage"]
+    actions   = ["ce:GetCostAndUsage", "ce:GetCostForecast"]
     resources = ["*"]
   }
 

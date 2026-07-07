@@ -172,6 +172,7 @@ const STRINGS = {
     'costs.desc':
       'Spesa reale MTD: consumo per servizio meno crediti/rimborsi = netto (quanto paghi). Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
     'costs.net': 'netto',
+    'costs.forecast': 'stima fine mese (lordo)',
     'costs.usage': 'consumo {v}',
     'costs.credits': 'crediti {v}',
     'costs.creditsRefunds': 'Crediti e rimborsi',
@@ -459,6 +460,7 @@ const STRINGS = {
     'costs.desc':
       'Real spend MTD: usage per service minus credits/refunds = net (what you pay). Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
     'costs.net': 'net',
+    'costs.forecast': 'est. month-end (gross)',
     'costs.usage': 'usage {v}',
     'costs.credits': 'credits {v}',
     'costs.creditsRefunds': 'Credits & refunds',
