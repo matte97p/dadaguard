@@ -54,9 +54,11 @@ export default function FreeTierPage({ t = (k) => k, lang }) {
                 </div>
                 <Progress percent={Math.min(it.pct, 100)} showInfo={false} size="small" strokeColor={color(it.pct)} />
                 <Text type="secondary" style={{ fontSize: 11 }}>
-                  {it.used.toLocaleString()} / {it.limit.toLocaleString()}
+                  {it.used.toLocaleString(undefined, { maximumFractionDigits: 1 })} / {it.limit.toLocaleString()}
                   {it.unit ? ` ${it.unit}` : ''}
-                  {it.forecast > 0 ? ` · ${t('freetier.forecast')} ${it.forecast.toLocaleString()}` : ''}
+                  {it.forecast > 0
+                    ? ` · ${t('freetier.forecast')} ${Math.round(it.forecast).toLocaleString()}${it.unit ? ` ${it.unit}` : ''}`
+                    : ''}
                 </Text>
               </div>
             ))}
