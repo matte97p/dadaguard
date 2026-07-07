@@ -176,8 +176,15 @@ app.get('/api/freetier', async (req, res) => {
   if (isDemo) return res.json(demoFreeTier())
   const t = makeT(req.query.lang)
   try {
-    const { org } = loadConfig()
-    const creds = org ? { profile: org.profile, roleArn: org.callerRoleArn, externalId: org.externalId } : {}
+    const { accounts, org, freeTierAccount } = loadConfig()
+    // Il Free Tier è org-wide, leggibile dal payer. Priorità creds: account indicato da `freeTierAccount`
+    // (es. il payer, con il suo profilo/roleArn) → identità `org` → catena di default (in cloud = task role).
+    const acct = freeTierAccount ? accounts[freeTierAccount] : null
+    const creds = acct
+      ? { profile: acct.profile, roleArn: acct.roleArn, externalId: acct.externalId }
+      : org
+        ? { profile: org.profile, roleArn: org.callerRoleArn, externalId: org.externalId }
+        : {}
     res.json(await getFreeTierUsage(creds))
   } catch (err) {
     // errore leggibile in-body (200), come le card per-account: la pagina mostra il motivo, non "HTTP 500"

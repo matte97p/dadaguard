@@ -51,6 +51,12 @@ accounts:
 #   exclude: ["123456789012"]           # account da saltare (per Id o Nome)
 #   # profile / callerRoleArn: identità che esegue ListAccounts (default: catena standard)
 
+# --- Vista "Free Tier" (uso vs limite gratuito, es. CodeBuild 100 build-min) ---
+# Il dato è aggregato org-wide ed è leggibile SOLO dal payer/management. Indica quale account
+# interrogare (deve avere il permesso freetier:GetFreeTierUsage). Se assente: ripiega sull'identità
+# `org`, poi sulla catena di credenziali di default (in cloud = il task role, che gira nel payer).
+# freeTierAccount: management
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api
