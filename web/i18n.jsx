@@ -262,7 +262,7 @@ const STRINGS = {
     'freetier.desc': 'Consumo mensile vs limite gratuito, per offerta (es. CodeBuild 100 min). Dato org-wide, letto dal payer. On-demand.',
     'freetier.loading': 'Leggo il free tier…',
     'freetier.none': 'Nessun uso del free tier rilevato',
-    'freetier.forecast': 'stima fine mese',
+    'freetier.forecast': 'totale stimato a fine mese',
 
     'drift.title': 'Drift completo · terragrunt plan',
     'drift.desc':
@@ -549,7 +549,7 @@ const STRINGS = {
     'freetier.desc': 'Monthly usage vs free allowance, per offer (e.g. CodeBuild 100 min). Org-wide, read from the payer. On-demand.',
     'freetier.loading': 'Reading free tier…',
     'freetier.none': 'No free-tier usage detected',
-    'freetier.forecast': 'forecast EOM',
+    'freetier.forecast': 'est. month-end total',
 
     'drift.title': 'Full drift · terragrunt plan',
     'drift.desc':
