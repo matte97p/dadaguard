@@ -154,14 +154,14 @@ app.get('/api/costs', async (req, res) => {
       Object.entries(accounts).map(async ([key, a]) => {
         if (!a.profile && !a.roleArn) return
         try {
-          const cost = await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })
+          const cost = await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId })
           // Stima di fine mese SOLO per il mese corrente (l'API non prevede il passato). Best-effort: se
           // GetCostForecast fallisce (dati insufficienti / permesso mancante) → forecast null, la UI mostra "—".
           let forecast = null
           const nowM = new Date()
           const currentMonth = `${nowM.getUTCFullYear()}-${String(nowM.getUTCMonth() + 1).padStart(2, '0')}`
           if (!month || month === currentMonth) {
-            const remaining = await getMonthEndForecast({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId }).catch(() => null)
+            const remaining = await getMonthEndForecast({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId }).catch(() => null)
             // base LORDA (come GetCostForecast, che è unblended): gross MTD + previsione residua.
             // Coerente con sé stessa; il `total` netto (post-crediti) resta il numero grande a fianco.
             if (remaining != null) forecast = cost.gross + remaining
