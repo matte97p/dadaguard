@@ -7,7 +7,8 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
-import { getCosts } from './costs.js'
+import { getCosts, getMonthEndForecast } from './costs.js'
+import { getFreeTierUsage } from './freetier.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
@@ -20,7 +21,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoQuotas, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -153,11 +154,19 @@ app.get('/api/costs', async (req, res) => {
       Object.entries(accounts).map(async ([key, a]) => {
         if (!a.profile && !a.roleArn) return
         try {
-          out[key] = {
-            label: a.label ?? key,
-            color: a.color ?? null,
-            ...(await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month })),
+          const cost = await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId })
+          // Stima di fine mese SOLO per il mese corrente (l'API non prevede il passato). Best-effort: se
+          // GetCostForecast fallisce (dati insufficienti / permesso mancante) → forecast null, la UI mostra "—".
+          let forecast = null
+          const nowM = new Date()
+          const currentMonth = `${nowM.getUTCFullYear()}-${String(nowM.getUTCMonth() + 1).padStart(2, '0')}`
+          if (!month || month === currentMonth) {
+            const remaining = await getMonthEndForecast({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId }).catch(() => null)
+            // base LORDA (come GetCostForecast, che è unblended): gross MTD + previsione residua.
+            // Coerente con sé stessa; il `total` netto (post-crediti) resta il numero grande a fianco.
+            if (remaining != null) forecast = cost.gross + remaining
           }
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...cost, forecast }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }
@@ -166,6 +175,28 @@ app.get('/api/costs', async (req, res) => {
     res.json(out)
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// Free Tier: uso vs limite mensile (es. CodeBuild 100 build-min). Dato org-wide → una sola chiamata
+// dal payer (identità `org` del config, o catena di default se Dadaguard gira nel payer). On-demand.
+app.get('/api/freetier', async (req, res) => {
+  if (isDemo) return res.json(demoFreeTier())
+  const t = makeT(req.query.lang)
+  try {
+    const { accounts, org, freeTierAccount } = loadConfig()
+    // Il Free Tier è org-wide, leggibile dal payer. Priorità creds: account indicato da `freeTierAccount`
+    // (es. il payer, con il suo profilo/roleArn) → identità `org` → catena di default (in cloud = task role).
+    const acct = freeTierAccount ? accounts[freeTierAccount] : null
+    const creds = acct
+      ? { profile: acct.profile, roleArn: acct.roleArn, externalId: acct.externalId }
+      : org
+        ? { profile: org.profile, roleArn: org.callerRoleArn, externalId: org.externalId }
+        : {}
+    res.json(await getFreeTierUsage(creds))
+  } catch (err) {
+    // errore leggibile in-body (200), come le card per-account: la pagina mostra il motivo, non "HTTP 500"
+    res.json({ items: [], error: cleanAwsReason(err, t) })
   }
 })
 

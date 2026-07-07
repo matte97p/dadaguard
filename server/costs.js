@@ -1,4 +1,4 @@
-import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer'
+import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from '@aws-sdk/client-cost-explorer'
 import { clientOpts } from './runtime/awsClient.js'
 
 // Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
@@ -19,10 +19,13 @@ export function monthRange(month, now) {
   return { start, end }
 }
 
-export async function getCosts({ profile, roleArn, externalId, month }) {
+export async function getCosts({ profile, roleArn, externalId, month, accountId }) {
   const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
 
   const { start, end } = monthRange(month, new Date())
+  // Consolidated billing: il payer vede i costi di TUTTA l'org → senza filtro il suo card sommerebbe
+  // anche gli altri account (doppioni). Quando l'id è noto, restringi al singolo account (LINKED_ACCOUNT).
+  const filter = accountId ? { Dimensions: { Key: 'LINKED_ACCOUNT', Values: [accountId] } } : undefined
 
   // paginazione: con molti servizi i Groups arrivano su più pagine (NextPageToken) → vanno
   // accumulati tutti, altrimenti il consumo risulta troncato (e il netto sbagliato).
@@ -34,6 +37,7 @@ export async function getCosts({ profile, roleArn, externalId, month }) {
         TimePeriod: { Start: start, End: end },
         Granularity: 'MONTHLY',
         Metrics: ['UnblendedCost'],
+        Filter: filter,
         GroupBy: [
           { Type: 'DIMENSION', Key: 'SERVICE' },
           { Type: 'DIMENSION', Key: 'RECORD_TYPE' },
@@ -65,4 +69,24 @@ export async function getCosts({ profile, roleArn, externalId, month }) {
   const gross = items.reduce((s, i) => s + i.amount, 0) // consumo lordo
   const total = gross + credits // netto = consumo + crediti
   return { period: { start, end }, currency: 'USD', items, gross, credits, total }
+}
+
+// Costo PREVISTO per i giorni RESTANTI del mese corrente (Cost Explorer GetCostForecast, UNBLENDED_COST).
+// Start = oggi (l'API non prevede il passato), End = primo del mese prossimo (esclusivo). Ritorna 0 se
+// il mese è di fatto finito. Il chiamante somma questo alla spesa MTD → stima di fine mese. Puro-ish.
+export async function getMonthEndForecast({ profile, roleArn, externalId, accountId }, now = new Date()) {
+  const start = now.toISOString().slice(0, 10)
+  const firstOfNext = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10)
+  if (start >= firstOfNext) return 0 // ultimo giorno del mese → nessun residuo da prevedere
+  const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
+  const res = await ce.send(
+    new GetCostForecastCommand({
+      TimePeriod: { Start: start, End: firstOfNext },
+      Granularity: 'MONTHLY',
+      Metric: 'UNBLENDED_COST',
+      // stesso filtro per-account dei costi MTD, altrimenti il payer prevede l'intera org (doppioni)
+      Filter: accountId ? { Dimensions: { Key: 'LINKED_ACCOUNT', Values: [accountId] } } : undefined,
+    }),
+  )
+  return Number(res.Total?.Amount ?? 0)
 }

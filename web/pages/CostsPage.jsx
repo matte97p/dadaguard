@@ -104,13 +104,22 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
                   {acc.color && <Badge color={acc.color} />}
                   <Text strong>{acc.label}</Text>
                 </Space>
-                <Text strong style={{ fontSize: 18 }}>
-                  {money(acc.total)}
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {' '}
-                    {t('costs.net')}
+                <div style={{ textAlign: 'right' }}>
+                  <Text strong style={{ fontSize: 18 }}>
+                    {money(acc.total)}
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {' '}
+                      {t('costs.net')}
+                    </Text>
                   </Text>
-                </Text>
+                  {acc.forecast != null && (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {t('costs.forecast')} {money(acc.forecast)}
+                      </Text>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {(items.length > 0 || hasCredits) && (

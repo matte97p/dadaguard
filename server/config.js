@@ -31,7 +31,7 @@ export function validateConfig(doc) {
       throw new Error(`config non valido: services[${i}] manca del campo 'name'`)
     }
   })
-  return { accounts, services, org: doc?.org ?? null }
+  return { accounts, services, org: doc?.org ?? null, freeTierAccount: doc?.freeTierAccount ?? null }
 }
 
 export function loadConfig() {

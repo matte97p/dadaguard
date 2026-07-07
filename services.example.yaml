@@ -23,6 +23,8 @@ accounts:
     #  • cloud:  roleArn + externalId → il task role assume un ruolo read-only
     #            cross-account. Niente chiavi custodite. Vedi deploy/README.md.
     profile: my-staging-profile
+    # accountId: '111122223333' # consigliato in consolidated billing: filtra costi e stima a QUESTO
+    #                           # account. Senza, un account payer mostra i costi di TUTTA l'org (doppioni).
     # roleArn: arn:aws:iam::111122223333:role/dadaguard-readonly
     # externalId: una-stringa-segreta-condivisa # anti confused-deputy
     region: eu-west-1
@@ -50,6 +52,12 @@ accounts:
 #   regions: [eu-west-1, us-east-1]      # sweep multi-region (default: una sola)
 #   exclude: ["123456789012"]           # account da saltare (per Id o Nome)
 #   # profile / callerRoleArn: identità che esegue ListAccounts (default: catena standard)
+
+# --- Vista "Free Tier" (uso vs limite gratuito, es. CodeBuild 100 build-min) ---
+# Il dato è aggregato org-wide ed è leggibile SOLO dal payer/management. Indica quale account
+# interrogare (deve avere il permesso freetier:GetFreeTierUsage). Se assente: ripiega sull'identità
+# `org`, poi sulla catena di credenziali di default (in cloud = il task role, che gira nel payer).
+# freeTierAccount: management
 
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
