@@ -92,3 +92,8 @@ npm run check -- --fail-on degraded   # soglia più severa (gating di pipeline)
 
 ## Licenza
 [MIT](LICENSE) © 2026 Matteo Perino
+
+
+---
+
+<sub>🌐 Built by **Matteo Perino** — [matteoperino.dev](https://matteoperino.dev)</sub>
