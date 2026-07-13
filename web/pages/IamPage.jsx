@@ -237,6 +237,7 @@ function ResourceView({ services, t, initialResource }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [principal, setPrincipal] = useState(null) // filtro: mostra solo gli accessi che coinvolgono questo gruppo/persona
 
   const options = useMemo(() => {
     const base = services.map((s) => ({
@@ -258,6 +259,7 @@ function ResourceView({ services, t, initialResource }) {
     setLoading(true)
     setError(null)
     setData(null)
+    setPrincipal(null) // cambia risorsa → azzera il filtro per gruppo/persona (i principal cambiano)
     fetch(`/api/iam/access?account=${encodeURIComponent(account)}&needle=${encodeURIComponent(needle)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
@@ -265,36 +267,89 @@ function ResourceView({ services, t, initialResource }) {
       .finally(() => setLoading(false))
   }, [resource])
 
+  // Tutti i "chi" che compaiono: ruoli/utenti/gruppi (lato policy) + assegnazioni SSO + membri dei
+  // gruppi assegnati. Popola il filtro "per gruppo/persona".
+  const rawMatches = data?.matches ?? []
+  const rawSso = data?.ssoMatches ?? []
+  const principals = useMemo(() => {
+    const s = new Set()
+    for (const m of rawMatches) {
+      for (const arr of [m.entities.roles, m.entities.users, m.entities.groups]) arr.forEach((x) => s.add(x))
+    }
+    for (const m of rawSso) for (const a of m.assignments) {
+      s.add(a.name)
+      ;(a.members ?? []).forEach((x) => s.add(x))
+    }
+    return [...s].sort((a, b) => a.localeCompare(b))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  // Un accesso "coinvolge" il principal se lo nomina tra ruoli/utenti/gruppi (policy) o tra le
+  // assegnazioni SSO — incluso il caso in cui la persona è MEMBRO di un gruppo assegnato.
+  const matches = principal
+    ? rawMatches.filter((m) => [m.entities.roles, m.entities.users, m.entities.groups].some((a) => a.includes(principal)))
+    : rawMatches
+  const ssoMatches = principal
+    ? rawSso.filter((m) => m.assignments.some((a) => a.name === principal || (a.members ?? []).includes(principal)))
+    : rawSso
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Select
-        showSearch
-        allowClear
-        placeholder={t('iam.pickResource')}
-        options={options}
-        value={resource}
-        onChange={setResource}
-        style={{ minWidth: 320, maxWidth: 480 }}
-        optionFilterProp="label"
-      />
+      <Space wrap size={12}>
+        <Select
+          showSearch
+          allowClear
+          placeholder={t('iam.pickResource')}
+          options={options}
+          value={resource}
+          onChange={setResource}
+          style={{ minWidth: 320, maxWidth: 480 }}
+          optionFilterProp="label"
+        />
+        {principals.length > 0 && (
+          <Select
+            showSearch
+            allowClear
+            placeholder={t('iam.pickPrincipal')}
+            options={principals.map((p) => ({ value: p, label: p }))}
+            value={principal}
+            onChange={setPrincipal}
+            style={{ minWidth: 240, maxWidth: 360 }}
+            optionFilterProp="label"
+          />
+        )}
+      </Space>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {t('iam.resourceHeuristic')}
+      </Text>
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
           <Spin />
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}
-      {data && data.matches.length === 0 && (data.ssoMatches?.length ?? 0) === 0 && (
-        <Empty description={t('iam.noAccess')} style={{ marginTop: 8 }} />
+      {data && matches.length === 0 && ssoMatches.length === 0 && (
+        <Empty
+          description={principal ? t('iam.noAccessFor', { p: principal }) : t('iam.noAccess')}
+          style={{ marginTop: 8 }}
+        />
       )}
 
-      {data && data.matches.length > 0 && (
+      {matches.length > 0 && (
         <>
           <Text type="secondary" style={{ display: 'block' }}>
             {t('iam.viaPolicy')}
           </Text>
-          {data.matches.map((m) => (
+          {matches.map((m) => (
             <div key={m.arn} style={CARD}>
-              <Text strong>{m.policy}</Text>
+              <Space size={8}>
+                <Text strong>{m.policy}</Text>
+                {m.broad && (
+                  <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
+                    {t('iam.broadGrant')}
+                  </Tag>
+                )}
+              </Space>
               <div style={{ marginTop: 8 }}>
                 <Entities entities={m.entities} t={t} />
               </div>
@@ -306,14 +361,21 @@ function ResourceView({ services, t, initialResource }) {
         </>
       )}
 
-      {data && (data.ssoMatches?.length ?? 0) > 0 && (
+      {ssoMatches.length > 0 && (
         <>
           <Text type="secondary" style={{ display: 'block' }}>
             {t('iam.viaSso')}
           </Text>
-          {data.ssoMatches.map((m, i) => (
+          {ssoMatches.map((m, i) => (
             <div key={i} style={CARD}>
-              <Text strong>{m.permissionSet}</Text>
+              <Space size={8}>
+                <Text strong>{m.permissionSet}</Text>
+                {m.broad && (
+                  <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
+                    {t('iam.broadGrant')}
+                  </Tag>
+                )}
+              </Space>
               <div style={{ marginTop: 8 }}>
                 <Assignments items={m.assignments} t={t} />
               </div>

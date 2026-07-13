@@ -6,6 +6,9 @@ const { Text } = Typography
 
 // Costruisce le voci con MOTIVO + livello: 'spreco' (quasi certo) o 'verifica' (costo fisso che
 // è spreco solo in certe condizioni). Senza il motivo, un numero da solo non dice niente.
+// Ogni voce porta anche le RISORSE coinvolte (`names`: { id, meta }): un conteggio da solo non è
+// azionabile ("2 DB inattivi" → quali?). `id` è il nome risorsa (può spezzarsi a fine riga), `meta`
+// il dato di contesto (GB, tipo, utilizzo CPU). Renderizzati come righe che vanno a capo, non chip.
 function buildItems(v, t) {
   const out = []
   if (v.eips?.length) {
@@ -13,6 +16,7 @@ function buildItems(v, t) {
       title: t('waste.eip.title', { n: v.eips.length, cost: Math.round(v.eips.length * 3.6) }),
       level: 'spreco',
       reason: t('waste.eip.reason'),
+      names: v.eips.map((e) => ({ id: e.ip || e.id })),
     })
   }
   if (v.natGateways?.length) {
@@ -20,6 +24,7 @@ function buildItems(v, t) {
       title: t('waste.nat.title', { n: v.natGateways.length, cost: v.natGateways.length * 32 }),
       level: 'verifica',
       reason: t('waste.nat.reason'),
+      names: v.natGateways.map((n) => ({ id: n.id })),
     })
   }
   if (v.volumes?.length) {
@@ -27,6 +32,25 @@ function buildItems(v, t) {
       title: t('waste.ebs.title', { n: v.volumes.length, gb: v.volumes.reduce((s, x) => s + x.sizeGb, 0) }),
       level: 'spreco',
       reason: t('waste.ebs.reason'),
+      names: v.volumes.map((x) => ({ id: x.id, meta: `${x.sizeGb} GB` })),
+    })
+  }
+  // Risorse accese ma ~ferme (istanziate ma non usate). Livello 'verifica': idle ≠ spreco certo
+  // (potrebbe essere una riserva/HA), quindi non entrano nel totale a listino.
+  if (v.idleInstances?.length) {
+    out.push({
+      title: t('waste.idleEc2.title', { n: v.idleInstances.length }),
+      level: 'verifica',
+      reason: t('waste.idleEc2.reason'),
+      names: v.idleInstances.map((i) => ({ id: i.id, meta: `${i.type} · ${t('waste.util', { avg: i.cpuAvg, peak: i.cpuMax })}` })),
+    })
+  }
+  if (v.idleDatabases?.length) {
+    out.push({
+      title: t('waste.idleRds.title', { n: v.idleDatabases.length }),
+      level: 'verifica',
+      reason: t('waste.idleRds.reason'),
+      names: v.idleDatabases.map((d) => ({ id: d.id, meta: t('waste.util', { avg: d.cpuAvg, peak: d.cpuMax }) })),
     })
   }
   return out
@@ -94,7 +118,7 @@ export default function WastePage({ accountLabels, t = (k) => k, lang }) {
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                             <Text>{i.title}</Text>
                             <Tag
-                              color={i.level === 'spreco' ? 'error' : 'warning'}
+                              color={i.level === 'spreco' ? 'red' : 'gold'}
                               style={{ marginInlineEnd: 0, height: 'fit-content' }}
                             >
                               {i.level === 'spreco' ? t('waste.level.waste') : t('waste.level.check')}
@@ -103,6 +127,27 @@ export default function WastePage({ accountLabels, t = (k) => k, lang }) {
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             {i.reason}
                           </Text>
+                          {i.names?.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, width: '100%', marginTop: 2 }}>
+                              {i.names.map((n) => (
+                                <div
+                                  key={n.id}
+                                  style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline', lineHeight: 1.5 }}
+                                >
+                                  {/* id in colore pieno (leggibile), metrica attenuata → gerarchia chiara,
+                                      non un blocco di grigi tutti uguali */}
+                                  <Text style={{ fontFamily: 'monospace', fontSize: 12, overflowWrap: 'anywhere' }}>
+                                    {n.id}
+                                  </Text>
+                                  {n.meta && (
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      {n.meta}
+                                    </Text>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </Space>
                       </List.Item>
                     )}

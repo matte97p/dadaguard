@@ -30,6 +30,12 @@ accounts:
     region: eu-west-1
     label: Staging
     color: "#1677ff"
+    # wasteIgnore (opzionale) → allow-list per la pagina "Sprechi": risorse note e VOLUTE che non vuoi
+    # più vedere segnalate (es. un reader Aurora tenuto per HA, un NAT/EIP di riserva). Match per id
+    # (per gli EIP anche l'IP). Restano attive e monitorate: le togli solo dagli "sprechi".
+    # wasteIgnore:
+    #   - avvista-prod-db-reader-oltp   # reader HA voluto (idle by design)
+    #   - eipalloc-0abc123               # oppure l'IP pubblico
     terraform: # opzionale → abilita #6 drift + #7 risorse non gestite
       stateBucket: my-tf-state-staging
       repoDir: /path/to/terraform-repo # opzionale → #6 drift completo (terragrunt plan)

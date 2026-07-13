@@ -11,11 +11,59 @@ import {
   ListAccountsForProvisionedPermissionSetCommand,
   ListAccountAssignmentsCommand,
   GetInlinePolicyForPermissionSetCommand,
+  ListManagedPoliciesInPermissionSetCommand,
+  ListCustomerManagedPolicyReferencesInPermissionSetCommand,
 } from '@aws-sdk/client-sso-admin'
 import { IdentitystoreClient, DescribeUserCommand, DescribeGroupCommand, ListGroupMembershipsCommand } from '@aws-sdk/client-identitystore'
 import { OrganizationsClient, ListAccountsCommand } from '@aws-sdk/client-organizations'
+import { IAMClient } from '@aws-sdk/client-iam'
 import { clientOpts } from './runtime/awsClient.js'
-import { parseStatements } from './iam.js'
+import { parseStatements, matchStatements, policyStatements } from './iam.js'
+
+// Statement che un permission set concede: unione di inline + policy AWS-managed agganciate (lette via
+// IAM). Le customer-managed reference vivono nell'ACCOUNT target: senza IAM là non ne leggiamo il doc,
+// quindi le contiamo solo come "non analizzate" (best-effort). Serve a NON perdere chi accede via policy
+// gestita (es. AdministratorAccess/ops-readonly, che non hanno inline). Best-effort a ogni livello.
+async function permissionSetGrants(sso, iam, instanceArn, psArn) {
+  const grants = [] // { statements[], unread? }
+  try {
+    const inl = await sso.send(new GetInlinePolicyForPermissionSetCommand({ InstanceArn: instanceArn, PermissionSetArn: psArn }))
+    if (inl.InlinePolicy) grants.push({ statements: parseStatements(JSON.parse(inl.InlinePolicy)) })
+  } catch {
+    /* nessuna inline / non leggibile */
+  }
+  try {
+    let mt
+    do {
+      const o = await sso.send(
+        new ListManagedPoliciesInPermissionSetCommand({ InstanceArn: instanceArn, PermissionSetArn: psArn, NextToken: mt }),
+      )
+      for (const m of o.AttachedManagedPolicies ?? []) {
+        try {
+          grants.push({ statements: await policyStatements(iam, m.Arn) })
+        } catch {
+          grants.push({ statements: [], unread: true }) // manca iam:GetPolicy → non analizzata
+        }
+      }
+      mt = o.NextToken
+    } while (mt)
+  } catch {
+    /* manca sso:ListManagedPoliciesInPermissionSet */
+  }
+  try {
+    let ct
+    do {
+      const o = await sso.send(
+        new ListCustomerManagedPolicyReferencesInPermissionSetCommand({ InstanceArn: instanceArn, PermissionSetArn: psArn, NextToken: ct }),
+      )
+      for (const _ of o.CustomerManagedPolicyReferences ?? []) grants.push({ statements: [], unread: true })
+      ct = o.NextToken
+    } while (ct)
+  } catch {
+    /* nessun customer-managed ref / permesso mancante */
+  }
+  return grants
+}
 
 const SSO_REGION = process.env.DADAGUARD_SSO_REGION || 'eu-central-1' // dove vive Identity Center
 
@@ -187,9 +235,10 @@ export async function ssoAccess(accounts) {
   return { available: true, permissionSets }
 }
 
-// Lato SSO della vista "per risorsa": quali permission set concedono accesso al `needle` (match negli
-// ARN Resource della loro INLINE policy — dove finiscono gli accessi specifici tipo rds-db:connect) e
-// chi li detiene. Completa la lente unendo l'accesso umano (SSO) a quello dei ruoli/servizi (policy IAM).
+// Lato SSO della vista "per risorsa": quali permission set concedono accesso al `needle` (match sugli
+// ARN Resource delle loro policy — inline E gestite, incl. i grant ampi `Resource:"*"` tipo
+// AdministratorAccess) e chi li detiene. Completa la lente unendo l'accesso umano (SSO) a quello dei
+// ruoli/servizi (policy IAM).
 export async function ssoAccessToResource(accounts, needle) {
   const q = String(needle || '').toLowerCase()
   if (!q) return []
@@ -198,6 +247,7 @@ export async function ssoAccessToResource(accounts, needle) {
 
   const sso = new SSOAdminClient(clientOpts(credsFor(inst.acc)))
   const idstore = new IdentitystoreClient(clientOpts(credsFor(inst.acc)))
+  const iam = new IAMClient(clientOpts(credsFor(inst.acc))) // per leggere i doc delle policy AWS-managed
   const labels = accountLabels(accounts)
   const orgNames = await orgAccountNames(inst.acc)
   const nameOf = (id) => orgNames[id] || labels[id] || id
@@ -214,17 +264,10 @@ export async function ssoAccessToResource(accounts, needle) {
   const matches = []
   await Promise.all(
     psArns.map(async (psArn) => {
-      let stmts = []
-      try {
-        const inl = await sso.send(new GetInlinePolicyForPermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn }))
-        if (!inl.InlinePolicy) return
-        stmts = parseStatements(JSON.parse(inl.InlinePolicy))
-      } catch {
-        return
-      }
-      const hit = stmts.filter((s) => s.resources.some((r) => r.toLowerCase().includes(q)))
-      if (!hit.length) return
-      const actions = [...new Set(hit.flatMap((s) => s.actions))]
+      const grants = await permissionSetGrants(sso, iam, inst.instanceArn, psArn)
+      const m = matchStatements(grants.flatMap((g) => g.statements), q)
+      if (!m.hit) return
+      const actions = m.actions
       let name = psArn
       try {
         name = (await sso.send(new DescribePermissionSetCommand({ InstanceArn: inst.instanceArn, PermissionSetArn: psArn }))).PermissionSet?.Name || psArn
@@ -256,9 +299,11 @@ export async function ssoAccessToResource(accounts, needle) {
           }
         }),
       )
-      matches.push({ permissionSet: name, actions, assignments })
+      matches.push({ permissionSet: name, actions, assignments, broad: m.broad })
     }),
   )
-  matches.sort((a, b) => a.permissionSet.localeCompare(b.permissionSet))
+  // Prima i grant PUNTUALI (che nominano la risorsa), poi quelli ampi (via '*'), infine per nome:
+  // l'accesso specificamente scopato a questa risorsa è il più informativo, sta in cima.
+  matches.sort((a, b) => (a.broad === b.broad ? a.permissionSet.localeCompare(b.permissionSet) : a.broad ? 1 : -1))
   return matches
 }

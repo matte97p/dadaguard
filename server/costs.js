@@ -1,4 +1,4 @@
-import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from '@aws-sdk/client-cost-explorer'
+import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer'
 import { clientOpts } from './runtime/awsClient.js'
 
 // Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
@@ -71,22 +71,29 @@ export async function getCosts({ profile, roleArn, externalId, month, accountId 
   return { period: { start, end }, currency: 'USD', items, gross, credits, total }
 }
 
-// Costo PREVISTO per i giorni RESTANTI del mese corrente (Cost Explorer GetCostForecast, UNBLENDED_COST).
-// Start = oggi (l'API non prevede il passato), End = primo del mese prossimo (esclusivo). Ritorna 0 se
-// il mese è di fatto finito. Il chiamante somma questo alla spesa MTD → stima di fine mese. Puro-ish.
-export async function getMonthEndForecast({ profile, roleArn, externalId, accountId }, now = new Date()) {
-  const start = now.toISOString().slice(0, 10)
-  const firstOfNext = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10)
-  if (start >= firstOfNext) return 0 // ultimo giorno del mese → nessun residuo da prevedere
-  const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
-  const res = await ce.send(
-    new GetCostForecastCommand({
-      TimePeriod: { Start: start, End: firstOfNext },
-      Granularity: 'MONTHLY',
-      Metric: 'UNBLENDED_COST',
-      // stesso filtro per-account dei costi MTD, altrimenti il payer prevede l'intera org (doppioni)
-      Filter: accountId ? { Dimensions: { Key: 'LINKED_ACCOUNT', Values: [accountId] } } : undefined,
-    }),
-  )
-  return Number(res.Total?.Amount ?? 0)
+// Proiezione di fine mese ("run-rate"): la spesa MTD estrapolata linearmente sui giorni del mese —
+// "a questo ritmo, a fine mese avrai speso X". Deterministica, niente ML/GetCostForecast (coerente con
+// l'ethos no-LLM dell'app; nessuna chiamata extra a pagamento né permesso IAM in più):
+//   factor = giorniDelMese / giorniTrascorsi.
+// Deriva tutto dal `period` già calcolato da getCosts (start incluso, end ESCLUSIVO = domani per il
+// mese corrente), quindi per un mese PASSATO i giorni trascorsi eguagliano quelli del mese → factor 1
+// → nessuna estrapolazione (ritorna null). Proietta sia il netto (post-crediti, il numero grande) sia
+// il lordo (consumo). NB early-month = pochi giorni → factor alto e stima rumorosa: il chiamante mostra
+// sempre la base "su X/Y giorni" così è trasparente. Pura/testabile.
+export function monthEndProjection({ gross = 0, total = 0, period } = {}) {
+  if (!period?.start || !period?.end) return null
+  const start = new Date(`${period.start}T00:00:00Z`)
+  const end = new Date(`${period.end}T00:00:00Z`) // esclusivo
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
+  const daysInMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate()
+  const daysElapsed = Math.round((end - start) / 86_400_000) // giorni coperti dall'MTD (end esclusivo)
+  if (daysElapsed <= 0 || daysElapsed >= daysInMonth) return null // mese completo → niente da proiettare
+  const factor = daysInMonth / daysElapsed
+  return {
+    daysElapsed,
+    daysInMonth,
+    pct: Math.round((daysElapsed / daysInMonth) * 100),
+    gross: gross * factor,
+    net: total * factor,
+  }
 }
