@@ -47,7 +47,7 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 
 ## Uso locale
 ```bash
-npm install --legacy-peer-deps
+npm install
 npm run dev                              # → http://localhost:5173
 ```
 Auth AWS in locale: profilo SSO/CLI o credenziali di default dell'ambiente. **`services.yaml` è opzionale**: senza, Dadaguard **auto-scopre** i servizi che girano nell'account (read-only). Copialo (`cp services.example.yaml services.yaml`) solo per *fissare* watchlist, versioni attese, account multipli e Terraform.

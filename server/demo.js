@@ -2,6 +2,7 @@
 // Serve a (a) provare Dadaguard senza wiring AWS, (b) registrare la GIF di lancio,
 // (c) valutare la UI. Attivo con env DADAGUARD_DEMO=1 (vedi mode.js: isDemo).
 // Tutto statico e read-only: nessuna chiamata di rete.
+import { monthEndProjection } from './costs.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -107,8 +108,11 @@ export function demoStatus(lang = 'it') {
 
 // Drawer (read-only, dati finti coerenti con la flotta sopra).
 export function demoCosts() {
+  // Snapshot "mese corrente a metà" (MTD ~12/31 gg): la proiezione di fine mese è calcolata con la
+  // stessa funzione pura del percorso reale, così la demo mostra davvero la feature (run-rate).
+  const withProjection = (acc) => ({ ...acc, projection: monthEndProjection(acc) })
   return {
-    prod: {
+    prod: withProjection({
       label: 'Production', color: '#cf1322',
       items: [
         { service: 'Amazon Elastic Container Service', amount: 142.3 },
@@ -116,18 +120,18 @@ export function demoCosts() {
         { service: 'AWS Lambda', amount: 12.4 },
         { service: 'Amazon CloudFront', amount: 9.1 },
       ],
-      gross: 251.8, credits: -40, total: 211.8, net: 211.8, forecast: 305.0,
-      period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
-    },
-    staging: {
+      gross: 251.8, credits: -40, total: 211.8, net: 211.8,
+      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+    }),
+    staging: withProjection({
       label: 'Staging', color: '#1677ff',
       items: [
         { service: 'Amazon Elastic Container Service', amount: 33.2 },
         { service: 'Amazon ElastiCache', amount: 18.0 },
       ],
-      gross: 51.2, credits: 0, total: 51.2, net: 51.2, forecast: 78.0,
-      period: { start: '2026-06-01', end: '2026-06-30' }, currency: 'USD',
-    },
+      gross: 51.2, credits: 0, total: 51.2, net: 51.2,
+      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+    }),
   }
 }
 
@@ -308,6 +312,14 @@ export function demoIamAccess(needle) {
       actions: ['rds-db:connect'],
       assignments: [{ account: 'Production', type: 'group', name: 'dba', members: ['db.admin'] }],
       on: ['user-db'],
+    },
+    {
+      // accesso via policy AWS-managed con Resource:"*" → grant ampio (compare per ogni risorsa)
+      permissionSet: 'AdministratorAccess',
+      actions: ['*'],
+      broad: true,
+      assignments: [{ account: 'Production', type: 'group', name: 'admins', members: ['matteo', 'giovanni'] }],
+      on: ['user-db', 'events-stream', 'public-assets', 'web', 'checkout-api'],
     },
   ]
   const ssoMatches = ssoAll.filter((m) => m.on.some((k) => q.includes(k) || k.includes(q))).map(({ on, ...m }) => m)
