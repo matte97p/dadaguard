@@ -7,7 +7,7 @@ project — please read the non-negotiable principles below before opening a PR.
 
 ```bash
 cp services.example.yaml services.yaml   # what to monitor + your accounts
-npm install --legacy-peer-deps
+npm install
 npm run dev                              # server + Vite, → http://localhost:5173
 ```
 

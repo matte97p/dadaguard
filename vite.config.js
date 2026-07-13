@@ -29,6 +29,9 @@ export default defineConfig({
     },
   },
   server: {
+    // Ascolta su 0.0.0.0/:: (non solo localhost): senza, dentro un dev container / VM il browser
+    // dell'host non raggiunge il dev-server → ERR_CONNECTION_REFUSED. In locale su Mac resta invariato.
+    host: true,
     port: 5173,
     proxy: {
       '/api': `http://localhost:${API_PORT}`,

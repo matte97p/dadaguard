@@ -6,9 +6,13 @@ const { Text } = Typography
 
 const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(Number(v ?? 0)).toFixed(2)}`
 
-// Una barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso).
-function Bar({ label, amount, max, credit, t }) {
+// Barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso). Se `projected` è dato,
+// l'estensione di fine mese è un alone translucido dello STESSO colore del servizio, dietro la barra
+// piena (MTD), con il valore proiettato accanto → si vede a colpo d'occhio "dove arriverà" ogni voce.
+function Bar({ label, amount, max, credit, projected, t }) {
   const color = credit ? '#52c41a' : '#7c3aed'
+  const base = Math.min(100, (Math.abs(amount) / max) * 100)
+  const proj = projected != null ? Math.min(100, (Math.abs(projected) / max) * 100) : base
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
@@ -16,11 +20,23 @@ function Bar({ label, amount, max, credit, t }) {
           {label}
           {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>{t('costs.creditMark')}</span>}
         </span>
-        <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>{money(amount)}</span>
+        <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>
+          {money(amount)}
+          {projected != null && (
+            <span style={{ marginLeft: 6, color }} title={t('costs.projection')}>
+              → {money(projected)}
+            </span>
+          )}
+        </span>
       </div>
-      <div style={{ height: 8, borderRadius: 4, background: 'rgba(128,128,128,0.15)' }}>
+      <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'rgba(128,128,128,0.15)' }}>
+        {projected != null && (
+          <div
+            style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${proj}%`, borderRadius: 4, background: color, opacity: 0.28 }}
+          />
+        )}
         <div
-          style={{ height: '100%', borderRadius: 4, width: `${(Math.abs(amount) / max) * 100}%`, background: color }}
+          style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${base}%`, borderRadius: 4, background: color }}
         />
       </div>
     </div>
@@ -96,7 +112,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
           }
           const items = acc.items ?? []
           const hasCredits = Math.abs(acc.credits ?? 0) > 0.005
-          const max = Math.max(1, ...items.map((i) => Math.abs(i.amount)), Math.abs(acc.credits ?? 0))
+          // Stesso run-rate della proiezione aggregata, applicato per-servizio (solo mese corrente).
+          const factor = acc.projection ? acc.projection.daysInMonth / acc.projection.daysElapsed : null
+          // il max include le proiezioni, così gli aloni di fine mese entrano nella barra.
+          const max = Math.max(
+            1,
+            ...items.map((i) => Math.abs(i.amount) * (factor ?? 1)),
+            Math.abs(acc.credits ?? 0),
+          )
           return (
             <div key={key} style={PANEL_CARD}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -106,27 +129,39 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
                 </Space>
                 <div style={{ textAlign: 'right' }}>
                   <Text strong style={{ fontSize: 18 }}>
-                    {money(acc.total)}
+                    {money(acc.gross)}
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {' '}
-                      {t('costs.net')}
+                      {t('costs.gross')}
                     </Text>
                   </Text>
-                  {acc.forecast != null && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {t('costs.forecast')} {money(acc.forecast)}
+                  {acc.projection && (
+                    <div style={{ marginTop: 2 }}>
+                      <Text style={{ fontSize: 12 }}>
+                        {t('costs.projection')} <Text strong>{money(acc.projection.gross)}</Text>
                       </Text>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {t('costs.projectionBasis', {
+                            d: acc.projection.daysElapsed,
+                            tot: acc.projection.daysInMonth,
+                            pct: acc.projection.pct,
+                          })}
+                        </Text>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {(items.length > 0 || hasCredits) && (
+              {/* I crediti si scalano SEMPRE a parte: il numero grande è il lordo (quello che pagherai a
+                  crediti esauriti), i crediti sono una riga di detrazione esplicita e il netto ne è il residuo. */}
+              {hasCredits && (
                 <div style={{ marginTop: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('costs.usage', { v: money(acc.gross) })}
-                    {hasCredits && ` · ${t('costs.credits', { v: money(acc.credits) })}`}
+                    {t('costs.credits', { v: money(acc.credits) })}
+                    {' · '}
+                    {t('costs.netAfter', { v: money(acc.total) })}
                   </Text>
                 </div>
               )}
@@ -138,7 +173,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
               ) : (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {items.map((it) => (
-                    <Bar key={it.service} label={it.service} amount={it.amount} max={max} t={t} />
+                    <Bar
+                      key={it.service}
+                      label={it.service}
+                      amount={it.amount}
+                      projected={factor ? it.amount * factor : null}
+                      max={max}
+                      t={t}
+                    />
                   ))}
                   {hasCredits && (
                     <Bar label={t('costs.creditsRefunds')} amount={acc.credits} max={max} credit t={t} />

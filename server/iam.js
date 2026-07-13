@@ -30,6 +30,60 @@ export function parseStatements(doc) {
     }))
 }
 
+// Un pattern Resource IAM "copre" la risorsa cercata (needle)? Ritorna { hit, broad }:
+//  - '*' → copre tutto → hit AMPIO (broad): es. AdministratorAccess. Va mostrato a parte, altrimenti
+//    (com'era prima) chi ha `Resource:"*"` non compariva MAI nella ricerca per risorsa.
+//  - il needle compare nel pattern (ARN che nomina la risorsa) → hit puntuale.
+// Euristica dichiarata ("menziona/copre"), NON una valutazione IAM completa. Pura/testabile.
+export function resourceCovers(resource, needle) {
+  const r = String(resource ?? '').toLowerCase()
+  const q = String(needle ?? '').toLowerCase()
+  if (!q) return { hit: false, broad: false }
+  if (r === '*') return { hit: true, broad: true }
+  if (r.includes(q)) return { hit: true, broad: false }
+  return { hit: false, broad: false }
+}
+
+// Dato un elenco di statement Allow e il needle: statement che toccano la risorsa, azioni aggregate e
+// se il match è SOLO via '*' (accesso ampio). broad=true → tutti i match passano da un wildcard pieno,
+// nessuno nomina la risorsa. Puro/testabile.
+export function matchStatements(statements, needle) {
+  const matched = (statements ?? [])
+    .map((s) => {
+      let hit = false
+      let broadOnly = true
+      for (const r of s.resources ?? []) {
+        const c = resourceCovers(r, needle)
+        if (c.hit) {
+          hit = true
+          if (!c.broad) broadOnly = false
+        }
+      }
+      return { s, hit, broad: hit && broadOnly }
+    })
+    .filter((x) => x.hit)
+  return {
+    hit: matched.length > 0,
+    actions: [...new Set(matched.flatMap((x) => x.s.actions))],
+    broad: matched.length > 0 && matched.every((x) => x.broad),
+  }
+}
+
+// Statement Allow della versione di default di una policy gestita (per ARN). Best-effort: usato per
+// leggere le policy AWS-managed agganciate ai permission set SSO (es. AdministratorAccess/ReadOnlyAccess),
+// che altrimenti non avremmo modo di ispezionare. Richiede iam:GetPolicy + iam:GetPolicyVersion.
+export async function policyStatements(iam, policyArn) {
+  const pol = await iam.send(new GetPolicyCommand({ PolicyArn: policyArn }))
+  const ver = pol.Policy?.DefaultVersionId
+  if (!ver) return []
+  const pv = await iam.send(new GetPolicyVersionCommand({ PolicyArn: policyArn, VersionId: ver }))
+  try {
+    return parseStatements(JSON.parse(decodeURIComponent(pv.PolicyVersion?.Document ?? '{}')))
+  } catch {
+    return []
+  }
+}
+
 // Policy customer-managed per account (Scope=Local), ordinate per numero di attach. Best effort:
 // un account che non risponde finisce con { error } invece di far fallire tutto.
 export async function listPolicies(accounts, t = (k) => k) {
@@ -125,18 +179,18 @@ export async function accessToResource(accounts, accountKey, needle) {
       } catch {
         return
       }
-      const hit = statements.filter((s) => s.resources.some((r) => r.toLowerCase().includes(q)))
-      if (!hit.length) return
-      const actions = [...new Set(hit.flatMap((s) => s.actions))]
+      const m = matchStatements(statements, q)
+      if (!m.hit) return
       let entities = { roles: [], users: [], groups: [] }
       try {
         entities = entitiesOf(await iam.send(new ListEntitiesForPolicyCommand({ PolicyArn: p.arn })))
       } catch {
         /* non elencabile */
       }
-      matches.push({ policy: p.name, arn: p.arn, actions, entities })
+      matches.push({ policy: p.name, arn: p.arn, actions: m.actions, entities, broad: m.broad })
     }),
   )
-  matches.sort((a, b) => a.policy.localeCompare(b.policy))
+  // Puntuali prima, poi ampi (via '*'), poi per nome: chi è scopato su questa risorsa in cima.
+  matches.sort((a, b) => (a.broad === b.broad ? a.policy.localeCompare(b.policy) : a.broad ? 1 : -1))
   return { needle, matches }
 }

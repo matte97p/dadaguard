@@ -38,6 +38,11 @@ const STRINGS = {
     'iam.ssoNone': 'Identity Center non raggiungibile da questi account (serve l’account management).',
     'iam.ssoEmpty': 'Nessuna assegnazione trovata',
     'iam.pickResource': 'Scegli una risorsa (servizio)…',
+    'iam.pickPrincipal': 'Filtra per gruppo o persona…',
+    'iam.noAccessFor': 'Nessun accesso a questa risorsa che coinvolga «{p}».',
+    'iam.resourceHeuristic':
+      'Euristica: mostra policy e permission set che nominano o coprono (incluso «*») la risorsa; comprende le policy gestite. Non è una simulazione IAM completa.',
+    'iam.broadGrant': 'accesso ampio (*)',
     'iam.noAccess': 'Nessun accesso trovato per questa risorsa (né policy né SSO)',
     'iam.viaPolicy': 'Via policy / ruoli',
     'iam.viaSso': 'Via SSO (permission set)',
@@ -170,10 +175,11 @@ const STRINGS = {
     'costs.month': 'Mese',
     'costs.current': 'corrente',
     'costs.desc':
-      'Spesa reale MTD: consumo per servizio meno crediti/rimborsi = netto (quanto paghi). Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
-    'costs.net': 'netto',
-    'costs.forecast': 'stima fine mese (lordo)',
-    'costs.usage': 'consumo {v}',
+      'Spesa MTD per servizio (lordo); i crediti/rimborsi si scalano a parte → netto. Proiezione a fine mese sul ritmo dei giorni trascorsi. Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
+    'costs.gross': 'lordo',
+    'costs.projection': 'proiezione fine mese:',
+    'costs.projectionBasis': 'su {d}/{tot} gg · {pct}%',
+    'costs.netAfter': 'netto {v}',
     'costs.credits': 'crediti {v}',
     'costs.creditsRefunds': 'Crediti e rimborsi',
     'costs.creditMark': '(credito)',
@@ -197,6 +203,14 @@ const STRINGS = {
     'waste.ebs.title': '{n} {n#volume EBS staccato#volumi EBS staccati} · {gb} GB',
     'waste.ebs.reason':
       'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
+    'waste.idleEc2.title': '{n} {n#istanza EC2 accesa#istanze EC2 accese} ma ~ferme',
+    'waste.idleEc2.reason':
+      'CPU media sotto il 2% negli ultimi 7 giorni: accese ma di fatto inutilizzate (e intanto le paghi). Spegnile o ridimensionarle — a meno che non siano nodi di riserva.',
+    'waste.idleRds.title': '{n} {n#database acceso ma inattivo#database accesi ma inattivi}',
+    'waste.idleRds.reason':
+      'Quasi sempre fermo negli ultimi 7 giorni: in media usa una minima parte della capacità e non si connette quasi nessuno (anche se ogni tanto ha un picco). Acceso ma inutilizzato per la gran parte del tempo, e intanto lo paghi. Potrebbe però essere una replica di lettura o un nodo di riserva per l’alta affidabilità (HA) usato a sprazzi — controlla prima di spegnerlo.',
+    // utilizzo della capacità: quanta ne usa di solito (media) e quanto è arrivato al massimo (picco)
+    'waste.util': 'CPU {avg}% in media · {peak}% di picco',
 
     'topo.title': 'Topologia',
     'topo.isolated': 'Servizi isolati · {n}',
@@ -326,6 +340,11 @@ const STRINGS = {
     'iam.ssoNone': 'Identity Center not reachable from these accounts (needs the management account).',
     'iam.ssoEmpty': 'No assignments found',
     'iam.pickResource': 'Pick a resource (service)…',
+    'iam.pickPrincipal': 'Filter by group or person…',
+    'iam.noAccessFor': 'No access to this resource involving «{p}».',
+    'iam.resourceHeuristic':
+      'Heuristic: shows policies and permission sets that name or cover (including «*») the resource; includes managed policies. Not a full IAM simulation.',
+    'iam.broadGrant': 'broad access (*)',
     'iam.noAccess': 'No access found for this resource (neither policy nor SSO)',
     'iam.viaPolicy': 'Via policy / roles',
     'iam.viaSso': 'Via SSO (permission sets)',
@@ -458,10 +477,11 @@ const STRINGS = {
     'costs.month': 'Month',
     'costs.current': 'current',
     'costs.desc':
-      'Real spend MTD: usage per service minus credits/refunds = net (what you pay). Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
-    'costs.net': 'net',
-    'costs.forecast': 'est. month-end (gross)',
-    'costs.usage': 'usage {v}',
+      'MTD spend per service (gross); credits/refunds are deducted separately → net. Month-end projection from the pace of days elapsed. Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
+    'costs.gross': 'gross',
+    'costs.projection': 'projected month-end:',
+    'costs.projectionBasis': '{d}/{tot} days · {pct}%',
+    'costs.netAfter': 'net {v}',
     'costs.credits': 'credits {v}',
     'costs.creditsRefunds': 'Credits & refunds',
     'costs.creditMark': '(credit)',
@@ -485,6 +505,13 @@ const STRINGS = {
     'waste.ebs.title': '{n} detached {n#EBS volume#EBS volumes} · {gb} GB',
     'waste.ebs.reason':
       'In "available" state: not attached to any instance, so you pay for idle storage. Snapshot and delete them if unused.',
+    'waste.idleEc2.title': '{n} running EC2 {n#instance#instances} but ~idle',
+    'waste.idleEc2.reason':
+      'Average CPU below 2% over the last 7 days: running but effectively unused (and you pay for it meanwhile). Stop or right-size them — unless they are standby nodes.',
+    'waste.idleRds.title': '{n} {n#database#databases} running but idle',
+    'waste.idleRds.reason':
+      'Idle almost all the time over the last 7 days: on average it uses a tiny share of its capacity and almost nobody connects (though it does spike occasionally). Running but unused most of the time, and you pay for it meanwhile. It might be an intended read replica or a high-availability (HA) standby used in bursts, though — check before stopping it.',
+    'waste.util': 'CPU {avg}% avg · {peak}% peak',
 
     'topo.title': 'Topology',
     'topo.isolated': 'Isolated services · {n}',
