@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Spin, Alert, Empty, Typography, Space, Badge, Tag, Segmented } from 'antd'
+import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 
 const { Text } = Typography
 
-// Stato build CodeBuild → estetica (pallino Ant + etichetta i18n). In-corso = blu "processing",
-// ok = verde, fallito/fault/timeout = rosso, fermato = grigio.
+// Stato build CodeBuild → colore (stripe + tag) + etichetta i18n.
 const STATUS = {
-  IN_PROGRESS: { badge: 'processing', key: 'deploys.running' },
-  SUCCEEDED: { badge: 'success', key: 'deploys.ok' },
-  FAILED: { badge: 'error', key: 'deploys.failed' },
-  FAULT: { badge: 'error', key: 'deploys.failed' },
-  TIMED_OUT: { badge: 'error', key: 'deploys.failed' },
-  STOPPED: { badge: 'default', key: 'deploys.stopped' },
+  IN_PROGRESS: { color: '#1677ff', tag: 'processing', key: 'deploys.running' },
+  SUCCEEDED: { color: '#52c41a', tag: 'success', key: 'deploys.ok' },
+  FAILED: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
+  FAULT: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
+  TIMED_OUT: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
+  STOPPED: { color: '#8c8c8c', tag: 'default', key: 'deploys.stopped' },
 }
-
+const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
 const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
 
 // "quanto fa": min → ore → giorni → settimane, così non si vedono mai "419h fa".
@@ -41,52 +41,85 @@ function matchStatus(b, f) {
   if (f === 'running') return b.inProgress
   if (f === 'failed') return FAILED_STATUSES.includes(b.status)
   if (f === 'ok') return b.status === 'SUCCEEDED'
-  return true // 'all'
+  return true
 }
 
+// Riga build: stripe colorata a sinistra (stato a colpo d'occhio), riga in-corso evidenziata,
+// servizio + trigger sopra, commit·fase/durata sotto, tag stato + "quanto fa" a destra.
 function BuildRow({ b, t }) {
-  const st = STATUS[b.status] ?? { badge: 'default', key: null }
+  const st = STATUS[b.status] ?? FALLBACK
   const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
-  const meta = [
-    b.commit,
-    b.trigger ? t(`deploys.trigger.${b.trigger}`) : null,
-    b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : fmtDur(b.durationMs),
-    when,
-  ]
+  const sub = [b.commit, b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : fmtDur(b.durationMs)]
     .filter(Boolean)
     .join(' · ')
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-      <Space size={8} style={{ minWidth: 0 }}>
-        <Badge status={st.badge} />
-        <Text strong style={{ whiteSpace: 'nowrap' }}>
-          {b.service}
-        </Text>
-        {b.number != null && (
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            #{b.number}
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '7px 11px',
+        borderRadius: 8,
+        borderLeft: `3px solid ${st.color}`,
+        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'rgba(128,128,128,0.05)',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Space size={8} style={{ minWidth: 0 }}>
+          {b.inProgress && <Badge status="processing" />}
+          <Text strong style={{ whiteSpace: 'nowrap' }}>
+            {b.service}
           </Text>
-        )}
-      </Space>
-      <Space size={8} style={{ minWidth: 0, justifyContent: 'flex-end' }}>
-        <Text type="secondary" style={{ fontSize: 12, fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>
-          {meta}
-        </Text>
+          {b.number != null && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              #{b.number}
+            </Text>
+          )}
+          {b.trigger && (
+            <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
+              {t(`deploys.trigger.${b.trigger}`)}
+            </Tag>
+          )}
+        </Space>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+            {sub}
+          </Text>
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
         {st.key && (
-          <Tag
-            color={st.badge === 'processing' ? 'processing' : st.badge === 'success' ? 'success' : st.badge === 'error' ? 'error' : 'default'}
-            style={{ marginInlineEnd: 0 }}
-          >
+          <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
             {t(st.key)}
           </Tag>
         )}
-      </Space>
+        <div>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
+            {when}
+          </Text>
+        </div>
+      </div>
     </div>
   )
 }
 
+// Pillole conteggio stato nell'header dell'account (solo quelle > 0).
+function CountPills({ builds }) {
+  const running = builds.filter((b) => b.inProgress).length
+  const ok = builds.filter((b) => b.status === 'SUCCEEDED').length
+  const failed = builds.filter((b) => FAILED_STATUSES.includes(b.status)).length
+  return (
+    <Space size={4}>
+      {running > 0 && <Badge count={running} color="#1677ff" />}
+      {ok > 0 && <Badge count={ok} color="#52c41a" />}
+      {failed > 0 && <Badge count={failed} color="#cf1322" />}
+    </Space>
+  )
+}
+
 // Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora,
-// e gli ultimi andati. Read-only, on-demand. Filtro per stato (tutti/in corso/falliti/ok).
+// e gli ultimi andati. Read-only, on-demand. Filtro per stato.
 export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -147,25 +180,25 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
           }
           const all = acc.builds ?? []
           const builds = all.filter((b) => matchStatus(b, statusFilter))
-          const running = all.filter((b) => b.inProgress).length
-          // Con un filtro attivo, salta le card senza risultati (non c'è nulla da mostrare per quell'account).
           if (statusFilter !== 'all' && builds.length === 0) return null
           return (
             <div key={key} style={PANEL_CARD}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <Space>
                   {acc.color && <Badge color={acc.color} />}
-                  <Text strong>{acc.label}</Text>
+                  <Text strong style={{ fontSize: 15 }}>
+                    {acc.label}
+                  </Text>
                 </Space>
-                {running > 0 && <Badge status="processing" text={t('deploys.inProgress', { n: running })} />}
+                <CountPills builds={all} />
               </div>
 
               {builds.length === 0 ? (
-                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                <Text type="secondary" style={{ display: 'block', marginTop: 10 }}>
                   {t('deploys.none')}
                 </Text>
               ) : (
-                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {builds.map((b) => (
                     <BuildRow key={`${b.project}:${b.number}`} b={b} t={t} />
                   ))}
