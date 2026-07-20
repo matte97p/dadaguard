@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Spin, Alert, Empty, Typography, Space, Badge, Tag, Segmented } from 'antd'
+import { Spin, Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 
@@ -16,6 +16,8 @@ const STATUS = {
 }
 const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
 const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
+const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
+const LIMIT = 8 // build mostrati per account prima di "carica altri"
 
 // "quanto fa": min → ore → giorni → settimane, così non si vedono mai "419h fa".
 function fmtAgo(from, t) {
@@ -42,6 +44,11 @@ function matchStatus(b, f) {
   if (f === 'failed') return FAILED_STATUSES.includes(b.status)
   if (f === 'ok') return b.status === 'SUCCEEDED'
   return true
+}
+
+function matchPeriod(b, f) {
+  if (f === 'all' || !PERIOD_MS[f] || !b.startedAt) return true
+  return Date.now() - new Date(b.startedAt).getTime() <= PERIOD_MS[f]
 }
 
 // Riga build: stripe colorata a sinistra (stato a colpo d'occhio), riga in-corso evidenziata,
@@ -119,12 +126,15 @@ function CountPills({ builds }) {
 }
 
 // Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora,
-// e gli ultimi andati. Read-only, on-demand. Filtro per stato.
+// e gli ultimi andati. Read-only, on-demand. Filtri: stato · periodo · servizio; "carica altri" per account.
 export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [periodFilter, setPeriodFilter] = useState('all')
+  const [serviceFilter, setServiceFilter] = useState('all')
+  const [expanded, setExpanded] = useState(() => new Set())
 
   useEffect(() => {
     setLoading(true)
@@ -140,7 +150,7 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
     ([, acc]) => !accountLabels || accountLabels.has(acc.label),
   )
 
-  const filterOptions = useMemo(
+  const statusOptions = useMemo(
     () => [
       { value: 'all', label: t('deploys.filter.all') },
       { value: 'running', label: t('deploys.filter.running') },
@@ -149,13 +159,47 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
     ],
     [t],
   )
+  const periodOptions = useMemo(
+    () => [
+      { value: 'all', label: t('deploys.period.all') },
+      { value: '24h', label: t('deploys.period.24h') },
+      { value: '7d', label: t('deploys.period.7d') },
+      { value: '30d', label: t('deploys.period.30d') },
+    ],
+    [t],
+  )
+  const serviceOptions = useMemo(() => {
+    const set = new Set()
+    for (const acc of data ? Object.values(data) : []) for (const b of acc.builds ?? []) if (b.service) set.add(b.service)
+    return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
+  }, [data, t])
+
+  const anyFilter = statusFilter !== 'all' || periodFilter !== 'all' || serviceFilter !== 'all'
+  const toggleExpand = (key) =>
+    setExpanded((prev) => {
+      const n = new Set(prev)
+      n.has(key) ? n.delete(key) : n.add(key)
+      return n
+    })
 
   return (
     <>
       <PageIntro
         title={t('deploys.title')}
         desc={t('deploys.desc')}
-        extra={<Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={filterOptions} />}
+        extra={
+          <Space wrap size={8}>
+            <Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
+            <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
+            <Select
+              size="small"
+              value={serviceFilter}
+              onChange={setServiceFilter}
+              options={serviceOptions}
+              style={{ minWidth: 150 }}
+            />
+          </Space>
+        }
       />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
@@ -179,8 +223,13 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
             )
           }
           const all = acc.builds ?? []
-          const builds = all.filter((b) => matchStatus(b, statusFilter))
-          if (statusFilter !== 'all' && builds.length === 0) return null
+          const filtered = all
+            .filter((b) => matchStatus(b, statusFilter))
+            .filter((b) => matchPeriod(b, periodFilter))
+            .filter((b) => serviceFilter === 'all' || b.service === serviceFilter)
+          if (anyFilter && filtered.length === 0) return null
+          const isExp = expanded.has(key)
+          const shown = isExp ? filtered : filtered.slice(0, LIMIT)
           return (
             <div key={key} style={PANEL_CARD}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -193,15 +242,20 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
                 <CountPills builds={all} />
               </div>
 
-              {builds.length === 0 ? (
+              {filtered.length === 0 ? (
                 <Text type="secondary" style={{ display: 'block', marginTop: 10 }}>
                   {t('deploys.none')}
                 </Text>
               ) : (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {builds.map((b) => (
+                  {shown.map((b) => (
                     <BuildRow key={`${b.project}:${b.number}`} b={b} t={t} />
                   ))}
+                  {filtered.length > LIMIT && (
+                    <Button type="link" size="small" style={{ alignSelf: 'flex-start', paddingInline: 0 }} onClick={() => toggleExpand(key)}>
+                      {isExp ? t('deploys.collapse') : t('deploys.more', { n: filtered.length - LIMIT })}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
