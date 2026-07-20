@@ -8,6 +8,7 @@ import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts, monthEndProjection } from './costs.js'
+import { listDeploys } from './deploys.js'
 import { getFreeTierUsage } from './freetier.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
@@ -21,7 +22,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess } from './demo.js'
+import { demoStatus, demoCosts, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -159,6 +160,31 @@ app.get('/api/costs', async (req, res) => {
           // niente chiamata extra a pagamento né permesso in più). `null` per un mese già chiuso → la UI la
           // mostra solo sul mese corrente.
           out[key] = { label: a.label ?? key, color: a.color ?? null, ...cost, projection: monthEndProjection(cost) }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+        }
+      }),
+    )
+    res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Deploy: build CodeBuild dei progetti `cato-*-*-deploy` per account — cosa sta uscendo ORA + gli
+// ultimi. On-demand, read-only. Stessa forma per-account di /api/costs (label/color + payload).
+app.get('/api/deploys', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoDeploys())
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const out = {}
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!a.profile && !a.roleArn) return
+        try {
+          const { builds } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
+          out[key] = { label: a.label ?? key, color: a.color ?? null, builds }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }

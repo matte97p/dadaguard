@@ -107,6 +107,32 @@ export function demoStatus(lang = 'it') {
 }
 
 // Drawer (read-only, dati finti coerenti con la flotta sopra).
+// Deploy demo: uno in corso + storici (ok/fallito), per account. Tempi relativi a "ora" così la
+// demo mostra sempre deploy freschi. Timestamp ISO (come li serializza l'API reale su HTTP).
+export function demoDeploys() {
+  const m = 60_000
+  const now = Date.now()
+  const iso = (ms) => new Date(now - ms).toISOString()
+  return {
+    staging: {
+      label: 'Staging',
+      color: '#1677ff',
+      builds: [
+        { service: 'backend', project: 'cato-staging-backend-deploy', number: 42, status: 'IN_PROGRESS', inProgress: true, commit: 'b4f9558', phase: 'BUILD', startedAt: iso(2 * m), endedAt: null, durationMs: null },
+        { service: 'agentic-chat', project: 'cato-staging-agentic-chat-deploy', number: 18, status: 'SUCCEEDED', inProgress: false, commit: '3e1c9a0', phase: 'COMPLETED', startedAt: iso(26 * m), endedAt: iso(22 * m), durationMs: 4 * m },
+        { service: 'garanzia', project: 'cato-staging-garanzia-deploy', number: 7, status: 'FAILED', inProgress: false, commit: 'a90f231', phase: 'BUILD', startedAt: iso(180 * m), endedAt: iso(178 * m), durationMs: 2 * m },
+      ],
+    },
+    prod: {
+      label: 'Production',
+      color: '#cf1322',
+      builds: [
+        { service: 'backend', project: 'cato-production-backend-deploy', number: 55, status: 'SUCCEEDED', inProgress: false, commit: '7d4b8e1', phase: 'COMPLETED', startedAt: iso(300 * m), endedAt: iso(295 * m), durationMs: 5 * m },
+      ],
+    },
+  }
+}
+
 export function demoCosts() {
   // Snapshot "mese corrente a metà" (MTD ~12/31 gg): la proiezione di fine mese è calcolata con la
   // stessa funzione pura del percorso reale, così la demo mostra davvero la feature (run-rate).

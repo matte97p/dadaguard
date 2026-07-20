@@ -30,6 +30,7 @@ import {
   SafetyOutlined,
   AlertOutlined,
   GiftOutlined,
+  RocketOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
@@ -39,6 +40,7 @@ import EventsDrawer from './components/EventsDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
+import DeploysPage from './pages/DeploysPage.jsx'
 import WastePage from './pages/WastePage.jsx'
 import QuotasPage from './pages/QuotasPage.jsx'
 import FreeTierPage from './pages/FreeTierPage.jsx'
@@ -64,6 +66,7 @@ const QUICK_PRESETS = [
 const NAV = [
   { to: '/', key: 'dashboard', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
@@ -478,6 +481,7 @@ export default function App() {
               }
             />
             <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
+            <Route path="/deploy" element={<DeploysPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route
               path="/topologia"
