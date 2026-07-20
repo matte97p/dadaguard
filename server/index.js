@@ -409,8 +409,20 @@ app.post('/api/watchlist/remove', requireLocal('Watchlist'), (req, res) => {
 // In dev non esiste (ci pensa Vite su :5173), quindi questo blocco è inerte.
 const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 if (existsSync(DIST)) {
-  app.use(express.static(DIST))
-  app.get('*', (_req, res) => res.sendFile(join(DIST, 'index.html'))) // SPA fallback
+  // SPA: gli asset hashati (dist/assets/*) sono immutabili → cache lunga; index.html MAI in cache,
+  // altrimenti dopo un deploy il browser tiene la HTML vecchia che punta al bundle JS vecchio.
+  app.use(
+    express.static(DIST, {
+      setHeaders: (res, p) => {
+        if (p.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache')
+        else if (/[\\/]assets[\\/]/.test(p)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      },
+    }),
+  )
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(join(DIST, 'index.html'))
+  }) // SPA fallback
 }
 
 // Bind esplicito su IPv4 0.0.0.0: in container il default di Node può fare bind su
