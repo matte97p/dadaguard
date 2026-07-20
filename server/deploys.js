@@ -23,6 +23,12 @@ export function shortSha(v) {
   return /^[0-9a-f]{7,40}$/i.test(v) ? v.slice(0, 7) : v
 }
 
+// Come è partito il build, dall'`initiator` CodeBuild: ruolo GHA di deploy / webhook GitHub /
+// CodeConnections → "auto" (push); altrimenti (start-build a mano, ruolo SSO) → "manuale". Puro/testabile.
+export function triggerOf(initiator) {
+  return /gha-deploy|github|hookshot|codeconnection|codestar/i.test(initiator || '') ? 'auto' : 'manuale'
+}
+
 // Normalizza un build CodeBuild nella forma minima che serve alla UI (nessun valore sensibile).
 export function mapBuild(b = {}) {
   const started = b.startTime ?? null
@@ -35,6 +41,7 @@ export function mapBuild(b = {}) {
     inProgress: b.buildStatus === 'IN_PROGRESS',
     commit: shortSha(b.resolvedSourceVersion || b.sourceVersion),
     phase: b.currentPhase ?? null,
+    trigger: triggerOf(b.initiator),
     startedAt: started,
     endedAt: ended,
     durationMs: started && ended ? new Date(ended).getTime() - new Date(started).getTime() : null,
