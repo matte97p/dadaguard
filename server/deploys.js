@@ -49,7 +49,7 @@ export function mapBuild(b = {}) {
 }
 
 // Elenca i deploy (ultimi `perProject` build per progetto di deploy) di un account, dal più recente.
-export async function listDeploys({ profile, roleArn, externalId, region } = {}, { perProject = 3 } = {}) {
+export async function listDeploys({ profile, roleArn, externalId, region } = {}, { perProject = 15 } = {}) {
   const cb = new CodeBuildClient(clientOpts({ profile, roleArn, externalId, region }))
 
   // 1. progetti di deploy dell'account (paginati)
