@@ -3,19 +3,18 @@
 // (c) valutare la UI. Attivo con env DADAGUARD_DEMO=1 (vedi mode.js: isDemo).
 // Tutto statico e read-only: nessuna chiamata di rete.
 import { monthEndProjection } from './costs.js'
+import { computeOverall } from './status.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
   staging: { key: 'staging', label: 'Staging', color: '#1677ff' },
 }
-const SEV = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
-const rollup = (checks) =>
-  Object.values(checks).reduce((w, c) => (SEV[c.status] > SEV[w] ? c.status : w), 'up')
 
 const pick = (L, it, en) => (L === 'en' ? en : it)
 
+// Stessa forma della card reale: overall + cause/causes (badge parlante) dallo stesso computeOverall.
 function svc(name, acc, type, region, checks, dependsOn = []) {
-  return { name, links: {}, account: ACC[acc], region, type, dependsOn, overall: rollup(checks), checks }
+  return { name, links: {}, account: ACC[acc], region, type, dependsOn, ...computeOverall(checks), checks }
 }
 
 // Una flotta curata che mostra TUTTI gli stati e parecchi tipi: up / degraded / down / idle,
