@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scheduleExpressionToMinutes, minutesToSchedule } from '../server/schedules.js'
+import {
+  scheduleExpressionToMinutes,
+  minutesToSchedule,
+  classifyScheduleTarget,
+} from '../server/schedules.js'
 
 test('scheduleExpressionToMinutes: rate() è esatto', () => {
   assert.equal(scheduleExpressionToMinutes('rate(15 minutes)'), 15)
@@ -29,4 +33,30 @@ test('minutesToSchedule: formato compatibile con runtime/lambda.js (parseSchedul
   assert.equal(minutesToSchedule(1440), '1440m')
   assert.equal(minutesToSchedule(0), null)
   assert.equal(minutesToSchedule(null), null)
+})
+
+// EventBridge Scheduler: distingue i target Lambda vs ECS RunTask (i cron Cato usano lo Scheduler,
+// non le Rules → questa classificazione è ciò che li fa smettere di apparire "on-demand").
+test('classifyScheduleTarget: target Lambda → { kind: lambda, name }', () => {
+  const r = classifyScheduleTarget({
+    Arn: 'arn:aws:lambda:eu-central-1:111:function:cato-staging-cron-release-recap',
+  })
+  assert.deepEqual(r, { kind: 'lambda', name: 'cato-staging-cron-release-recap' })
+})
+
+test('classifyScheduleTarget: target ECS RunTask → { kind: ecs, cluster, taskDefArn }', () => {
+  const r = classifyScheduleTarget({
+    Arn: 'arn:aws:ecs:eu-central-1:111:cluster/cato-production',
+    EcsParameters: {
+      TaskDefinitionArn: 'arn:aws:ecs:eu-central-1:111:task-definition/cato-production-cron-refresh-bi-mvs:3',
+    },
+  })
+  assert.equal(r.kind, 'ecs')
+  assert.equal(r.cluster, 'arn:aws:ecs:eu-central-1:111:cluster/cato-production')
+  assert.equal(r.taskDefArn, 'arn:aws:ecs:eu-central-1:111:task-definition/cato-production-cron-refresh-bi-mvs:3')
+})
+
+test('classifyScheduleTarget: altro target (SQS) o vuoto → kind null', () => {
+  assert.equal(classifyScheduleTarget({ Arn: 'arn:aws:sqs:eu-central-1:111:some-queue' }).kind, null)
+  assert.equal(classifyScheduleTarget(undefined).kind, null)
 })

@@ -94,6 +94,17 @@ export function demoStatus(lang = 'it') {
     svc('order-flow', 'prod', 'sfn', 'eu-west-1', {
       runtime: { key: 'runtime', status: 'up', summary: pick(L, '12 esecuzioni · 0 fallite (24h)', '12 executions · 0 failed (24h)') },
     }),
+
+    // Cron su ECS RunTask (EventBridge Scheduler → RunTask): dead-man switch via log group del task.
+    svc('nightly-bi-refresh', 'prod', 'ecs-scheduled', 'eu-west-1', {
+      runtime: {
+        key: 'runtime',
+        status: 'up',
+        summary: pick(L, 'gira come da schedule (ogni 1g)', 'running on schedule (every 1d)'),
+        schedule: '1440m',
+        scheduleExpr: 'cron(0 1 * * ? *)',
+      },
+    }),
   ]
 
   return {

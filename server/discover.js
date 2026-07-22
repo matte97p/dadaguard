@@ -11,7 +11,7 @@ import {
 import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from './runtime/awsClient.js'
 import { managedResources } from './terraform/state.js'
-import { scheduleForLambdas, minutesToSchedule } from './schedules.js'
+import { discoverSchedules, minutesToSchedule } from './schedules.js'
 
 async function listLambda(aws) {
   const client = new LambdaClient(clientOpts(aws))
@@ -185,7 +185,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     listLambda(aws).catch(() => []),
     listEcs(aws).catch(() => []),
     listAsg(aws).catch(() => []),
-    scheduleForLambdas(aws).catch(() => new Map()),
+    discoverSchedules(aws).catch(() => ({ lambdas: new Map(), ecs: [] })),
     listBedrockModels(aws).catch(() => []),
     listMetricDimension(aws, 'AWS/SageMaker', 'Invocations', 'EndpointName').catch(() => []),
     listOpenSearchDomains(aws).catch(() => []),
@@ -195,10 +195,15 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   let activeInfo = null
   if (!all && lambdas.length) {
     const total = lambdas.length
-    lambdas = await filterActiveLambda(aws, lambdas, activeDays).catch(() => lambdas)
+    const active = new Set(await filterActiveLambda(aws, lambdas, activeDays).catch(() => lambdas))
+    // I cron (Lambda con schedule) vanno tenuti SEMPRE, anche a 0 invocazioni: un cron spento o
+    // rotto è proprio ciò che il monitor deve mostrare (badge disabilitato / dead-man switch), non
+    // nascondere. Union: attivi ∪ schedulati.
+    lambdas = lambdas.filter((n) => active.has(n) || schedules.lambdas.has(n))
     activeInfo = { kept: lambdas.length, total, days: activeDays }
   }
 
+  const ecsCron = /task-definition\/([^:/]+)/
   if (ex) {
     lambdas = lambdas.filter((n) => !ex.test(n))
     ecs = ecs.filter((e) => !ex.test(e.service))
@@ -206,16 +211,17 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     bedrockModels = bedrockModels.filter((m) => !ex.test(m))
     smEndpoints = smEndpoints.filter((n) => !ex.test(n))
     osDomains = osDomains.filter((d) => !ex.test(d.domain))
+    schedules.ecs = schedules.ecs.filter((e) => !ex.test(ecsCron.exec(e.taskDefArn)?.[1] ?? e.name))
   }
 
   const candidates = [
     ...lambdas.map((n) => {
       const svcAws = { type: 'lambda', function: n, windowMinutes: 60 }
-      const sched = schedules.get(n)
+      const sched = schedules.lambdas.get(n)
       if (sched?.minutes) {
         svcAws.schedule = minutesToSchedule(sched.minutes) // cadenza attesa → attiva il dead-man switch
         svcAws.scheduleExpr = sched.expr // espressione originale, per la UI
-        svcAws.scheduleState = sched.state // ENABLED/DISABLED → 'disabled' se la rule è spenta di proposito
+        svcAws.scheduleState = sched.state // ENABLED/DISABLED → 'disabled' se lo schedule è spento di proposito
       }
       return { name: n, kind: 'lambda', aws: svcAws }
     }),
@@ -224,6 +230,24 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       kind: 'ecs',
       aws: { type: 'ecs', cluster: e.cluster, service: e.service },
     })),
+    // Cron su ECS RunTask (EventBridge Scheduler → RunTask): niente servizio long-running, solo una
+    // task-def schedulata. Il nome = famiglia della task-def (es. cato-<env>-cron-refresh-bi-mvs).
+    ...schedules.ecs.map((e) => {
+      const family = ecsCron.exec(e.taskDefArn)?.[1] ?? e.name
+      const svcAws = {
+        type: 'ecs-scheduled',
+        cluster: e.cluster,
+        taskDefinition: e.taskDefArn,
+        scheduleExpr: e.expr,
+        scheduleState: e.state,
+        windowMinutes: 60,
+      }
+      if (e.minutes) {
+        svcAws.schedule = minutesToSchedule(e.minutes)
+        svcAws.scheduleMinutes = e.minutes // cadenza in minuti per il dead-man switch del provider
+      }
+      return { name: family, kind: 'ecs-scheduled', aws: svcAws }
+    }),
     ...asgs.map((n) => ({ name: n, kind: 'asg', aws: { type: 'asg', asg: n } })),
     ...bedrockModels.map((model) => ({ name: model, kind: 'bedrock', aws: { type: 'bedrock', model } })),
     ...smEndpoints.map((endpoint) => ({ name: endpoint, kind: 'sagemaker', aws: { type: 'sagemaker', endpoint } })),

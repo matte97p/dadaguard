@@ -5,6 +5,7 @@
 // mancante non rompe nulla, semplicemente non deduce lo schedule.
 // Permessi: events:ListRules, events:ListTargetsByRule.
 import { EventBridgeClient, ListRulesCommand, ListTargetsByRuleCommand } from '@aws-sdk/client-eventbridge'
+import { SchedulerClient, ListSchedulesCommand, GetScheduleCommand } from '@aws-sdk/client-scheduler'
 import { clientOpts } from './runtime/awsClient.js'
 import { mapLimit } from './util/pool.js'
 
@@ -76,4 +77,69 @@ export async function scheduleForLambdas(aws) {
     /* events:ListRules assente o EventBridge non disponibile → nessuna cron dedotta */
   }
   return map
+}
+
+// Target di uno schedule → { kind, ... }. Pura/testabile. Distingue i due bersagli usati dai cron
+// Cato: Lambda (ARN `:function:NAME`) ed ECS RunTask (target = ARN cluster + EcsParameters con la
+// task-def). Qualsiasi altro target → kind null (ignorato).
+export function classifyScheduleTarget(target) {
+  const arn = String(target?.Arn ?? '')
+  if (target?.EcsParameters?.TaskDefinitionArn) {
+    return { kind: 'ecs', cluster: arn, taskDefArn: target.EcsParameters.TaskDefinitionArn }
+  }
+  const m = /:function:([^:]+)/.exec(arn)
+  if (m) return { kind: 'lambda', name: m[1] }
+  return { kind: null }
+}
+
+// Schedule da EventBridge SCHEDULER (`aws_scheduler_schedule`) — il servizio "moderno", DIVERSO dalle
+// vecchie Rules. È ciò che usano i cron Cato: Lambda (gruppo `cato-<env>-cron`) ed ECS RunTask. La
+// summary di ListSchedules non porta l'espressione → serve GetSchedule per cadenza/stato/target.
+// Best-effort. Permessi: scheduler:ListSchedules, scheduler:GetSchedule.
+// Ritorna { lambdas: Map(name→{expr,minutes,state}), ecs: [{name,cluster,taskDefArn,expr,minutes,state}] }.
+export async function schedulesFromScheduler(aws) {
+  const out = { lambdas: new Map(), ecs: [] }
+  try {
+    const sc = new SchedulerClient(clientOpts(aws))
+    const summaries = []
+    let token
+    do {
+      const r = await sc.send(new ListSchedulesCommand({ NextToken: token, MaxResults: 100 }))
+      summaries.push(...(r.Schedules ?? []))
+      token = r.NextToken
+    } while (token)
+
+    await mapLimit(summaries, 8, async (s) => {
+      try {
+        const d = await sc.send(new GetScheduleCommand({ Name: s.Name, GroupName: s.GroupName }))
+        const expr = d.ScheduleExpression
+        const state = d.State === 'DISABLED' ? 'DISABLED' : 'ENABLED'
+        const minutes = scheduleExpressionToMinutes(expr)
+        const tgt = classifyScheduleTarget(d.Target)
+        if (tgt.kind === 'lambda') {
+          if (!out.lambdas.has(tgt.name)) out.lambdas.set(tgt.name, { expr, minutes, state }) // 1 schedule per cron
+        } else if (tgt.kind === 'ecs') {
+          out.ecs.push({ name: s.Name, cluster: tgt.cluster, taskDefArn: tgt.taskDefArn, expr, minutes, state })
+        }
+      } catch {
+        /* GetSchedule di questo schedule non leggibile → salta */
+      }
+    })
+  } catch {
+    /* scheduler:ListSchedules assente o servizio non disponibile → niente */
+  }
+  return out
+}
+
+// Unione delle DUE fonti di schedule: EventBridge Rules (classiche) + EventBridge Scheduler (moderno).
+// I cron Cato stanno tutti sullo Scheduler; le Rules restano supportate per altri account/legacy.
+// Ritorna { lambdas: Map(name→{expr,minutes,state}), ecs: [...] }.
+export async function discoverSchedules(aws) {
+  const [rules, sched] = await Promise.all([
+    scheduleForLambdas(aws).catch(() => new Map()),
+    schedulesFromScheduler(aws).catch(() => ({ lambdas: new Map(), ecs: [] })),
+  ])
+  const lambdas = new Map(rules)
+  for (const [k, v] of sched.lambdas) if (!lambdas.has(k)) lambdas.set(k, v) // Rule esistente vince
+  return { lambdas, ecs: sched.ecs }
 }

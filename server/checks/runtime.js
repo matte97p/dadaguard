@@ -2,6 +2,7 @@
 // Dispatch su service.aws.type → un RuntimeProvider per tipo.
 // Aggiungere un provider = importarlo e aggiungere una entry in PROVIDERS.
 import { ecsRuntime } from '../runtime/ecs.js'
+import { ecsScheduledRuntime } from '../runtime/ecsScheduled.js'
 import { asgRuntime } from '../runtime/asg.js'
 import { lambdaRuntime } from '../runtime/lambda.js'
 import { rdsRuntime } from '../runtime/rds.js'
@@ -28,6 +29,7 @@ export const key = 'runtime'
 
 const PROVIDERS = {
   ecs: ecsRuntime,
+  'ecs-scheduled': ecsScheduledRuntime,
   asg: asgRuntime,
   lambda: lambdaRuntime,
   rds: rdsRuntime,
