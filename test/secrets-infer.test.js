@@ -56,11 +56,30 @@ test('indexComponents: input vuoto/nullo → oggetto vuoto', () => {
   assert.deepEqual(indexComponents([]), {})
 })
 
-test('end-to-end: prod-follow-competitor (lambda cron) matcha il suo job annidato', () => {
-  const idx = indexComponents(['cron/follow-competitor/A', 'cron/follow-competitor/B', 'backend/X'])
-  // lo slug del servizio scoperto…
-  const slugs = serviceSecretSlugs({ name: 'prod-follow-competitor' }, 'production')
-  const hit = slugs.find((s) => idx[s] > 0)
-  assert.equal(hit, 'follow-competitor')
-  assert.equal(idx[hit], 2)
+test('serviceSecretSlugs: spoglia anche il gruppo cron nel nome risorsa (cato-<env>-cron-<job>)', () => {
+  // Nome risorsa REALE dei cron Cato: il gruppo `cron` è DENTRO il nome, ma in SSM è un path segment.
+  assert.deepEqual(serviceSecretSlugs({ name: 'cato-production-cron-ai-credit-monitor' }, 'production'), [
+    'ai-credit-monitor',
+    'cron-ai-credit-monitor',
+    'production-cron-ai-credit-monitor',
+    'cato-production-cron-ai-credit-monitor',
+  ])
+})
+
+test('end-to-end: i cron discoverati come cato-<env>-cron-<job> matchano il job annidato in SSM', () => {
+  // Struttura SSM reale (cron annidati) + nomi risorsa reali (gruppo cron nel nome).
+  const idx = indexComponents([
+    'cron/follow-competitor/A',
+    'cron/follow-competitor/B',
+    'cron/ai-credit-monitor/X',
+    'backend/K1',
+  ])
+  const match = (name) => {
+    const hit = serviceSecretSlugs({ name }, 'production').find((s) => idx[s] > 0)
+    return hit ? `${hit}:${idx[hit]}` : null
+  }
+  assert.equal(match('prod-follow-competitor'), 'follow-competitor:2') // naming legacy
+  assert.equal(match('cato-production-cron-ai-credit-monitor'), 'ai-credit-monitor:1') // naming standard
+  assert.equal(match('cato-production-backend'), 'backend:1')
+  assert.equal(match('cato-production-webhook'), null) // runner CI: nessun secret proprio
 })

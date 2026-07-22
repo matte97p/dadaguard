@@ -17,23 +17,28 @@ function envAliases(env) {
 // Segmenti "d'ambiente" che compaiono come prefisso nei nomi risorsa e NON fanno parte dello slug
 // del componente. Tenuti larghi di proposito: spogliare un token in più è innocuo (poi si matcha
 // contro l'indice reale), non spogliarlo abbastanza no.
-function envPrefixTokens(env) {
-  return new Set(['cato', 'prod', 'production', 'prd', 'staging', 'stg', 'stage', ...envAliases(env)])
+// Prefissi da spogliare dal nome risorsa: token d'ambiente + il gruppo `cron`. I nomi risorsa AWS
+// incorporano il gruppo (es. lambda `cato-production-cron-ai-credit-monitor`) mentre in SSM è un
+// segmento di path (`/cato/production/cron/ai-credit-monitor`) → per matchare va tolto anche `cron`.
+function prefixTokens(env) {
+  return new Set(['cato', 'prod', 'production', 'prd', 'staging', 'stg', 'stage', 'cron', ...envAliases(env)])
 }
 
 // Slug candidati per un servizio, in ordine di preferenza (più spogliato prima). Puro/testabile.
-// Es. env=production: 'prod-follow-competitor' → ['follow-competitor', 'prod-follow-competitor'];
-//     'cato-staging-backend' → ['backend', 'staging-backend', 'cato-staging-backend'].
+// Spoglia i prefissi noti (ambiente + `cron`) tenendo ogni forma intermedia come fallback. Es.:
+//   'prod-follow-competitor'                    → ['follow-competitor', 'prod-follow-competitor']
+//   'cato-production-cron-ai-credit-monitor'    → ['ai-credit-monitor', 'cron-ai-credit-monitor', …]
+//   'cato-staging-backend'                      → ['backend', 'staging-backend', 'cato-staging-backend']
 export function serviceSecretSlugs(service, env) {
   const raw = service?.name ?? service?.aws?.function ?? service?.aws?.service ?? ''
   if (!raw) return []
-  const tokens = envPrefixTokens(env)
+  const tokens = prefixTokens(env)
   const out = []
   let s = String(raw)
   out.push(s)
-  // Spoglia fino a 2 segmenti d'ambiente iniziali (copre `cato-staging-<svc>`), tenendo ogni forma
-  // intermedia come candidato di fallback.
-  for (let i = 0; i < 2; i++) {
+  // Spoglia i segmenti-prefisso iniziali finché ne trova (copre `cato-<env>-cron-<job>` = 3 livelli).
+  // Cap a 4 come backstop; ci fermiamo comunque appena il segmento non è un prefisso noto.
+  for (let i = 0; i < 4; i++) {
     const m = /^([a-z0-9]+)-(.+)$/i.exec(s)
     if (!m || !tokens.has(m[1].toLowerCase())) break
     s = m[2]
