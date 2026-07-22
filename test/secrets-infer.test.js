@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { serviceSecretSlugs, countTopSegment } from '../server/secrets/ssmIndex.js'
+import { serviceSecretSlugs, indexComponents } from '../server/secrets/ssmIndex.js'
 
 test('serviceSecretSlugs: spoglia il prefisso d’ambiente, più spogliato prima', () => {
   assert.deepEqual(serviceSecretSlugs({ name: 'prod-follow-competitor' }, 'production'), [
@@ -31,12 +31,36 @@ test('serviceSecretSlugs: non spoglia un token che NON è d’ambiente', () => {
   assert.deepEqual(serviceSecretSlugs({ name: 'billing-worker' }, 'production'), ['billing-worker'])
 })
 
-test('countTopSegment: conta i parametri per componente di primo livello', () => {
-  const names = ['backend/DB_URL', 'backend/API_KEY', 'follow-competitor/TOKEN', 'deploy/slack_webhook_url']
-  assert.deepEqual(countTopSegment(names), { backend: 2, 'follow-competitor': 1, deploy: 1 })
+test('indexComponents: app-service top-level + cron annidato (struttura Cato reale)', () => {
+  // Nomi come li ritorna ssmSecrets (relativi a /cato/<env>), presi dalla struttura di produzione:
+  const names = [
+    'backend/ARIZE_API_KEY',
+    'backend/MISTRAL_API_KEY',
+    'agentic-chat/SUPABASE_URL',
+    'cron/follow-competitor/SLACK_WEBHOOK_URL',
+    'cron/follow-competitor/SUPABASE_URL',
+    'cron/ai-credit-monitor/POSTHOG_API_KEY',
+  ]
+  const idx = indexComponents(names)
+  assert.equal(idx.backend, 2)
+  assert.equal(idx['agentic-chat'], 1)
+  assert.equal(idx.cron, 3) // il gruppo top-level resta contato
+  assert.equal(idx['follow-competitor'], 2) // …e il job annidato è indicizzato a sé → ora MATCHA
+  assert.equal(idx['ai-credit-monitor'], 1)
+  // la KEY di un app-service (2 segmenti) NON diventa un componente
+  assert.equal('ARIZE_API_KEY' in idx, false)
 })
 
-test('countTopSegment: input vuoto/nullo → oggetto vuoto', () => {
-  assert.deepEqual(countTopSegment(undefined), {})
-  assert.deepEqual(countTopSegment([]), {})
+test('indexComponents: input vuoto/nullo → oggetto vuoto', () => {
+  assert.deepEqual(indexComponents(undefined), {})
+  assert.deepEqual(indexComponents([]), {})
+})
+
+test('end-to-end: prod-follow-competitor (lambda cron) matcha il suo job annidato', () => {
+  const idx = indexComponents(['cron/follow-competitor/A', 'cron/follow-competitor/B', 'backend/X'])
+  // lo slug del servizio scoperto…
+  const slugs = serviceSecretSlugs({ name: 'prod-follow-competitor' }, 'production')
+  const hit = slugs.find((s) => idx[s] > 0)
+  assert.equal(hit, 'follow-competitor')
+  assert.equal(idx[hit], 2)
 })
