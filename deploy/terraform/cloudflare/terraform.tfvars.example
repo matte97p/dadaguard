@@ -1,0 +1,17 @@
+# Copia in terraform.tfvars e adatta. Il TOKEN Cloudflare NON va qui: passalo al provider via env
+#   export CLOUDFLARE_API_TOKEN=...      # permessi: Access (Apps/Policies) + DNS edit sulla zona
+# poi `terraform init && terraform plan`.
+
+account_id = "your-cloudflare-account-id"
+zone_id    = "your-zone-id"
+zone_name  = "example.com"
+hostname   = "dadaguard" # → dadaguard.example.com
+
+# Il tunnel si crea una volta (dashboard o `cloudflared tunnel create`); qui serve solo il suo ID.
+tunnel_id = "00000000-0000-0000-0000-000000000000"
+
+# CHI può entrare — il team, non «everyone».
+allowed_email_domains = ["example.com"]
+allowed_emails        = [] # opzionale: singole email extra
+
+# allowed_idps = ["<zero-trust-idp-id>"]  # opzionale: limita agli IdP scelti

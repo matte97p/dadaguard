@@ -3,9 +3,28 @@
 // Si applica solo ai servizi con `doppler: { project, config, compareWith? }`.
 import { dopplerSecrets } from '../secrets/doppler.js'
 import { ssmSecrets } from '../secrets/ssm.js'
+import { serviceSecretSlugs } from '../secrets/ssmIndex.js'
 import { cleanAwsReason } from '../runtime/awsClient.js'
 
 export const key = 'secrets'
+
+// Auto-inferenza ZERO-CONFIG: nessun `ssm.path` né `doppler` dichiarati → mappa il servizio sulla
+// convenzione Cato /cato/<env>/<servizio> consultando l'indice precaricato (ctx.secretsIndex, una
+// sola chiamata per account, fatta in status.js). Mostra la riga SOLO se esistono davvero parametri
+// → niente falsi positivi, niente dichiarazioni a mano. `null` = segnale non applicabile (come prima).
+function inferFromIndex(service, ctx, t) {
+  const byComponent = ctx?.secretsIndex?.byComponent
+  if (!byComponent) return null
+  const keys = Object.keys(byComponent)
+  if (!keys.length) return null
+  for (const slug of serviceSecretSlugs(service, ctx.env)) {
+    const hit = keys.find((k) => k.toLowerCase() === slug.toLowerCase())
+    if (hit && byComponent[hit] > 0) {
+      return { key, status: 'up', summary: t('secrets.present', { n: byComponent[hit] }), count: byComponent[hit] }
+    }
+  }
+  return null
+}
 
 export async function run(service, ctx) {
   const t = ctx?.t ?? ((k) => k)
@@ -26,9 +45,9 @@ export async function run(service, ctx) {
     }
   }
 
-  // Doppler (source): check opzionale, locale (CLI).
+  // Doppler (source): check opzionale, locale (CLI). Se non dichiarato, prova l'inferenza zero-config.
   const cfg = service.doppler
-  if (!cfg?.project || !cfg?.config) return null // segnale non applicabile
+  if (!cfg?.project || !cfg?.config) return inferFromIndex(service, ctx, t)
 
   try {
     const r = await dopplerSecrets(cfg)

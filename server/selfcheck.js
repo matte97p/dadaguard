@@ -1,6 +1,7 @@
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { probeSurfaces, aggregateSurfaces } from './access.js'
+import { probeExposure } from './exposure.js'
 
 // #6 META-SALUTE: la plumbing del watchdog stesso. Se Dadaguard non riesce ad assumere il
 // ruolo read-only in un account (credenziali scadute, trust rotta, ExternalId sbagliato),
@@ -15,7 +16,7 @@ export function summarizeHealth(accounts) {
   return { allOk, anyFail, status: anyFail ? 'down' : allOk ? 'up' : 'unknown' }
 }
 
-export async function selfCheck(accounts, t = (k) => k) {
+export async function selfCheck(accounts, t = (k) => k, publicUrl = null) {
   const entries = Object.entries(accounts ?? {})
   const results = await Promise.all(
     entries.map(async ([key, a]) => {
@@ -40,9 +41,15 @@ export async function selfCheck(accounts, t = (k) => k) {
   )
   // `surfaces`: stato per superficie aggregato su tutti gli account (allowed/denied/unknown) → l'header.
   const surfaces = aggregateSurfaces(results.map((r) => r.allowed))
+  // Guardiano anti-esposizione: la porta pubblica è davvero dietro Cloudflare Access? (null se non
+  // pubblicato — locale/demo). Se ESPOSTA, l'header diventa rosso a prescindere dagli account.
+  const exposure = await probeExposure(publicUrl, t)
+  const health = summarizeHealth(results)
   return {
     accounts: results.map(({ allowed, ...rest }) => rest), // scarta il Set interno prima di serializzare
     surfaces,
-    ...summarizeHealth(results),
+    exposure,
+    ...health,
+    status: exposure?.status === 'down' ? 'down' : health.status,
   }
 }

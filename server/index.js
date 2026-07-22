@@ -18,6 +18,7 @@ import { recentEvents } from './events.js'
 import { recentChanges } from './changes.js'
 import { nearLimitQuotas } from './quotas.js'
 import { selfCheck } from './selfcheck.js'
+import { publicUrlFromHeaders } from './exposure.js'
 import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
@@ -72,7 +73,11 @@ app.get('/api/status', async (req, res) => {
 app.get('/api/selfcheck', async (req, res) => {
   try {
     if (isDemo) return res.json(demoSelfcheck())
-    res.json(await selfCheck(loadConfig().accounts, makeT(req.query.lang)))
+    const cfg = loadConfig()
+    // URL pubblico: dedotto dall'header della richiesta (via Cloudflare) → zero-config; override
+    // opzionale da config/env se un giorno servisse forzarlo.
+    const publicUrl = publicUrlFromHeaders(req.headers, cfg.publicUrl ?? process.env.DADAGUARD_PUBLIC_URL ?? null)
+    res.json(await selfCheck(cfg.accounts, makeT(req.query.lang), publicUrl))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
