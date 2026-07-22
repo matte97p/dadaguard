@@ -34,6 +34,17 @@ function parseEvent(message) {
   return { level: '', msg: message ?? '' }
 }
 
+// Classifica una riga di log grezza (non-JSON) per la resa: 'error' = la riga che dice DAVVERO cosa
+// è andato storto (`XxxError:`/`Exception:` / `Traceback` / FATAL/CRITICAL); 'frame' = rumore del
+// traceback (`File "..."`, frame interni indentati) da smorzare → l'errore vero salta all'occhio.
+function lineKind(msg) {
+  const s = (msg ?? '').trim()
+  if (!s) return ''
+  if (/^Traceback\b/.test(s) || /^[\w.]+(Error|Exception)\b[^:]*:/.test(s) || /\b(FATAL|CRITICAL)\b/.test(s)) return 'error'
+  if (/^File ["']/.test(s) || /^(self\.|raise |return |await |async |with |for |if )/.test(s) || /^[A-Za-z_][\w.]*\([^)]*\)\s*$/.test(s)) return 'frame'
+  return ''
+}
+
 // Pannello "Log recenti" di un servizio: snapshot on-demand (ultima finestra), niente tail live.
 // Read-only/zero storage. service = nome (apre quando truthy).
 export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrorsOnly = false, onClose, t = (k) => k, lang }) {
@@ -152,6 +163,13 @@ export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrors
                 >
                   {rows.map((e, i) => {
                     const p = parseEvent(e.message)
+                    const kind = p.level ? '' : lineKind(p.msg) // JSON → usa il level; testo grezzo → tipo riga
+                    const msgStyle =
+                      kind === 'error'
+                        ? { color: '#ff4d4f', fontWeight: 600 }
+                        : kind === 'frame'
+                          ? { opacity: 0.45 }
+                          : undefined
                     return (
                       <div
                         key={i}
@@ -168,7 +186,7 @@ export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrors
                             {p.level.toUpperCase()}
                           </span>
                         )}{' '}
-                        <span>{p.msg}</span>
+                        <span style={msgStyle}>{p.msg}</span>
                       </div>
                     )
                   })}
