@@ -43,22 +43,40 @@ export function serviceSecretSlugs(service, env) {
   return [...new Set(out.reverse())]
 }
 
-// Conta i parametri per componente di primo livello. Input = nomi RELATIVI alla radice
-// (come li ritorna ssmSecrets), es. ['backend/DB_URL', 'follow-competitor/API_KEY']. Puro/testabile.
-export function countTopSegment(relNames) {
+// Conta i parametri per componente. Input = nomi RELATIVI alla radice (come li ritorna ssmSecrets).
+// Convenzione Cato a DUE profondità → li indicizziamo entrambi:
+//   • app-service:  <svc>/<KEY>              → componente = <svc>        (es. backend/DB_URL → backend)
+//   • cron:         cron/<job>/<KEY>         → componente = cron E <job> (es. cron/follow-competitor/X → follow-competitor)
+// Regola generica (niente hardcoding di "cron"): con ≥3 segmenti, il 2° è un servizio annidato sotto
+// un gruppo → lo indicizziamo a sé. Con 2 segmenti il 2° è una KEY, non un servizio → non si indicizza.
+// Puro/testabile.
+export function indexComponents(relNames) {
   const out = {}
+  const bump = (k) => {
+    if (k) out[k] = (out[k] ?? 0) + 1
+  }
   for (const n of relNames ?? []) {
-    const seg = String(n).split('/')[0]
-    if (seg) out[seg] = (out[seg] ?? 0) + 1
+    const segs = String(n).split('/').filter(Boolean)
+    if (!segs.length) continue
+    bump(segs[0]) // top-level (backend, agentic-chat, cron, garanzia…)
+    if (segs.length >= 3) bump(segs[1]) // servizio annidato sotto un gruppo (cron/<job>/<KEY> → <job>)
   }
   return out
+}
+
+// Alias d'ambiente: i nomi risorsa AWS usano spesso l'abbreviazione (prod/stg), il path SSM l'ambiente
+// "lungo" (/cato/production, /cato/staging). Normalizziamo così l'indice punta al path giusto anche se
+// l'account nella config è chiamato `prod`/`stg`.
+function canonicalEnv(env) {
+  const e = String(env ?? '').toLowerCase()
+  return { prod: 'production', prd: 'production', stg: 'staging', stage: 'staging' }[e] ?? env
 }
 
 // Carica l'indice per un account. Ritorna { base, byComponent } o null se manca l'ambiente
 // (nessuna convenzione applicabile → il check resta muto, non inventa).
 export async function loadSecretsIndex({ profile, roleArn, externalId, region, env, base } = {}) {
-  const root = base ?? (env ? `/cato/${env}` : null)
+  const root = base ?? (env ? `/cato/${canonicalEnv(env)}` : null)
   if (!root) return null
   const { names } = await ssmSecrets({ profile, roleArn, externalId, region, path: root })
-  return { base: root.replace(/\/$/, ''), byComponent: countTopSegment(names) }
+  return { base: root.replace(/\/$/, ''), byComponent: indexComponents(names) }
 }
