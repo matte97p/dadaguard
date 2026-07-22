@@ -29,6 +29,15 @@ async function resolveLogGroup(service, aws) {
     }
     return null
   }
+  // cron su ECS RunTask: il log group sta nella task-def schedulata (nessun servizio da interrogare).
+  if (cfg.type === 'ecs-scheduled' && cfg.taskDefinition) {
+    const ecs = new ECSClient(clientOpts(aws))
+    const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition
+    for (const c of td?.containerDefinitions ?? []) {
+      if (c.logConfiguration?.logDriver === 'awslogs') return c.logConfiguration.options?.['awslogs-group'] ?? null
+    }
+    return null
+  }
   return null // tipo senza log applicativi su CloudWatch
 }
 

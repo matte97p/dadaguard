@@ -36,14 +36,23 @@ function parseEvent(message) {
 
 // Pannello "Log recenti" di un servizio: snapshot on-demand (ultima finestra), niente tail live.
 // Read-only/zero storage. service = nome (apre quando truthy).
-export default function LogsDrawer({ service, onClose, t = (k) => k, lang }) {
-  const [errorsOnly, setErrorsOnly] = useState(false)
-  const [minutes, setMinutes] = useState(60) // finestra log: 1h / 6h / 24h
+export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrorsOnly = false, onClose, t = (k) => k, lang }) {
+  const [errorsOnly, setErrorsOnly] = useState(defaultErrorsOnly)
+  const [minutes, setMinutes] = useState(defaultMinutes) // finestra log: 1h / 6h / 24h / 48h
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showNoise, setShowNoise] = useState(false) // mostra le righe di piattaforma Lambda
   const [reloadKey, setReloadKey] = useState(0) // bump dal bottone Aggiorna → refetch
+
+  // All'apertura di un servizio applica i default giusti per quel servizio (es. un cron rosso →
+  // finestra ampia + solo errori, così il fallimento notturno è subito visibile senza toccare i filtri).
+  useEffect(() => {
+    if (service) {
+      setMinutes(defaultMinutes)
+      setErrorsOnly(defaultErrorsOnly)
+    }
+  }, [service, defaultMinutes, defaultErrorsOnly])
 
   useEffect(() => {
     if (!service) {
@@ -93,6 +102,7 @@ export default function LogsDrawer({ service, onClose, t = (k) => k, lang }) {
                 { label: '1h', value: 60 },
                 { label: '6h', value: 360 },
                 { label: '24h', value: 1440 },
+                { label: '48h', value: 2880 },
               ]}
             />
           </Space>

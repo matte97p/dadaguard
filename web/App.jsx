@@ -214,6 +214,13 @@ export default function App() {
     [services, t],
   )
 
+  // Default del drawer log per il servizio selezionato: un cron gira di rado → apri con finestra
+  // ampia (48h) e, se è rosso, già filtrato sugli errori → risponde subito a "perché è fallito?".
+  const logsSvc = useMemo(() => services.find((s) => s.name === logsService) ?? null, [services, logsService])
+  const isCronSvc = Boolean(logsSvc && (logsSvc.checks?.runtime?.schedule || logsSvc.type === 'ecs-scheduled'))
+  const logsDefaultMinutes = isCronSvc ? 2880 : 60
+  const logsDefaultErrorsOnly = isCronSvc && logsSvc?.overall === 'down'
+
   const groups = useMemo(() => {
     const q = nameQuery.trim().toLowerCase()
     const filtered = services.filter((s) => {
@@ -511,7 +518,14 @@ export default function App() {
           t={t}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
-        <LogsDrawer service={logsService} onClose={() => setLogsService(null)} t={t} lang={lang} />
+        <LogsDrawer
+          service={logsService}
+          defaultMinutes={logsDefaultMinutes}
+          defaultErrorsOnly={logsDefaultErrorsOnly}
+          onClose={() => setLogsService(null)}
+          t={t}
+          lang={lang}
+        />
         <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} lang={lang} />
         <MetaHealthDrawer
           open={healthOpen}
