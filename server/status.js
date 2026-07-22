@@ -7,6 +7,7 @@ import { makeT } from './i18n.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
 import { managedResources } from './terraform/state.js'
+import { loadSecretsIndex } from './secrets/ssmIndex.js'
 import * as liveness from './checks/liveness.js'
 import * as version from './checks/version.js'
 import * as runtime from './checks/runtime.js'
@@ -153,6 +154,32 @@ export async function getStatus(lang) {
     }),
   )
 
+  // Pre-carica l'indice dei secret per account (una volta): elenca /cato/<env>/ e conta i parametri
+  // per componente → il check "secrets" mappa da sé ogni servizio scoperto sulla convenzione Cato
+  // /cato/<env>/<servizio>, SENZA dichiarare ssm.path a mano e senza una chiamata per servizio.
+  // Solo NOMI (WithDecryption=false → niente kms:Decrypt).
+  const secretsByAccount = {}
+  await Promise.all(
+    usedAccounts.map(async (k) => {
+      const a = accounts[k]
+      if (!a) return
+      const env = a.env ?? a.terraform?.env ?? k // convenzione: la chiave account È l'ambiente (staging/production)
+      try {
+        secretsByAccount[k] = await loadSecretsIndex({
+          profile: a.profile,
+          roleArn: a.roleArn,
+          externalId: a.externalId,
+          region: a.region,
+          env,
+        })
+      } catch (err) {
+        // null = "non ho potuto guardare" (≠ zero secret): il check resta muto, non inventa.
+        log.error('indice secret non leggibile', { account: k, err: err.message })
+        secretsByAccount[k] = null
+      }
+    }),
+  )
+
   // cap di concorrenza sui servizi (ogni servizio fa già più chiamate AWS in parallelo per i check)
   const results = await mapLimit(services, CONCURRENCY, async (service) => {
       const acct = service.account ? accounts[service.account] : null
@@ -163,6 +190,8 @@ export async function getStatus(lang) {
         region: acct?.region,
         tf: service.account ? tfByAccount[service.account] : null,
         alarms: service.account ? alarmsByAccount[service.account] : undefined,
+        env: acct ? (acct.env ?? acct.terraform?.env ?? service.account) : undefined,
+        secretsIndex: service.account ? secretsByAccount[service.account] : undefined,
         t, // traduttore dei summary (i check lo usano per parlare nella lingua scelta)
       }
 
@@ -181,6 +210,8 @@ export async function getStatus(lang) {
           : null,
         region: service.aws?.region ?? acct?.region ?? null,
         type: service.aws?.type ?? null,
+        description: service.description ?? null, // dedotta dalla risorsa (es. Lambda Description) → card auto-esplicativa
+
         managed: service.managed ?? null, // #7 gestito da Terraform (se noto) → filtro FE
         dependsOn: service.dependsOn ?? [], // relazioni dichiarate (grafo dipendenze)
         overall, // semaforo (colore)

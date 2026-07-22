@@ -358,6 +358,10 @@ const STRINGS = {
     'health.ok': 'raggiungibile',
     'health.fail': 'irraggiungibile',
     'health.empty': 'Nessun account configurato',
+    'exposure.title': 'Porta pubblica',
+    'exposure.up': 'Protetta da Cloudflare Access',
+    'exposure.down': 'ESPOSTA — nessun login davanti',
+    'exposure.unknown': 'Non verificabile',
   },
   en: {
     'app.subtitle': "your stack's watchdog",
@@ -698,6 +702,10 @@ const STRINGS = {
     'health.ok': 'reachable',
     'health.fail': 'unreachable',
     'health.empty': 'No account configured',
+    'exposure.title': 'Public door',
+    'exposure.up': 'Protected by Cloudflare Access',
+    'exposure.down': 'EXPOSED — no login in front',
+    'exposure.unknown': 'Not verifiable',
   },
 }
 

@@ -16,13 +16,17 @@ import { discoverSchedules, minutesToSchedule } from './schedules.js'
 async function listLambda(aws) {
   const client = new LambdaClient(clientOpts(aws))
   const names = []
+  const desc = {} // FunctionName → Description: già presente in ListFunctions → zero chiamate extra
   let Marker
   do {
     const out = await client.send(new ListFunctionsCommand({ Marker, MaxItems: 50 }))
-    for (const f of out.Functions ?? []) names.push(f.FunctionName)
+    for (const f of out.Functions ?? []) {
+      names.push(f.FunctionName)
+      if (f.Description) desc[f.FunctionName] = f.Description
+    }
     Marker = out.NextMarker
   } while (Marker)
-  return names.sort()
+  return { names: names.sort(), desc }
 }
 
 async function filterActiveLambda(aws, names, days) {
@@ -173,6 +177,7 @@ export function candidatesToServices(candidates, accountKey, region) {
     account: accountKey,
     aws: region ? { ...c.aws, region } : c.aws,
     ...(c.managed !== undefined ? { managed: c.managed } : {}),
+    ...(c.description ? { description: c.description } : {}),
   }))
 }
 
@@ -181,8 +186,8 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   const aws = { profile, roleArn, externalId, region }
   const ex = exclude ? new RegExp(exclude) : null
 
-  let [lambdas, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses] = await Promise.all([
-    listLambda(aws).catch(() => []),
+  let [lam, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses] = await Promise.all([
+    listLambda(aws).catch(() => ({ names: [], desc: {} })),
     listEcs(aws).catch(() => []),
     listAsg(aws).catch(() => []),
     discoverSchedules(aws).catch(() => ({ lambdas: new Map(), ecs: [] })),
@@ -191,6 +196,8 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     listOpenSearchDomains(aws).catch(() => []),
     sesActive(aws).catch(() => false),
   ])
+  let lambdas = lam.names
+  const lamDesc = lam.desc // FunctionName → Description (per la card, senza chiamate extra)
 
   let activeInfo = null
   if (!all && lambdas.length) {
@@ -223,7 +230,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
         svcAws.scheduleExpr = sched.expr // espressione originale, per la UI
         svcAws.scheduleState = sched.state // ENABLED/DISABLED → 'disabled' se lo schedule è spento di proposito
       }
-      return { name: n, kind: 'lambda', aws: svcAws }
+      return { name: n, kind: 'lambda', aws: svcAws, ...(lamDesc[n] ? { description: lamDesc[n] } : {}) }
     }),
     ...ecs.map((e) => ({
       name: e.service,

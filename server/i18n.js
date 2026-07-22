@@ -162,6 +162,9 @@ const S = {
     'secrets.dopplerbadjson': 'output Doppler non leggibile come JSON',
     // #15 età/rotazione (solo se Doppler espone le date dei secret)
     'secrets.stale': '{n} secret più vecchi di {days}g (rotazione consigliata)',
+    'exposure.protected': 'porta pubblica protetta da Cloudflare Access',
+    'exposure.exposed': '⚠ ESPOSTA: nessun login davanti — chiunque abbia l’URL entra',
+    'exposure.unknown': 'stato della porta pubblica non verificabile',
 
     // #11 security quick-win
     'security.sgopen': '{n} regola/e aperta/e a internet ({list})',
@@ -332,6 +335,9 @@ const S = {
     'secrets.dopplerbadjson': 'Doppler output not readable as JSON',
     // #15 age/rotation (only if Doppler exposes secret dates)
     'secrets.stale': '{n} secrets older than {days}d (rotation advised)',
+    'exposure.protected': 'public door protected by Cloudflare Access',
+    'exposure.exposed': '⚠ EXPOSED: no login in front — anyone with the URL gets in',
+    'exposure.unknown': 'public door status not verifiable',
 
     // #11 security quick-win
     'security.sgopen': '{n} rule(s) open to the internet ({list})',

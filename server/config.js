@@ -31,7 +31,15 @@ export function validateConfig(doc) {
       throw new Error(`config non valido: services[${i}] manca del campo 'name'`)
     }
   })
-  return { accounts, services, org: doc?.org ?? null, freeTierAccount: doc?.freeTierAccount ?? null }
+  return {
+    accounts,
+    services,
+    org: doc?.org ?? null,
+    freeTierAccount: doc?.freeTierAccount ?? null,
+    // URL pubblico con cui Dadaguard è esposto (dietro Cloudflare Access): il guardiano
+    // anti-esposizione lo sonda per verificare di avere davvero il login davanti (vedi server/exposure.js).
+    publicUrl: doc?.publicUrl ?? null,
+  }
 }
 
 export function loadConfig() {
@@ -45,7 +53,7 @@ export function loadConfig() {
     // credenziali AWS (env / SSO / role), region da AWS_REGION. I servizi li trova
     // l'auto-discovery (read-only, in memoria). services.yaml resta un OVERRIDE opzionale.
     const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || undefined
-    return { accounts: { default: { region, label: 'AWS' } }, services: [], org: null }
+    return { accounts: { default: { region, label: 'AWS' } }, services: [], org: null, publicUrl: null }
   }
   return validateConfig(yaml.load(raw) ?? {})
 }
