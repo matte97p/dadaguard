@@ -61,17 +61,31 @@ export async function recentLogs(service, accounts, { errorsOnly = false, minute
 
   const cw = new CloudWatchLogsClient(clientOpts(aws))
   const startTime = Date.now() - Math.max(1, minutes) * 60 * 1000
+  const cap = Math.min(Math.max(1, limit), 200)
   try {
-    const out = await cw.send(
-      new FilterLogEventsCommand({
-        logGroupName: logGroup,
-        startTime,
-        limit: Math.min(Math.max(1, limit), 200), // finestra limitata: niente scansioni enormi
-        ...(errorsOnly ? { filterPattern: ERROR_PATTERN } : {}),
-      }),
-    )
-    const events = (out.events ?? []).map((e) => ({ ts: e.timestamp, message: (e.message ?? '').trimEnd() }))
-    return { logGroup, events, truncated: Boolean(out.nextToken) }
+    // FilterLogEvents restituisce gli eventi dal PIÙ VECCHIO e PAGINA: con finestre larghe + "solo
+    // errori" la prima pagina può coprire il tratto iniziale (senza match) e tornare VUOTA con un
+    // nextToken → una sola chiamata farebbe sembrare "48h" vuoto mentre "24h" ha dati. Seguiamo il
+    // token finché non riempiamo `cap` eventi, con un tetto di pagine per non spazzolare all'infinito.
+    const events = []
+    let nextToken
+    let pages = 0
+    const MAX_PAGES = 25
+    do {
+      const out = await cw.send(
+        new FilterLogEventsCommand({
+          logGroupName: logGroup,
+          startTime,
+          nextToken,
+          limit: cap,
+          ...(errorsOnly ? { filterPattern: ERROR_PATTERN } : {}),
+        }),
+      )
+      for (const e of out.events ?? []) events.push({ ts: e.timestamp, message: (e.message ?? '').trimEnd() })
+      nextToken = out.nextToken
+      pages += 1
+    } while (nextToken && events.length < cap && pages < MAX_PAGES)
+    return { logGroup, events: events.slice(0, cap), truncated: Boolean(nextToken) }
   } catch (err) {
     return { logGroup, error: cleanAwsReason(err, t) } // es. group inesistente / permessi
   }
