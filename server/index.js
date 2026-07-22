@@ -74,9 +74,12 @@ app.get('/api/selfcheck', async (req, res) => {
   try {
     if (isDemo) return res.json(demoSelfcheck())
     const cfg = loadConfig()
-    // URL pubblico: dedotto dall'header della richiesta (via Cloudflare) → zero-config; override
-    // opzionale da config/env se un giorno servisse forzarlo.
-    const publicUrl = publicUrlFromHeaders(req.headers, cfg.publicUrl ?? process.env.DADAGUARD_PUBLIC_URL ?? null)
+    // Guardiano esposizione SOLO in cloud: in locale l'app gira su localhost senza Access davanti,
+    // sondarla darebbe un falso "ESPOSTA". URL pubblico dedotto dall'header (via Cloudflare) →
+    // zero-config; override opzionale da config/env se servisse forzarlo.
+    const publicUrl = isCloud
+      ? publicUrlFromHeaders(req.headers, cfg.publicUrl ?? process.env.DADAGUARD_PUBLIC_URL ?? null)
+      : null
     res.json(await selfCheck(cfg.accounts, makeT(req.query.lang), publicUrl))
   } catch (err) {
     res.status(500).json({ error: err.message })
