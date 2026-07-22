@@ -8,8 +8,28 @@ const CARD = { border: '1px solid rgba(128,128,128,0.18)', borderRadius: 10, pad
 // Diagnostica occasionale → drawer laterale (popup), non una pagina.
 export default function MetaHealthDrawer({ open, onClose, health, accountLabels, t }) {
   const accounts = (health?.accounts ?? []).filter((a) => !accountLabels || accountLabels.has(a.label))
+  const exposure = health?.exposure
   return (
     <Drawer title={t('health.title')} open={open} onClose={onClose} width={460}>
+      {/* Guardiano anti-esposizione: la dashboard è davvero dietro Cloudflare Access? */}
+      {exposure && (
+        <div key="exposure" style={{ ...CARD, marginBottom: 12 }}>
+          <Space wrap>
+            <Badge status={exposure.status === 'up' ? 'success' : exposure.status === 'down' ? 'error' : 'default'} />
+            <Text strong>{t('exposure.title')}</Text>
+            <Tag color={exposure.status === 'up' ? 'success' : exposure.status === 'down' ? 'error' : 'default'}>
+              {t(`exposure.${exposure.status}`)}
+            </Tag>
+          </Space>
+          {exposure.summary && (
+            <div style={{ marginTop: 4 }}>
+              <Text type={exposure.status === 'down' ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>
+                {exposure.summary}
+              </Text>
+            </div>
+          )}
+        </div>
+      )}
       <Paragraph type="secondary">{t('health.desc')}</Paragraph>
       {accounts.length === 0 ? (
         <Empty description={t('health.empty')} style={{ marginTop: 24 }} />

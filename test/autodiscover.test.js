@@ -20,6 +20,16 @@ test('candidatesToServices: mappa candidati → voci servizio con account', () =
   assert.equal('managed' in out[0], false)
 })
 
+test('candidatesToServices: la description (dalla risorsa) è propagata quando presente', () => {
+  const candidates = [
+    { name: 'webhook', kind: 'lambda', aws: { type: 'lambda', function: 'webhook' }, description: 'riceve gli eventi GitHub' },
+    { name: 'plain', kind: 'lambda', aws: { type: 'lambda', function: 'plain' } },
+  ]
+  const out = candidatesToServices(candidates, 'staging')
+  assert.equal(out[0].description, 'riceve gli eventi GitHub')
+  assert.equal('description' in out[1], false) // assente se la risorsa non ne ha
+})
+
 test('candidatesToServices: input vuoto/nullo → lista vuota', () => {
   assert.deepEqual(candidatesToServices(undefined, 'x'), [])
   assert.deepEqual(candidatesToServices([], 'x'), [])

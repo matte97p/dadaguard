@@ -18,6 +18,14 @@ Vale per qualunque hosting (docker compose, VM, PaaS, ECS Fargate): cambia solo
 [`terraform/`](terraform/) — questa guida copre la parte Cloudflare, che quella dà
 per scontata.
 
+> ## ⚡ Scorciatoia IaC (consigliata): niente click
+>
+> La **Access application + policy + DNS** sono in Terraform in
+> [`terraform/cloudflare/`](terraform/cloudflare/): niente dashboard, e la restrizione al team è
+> **codice rivedibile** (non può diventare «everyone» per sbaglio). I passi 3-4 qui sotto restano
+> come **fallback manuale** / spiegazione di cosa fa quel modulo. Unico prerequisito una-tantum: il
+> **tunnel** (passo 1-2), da cui prendi `tunnel_id` e token.
+
 ---
 
 ## Prerequisito che decide tutto: l'account
@@ -137,9 +145,10 @@ della zona (spesso ~30 min).
 
 ## Spostare o ruotare (cambio dominio/account, token esposto)
 
-Il dominio e le route **non** stanno in Terraform: vivono in Cloudflare. Per
-spostare Dadaguard su un altro dominio/account: crea un **nuovo tunnel nell'account
-giusto**, aggiorna il `TUNNEL_TOKEN` nel secret store, riavvia il connettore
-(`cloudflared`), rifai route + Access sul nuovo dominio, poi **elimina il vecchio
-tunnel** — eliminarlo invalida il vecchio token (utile anche se il token è stato
-esposto per errore).
+Con la [scorciatoia IaC](#-scorciatoia-iac-consigliata-niente-click), **Access application, policy e
+DNS sono in Terraform** ([`terraform/cloudflare/`](terraform/cloudflare/)): per cambiare
+dominio/team aggiorni i `tfvars` e fai `apply`. Resta fuori dal codice **solo il tunnel** (e il suo
+token), che vive in Cloudflare. Per spostare su un altro dominio/account: crea un **nuovo tunnel
+nell'account giusto**, aggiorna `tunnel_id` nei tfvars + il `TUNNEL_TOKEN` nel secret store, riavvia
+il connettore (`cloudflared`), `terraform apply`, poi **elimina il vecchio tunnel** — eliminarlo
+invalida il vecchio token (utile anche se il token è stato esposto per errore).

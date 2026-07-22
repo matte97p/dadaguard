@@ -85,7 +85,16 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
       data-service={service.name}
       // accento colore dell'ambiente: riconosci prod da staging a colpo d'occhio
       style={account?.color ? { borderTop: `3px solid ${account.color}` } : undefined}
-      title={<Badge status={overall.status} text={service.name} />}
+      title={
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <Badge status={overall.status} text={service.name} />
+          {service.description && (
+            <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, whiteSpace: 'normal' }}>
+              {service.description}
+            </Text>
+          )}
+        </div>
+      }
       extra={
         <Space size={8}>
           {runtime?.schedule && (
