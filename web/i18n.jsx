@@ -149,6 +149,16 @@ const STRINGS = {
     'card.status.idle': 'A RIPOSO',
     'card.status.disabled': 'SPENTO',
     'card.status.unknown': 'SCONOSCIUTO',
+
+    // Causa del badge: quale segnale ha determinato lo stato (mostrata al posto di "ATTENZIONE"/"GIÙ").
+    'cause.liveness': 'NON RISPONDE',
+    'cause.version': 'VERSIONE',
+    'cause.runtime': 'ESECUZIONE',
+    'cause.drift': 'DRIFT',
+    'cause.secrets': 'SECRET',
+    'cause.security': 'SICUREZZA',
+    'cause.alarms': 'ALLARME',
+    'cause.backups': 'BACKUP',
     'type.bedrock': 'Bedrock',
     'type.opensearch': 'OpenSearch',
     'type.ses': 'SES',
@@ -479,6 +489,16 @@ const STRINGS = {
     'card.status.idle': 'IDLE',
     'card.status.disabled': 'DISABLED',
     'card.status.unknown': 'UNKNOWN',
+
+    // Badge cause: which signal drove the status (shown instead of "WARNING"/"DOWN").
+    'cause.liveness': 'UNREACHABLE',
+    'cause.version': 'VERSION',
+    'cause.runtime': 'RUNTIME',
+    'cause.drift': 'DRIFT',
+    'cause.secrets': 'SECRETS',
+    'cause.security': 'SECURITY',
+    'cause.alarms': 'ALARM',
+    'cause.backups': 'BACKUP',
     'type.bedrock': 'Bedrock',
     'type.opensearch': 'OpenSearch',
     'type.ses': 'SES',

@@ -25,12 +25,29 @@ const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3
 // Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
 const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 8
 
-// Semaforo del servizio = il check messo peggio.
-function rollup(checks) {
-  return Object.values(checks).reduce(
+// A parità di gravità, quale segnale nominare per primo nel badge (dal più "urgente da guardare").
+const CAUSE_PRIORITY = ['liveness', 'runtime', 'alarms', 'security', 'secrets', 'drift', 'version', 'backups']
+function causeRank(k) {
+  const i = CAUSE_PRIORITY.indexOf(k)
+  return i === -1 ? CAUSE_PRIORITY.length : i
+}
+
+// Semaforo del servizio + PERCHÉ: il check messo peggio determina il colore, e riportiamo QUALI
+// check lo causano così il badge non dice solo "ATTENZIONE" ma cosa sta urlando (task giù,
+// allarme, drift…). `cause` = il colpevole primario (per priorità), `causes` = tutti allo stesso
+// livello. La causa ha senso solo per gli stati "problema"; up/idle/unknown non hanno colpevole.
+export function computeOverall(checks) {
+  const list = Object.values(checks)
+  const overall = list.reduce(
     (worst, c) => (SEVERITY[c.status] > SEVERITY[worst] ? c.status : worst),
     'up',
   )
+  const causes =
+    overall === 'degraded' || overall === 'down'
+      ? list.filter((c) => c.status === overall).map((c) => c.key)
+      : []
+  const cause = [...causes].sort((a, b) => causeRank(a) - causeRank(b))[0] ?? null
+  return { overall, cause, causes }
 }
 
 // Risolve la lista EFFETTIVA di account + servizi: config (+ org) e auto-discovery/merge.
@@ -155,6 +172,7 @@ export async function getStatus(lang) {
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
       const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
+      const { overall, cause, causes } = computeOverall(checks)
       return {
         name: service.name,
         links: { ...(service.links ?? {}), ...(cu ? { [t('link.console')]: cu } : {}) },
@@ -165,7 +183,9 @@ export async function getStatus(lang) {
         type: service.aws?.type ?? null,
         managed: service.managed ?? null, // #7 gestito da Terraform (se noto) → filtro FE
         dependsOn: service.dependsOn ?? [], // relazioni dichiarate (grafo dipendenze)
-        overall: rollup(checks),
+        overall, // semaforo (colore)
+        cause, // check colpevole primario → testo del badge (es. "ALLARME", "TASK GIÙ")
+        causes, // tutti i check allo stesso livello del peggiore
         checks,
       }
   })

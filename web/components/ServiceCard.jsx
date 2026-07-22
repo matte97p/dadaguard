@@ -50,8 +50,24 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs'].includes(service.type) // tipi con log applicativi su CloudWatch
   const hasEvents = Boolean(service.type) // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail
+  // Badge parlante: se il servizio è in stato "problema" (giallo/rosso), il testo dice IL PERCHÉ
+  // (il check colpevole, es. "ALLARME" / "ESECUZIONE") invece del generico "ATTENZIONE"/"GIÙ";
+  // negli altri stati resta l'etichetta di stato. Il dettaglio esatto va nel tooltip.
+  const isBad = service.overall === 'degraded' || service.overall === 'down'
+  const causeKey = isBad ? service.cause : null
+  const causeCheck = causeKey ? service.checks?.[causeKey] : null
   const overallText =
-    service.overall && service.overall !== 'unknown' ? t(`card.status.${service.overall}`) : '—'
+    isBad && causeKey
+      ? t(`cause.${causeKey}`)
+      : service.overall && service.overall !== 'unknown'
+        ? t(`card.status.${service.overall}`)
+        : '—'
+  const moreCauses = (service.causes?.length ?? 0) - 1
+  const overallTip = isBad
+    ? [t(`card.status.${service.overall}`), causeCheck?.summary ?? causeCheck?.reason]
+        .filter(Boolean)
+        .join(' — ') + (moreCauses > 0 ? ` (+${moreCauses})` : '')
+    : null
   const liveness = service.checks?.liveness
   const version = service.checks?.version
   const runtime = service.checks?.runtime
@@ -79,9 +95,11 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
               </Tag>
             </Tooltip>
           )}
-          <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
-            {overallText}
-          </Tag>
+          <Tooltip title={overallTip}>
+            <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
+              {overallText}
+            </Tag>
+          </Tooltip>
           {drift && (
             <Tooltip title={`${t('card.label.drift')}: ${drift.summary ?? drift.reason ?? '—'}`}>
               <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help' }}>
