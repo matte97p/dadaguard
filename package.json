@@ -1,6 +1,6 @@
 {
   "name": "dadaguard",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "private": true,
   "type": "module",
   "description": "Dadaguard — the watchdog for your stack. Local-first: is my stack up AND coherent? across AWS + Doppler + Terraform.",
