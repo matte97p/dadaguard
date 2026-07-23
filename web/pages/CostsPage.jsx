@@ -97,6 +97,33 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
       {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} style={{ marginTop: 24 }} />}
 
+      {accounts.length > 0 &&
+        (() => {
+          // Totali aggregati su tutti gli account monitorati → il colpo d'occhio che mancava.
+          const sum = (f) => accounts.reduce((s, [, a]) => s + (f(a) || 0), 0)
+          const gross = sum((a) => a.gross)
+          const credits = sum((a) => a.credits)
+          const net = sum((a) => (a.total != null ? a.total : a.gross))
+          const proj = sum((a) => (a.projection ? a.projection.gross : a.gross))
+          const hasCred = Math.abs(credits) > 0.005
+          const Hero = ({ label, value, size = 22, color }) => (
+            <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {label}
+              </Text>
+              <span style={{ fontSize: size, fontWeight: 700, color }}>{value}</span>
+            </span>
+          )
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 36px', alignItems: 'flex-end', margin: '4px 0 18px' }}>
+              <Hero label={t('costs.h.gross')} value={money(gross)} />
+              {hasCred && <Hero label={t('costs.h.credits')} value={money(credits)} size={18} color="#52c41a" />}
+              {hasCred && <Hero label={t('costs.h.net')} value={money(net)} size={18} />}
+              <Hero label={t('costs.h.proj')} value={money(proj)} size={18} color="#8c8c8c" />
+            </div>
+          )
+        })()}
+
       <div style={PANEL_GRID}>
         {accounts.map(([key, acc]) => {
           if (acc.error) {
