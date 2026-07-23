@@ -185,14 +185,16 @@ app.get('/api/deploys', async (req, res) => {
   try {
     if (isDemo) return res.json(demoDeploys())
     const t = makeT(req.query.lang)
-    const { accounts } = loadConfig()
+    // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
+    // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
+    const { accounts } = await resolveServices()
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
         if (!a.profile && !a.roleArn) return
         try {
-          const { builds } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
-          out[key] = { label: a.label ?? key, color: a.color ?? null, builds }
+          const { builds, noProjects } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
+          out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
         }
