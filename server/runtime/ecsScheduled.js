@@ -11,12 +11,14 @@ import { identityT } from '../i18n.js'
 // registeredAt/registeredBy sono in DescribeTaskDefinition (nessuna chiamata extra oltre a questa).
 export async function ecsScheduledBuildInfo(cfg, aws) {
   const client = new ECSClient(clientOpts(aws))
-  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))
+  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition, include: ['TAGS'] }))
   const def = td.taskDefinition
   if (!def) return null
   const containers = def.containerDefinitions ?? []
   const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image
-  return { tag: imageTag(image), image, deployedAt: def.registeredAt ?? null, modifiedBy: principalName(def.registeredBy) }
+  // Tag `deployedBy` (persona) prima, poi `registeredBy` (chi ha registrato la revision).
+  const deployedBy = (td.tags ?? []).find((t) => t.key === 'deployedBy')?.value
+  return { tag: imageTag(image), image, deployedAt: def.registeredAt ?? null, modifiedBy: deployedBy || principalName(def.registeredBy) }
 }
 
 // Durata compatta con unità tradotte (g/h/m) — allineata a runtime/lambda.js.

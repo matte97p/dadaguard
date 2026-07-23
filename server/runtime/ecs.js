@@ -84,12 +84,14 @@ export async function ecsBuildInfo(cfg, aws) {
   const taskDefArn = primary?.taskDefinition ?? svc.taskDefinition
   if (!taskDefArn) return { deployedAt }
 
-  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefArn }))
+  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefArn, include: ['TAGS'] }))
   // immagine del primo container (o quello che combacia col service, se dichiarato).
   const containers = td.taskDefinition?.containerDefinitions ?? []
   const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image
-  // registeredBy = chi ha registrato l'ultima revision della task def (ultimo modificatore), gratis qui.
-  return { tag: imageTag(image), image, deployedAt, modifiedBy: principalName(td.taskDefinition?.registeredBy) }
+  // Chi ha deployato: il tag `deployedBy` (la PERSONA, stampata dal buildspec) vince; in fallback
+  // `registeredBy` (chi ha registrato la revision — spesso la pipeline).
+  const deployedBy = (td.tags ?? []).find((t) => t.key === 'deployedBy')?.value
+  return { tag: imageTag(image), image, deployedAt, modifiedBy: deployedBy || principalName(td.taskDefinition?.registeredBy) }
 }
 
 // "repo:tag" / "repo@sha256:…" → tag o sha breve, prefisso ":" per chiarezza in summary.
