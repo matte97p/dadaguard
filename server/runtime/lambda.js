@@ -114,9 +114,17 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     const parts = [t('lambda.runs', { n: invocations }), t('lambda.errors', { n: errors })]
     if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
     if (p95) parts.push(t('lambda.p95', { d: fmtMs(Math.round(p95)) })) // latenza: quanto dura la run
+    const metrics = [
+      { label: t('m.runs'), value: String(invocations) },
+      { label: t('m.errors'), value: String(errors), tone: errors > 0 ? 'critical' : 'good' },
+    ]
+    if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
+    if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}` })
     return {
       status,
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
+      metrics,
+      window: fmtDur(windowMin, t),
       invocations,
       errors,
       throttles,
@@ -153,9 +161,17 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
   ].filter(Boolean)
 
+  const metrics = [
+    { label: t('m.calls'), value: fmtCount(invocations) },
+    { label: t('m.errPct'), value: `${errRate < 0.05 ? '0' : errRate.toFixed(1)}%`, tone: errors > 0 ? 'critical' : 'good' },
+  ]
+  if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, tone: nearTimeout ? 'warning' : undefined })
+  if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
+
   return {
     status,
     summary: aliasInfo + parts.join(' · '),
+    metrics,
     invocations,
     errors,
     throttles,

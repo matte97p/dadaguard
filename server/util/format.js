@@ -14,6 +14,9 @@ export function fmtMs(ms) {
 // Conteggio compatto: 1234 → "1.2k", 9999 → "10k", 15000 → "15k", sotto 1000 invariato.
 export function fmtCount(n) {
   if (!Number.isFinite(n)) return '—'
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k'
+  const scale = (v, suffix) => v.toFixed(v >= 10 ? 0 : 1).replace(/\.0$/, '') + suffix
+  if (n >= 1e9) return scale(n / 1e9, 'B')
+  if (n >= 1e6) return scale(n / 1e6, 'M') // 1.788M invece di 1788k
+  if (n >= 1000) return scale(n / 1000, 'k')
   return String(n)
 }

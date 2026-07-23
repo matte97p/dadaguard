@@ -59,6 +59,29 @@ function MetricChips({ text }) {
   )
 }
 
+// Colore di STATO (riservato): errori/throttle spiccano; il resto resta in ink normale. Il colore
+// non è mai l'unico segnale — ogni tile ha la sua label (mai "colore da solo"). Palette allineata ad antd.
+const STAT_TONE = { critical: '#ff4d4f', warning: '#faad14', serious: '#fa8c16', good: '#52c41a' }
+
+// KPI row di stat tile: label muta piccola sopra, valore semibold sotto. La forma giusta per "un
+// pugno di numeri di testa" (dataviz: KPI row), invece della stringa/pillole indistinte.
+function StatRow({ metrics, window }) {
+  const Tile = ({ label, value, color }) => (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
+      <Text type="secondary" style={{ fontSize: 10, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{label || ' '}</Text>
+      <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', color }}>{value}</span>
+    </span>
+  )
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px', alignItems: 'flex-end' }}>
+      {metrics.map((m, i) => (
+        <Tile key={i} label={m.label} value={m.value} color={m.tone ? STAT_TONE[m.tone] : undefined} />
+      ))}
+      {window && <Text type="secondary" style={{ fontSize: 11, alignSelf: 'flex-end' }}>{window}</Text>}
+    </div>
+  )
+}
+
 // Etichetta riga + tooltip che spiega COSA misura il segnale (il contenuto, da solo, è gergo).
 function RowLabel({ children, tip }) {
   return (
@@ -206,7 +229,13 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.runtime')}>{t('card.label.runtime')}</RowLabel>}>
             <Space size={4} align="start">
               <CheckBadge status={runtime.status} />
-              {runtime.summary ? <MetricChips text={runtime.summary} /> : <span>{runtime.reason ?? '—'}</span>}
+              {runtime.metrics?.length ? (
+                <StatRow metrics={runtime.metrics} window={runtime.window} />
+              ) : runtime.summary ? (
+                <MetricChips text={runtime.summary} />
+              ) : (
+                <span>{runtime.reason ?? '—'}</span>
+              )}
             </Space>
           </Descriptions.Item>
         )}
