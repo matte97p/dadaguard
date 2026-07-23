@@ -33,5 +33,10 @@ export async function sesRuntime(cfg, aws, opts = {}) {
     t('ses.bounce', { p: bounceRate.toFixed(1) }),
     t('ses.complaint', { p: complaintRate.toFixed(2) }),
   ]
-  return { status, summary: `${parts.join(' · ')} (${hours}h)` }
+  const metrics = [
+    { label: t('m.sends'), value: fmtCount(Math.round(m.send)) },
+    { label: t('m.bounce'), value: `${bounceRate < 0.05 ? '0' : bounceRate.toFixed(1)}%`, tone: bounceRate > 5 ? 'critical' : undefined },
+    { label: t('m.complaint'), value: `${complaintRate < 0.01 ? '0' : complaintRate.toFixed(2)}%`, tone: complaintRate > 0.1 ? 'critical' : undefined },
+  ]
+  return { status, summary: `${parts.join(' · ')} (${hours}h)`, metrics, window: `${hours}h` }
 }
