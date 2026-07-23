@@ -46,6 +46,11 @@ export async function rdsRuntime(cfg, aws, opts = {}) {
     return {
       status,
       summary: t('rds.cluster', { engine: c.Engine, status: stLabel(c.Status), available, total }),
+      metrics: [
+        { label: t('m.engine'), value: c.Engine },
+        { label: t('m.state'), value: stLabel(c.Status), tone: c.Status === 'available' ? 'good' : 'critical' },
+        { label: t('m.instances'), value: `${available}/${total}`, tone: available < total ? 'warning' : 'good' },
+      ],
     }
   }
 
