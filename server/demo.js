@@ -123,19 +123,42 @@ export function demoDeploys() {
   const m = 60_000
   const now = Date.now()
   const iso = (ms) => new Date(now - ms).toISOString()
-  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3) => ({
-    service,
-    project: `cato-${env}-${service}-deploy`,
-    number,
-    status,
-    inProgress: status === 'IN_PROGRESS',
-    commit,
-    trigger,
-    phase: status === 'IN_PROGRESS' ? 'BUILD' : 'COMPLETED',
-    startedAt: iso(agoMin * m),
-    endedAt: status === 'IN_PROGRESS' ? null : iso((agoMin - durMin) * m),
-    durationMs: status === 'IN_PROGRESS' ? null : durMin * m,
-  })
+  const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
+  // Fasi demo per stato: ok → tutte riuscite; fallito → BUILD fallita col messaggio; in corso → BUILD in corso.
+  const phasesFor = (status) => {
+    const ok = (type, s = 20) => ({ type, status: 'SUCCEEDED', durationMs: s * 1000 })
+    const head = [ok('SUBMITTED', 1), ok('QUEUED', 2), ok('PROVISIONING', 25), ok('DOWNLOAD_SOURCE', 8), ok('INSTALL', 30), ok('PRE_BUILD', 12)]
+    if (status === 'IN_PROGRESS') return [...head, { type: 'BUILD', status: 'IN_PROGRESS', durationMs: null }]
+    if (FAILED.has(status))
+      return [
+        ...head,
+        { type: 'BUILD', status: 'FAILED', durationMs: 47 * 1000, message: 'COMMAND_EXECUTION_ERROR: Error while executing command: `pnpm build`. Reason: exit status 1' },
+        { type: 'COMPLETED', status: null, durationMs: null },
+      ]
+    return [...head, ok('BUILD', 95), ok('POST_BUILD', 18), ok('UPLOAD_ARTIFACTS', 6), { type: 'COMPLETED', status: null, durationMs: null }]
+  }
+  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3) => {
+    const phases = phasesFor(status)
+    const fail = FAILED.has(status) ? phases.find((p) => p.status === 'FAILED') : null
+    return {
+      id: `cato-${env}-${service}-deploy:demo-${number}`,
+      service,
+      project: `cato-${env}-${service}-deploy`,
+      number,
+      status,
+      inProgress: status === 'IN_PROGRESS',
+      commit,
+      trigger,
+      phase: status === 'IN_PROGRESS' ? 'BUILD' : 'COMPLETED',
+      startedAt: iso(agoMin * m),
+      endedAt: status === 'IN_PROGRESS' ? null : iso((agoMin - durMin) * m),
+      durationMs: status === 'IN_PROGRESS' ? null : durMin * m,
+      phases,
+      failPhase: fail ? fail.type : null,
+      failReason: fail ? fail.message : null,
+      logsUrl: 'https://console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fdemo',
+    }
+  }
   return {
     staging: {
       label: 'Staging',

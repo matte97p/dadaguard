@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip } from 'antd'
+import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
 
@@ -39,6 +39,12 @@ function fmtDur(ms) {
   if (s < 60) return `${s}s`
   return `${Math.floor(s / 60)}m ${s % 60}s`
 }
+
+// Nome fase leggibile: DOWNLOAD_SOURCE → "Download source".
+function phaseLabel(type = '') {
+  return type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, ' ')
+}
+const phaseColor = (status) => (status ? (STATUS[status] ?? FALLBACK).color : '#8c8c8c')
 
 function matchStatus(b, f) {
   if (f === 'running') return b.inProgress
@@ -90,15 +96,7 @@ function DeployTrend({ builds, t }) {
         const st = STATUS[b.status] ?? FALLBACK
         return (
           <Tooltip key={i} title={`#${b.number} · ${t(st.key ?? 'deploys.stopped')}`}>
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: st.color,
-                opacity: b.inProgress ? 0.55 : 1,
-              }}
-            />
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: st.color, opacity: b.inProgress ? 0.55 : 1 }} />
           </Tooltip>
         )
       })}
@@ -106,19 +104,68 @@ function DeployTrend({ builds, t }) {
   )
 }
 
-// Riga per-servizio (default): stripe stato dell'ULTIMA build, servizio + esito + #num + trigger sopra,
-// commit·durata sotto; a destra il mini-trend, il tasso di successo (ok/decisi) e "quanto fa".
-function ServiceRow({ g, t }) {
-  const b = g.latest
-  const st = STATUS[b.status] ?? FALLBACK
-  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
+// Blocco sinistro condiviso da riga-servizio e riga-build: stato + nome + #num + trigger, sotto
+// commit·durata (o fase, se in corso), e — se fallita — la riga rossa "Fallita in FASE: motivo".
+function BuildInfo({ b, name, t }) {
   const sub = [b.commit, b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : fmtDur(b.durationMs)]
     .filter(Boolean)
     .join(' · ')
-  const decided = g.ok + g.failed
-  const rateColor = g.failed ? (g.ok ? '#faad14' : '#ff4d4f') : '#52c41a'
+  const st = STATUS[b.status] ?? FALLBACK
+  const failed = FAILED_STATUSES.includes(b.status)
+  return (
+    <div style={{ minWidth: 0, flex: 1 }}>
+      <Space size={8} wrap style={{ rowGap: 2 }}>
+        {b.inProgress && <Badge status="processing" />}
+        <Text strong style={{ whiteSpace: 'nowrap' }}>
+          {name}
+        </Text>
+        {st.key && (
+          <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
+            {t(st.key)}
+          </Tag>
+        )}
+        {b.number != null && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            #{b.number}
+          </Text>
+        )}
+        {b.trigger && (
+          <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
+            {t(`deploys.trigger.${b.trigger}`)}
+          </Tag>
+        )}
+      </Space>
+      {sub && (
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
+            {sub}
+          </Text>
+        </div>
+      )}
+      {failed && (b.failPhase || b.failReason) && (
+        <div style={{ marginTop: 2, minWidth: 0 }}>
+          <Tooltip title={b.failReason || undefined}>
+            <Text style={{ fontSize: 12, color: '#ff7875', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
+              {b.failReason ? `: ${b.failReason}` : ''}
+            </Text>
+          </Tooltip>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Wrapper cliccabile per riga-servizio/riga-build → apre il drawer di dettaglio.
+function ClickableRow({ b, onOpen, t, children }) {
+  const st = STATUS[b.status] ?? FALLBACK
   return (
     <div
+      role="button"
+      tabIndex={0}
+      title={t('deploys.openDetail')}
+      onClick={() => onOpen(b)}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(b))}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -127,36 +174,24 @@ function ServiceRow({ g, t }) {
         borderRadius: 8,
         borderLeft: `3px solid ${st.color}`,
         background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'rgba(128,128,128,0.05)',
+        cursor: 'pointer',
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <Space size={8} wrap style={{ rowGap: 2 }}>
-          {b.inProgress && <Badge status="processing" />}
-          <Text strong style={{ whiteSpace: 'nowrap' }}>
-            {g.service}
-          </Text>
-          {st.key && (
-            <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
-              {t(st.key)}
-            </Tag>
-          )}
-          {b.number != null && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              #{b.number}
-            </Text>
-          )}
-          {b.trigger && (
-            <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
-              {t(`deploys.trigger.${b.trigger}`)}
-            </Tag>
-          )}
-        </Space>
-        <div>
-          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
-            {sub}
-          </Text>
-        </div>
-      </div>
+      {children}
+    </div>
+  )
+}
+
+// Riga per-servizio (default): ultima build a sinistra (con eventuale motivo del fallimento),
+// a destra mini-trend + tasso di successo (ok/decisi) + "quanto fa". Click → dettaglio.
+function ServiceRow({ g, onOpen, t }) {
+  const b = g.latest
+  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
+  const decided = g.ok + g.failed
+  const rateColor = g.failed ? (g.ok ? '#faad14' : '#ff4d4f') : '#52c41a'
+  return (
+    <ClickableRow b={b} onOpen={onOpen} t={t}>
+      <BuildInfo b={b} name={g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
         <DeployTrend builds={g.builds} t={t} />
         {decided > 0 && (
@@ -171,66 +206,124 @@ function ServiceRow({ g, t }) {
           {when}
         </Text>
       </div>
+    </ClickableRow>
+  )
+}
+
+// Riga della singola build (vista "storico completo"): info a sinistra, "quanto fa" a destra. Click → dettaglio.
+function BuildRow({ b, onOpen, t }) {
+  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
+  return (
+    <ClickableRow b={b} onOpen={onOpen} t={t}>
+      <BuildInfo b={b} name={b.service} t={t} />
+      <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+        <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
+        {when}
+      </Text>
+    </ClickableRow>
+  )
+}
+
+// Timeline delle fasi CodeBuild nel drawer: pallino stato + nome fase + durata; per le fasi fallite,
+// il messaggio d'errore sotto (monospace).
+function PhaseTimeline({ phases = [] }) {
+  if (!phases.length) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {phases.map((p, i) => (
+        <div key={i}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: phaseColor(p.status), flex: 'none' }} />
+            <Text style={{ flex: 1 }}>{phaseLabel(p.type || '')}</Text>
+            <Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtDur(p.durationMs)}
+            </Text>
+          </div>
+          {p.message && (
+            <Text style={{ display: 'block', marginInlineStart: 16, fontSize: 12, fontFamily: MONO, color: '#ff7875', whiteSpace: 'pre-wrap' }}>
+              {p.message}
+            </Text>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
 
-// Riga della singola build (vista "storico completo"): stessa lettura della ServiceRow ma per build.
-function BuildRow({ b, t }) {
-  const st = STATUS[b.status] ?? FALLBACK
-  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
-  const sub = [b.commit, b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : fmtDur(b.durationMs)]
-    .filter(Boolean)
-    .join(' · ')
+function MetaLine({ label, children }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '7px 11px',
-        borderRadius: 8,
-        borderLeft: `3px solid ${st.color}`,
-        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'rgba(128,128,128,0.05)',
-      }}
-    >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <Space size={8} style={{ minWidth: 0 }}>
-          {b.inProgress && <Badge status="processing" />}
-          <Text strong style={{ whiteSpace: 'nowrap' }}>
-            {b.service}
-          </Text>
-          {b.number != null && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              #{b.number}
-            </Text>
-          )}
-          {b.trigger && (
-            <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
-              {t(`deploys.trigger.${b.trigger}`)}
+    <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
+      <Text type="secondary" style={{ minWidth: 78 }}>
+        {label}
+      </Text>
+      <span style={{ minWidth: 0 }}>{children}</span>
+    </div>
+  )
+}
+
+// Drawer di dettaglio di UNA build: stato, meta (account/commit/trigger/durata/quando), motivo del
+// fallimento, timeline delle fasi e link diretto ai log su CloudWatch. Tutto già nei dati, zero fetch.
+function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
+  const b = build ?? {}
+  const st = STATUS[b.status] ?? FALLBACK
+  const failed = FAILED_STATUSES.includes(b.status)
+  return (
+    <Drawer
+      open={!!build}
+      onClose={onClose}
+      width={520}
+      title={
+        <Space size={8} wrap>
+          <Text strong>{b.service}</Text>
+          {b.number != null && <Text type="secondary">#{b.number}</Text>}
+          {st.key && (
+            <Tag color={st.tag} bordered={false}>
+              {t(st.key)}
             </Tag>
           )}
         </Space>
-        <div>
-          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
-            {sub}
-          </Text>
-        </div>
-      </div>
-      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-        {st.key && (
-          <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
-            {t(st.key)}
-          </Tag>
-        )}
-        <div>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
-            {when}
-          </Text>
-        </div>
-      </div>
-    </div>
+      }
+    >
+      {build && (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            {accountLabel && <MetaLine label={t('deploys.account')}>{accountLabel}</MetaLine>}
+            {b.commit && (
+              <MetaLine label="commit">
+                <Text style={{ fontFamily: MONO }}>{b.commit}</Text>
+              </MetaLine>
+            )}
+            {b.trigger && <MetaLine label={t('deploys.triggerLabel')}>{t(`deploys.trigger.${b.trigger}`)}</MetaLine>}
+            <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
+            <MetaLine label={t('deploys.whenLabel')}>{fmtAgo(b.inProgress ? b.startedAt : b.endedAt, t) || '—'}</MetaLine>
+          </Space>
+
+          {failed && b.failReason && (
+            <Alert
+              type="error"
+              showIcon
+              message={b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
+              description={<span style={{ fontFamily: MONO, fontSize: 12 }}>{b.failReason}</span>}
+            />
+          )}
+
+          {b.phases?.length > 0 && (
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                {t('deploys.phases')}
+              </Text>
+              <PhaseTimeline phases={b.phases} />
+            </div>
+          )}
+
+          {b.logsUrl && (
+            <Button type="primary" href={b.logsUrl} target="_blank" rel="noreferrer" block>
+              {t('deploys.openLogs')}
+            </Button>
+          )}
+        </Space>
+      )}
+    </Drawer>
   )
 }
 
@@ -248,10 +341,14 @@ function CountPills({ builds }) {
   )
 }
 
+// Griglia responsiva: 1 colonna su schermo stretto, 2+ su schermo largo (riempie la larghezza, niente
+// buco al centro delle righe). `auto-fit` → un solo elemento occupa comunque tutta la riga.
+// `min(100%, 560px)` invece di `560px` secco → niente overflow orizzontale sotto i 560px (schermi stretti).
+const ROW_GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 560px), 1fr))', gap: 6, marginTop: 12 }
+
 // Sezione a tutta larghezza per un account. Default: una riga per servizio (riepilogo affidabilità);
-// toggle "storico completo" → tutte le build in griglia responsiva. Account senza progetti di deploy
-// (payer/security) → riga compatta, non una card vuota.
-function AccountSection({ acc, all, filtered, anyFilter, expanded, onToggle, t }) {
+// toggle "storico completo" → tutte le build. Account senza progetti di deploy → riga compatta.
+function AccountSection({ acc, all, filtered, anyFilter, expanded, onToggle, onOpen, t }) {
   if (acc.error) {
     return (
       <div style={PANEL_CARD}>
@@ -300,22 +397,15 @@ function AccountSection({ acc, all, filtered, anyFilter, expanded, onToggle, t }
           {anyFilter ? t('deploys.noneFiltered') : t('deploys.none')}
         </Text>
       ) : expanded ? (
-        <div
-          style={{
-            marginTop: 12,
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: 6,
-          }}
-        >
+        <div style={ROW_GRID}>
           {filtered.map((b) => (
-            <BuildRow key={`${b.project}:${b.number}`} b={b} t={t} />
+            <BuildRow key={b.id || `${b.project}:${b.number}`} b={b} onOpen={onOpen} t={t} />
           ))}
         </div>
       ) : (
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={ROW_GRID}>
           {groups.map((g) => (
-            <ServiceRow key={g.service} g={g} t={t} />
+            <ServiceRow key={g.service} g={g} onOpen={onOpen} t={t} />
           ))}
         </div>
       )}
@@ -343,8 +433,8 @@ function DeploysSkeleton() {
 }
 
 // Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora e
-// com'è andata (per servizio: ultima build, tasso di successo, trend). Read-only, on-demand.
-// Mostra TUTTI gli account risolti (config + org auto-discovery); quelli senza progetti di deploy in coda.
+// com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
+// (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
 export default function DeploysPage({ t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -353,6 +443,7 @@ export default function DeploysPage({ t = (k) => k, lang }) {
   const [periodFilter, setPeriodFilter] = useState('all')
   const [serviceFilter, setServiceFilter] = useState('all')
   const [expanded, setExpanded] = useState(() => new Set())
+  const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
 
   useEffect(() => {
     setLoading(true)
@@ -465,6 +556,7 @@ export default function DeploysPage({ t = (k) => k, lang }) {
                   anyFilter={anyFilter}
                   expanded={expanded.has(key)}
                   onToggle={() => toggleExpand(key)}
+                  onOpen={(b) => setSelected({ build: b, accountLabel: acc.label })}
                   t={t}
                 />
               )
@@ -472,6 +564,8 @@ export default function DeploysPage({ t = (k) => k, lang }) {
           </div>
         </>
       )}
+
+      <DeployBuildDrawer build={selected?.build} accountLabel={selected?.accountLabel} onClose={() => setSelected(null)} t={t} />
     </>
   )
 }
