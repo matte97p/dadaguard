@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Spin, Alert, Empty, Typography, Space, Progress } from 'antd'
-import { PageIntro, PANEL_CARD } from './pageKit.jsx'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -38,6 +38,24 @@ export default function FreeTierPage({ t = (k) => k, lang }) {
       {data?.error && <Alert type="warning" showIcon message={data.error} style={{ marginTop: 8 }} />}
       {data && !data.error && items.length === 0 && !loading && (
         <Empty description={t('freetier.none')} style={{ marginTop: 24 }} />
+      )}
+
+      {items.length > 0 && (
+        <HeroRow>
+          <HeroStat label={t('freetier.h.offers')} value={items.length} />
+          <HeroStat
+            label={t('freetier.h.near')}
+            value={items.filter((i) => i.pct >= 85 && i.pct < 100).length}
+            color={items.some((i) => i.pct >= 85 && i.pct < 100) ? '#faad14' : undefined}
+            size={18}
+          />
+          <HeroStat
+            label={t('freetier.h.over')}
+            value={items.filter((i) => i.pct >= 100).length}
+            color={items.some((i) => i.pct >= 100) ? '#ff4d4f' : undefined}
+            size={18}
+          />
+        </HeroRow>
       )}
 
       {items.length > 0 && (
