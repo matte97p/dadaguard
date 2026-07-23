@@ -33,6 +33,7 @@ const S = {
 
     'link.console': 'Console AWS',
     'lambda.cron.disabled': 'cron disattivata di proposito (ogni {sched})',
+    'cron.next': 'prossima ~tra {in}',
     'lambda.cron.down': '⚠ nessuna esecuzione in {window} (attesa ogni {sched})',
     'ecssched.disabled': 'schedule disattivato di proposito (ogni {sched})',
     'ecssched.down': '⚠ nessuna esecuzione in {window} (attesa ogni {sched})',
@@ -207,6 +208,7 @@ const S = {
 
     'link.console': 'AWS Console',
     'lambda.cron.disabled': 'cron disabled on purpose (every {sched})',
+    'cron.next': 'next ~in {in}',
     'lambda.cron.down': '⚠ no run in {window} (expected every {sched})',
     'ecssched.disabled': 'schedule disabled on purpose (every {sched})',
     'ecssched.down': '⚠ no run in {window} (expected every {sched})',

@@ -3,6 +3,7 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import { clientOpts } from './awsClient.js'
 import { imageTag } from './ecs.js'
 import { principalName } from '../util/principal.js'
+import { nextRun } from '../util/nextrun.js'
 import { identityT } from '../i18n.js'
 
 // #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
@@ -80,7 +81,10 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   ])
   const outcome = classifyEcsRun({ ran: (any.events ?? []).length > 0, failed: (errs.events ?? []).length > 0 })
 
-  const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr }
+  const now = Date.now()
+  const nextRunAt = nextRun(cfg.scheduleExpr, now)
+  const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
+  const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel }
   if (outcome === 'missed') {
     return { status: 'down', summary: t('ecssched.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }), ...base }
   }
