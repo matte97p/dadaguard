@@ -11,6 +11,7 @@ import { ecsBuildInfo } from '../runtime/ecs.js'
 import { ecsScheduledBuildInfo } from '../runtime/ecsScheduled.js'
 import { lambdaBuildInfo } from '../runtime/lambda.js'
 import { ec2BuildInfo } from '../runtime/ec2.js'
+import { lastModifier, resourceIdentifier } from '../runtime/lastModifier.js'
 import { cleanAwsReason } from '../runtime/awsClient.js'
 import { fmtAgo, fmtDuration } from '../i18n.js'
 
@@ -110,7 +111,22 @@ async function compute(service, ctx, expected, t) {
     }
   }
 
-  // (3) atteso dichiarato ma senza healthUrl né tipo AWS leggibile.
+  // (3) Fallback provenienza per i tipi SENZA builder (rds, sqs, s3, alb, dynamodb…): almeno
+  // "modificato da <chi>" via CloudTrail (best-effort, cache TTL) → il "chi ha toccato" copre TUTTI
+  // i servizi, non solo lambda/ecs. Nessuna riga se CloudTrail non sa nulla (niente inventato).
+  const rid = resourceIdentifier(cfg)
+  if (rid) {
+    const aws = {
+      profile: ctx?.profile,
+      roleArn: ctx?.roleArn,
+      externalId: ctx?.externalId,
+      region: cfg.region ?? ctx?.region,
+    }
+    const who = await lastModifier(rid, aws)
+    if (who) return { key, status: 'up', summary: t('build.by', { who }) }
+  }
+
+  // (4) atteso dichiarato ma senza healthUrl né tipo AWS leggibile.
   if (expected) return { key, status: 'unknown', reason: t('version.nosource') }
   return null // segnale non applicabile
 }

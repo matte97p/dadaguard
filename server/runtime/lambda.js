@@ -1,57 +1,11 @@
 import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
-import { CloudTrailClient, LookupEventsCommand } from '@aws-sdk/client-cloudtrail'
 import { metricValues } from './cw.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig } from './lambdaConfig.js'
-import { principalName } from '../util/principal.js'
+import { lastModifier } from './lastModifier.js'
 import { nextRun } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { fmtMs, fmtCount } from '../util/format.js'
-
-// #2 ultimo modificatore Lambda via CloudTrail. Le Lambda non espongono "chi" nella config (solo
-// LastModified), quindi lo cerchiamo negli eventi CloudTrail di scrittura sulla funzione. È l'unico
-// segnale con un costo extra (una LookupEvents), perciò lo CACHIAMO per `funzione@LastModified`:
-// una sola query per funzione finché non viene rideployata (il timestamp cambia → cache invalidata).
-// Best-effort: CloudTrail negato/throttle/vuoto → nessun modificatore, mai un errore.
-const LAMBDA_WRITE_EVENTS = new Set([
-  'UpdateFunctionCode20150331v2',
-  'UpdateFunctionConfiguration20150331v2',
-  'UpdateFunctionCode20150331',
-  'UpdateFunctionConfiguration20150331',
-  'CreateFunction20150331',
-])
-const _modifierCache = new Map() // `${fn}@${lastModified}` → who|null
-
-function userArnFromEvent(raw) {
-  try {
-    return JSON.parse(raw)?.userIdentity?.arn ?? null
-  } catch {
-    return null
-  }
-}
-
-async function lambdaLastModifier(cfg, aws, lastModified) {
-  const cacheKey = `${cfg.function}@${lastModified ?? ''}`
-  if (_modifierCache.has(cacheKey)) return _modifierCache.get(cacheKey)
-  try {
-    const ct = new CloudTrailClient(clientOpts(aws))
-    const out = await ct.send(
-      new LookupEventsCommand({
-        LookupAttributes: [{ AttributeKey: 'ResourceName', AttributeValue: cfg.function }],
-        MaxResults: 15, // eventi più recenti prima; cerchiamo il primo di scrittura
-      }),
-    )
-    const ev = (out.Events ?? []).find((e) => LAMBDA_WRITE_EVENTS.has(e.EventName))
-    const who = ev ? ev.Username || principalName(userArnFromEvent(ev.CloudTrailEvent)) : null
-    // Cache SOLO in caso di successo (anche "nessun evento nei 90gg" è un esito valido). Un errore
-    // (throttle 2 TPS / denied) NON si cacha → si riprova al refresh successivo finché non riesce,
-    // altrimenti una risorsa throttlata resterebbe senza "modificato da" fino al prossimo deploy.
-    _modifierCache.set(cacheKey, who)
-    return who
-  } catch {
-    return null
-  }
-}
 
 // RuntimeProvider per Lambda. Due profili di salute:
 //  - on-demand (webhook/event): finestra breve; 0 invocazioni = `idle` (ok, nessuno l'ha chiamata).
@@ -229,6 +183,7 @@ export async function lambdaBuildInfo(cfg, aws) {
   }
   // CodeSha256 = identità del build (cambia a ogni deploy): per le funzioni non versionate
   // ($LATEST) è l'unico modo per dire "quale build è viva".
-  const modifiedBy = await lambdaLastModifier(cfg, aws, conf.LastModified)
+  // cacheKey precisa per fn@LastModified: una query per funzione finché non viene rideployata.
+  const modifiedBy = await lastModifier(cfg.function, aws, { cacheKey: `${cfg.function}@${conf.LastModified ?? ''}` })
   return { version, lastModified: conf.LastModified ?? null, codeSha: conf.CodeSha256 ?? null, modifiedBy }
 }
