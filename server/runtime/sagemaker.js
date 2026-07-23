@@ -35,5 +35,5 @@ export async function sagemakerRuntime(cfg, aws, opts = {}) {
   if (e4 > 0) metrics.push({ label: t('m.errClient'), value: String(e4), tone: 'warning' })
   if (e4 === 0 && e5 === 0) metrics.push({ label: t('m.errors'), value: '0', tone: 'good' })
   if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat / 1000))}` })
-  return { status, summary: `${parts.join(' · ')} (${winL})`, metrics, window: winL }
+  return { status, summary: `${parts.join(' · ')} (${winL})`, metrics, window: winL, spark: m.series?.inv }
 }
