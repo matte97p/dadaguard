@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import { fmtMs } from '../format.js'
 import { prettyBedrock } from '../serviceName.js'
+import Sparkline from './Sparkline.jsx'
 
 // Logo Terraform (SVG inline) colorato per stato del drift: la card mostra solo il logo, il testo
 // (sì/no · diffs) va nel tooltip. Verde=conforme, rosso=drift, giallo=stato ignoto.
@@ -255,6 +256,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
                   · {runtime.nextRunLabel}
                 </Text>
               )}
+              {runtime.spark?.length > 1 && <Sparkline data={runtime.spark} />}
             </Space>
           </Descriptions.Item>
         )}
