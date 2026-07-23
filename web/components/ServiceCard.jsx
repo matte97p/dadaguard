@@ -34,6 +34,31 @@ function CheckBadge({ status }) {
   return <Badge status={STATUS[status]?.status ?? 'default'} />
 }
 
+// Espone un summary denso ("a · b · c (60m)") come PILLOLE separate che vanno a capo pulite,
+// invece di una stringa unica illeggibile. L'eventuale finestra finale "(60m)" resta muta a destra.
+function MetricChips({ text }) {
+  if (!text) return <span>—</span>
+  const s = String(text)
+  const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/) // estrae la finestra finale, non i "(4xx)" a metà
+  const body = m ? m[1] : s
+  const win = m ? m[2] : null
+  const parts = body.split(' · ').map((p) => p.trim()).filter(Boolean)
+  if (parts.length <= 1 && !win) return <span>{s}</span>
+  return (
+    <Space size={[6, 3]} wrap>
+      {parts.map((p, i) => (
+        <span
+          key={i}
+          style={{ background: 'rgba(128,128,128,0.14)', borderRadius: 6, padding: '0 6px', fontSize: 12, whiteSpace: 'nowrap' }}
+        >
+          {p}
+        </span>
+      ))}
+      {win && <Text type="secondary" style={{ fontSize: 11 }}>{win}</Text>}
+    </Space>
+  )
+}
+
 // Etichetta riga + tooltip che spiega COSA misura il segnale (il contenuto, da solo, è gergo).
 function RowLabel({ children, tip }) {
   return (
@@ -167,9 +192,9 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
 
         {version && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.build')}>{t('card.label.build')}</RowLabel>}>
-            <Space size={4}>
+            <Space size={4} align="start">
               <CheckBadge status={version.status} />
-              <span>{version.summary ?? version.reason ?? '—'}</span>
+              {version.summary ? <MetricChips text={version.summary} /> : <span>{version.reason ?? '—'}</span>}
               {version.expectedSource === 'url' && (
                 <Text type="secondary">· {t('card.expectedFrom', { from: version.expectedFrom })}</Text>
               )}
@@ -179,9 +204,9 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
 
         {runtime && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.runtime')}>{t('card.label.runtime')}</RowLabel>}>
-            <Space size={4}>
+            <Space size={4} align="start">
               <CheckBadge status={runtime.status} />
-              <span>{runtime.summary ?? runtime.reason ?? '—'}</span>
+              {runtime.summary ? <MetricChips text={runtime.summary} /> : <span>{runtime.reason ?? '—'}</span>}
             </Space>
           </Descriptions.Item>
         )}
