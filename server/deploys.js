@@ -29,11 +29,43 @@ export function triggerOf(initiator) {
   return /gha-deploy|github|hookshot|codeconnection|codestar/i.test(initiator || '') ? 'auto' : 'manuale'
 }
 
-// Normalizza un build CodeBuild nella forma minima che serve alla UI (nessun valore sensibile).
+const FAILED_PHASE = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
+
+// Messaggi tecnici di una fase (contexts CodeBuild): il "perché". Niente valori sensibili — sono
+// stringhe d'errore del builder (es. "Command did not exit successfully ... exit status 1"). Puro.
+function phaseMessage(p = {}) {
+  return (p.contexts ?? []).map((c) => c.message || c.statusCode).filter(Boolean).join(' · ')
+}
+
+// Fase CodeBuild → forma compatta per la timeline del drawer di dettaglio. Il messaggio si include
+// SOLO per le fasi non riuscite (è lì che serve il perché), per tenere il payload piccolo. Puro/testabile.
+export function mapPhase(p = {}) {
+  const msg = FAILED_PHASE.has(p.phaseStatus) ? phaseMessage(p) : ''
+  return {
+    type: p.phaseType, // SUBMITTED | QUEUED | PROVISIONING | DOWNLOAD_SOURCE | INSTALL | PRE_BUILD | BUILD | POST_BUILD | ...
+    status: p.phaseStatus ?? null, // l'ultima fase (COMPLETED) non ha status
+    durationMs: p.durationInSeconds != null ? p.durationInSeconds * 1000 : null,
+    ...(msg ? { message: msg } : {}),
+  }
+}
+
+// Motivo del fallimento di un build: prima fase fallita + il suo messaggio. Null se nessuna fase fallita.
+// Puro/testabile.
+export function failureOf(phases = []) {
+  const f = (phases ?? []).find((p) => FAILED_PHASE.has(p.phaseStatus))
+  if (!f) return null
+  return { phase: f.phaseType, reason: phaseMessage(f) || null }
+}
+
+// Normalizza un build CodeBuild nella forma che serve alla UI (nessun segreto): stato/commit/trigger,
+// più le FASI (timeline), il MOTIVO del fallimento e il deep-link ai log CloudWatch (per il drawer).
 export function mapBuild(b = {}) {
   const started = b.startTime ?? null
   const ended = b.endTime ?? null
+  const phases = (b.phases ?? []).map(mapPhase)
+  const fail = failureOf(b.phases)
   return {
+    id: b.id ?? null,
     service: serviceFromProject(b.projectName),
     project: b.projectName,
     number: b.buildNumber ?? null,
@@ -45,6 +77,10 @@ export function mapBuild(b = {}) {
     startedAt: started,
     endedAt: ended,
     durationMs: started && ended ? new Date(ended).getTime() - new Date(started).getTime() : null,
+    phases,
+    failPhase: fail?.phase ?? null,
+    failReason: fail?.reason ?? null,
+    logsUrl: b.logs?.deepLink ?? null, // console CloudWatch del log stream di questo build
   }
 }
 
