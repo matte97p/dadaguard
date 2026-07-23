@@ -39,6 +39,7 @@ import LogsDrawer from './components/LogsDrawer.jsx'
 import EventsDrawer from './components/EventsDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
+import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -90,6 +91,7 @@ export default function App() {
   const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
   const [eventsService, setEventsService] = useState(null) // ... e gli eventi recenti
   const [paletteOpen, setPaletteOpen] = useState(false) // ⌘K ricerca globale servizi
+  const [detailName, setDetailName] = useState(null) // servizio aperto nel drawer di dettaglio
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
@@ -121,22 +123,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Salta a un servizio: vai alla dashboard e scrolla/evidenzia la sua card.
-  const jumpToService = useCallback(
-    (svc) => {
-      navigate('/')
-      setTimeout(() => {
-        const el = document.querySelector(`[data-service="${(window.CSS?.escape ?? ((s) => s))(svc.name)}"]`)
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          el.style.transition = 'box-shadow .2s'
-          el.style.boxShadow = '0 0 0 2px #1677ff'
-          setTimeout(() => (el.style.boxShadow = ''), 1600)
-        }
-      }, 120)
-    },
-    [navigate],
-  )
 
   // Lingua effettiva: preferenza salvata, altrimenti IT in locale / lingua browser in cloud.
   const lang = resolveLang(langPref, data?.mode)
@@ -206,6 +192,7 @@ export default function App() {
   }, [load])
 
   const services = data?.services ?? []
+  const detailService = detailName ? services.find((s) => s.name === detailName) : null
   const isCloud = data?.mode === 'cloud'
   const caps = data?.capabilities ?? { watchlist: !isCloud, discover: !isCloud, fullDrift: !isCloud }
 
@@ -514,6 +501,7 @@ export default function App() {
                   onRemove={removeService}
                   onLogs={setLogsService}
                   onEvents={setEventsService}
+                  onOpen={setDetailName}
                   t={t}
                 />
               }
@@ -569,7 +557,15 @@ export default function App() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           services={groups.flatMap((g) => g.services)}
-          onPick={jumpToService}
+          onPick={(svc) => setDetailName(svc.name)}
+          t={t}
+        />
+        <ServiceDetailDrawer
+          service={detailService}
+          onClose={() => setDetailName(null)}
+          onLogs={setLogsService}
+          onEvents={setEventsService}
+          onNavigate={navigate}
           t={t}
         />
 

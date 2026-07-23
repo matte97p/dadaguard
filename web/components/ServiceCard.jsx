@@ -113,7 +113,7 @@ function RowLabel({ children, tip }) {
   )
 }
 
-export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (k) => k }) {
+export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpen, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs', 'ecs-scheduled'].includes(service.type) // tipi con log applicativi su CloudWatch
   const hasEvents = Boolean(service.type) // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail
@@ -158,8 +158,11 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
           const sub = bedrock ? (bedrock.name !== service.name ? [bedrock.meta, service.name].filter(Boolean).join(' · ') : null) : service.description
           return (
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-              <Tooltip title={bedrock && bedrock.name !== service.name ? service.name : undefined}>
-                <span>
+              <Tooltip title={bedrock && bedrock.name !== service.name ? service.name : t('card.openDetail')}>
+                <span
+                  onClick={onOpen ? () => onOpen(service.name) : undefined}
+                  style={onOpen ? { cursor: 'pointer' } : undefined}
+                >
                   <Badge status={overall.status} text={bedrock?.name ?? service.name} />
                 </span>
               </Tooltip>
