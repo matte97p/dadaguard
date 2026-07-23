@@ -141,7 +141,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
           const sub = bedrock ? (bedrock.name !== service.name ? [bedrock.meta, service.name].filter(Boolean).join(' · ') : null) : service.description
           return (
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-              <Tooltip title={bedrock && bedrock.name !== service.name ? service.name : t('card.openDetail')}>
+              <Tooltip title={service.name}>
                 <span
                   onClick={onOpen ? () => onOpen(service.name) : undefined}
                   style={onOpen ? { cursor: 'pointer' } : undefined}
@@ -164,7 +164,6 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
             <Tooltip title={[runtime.scheduleExpr || t('card.cron.tip'), runtime.nextRunLabel].filter(Boolean).join(' · ')}>
               <Tag icon={<ClockCircleOutlined />} style={{ marginInlineEnd: 0 }}>
                 {runtime.schedule}
-                {runtime.nextRunLabel && <span style={{ opacity: 0.7, marginInlineStart: 6 }}>· {runtime.nextRunLabel}</span>}
               </Tag>
             </Tooltip>
           )}
@@ -242,7 +241,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
 
         {runtime && (
           <Descriptions.Item label={<RowLabel tip={t('card.tip.runtime')}>{t('card.label.runtime')}</RowLabel>}>
-            <Space size={4} align="start">
+            <Space size={4} align="start" wrap>
               <CheckBadge status={runtime.status} />
               {runtime.metrics?.length ? (
                 <StatRow metrics={runtime.metrics} window={runtime.window} />
@@ -250,6 +249,11 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
                 <MetricChips text={runtime.summary} />
               ) : (
                 <span>{runtime.reason ?? '—'}</span>
+              )}
+              {runtime.nextRunLabel && (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  · {runtime.nextRunLabel}
+                </Text>
               )}
             </Space>
           </Descriptions.Item>
