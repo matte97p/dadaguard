@@ -22,16 +22,25 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
       ['serr', 'InvocationServerErrors', 'Sum'],
       ['thr', 'InvocationThrottles', 'Sum'],
       ['lat', 'InvocationLatency', 'Average'],
+      ['tin', 'InputTokenCount', 'Sum'],
+      ['tout', 'OutputTokenCount', 'Sum'],
     ],
     windowMin,
   )
   const winL = `${windowMin}m`
   if (!m.inv && !m.cerr && !m.serr && !m.thr) return { status: 'idle', summary: t('bedrock.idle', { window: winL }) }
-  const errors = Math.round(m.cerr + m.serr)
+  const cerr = Math.round(m.cerr)
+  const serr = Math.round(m.serr)
   const throttles = Math.round(m.thr)
-  const status = throttles > 0 || m.serr > 0 || errors > 0 ? 'degraded' : 'up'
-  const parts = [t('bedrock.invocations', { n: fmtCount(Math.round(m.inv)) }), t('bedrock.errors', { n: errors })]
+  const status = throttles > 0 || serr > 0 || cerr > 0 ? 'degraded' : 'up'
+  // Spacchetta gli errori: client (4xx, richieste sbagliate/quota) vs server (5xx, colpa di Bedrock)
+  // = cause diverse. Se puliti, mostra "0 errori".
+  const parts = [t('bedrock.invocations', { n: fmtCount(Math.round(m.inv)) })]
+  if (cerr > 0) parts.push(t('bedrock.clienterr', { n: cerr }))
+  if (serr > 0) parts.push(t('bedrock.servererr', { n: serr }))
+  if (cerr === 0 && serr === 0) parts.push(t('bedrock.errors', { n: 0 }))
   if (throttles > 0) parts.push(t('bedrock.throttled', { n: throttles }))
   if (m.lat > 0) parts.push(t('bedrock.latency', { d: fmtMs(Math.round(m.lat)) }))
-  return { status, summary: `${parts.join(' · ')} (${winL})` }
+  if (m.tin > 0 || m.tout > 0) parts.push(t('bedrock.tokens', { in: fmtCount(Math.round(m.tin)), out: fmtCount(Math.round(m.tout)) }))
+  return { status, summary: `${parts.join(' · ')} (${winL})`, clientErrors: cerr, serverErrors: serr, throttles }
 }
