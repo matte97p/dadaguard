@@ -40,6 +40,7 @@ import EventsDrawer from './components/EventsDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
+import { displayName } from './serviceName.js'
 import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -251,7 +252,7 @@ export default function App() {
         (scheduleFilter === 'all' || (scheduleFilter === 'cron') === cron) &&
         (managedFilter === 'all' ||
           (managedFilter === 'managed' ? s.managed === true : s.managed === false)) &&
-        (!q || s.name.toLowerCase().includes(q)) &&
+        (!q || s.name.toLowerCase().includes(q) || displayName(s).toLowerCase().includes(q)) &&
         (!problemsOnly || s.overall === 'degraded' || s.overall === 'down')
       )
     })
