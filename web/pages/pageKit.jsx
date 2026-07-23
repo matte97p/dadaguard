@@ -41,3 +41,24 @@ export function PageIntro({ title, desc, extra }) {
     </div>
   )
 }
+
+// Stat tile per gli hero di pagina: label muta piccola + valore grande. Colore solo per lo stato.
+export function HeroStat({ label, value, color, size = 20 }) {
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
+      <Text type="secondary" style={{ fontSize: 11 }}>
+        {label}
+      </Text>
+      <span style={{ fontSize: size, fontWeight: 700, color }}>{value}</span>
+    </span>
+  )
+}
+
+// Banda hero: fila di HeroStat che va a capo pulita.
+export function HeroRow({ children }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 32px', alignItems: 'flex-end', margin: '2px 0 18px' }}>
+      {children}
+    </div>
+  )
+}

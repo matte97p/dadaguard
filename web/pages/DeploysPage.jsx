@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Spin, Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
-import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -208,6 +208,21 @@ export default function DeploysPage({ accountLabels, t = (k) => k, lang }) {
       )}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
       {data && accounts.length === 0 && <Empty description={t('deploys.noAccounts')} style={{ marginTop: 24 }} />}
+
+      {accounts.length > 0 &&
+        (() => {
+          const all = accounts.flatMap(([, acc]) => acc.builds ?? [])
+          const running = all.filter((b) => b.inProgress || b.status === 'IN_PROGRESS').length
+          const ok = all.filter((b) => b.status === 'SUCCEEDED').length
+          const failed = all.filter((b) => FAILED_STATUSES.includes(b.status)).length
+          return (
+            <HeroRow>
+              {running > 0 && <HeroStat label={t('deploys.running')} value={running} color="#1677ff" size={18} />}
+              <HeroStat label={t('deploys.ok')} value={ok} color={ok ? '#52c41a' : undefined} size={18} />
+              <HeroStat label={t('deploys.failed')} value={failed} color={failed ? '#ff4d4f' : undefined} size={18} />
+            </HeroRow>
+          )
+        })()}
 
       <div style={PANEL_GRID}>
         {accounts.map(([key, acc]) => {
