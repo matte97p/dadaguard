@@ -98,9 +98,10 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
       extra={
         <Space size={8}>
           {runtime?.schedule && (
-            <Tooltip title={runtime.scheduleExpr || t('card.cron.tip')}>
+            <Tooltip title={[runtime.scheduleExpr || t('card.cron.tip'), runtime.nextRunLabel].filter(Boolean).join(' · ')}>
               <Tag icon={<ClockCircleOutlined />} style={{ marginInlineEnd: 0 }}>
                 {runtime.schedule}
+                {runtime.nextRunLabel && <span style={{ opacity: 0.7, marginInlineStart: 6 }}>· {runtime.nextRunLabel}</span>}
               </Tag>
             </Tooltip>
           )}
