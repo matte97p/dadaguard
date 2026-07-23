@@ -1,4 +1,4 @@
-import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Spin } from 'antd'
+import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Card, Skeleton } from 'antd'
 import ServiceCard from '../components/ServiceCard.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
 
@@ -37,9 +37,15 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
         <Alert type="error" message={`${t('content.errorPrefix')} ${error}`} style={{ marginBottom: 16 }} showIcon />
       )}
       {loading && !data && (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin size="large" />
-        </div>
+        <Row gutter={[16, 16]}>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Col key={i} xs={24} sm={12} md={8} lg={6}>
+              <Card size="small">
+                <Skeleton active title={{ width: '60%' }} paragraph={{ rows: 3, width: ['90%', '80%', '70%'] }} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
       )}
       {data && groups.length === 0 && <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />}
 
