@@ -32,7 +32,6 @@ function userArnFromEvent(raw) {
 async function lambdaLastModifier(cfg, aws, lastModified) {
   const cacheKey = `${cfg.function}@${lastModified ?? ''}`
   if (_modifierCache.has(cacheKey)) return _modifierCache.get(cacheKey)
-  let who = null
   try {
     const ct = new CloudTrailClient(clientOpts(aws))
     const out = await ct.send(
@@ -42,12 +41,15 @@ async function lambdaLastModifier(cfg, aws, lastModified) {
       }),
     )
     const ev = (out.Events ?? []).find((e) => LAMBDA_WRITE_EVENTS.has(e.EventName))
-    if (ev) who = ev.Username || principalName(userArnFromEvent(ev.CloudTrailEvent))
+    const who = ev ? ev.Username || principalName(userArnFromEvent(ev.CloudTrailEvent)) : null
+    // Cache SOLO in caso di successo (anche "nessun evento nei 90gg" è un esito valido). Un errore
+    // (throttle 2 TPS / denied) NON si cacha → si riprova al refresh successivo finché non riesce,
+    // altrimenti una risorsa throttlata resterebbe senza "modificato da" fino al prossimo deploy.
+    _modifierCache.set(cacheKey, who)
+    return who
   } catch {
-    who = null // best-effort
+    return null
   }
-  _modifierCache.set(cacheKey, who)
-  return who
 }
 
 // RuntimeProvider per Lambda. Due profili di salute:
@@ -125,7 +127,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     ['err', 'Errors', 'Sum'],
     ['thr', 'Throttles', 'Sum'],
   ]
-  if (!isCron) queries.push(['dur', 'Duration', 'p95']) // p95 → il batcher aggrega col max dei punti
+  queries.push(['dur', 'Duration', 'p95']) // p95 → il batcher aggrega col max dei punti (anche per i cron: latenza)
   const m = await metricValues(aws, 'AWS/Lambda', dims, queries, windowMin)
   const invocations = m.inv
   const errors = m.err
@@ -146,14 +148,17 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     }
     // Tutte le invocazioni falliscono → la cron di fatto non completa mai: GIÙ, non solo ATTENZIONE.
     const status = errors >= invocations ? 'down' : throttles > 0 || errors > 0 ? 'degraded' : 'up'
+    const p95 = m.dur
     const parts = [t('lambda.runs', { n: invocations }), t('lambda.errors', { n: errors })]
     if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
+    if (p95) parts.push(t('lambda.p95', { d: fmtMs(Math.round(p95)) })) // latenza: quanto dura la run
     return {
       status,
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
       invocations,
       errors,
       throttles,
+      p95Ms: p95 ? Math.round(p95) : null,
       schedule: cfg.schedule,
       scheduleExpr: cfg.scheduleExpr,
     }
