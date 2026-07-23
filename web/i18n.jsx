@@ -142,6 +142,8 @@ const STRINGS = {
     'status.disabled': 'spenti',
     'status.unknown': 'sconosciuto',
     'status.up': 'ok',
+    'summary.services': 'servizi',
+    'summary.problems': 'problemi',
 
     'card.status.up': 'OK',
     'card.status.degraded': 'ATTENZIONE',
@@ -487,6 +489,8 @@ const STRINGS = {
     'status.disabled': 'disabled',
     'status.unknown': 'unknown',
     'status.up': 'ok',
+    'summary.services': 'services',
+    'summary.problems': 'problems',
 
     'card.status.up': 'OK',
     'card.status.degraded': 'WARNING',

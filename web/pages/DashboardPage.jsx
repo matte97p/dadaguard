@@ -4,6 +4,11 @@ import StatusSummary from '../components/StatusSummary.jsx'
 
 const { Text } = Typography
 
+// Ordinamento: problemi in cima (down → degraded → sconosciuto/idle → ok), poi per nome. Così le
+// cose rotte si vedono per prime senza scorrere.
+const SEV = { down: 0, degraded: 1, unknown: 2, idle: 3, disabled: 3, up: 4 }
+const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
+
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
 export default function DashboardPage({ data, groups, caps, loading, error, onRemove, onLogs, onEvents, t }) {
   return (
@@ -48,7 +53,7 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
             </Space>
           </Divider>
           <Row gutter={[16, 16]}>
-            {g.services.map((svc) => (
+            {[...g.services].sort(byseverity).map((svc) => (
               <Col key={svc.name} xs={24} sm={12} md={8} lg={6}>
                 <ServiceCard
                   service={svc}
