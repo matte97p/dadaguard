@@ -13,11 +13,25 @@ test('principalName: assumed-role SSO → sessione (la persona)', () => {
   )
 })
 
-test('principalName: assumed-role CI → nome sessione', () => {
-  assert.equal(principalName('arn:aws:sts::123:assumed-role/cato-prod-deploy/GitHubActions'), 'GitHubActions')
+test('principalName: sessione GitHubActions → etichetta CI pulita', () => {
+  assert.equal(principalName('arn:aws:sts::123:assumed-role/cato-prod-gha-cron-deploy/GitHubActions'), 'GitHub Actions')
 })
 
-test('principalName: sessione = id macchina/numerico → mostra il ruolo', () => {
+test('principalName: sessione CodeBuild (uuid) → nome pipeline dal ruolo, non l’uuid', () => {
+  assert.equal(
+    principalName('arn:aws:sts::123:assumed-role/cato-production-backend-deploy/AWSCodeBuild-2e6fe04c-74d7-4830'),
+    'backend-deploy',
+  )
+})
+
+test('principalName: sessione custom codebuild-iac → pipeline pulita', () => {
+  assert.equal(
+    principalName('arn:aws:sts::123:assumed-role/cato-staging-codebuild-iac/codebuild-iac-132'),
+    'codebuild-iac',
+  )
+})
+
+test('principalName: sessione = id macchina/numerico → mostra il ruolo (prettified)', () => {
   assert.equal(principalName('arn:aws:sts::123:assumed-role/SomeRole/i-0abc123def'), 'SomeRole')
   assert.equal(principalName('arn:aws:sts::123:assumed-role/SomeRole/1699999999'), 'SomeRole')
 })
