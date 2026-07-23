@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Spin, Alert, Empty, Typography, Space, Badge, Progress } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -36,6 +36,18 @@ export default function QuotasPage({ accountLabels, t = (k) => k, lang }) {
       {data && accounts.length > 0 && !anyQuota && !loading && (
         <Empty description={t('quotas.none')} style={{ marginTop: 24 }} />
       )}
+
+      {anyQuota &&
+        (() => {
+          const all = accounts.flatMap((a) => a.quotas ?? [])
+          const crit = all.filter((q) => q.pct >= 90).length
+          return (
+            <HeroRow>
+              <HeroStat label={t('quotas.h.near')} value={all.length} />
+              <HeroStat label={t('quotas.h.crit')} value={crit} color={crit ? '#ff4d4f' : undefined} size={18} />
+            </HeroRow>
+          )
+        })()}
 
       <div style={PANEL_GRID}>
         {accounts.map(
