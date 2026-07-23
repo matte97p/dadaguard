@@ -4,6 +4,7 @@ import { metricValues } from './cw.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig } from './lambdaConfig.js'
 import { principalName } from '../util/principal.js'
+import { nextRun } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { fmtMs, fmtCount } from '../util/format.js'
 
@@ -133,6 +134,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const errors = m.err
   const throttles = m.thr
 
+  // Prossima esecuzione (solo cron attivi): dal cron() EventBridge. rate() → null (anchor ignoto).
+  const now = Date.now()
+  const nextRunAt = isCron ? nextRun(cfg.scheduleExpr, now) : null
+  const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
+
   // --- Cron: dead man's switch ---
   if (isCron) {
     if (invocations === 0) {
@@ -144,6 +150,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
         throttles,
         schedule: cfg.schedule,
         scheduleExpr: cfg.scheduleExpr,
+        nextRunAt,
+        nextRunLabel,
       }
     }
     // Tutte le invocazioni falliscono → la cron di fatto non completa mai: GIÙ, non solo ATTENZIONE.
@@ -161,6 +169,8 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       p95Ms: p95 ? Math.round(p95) : null,
       schedule: cfg.schedule,
       scheduleExpr: cfg.scheduleExpr,
+      nextRunAt,
+      nextRunLabel,
     }
   }
 
