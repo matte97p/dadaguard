@@ -1,0 +1,10 @@
+/* Titolo delle card: va a capo invece di troncare i nomi lunghi (es. cato-production-cron-…).
+   antd di default mette ellipsis su .ant-card-head-title; qui lo lasciamo andare su 2 righe. */
+.ant-card-head-title {
+  white-space: normal !important;
+  overflow: visible;
+  text-overflow: unset;
+}
+.ant-card-head {
+  align-items: flex-start;
+}
