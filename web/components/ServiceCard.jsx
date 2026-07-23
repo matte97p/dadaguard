@@ -34,6 +34,25 @@ function CheckBadge({ status }) {
   return <Badge status={STATUS[status]?.status ?? 'default'} />
 }
 
+// Nome leggibile per un modello Bedrock: dall'ID grezzo (eu.anthropic.claude-sonnet-4-5-20250929-v1:0)
+// a "Claude Sonnet 4.5" + meta "eu · 2025-09-29". Puro. Non-bedrock/ID atipico → { name: id }.
+function prettyBedrock(id) {
+  const raw = String(id ?? '')
+  const regionM = raw.match(/^([a-z0-9]+)\./i)
+  let s = raw.replace(/^[a-z0-9]+\./i, '').replace(/^[a-z0-9]+\./i, '') // toglie region + provider
+  const dateM = s.match(/-(\d{8})(?:-v[\d:]+)?$/)
+  const base = dateM ? s.slice(0, dateM.index) : s.replace(/-v[\d:]+$/, '')
+  if (!base) return { name: raw }
+  const name = base
+    .replace(/(\d)-(\d)/g, '$1.$2') // 4-5 → 4.5
+    .split('-')
+    .map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ')
+  const region = /^(eu|us|apac|ap|ca|sa)$/i.test(regionM?.[1]) ? regionM[1].toLowerCase() : null
+  const date = dateM ? `${dateM[1].slice(0, 4)}-${dateM[1].slice(4, 6)}-${dateM[1].slice(6, 8)}` : null
+  return { name, meta: [region, date].filter(Boolean).join(' · ') }
+}
+
 // Espone un summary denso ("a · b · c (60m)") come PILLOLE separate che vanno a capo pulite,
 // invece di una stringa unica illeggibile. L'eventuale finestra finale "(60m)" resta muta a destra.
 function MetricChips({ text }) {
@@ -134,14 +153,24 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, t = (
       // accento colore dell'ambiente: riconosci prod da staging a colpo d'occhio
       style={account?.color ? { borderTop: `3px solid ${account.color}` } : undefined}
       title={
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <Badge status={overall.status} text={service.name} />
-          {service.description && (
-            <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, whiteSpace: 'normal' }}>
-              {service.description}
-            </Text>
-          )}
-        </div>
+        (() => {
+          const bedrock = service.type === 'bedrock' ? prettyBedrock(service.name) : null
+          const sub = bedrock ? (bedrock.name !== service.name ? [bedrock.meta, service.name].filter(Boolean).join(' · ') : null) : service.description
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+              <Tooltip title={bedrock && bedrock.name !== service.name ? service.name : undefined}>
+                <span>
+                  <Badge status={overall.status} text={bedrock?.name ?? service.name} />
+                </span>
+              </Tooltip>
+              {sub && (
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, whiteSpace: 'normal' }}>
+                  {sub}
+                </Text>
+              )}
+            </div>
+          )
+        })()
       }
       extra={
         <Space size={8}>
