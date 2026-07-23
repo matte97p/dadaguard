@@ -46,7 +46,10 @@ async function flush(bkey) {
   const { aws, windowMin, items } = q
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - windowMin * 60 * 1000)
-  const period = Math.min(windowMin * 60, 86400)
+  // ~24 bucket invece di un unico secchione: l'aggregato client-side resta corretto (Sum/Max/Avg
+  // sono order/bucket-independent) e in più otteniamo la SERIE per le sparkline. Period ≥ 60s (multiplo).
+  const windowSec = windowMin * 60
+  const period = Math.min(86400, Math.max(60, Math.round(windowSec / 24 / 60) * 60))
 
   // ID globale per (item i, query j): "i{i}q{j}" → riconducibile al chiamante alla ricezione.
   const all = []
@@ -69,14 +72,21 @@ async function flush(bkey) {
     const client = clientFor(aws)
     for (let s = 0; s < all.length; s += 500) {
       const res = await client.send(
-        new GetMetricDataCommand({ StartTime: startTime, EndTime: endTime, MetricDataQueries: all.slice(s, s + 500) }),
+        new GetMetricDataCommand({
+          StartTime: startTime,
+          EndTime: endTime,
+          ScanBy: 'TimestampAscending', // serie ordinata vecchio→nuovo (per le sparkline)
+          MetricDataQueries: all.slice(s, s + 500),
+        }),
       )
       for (const r of res.MetricDataResults ?? []) byId[r.Id] = r.Values ?? []
     }
     items.forEach((it, i) => {
-      const out = {}
+      const out = { series: {} }
       it.queries.forEach(([id, , stat], j) => {
-        out[id] = aggregate(byId[`i${i}q${j}`], stat)
+        const vals = byId[`i${i}q${j}`] ?? []
+        out[id] = aggregate(vals, stat)
+        out.series[id] = vals
       })
       it.resolve(out)
     })
