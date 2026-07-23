@@ -35,6 +35,10 @@ export function validateConfig(doc) {
     accounts,
     services,
     org: doc?.org ?? null,
+    // Auto-discovery LOCALE degli account dai profili SSO in `~/.aws/config` (vedi server/awsProfiles.js):
+    // attiva di default in locale (spirito zero-config), opt-out con `discoverAccounts: false`. Può anche
+    // essere un oggetto `{ exclude: [...] }` per saltare account per Id o Nome. Ignorata in cloud e con `org`.
+    discoverAccounts: doc?.discoverAccounts ?? null,
     freeTierAccount: doc?.freeTierAccount ?? null,
     // URL pubblico con cui Dadaguard è esposto (dietro Cloudflare Access): il guardiano
     // anti-esposizione lo sonda per verificare di avere davvero il login davanti (vedi server/exposure.js).
@@ -50,8 +54,9 @@ export function loadConfig() {
   } catch (err) {
     if (err.code !== 'ENOENT') throw err
     // Zero-config: nessun services.yaml. Sintetizza un account 'default' dalla catena di
-    // credenziali AWS (env / SSO / role), region da AWS_REGION. I servizi li trova
-    // l'auto-discovery (read-only, in memoria). services.yaml resta un OVERRIDE opzionale.
+    // credenziali AWS (env / SSO / role), region da AWS_REGION — placeholder che l'auto-discovery
+    // degli account (server/awsProfiles.js, in resolveServices) SOSTITUISCE con i profili SSO di
+    // ~/.aws/config, se presenti. I servizi li trova l'auto-discovery. services.yaml resta un OVERRIDE.
     const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || undefined
     return { accounts: { default: { region, label: 'AWS' } }, services: [], org: null, publicUrl: null }
   }

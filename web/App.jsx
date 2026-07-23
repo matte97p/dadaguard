@@ -508,7 +508,7 @@ export default function App() {
               }
             />
             <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route path="/deploy" element={<DeploysPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
+            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} />} />
             <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route
               path="/topologia"

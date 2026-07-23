@@ -123,23 +123,41 @@ export function demoDeploys() {
   const m = 60_000
   const now = Date.now()
   const iso = (ms) => new Date(now - ms).toISOString()
+  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3) => ({
+    service,
+    project: `cato-${env}-${service}-deploy`,
+    number,
+    status,
+    inProgress: status === 'IN_PROGRESS',
+    commit,
+    trigger,
+    phase: status === 'IN_PROGRESS' ? 'BUILD' : 'COMPLETED',
+    startedAt: iso(agoMin * m),
+    endedAt: status === 'IN_PROGRESS' ? null : iso((agoMin - durMin) * m),
+    durationMs: status === 'IN_PROGRESS' ? null : durMin * m,
+  })
   return {
     staging: {
       label: 'Staging',
       color: '#1677ff',
       builds: [
-        { service: 'backend', project: 'cato-staging-backend-deploy', number: 42, status: 'IN_PROGRESS', inProgress: true, commit: 'b4f9558', trigger: 'auto', phase: 'BUILD', startedAt: iso(2 * m), endedAt: null, durationMs: null },
-        { service: 'agentic-chat', project: 'cato-staging-agentic-chat-deploy', number: 18, status: 'SUCCEEDED', inProgress: false, commit: '3e1c9a0', trigger: 'auto', phase: 'COMPLETED', startedAt: iso(26 * m), endedAt: iso(22 * m), durationMs: 4 * m },
-        { service: 'garanzia', project: 'cato-staging-garanzia-deploy', number: 7, status: 'FAILED', inProgress: false, commit: 'a90f231', trigger: 'manuale', phase: 'BUILD', startedAt: iso(180 * m), endedAt: iso(178 * m), durationMs: 2 * m },
+        b('backend', 'staging', 42, 'IN_PROGRESS', 2, 'b4f9558'),
+        b('backend', 'staging', 41, 'SUCCEEDED', 55, '5742eae'),
+        b('backend', 'staging', 40, 'SUCCEEDED', 130, '3064fdb'),
+        b('backend', 'staging', 39, 'FAILED', 210, 'f7de76e'),
+        b('backend', 'staging', 38, 'SUCCEEDED', 280, 'e866622'),
+        b('agentic-chat', 'staging', 18, 'FAILED', 26, '3e1c9a0'),
+        b('agentic-chat', 'staging', 17, 'FAILED', 95, '2b1c0d4', 'auto', 1),
+        b('garanzia', 'staging', 7, 'SUCCEEDED', 180, 'a90f231', 'manuale', 2),
       ],
     },
     prod: {
       label: 'Production',
       color: '#cf1322',
-      builds: [
-        { service: 'backend', project: 'cato-production-backend-deploy', number: 55, status: 'SUCCEEDED', inProgress: false, commit: '7d4b8e1', trigger: 'manuale', phase: 'COMPLETED', startedAt: iso(300 * m), endedAt: iso(295 * m), durationMs: 5 * m },
-      ],
+      builds: [b('backend', 'production', 55, 'SUCCEEDED', 300, '7d4b8e1', 'manuale', 5)],
     },
+    management: { label: 'Management (payer)', color: '#722ed1', builds: [], noProjects: true },
+    security: { label: 'Security', color: '#13c2c2', builds: [], noProjects: true },
   }
 }
 

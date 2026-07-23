@@ -30,6 +30,14 @@ docker run -p 3001:3001 -e DADAGUARD_DEMO=1 ghcr.io/matte97p/dadaguard:latest
 
 Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la versione deployata è quella attesa? il runtime reale (task *running* vs *desired*) è a posto? i secret che il servizio usa esistono? lo stato combacia con Terraform? Un servizio "verde" altrove qui può diventare **giallo**.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/deploys-dark.jpeg">
+    <img src="assets/deploys-light.jpeg" alt="Vista Deploy: build CodeBuild per account, con esito, tasso di successo e trend per servizio" width="820">
+  </picture><br>
+  <sub>Vista <b>Deploy</b> · cosa sta uscendo ora e com'è andata, <b>per account</b> — ultima build, tasso di successo e trend per servizio. Gli account si scoprono da soli dai profili SSO di <code>~/.aws/config</code>.</sub>
+</p>
+
 ## Segnali
 - **Liveness** + latenza
 - **Versione** deployata vs attesa

@@ -1,8 +1,9 @@
 import { loadConfig } from './config.js'
 import { autoDiscoverServices, mergeServices } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
+import { discoverProfileAccounts } from './awsProfiles.js'
 import { consoleUrl } from './console.js'
-import { MODE, capabilities, autoDiscover } from './mode.js'
+import { MODE, capabilities, autoDiscover, isLocal } from './mode.js'
 import { makeT } from './i18n.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
@@ -67,7 +68,7 @@ export function invalidateServicesCache() {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  const { accounts: declaredAccounts, services: declared, org } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -78,6 +79,31 @@ export async function resolveServices() {
       accounts = { ...accounts, ...(await resolveOrgAccounts(org)) }
     } catch (err) {
       log.error('org: ListAccounts fallita', { err: err.message })
+    }
+  } else if (isLocal && discoverAccounts !== false) {
+    // Zero-config account: in locale (senza `org`) scopri gli account dai profili SSO di `~/.aws/config`.
+    // Additiva: i dichiarati vincono (mantengono label/color/region e "coprono" il loro id); i profili
+    // restanti diventano account nuovi (es. `security`). Senza account reali dichiarati (path zero-config)
+    // la discovery LI SOSTITUISCE al placeholder 'default'. Opt-out: `discoverAccounts: false`.
+    try {
+      const opts = discoverAccounts && typeof discoverAccounts === 'object' ? discoverAccounts : {}
+      const fromProfiles = discoverProfileAccounts(opts)
+      const declaredReal = Object.values(declaredAccounts ?? {}).filter((a) => a.accountId || a.profile || a.roleArn)
+      if (Object.keys(fromProfiles).length) {
+        if (declaredReal.length === 0) {
+          accounts = fromProfiles
+        } else {
+          const declaredIds = new Set(declaredReal.map((a) => String(a.accountId)).filter(Boolean))
+          const merged = { ...accounts }
+          for (const [k, v] of Object.entries(fromProfiles)) {
+            if (declaredIds.has(String(v.accountId)) || merged[k]) continue
+            merged[k] = v
+          }
+          accounts = merged
+        }
+      }
+    } catch (err) {
+      log.error('discovery account da profili SSO fallita', { err: err.message })
     }
   }
 
