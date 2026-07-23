@@ -63,7 +63,16 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
     : t('ecs.tasks', { running: runningCount, desired: desiredCount }) +
       (pendingCount > 0 ? t('ecs.pending', { n: pendingCount }) : '')
 
-  return { status, summary, desiredCount, runningCount, pendingCount, deploying }
+  const metrics = [
+    {
+      label: t('m.tasks'),
+      value: `${runningCount}/${desiredCount}`,
+      tone: deploying ? 'warning' : status === 'up' ? 'good' : status === 'down' ? 'critical' : status === 'degraded' ? 'warning' : undefined,
+    },
+  ]
+  if (pendingCount > 0) metrics.push({ label: t('m.pending'), value: String(pendingCount), tone: 'warning' })
+
+  return { status, summary, metrics, desiredCount, runningCount, pendingCount, deploying }
 }
 
 // #2 build/deploy zero-config per ECS: tag immagine del task definition in uso
