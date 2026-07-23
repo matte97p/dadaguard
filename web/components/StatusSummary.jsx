@@ -1,33 +1,36 @@
-import { Space, Badge, Typography } from 'antd'
+import { Typography } from 'antd'
 
 const { Text } = Typography
 
-// Conteggio globale per stato — il colpo d'occhio in cima alla dashboard.
-const DEFS = [
-  { key: 'down', status: 'error' },
-  { key: 'degraded', status: 'warning' },
-  { key: 'idle', status: 'default' },
-  { key: 'disabled', status: 'default' },
-  { key: 'unknown', status: 'default' },
-  { key: 'up', status: 'success' },
-]
+// Banda overview: totale servizi prominente + conteggio per stato, colorato (problemi in evidenza).
+// Ordine: prima i problemi (down/degraded), poi il resto — così l'occhio va subito lì.
+const ORDER = ['down', 'degraded', 'unknown', 'idle', 'disabled', 'up']
+const TONE = {
+  down: '#ff4d4f',
+  degraded: '#faad14',
+  unknown: '#8c8c8c',
+  idle: '#8c8c8c',
+  disabled: '#8c8c8c',
+  up: '#52c41a',
+}
 
 export default function StatusSummary({ services = [], t = (k) => k }) {
   const counts = {}
   for (const s of services) counts[s.overall] = (counts[s.overall] || 0) + 1
-
+  const total = services.length
+  const shown = ORDER.filter((k) => counts[k])
   return (
-    <Space size="large" wrap>
-      {DEFS.filter((d) => counts[d.key]).map((d) => (
-        <Space key={d.key} size={4}>
-          <Badge status={d.status} />
-          <Text strong>{counts[d.key]}</Text>
-          <Text type="secondary">{t(`status.${d.key}`)}</Text>
-        </Space>
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '4px 18px' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+        <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1 }}>{total}</span>
+        <Text type="secondary">{t('summary.services')}</Text>
+      </span>
+      {shown.map((k) => (
+        <span key={k} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+          <span style={{ fontSize: 16, fontWeight: 600, color: TONE[k], lineHeight: 1 }}>{counts[k]}</span>
+          <Text type="secondary">{t(`status.${k}`)}</Text>
+        </span>
       ))}
-      <Text type="secondary">
-        · {t('content.servicesCount', { n: services.length })}
-      </Text>
-    </Space>
+    </div>
   )
 }
