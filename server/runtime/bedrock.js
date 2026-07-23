@@ -33,14 +33,15 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const serr = Math.round(m.serr)
   const throttles = Math.round(m.thr)
   const status = throttles > 0 || serr > 0 || cerr > 0 ? 'degraded' : 'up'
-  // Spacchetta gli errori: client (4xx, richieste sbagliate/quota) vs server (5xx, colpa di Bedrock)
-  // = cause diverse. Se puliti, mostra "0 errori".
-  const parts = [t('bedrock.invocations', { n: fmtCount(Math.round(m.inv)) })]
-  if (cerr > 0) parts.push(t('bedrock.clienterr', { n: cerr }))
-  if (serr > 0) parts.push(t('bedrock.servererr', { n: serr }))
-  if (cerr === 0 && serr === 0) parts.push(t('bedrock.errors', { n: 0 }))
-  if (throttles > 0) parts.push(t('bedrock.throttled', { n: throttles }))
-  if (m.lat > 0) parts.push(t('bedrock.latency', { d: fmtMs(Math.round(m.lat)) }))
-  if (m.tin > 0 || m.tout > 0) parts.push(t('bedrock.tokens', { in: fmtCount(Math.round(m.tin)), out: fmtCount(Math.round(m.tout)) }))
-  return { status, summary: `${parts.join(' · ')} (${winL})`, clientErrors: cerr, serverErrors: serr, throttles }
+  // Stat tile strutturati (label + valore + tono di stato). Errori: client (4xx, richieste/quota) e
+  // server (5xx, colpa di Bedrock) = cause diverse → tile distinti; puliti → "0" verde.
+  const metrics = [{ label: t('m.inv'), value: fmtCount(Math.round(m.inv)) }]
+  if (serr > 0) metrics.push({ label: t('m.errServer'), value: String(serr), tone: 'critical' })
+  if (cerr > 0) metrics.push({ label: t('m.errClient'), value: String(cerr), tone: 'warning' })
+  if (serr === 0 && cerr === 0) metrics.push({ label: t('m.errors'), value: '0', tone: 'good' })
+  if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
+  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat))}` })
+  if (m.tin > 0 || m.tout > 0) metrics.push({ label: t('m.tokens'), value: `${fmtCount(Math.round(m.tin))} → ${fmtCount(Math.round(m.tout))}` })
+  const summary = `${metrics.map((x) => `${x.value} ${x.label}`).join(' · ')} (${winL})`
+  return { status, summary, metrics, window: winL, clientErrors: cerr, serverErrors: serr, throttles }
 }
