@@ -10,7 +10,7 @@ const SEV = { down: 0, degraded: 1, unknown: 2, idle: 3, disabled: 3, up: 4 }
 const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
 
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
-export default function DashboardPage({ data, groups, caps, loading, error, onRemove, onLogs, onEvents, t }) {
+export default function DashboardPage({ data, groups, caps, loading, error, onRemove, onLogs, onEvents, onOpen, t }) {
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
@@ -66,6 +66,7 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
                   onRemove={caps.watchlist ? onRemove : undefined}
                   onLogs={onLogs}
                   onEvents={onEvents}
+                  onOpen={onOpen}
                   t={t}
                 />
               </Col>
