@@ -8,6 +8,7 @@
 //   3. niente di tutto ciò → null (segnale non applicabile).
 // Confronto normalizzato (ignora "v" iniziale e spazi). up = match, degraded = mismatch.
 import { ecsBuildInfo } from '../runtime/ecs.js'
+import { ecsScheduledBuildInfo } from '../runtime/ecsScheduled.js'
 import { lambdaBuildInfo } from '../runtime/lambda.js'
 import { ec2BuildInfo } from '../runtime/ec2.js'
 import { cleanAwsReason } from '../runtime/awsClient.js'
@@ -139,15 +140,30 @@ async function fromHealth(service, expected, t) {
 }
 
 // --- (2) builders per tipo AWS. Se `expected` c'è, confronto → degraded su mismatch. ---
+// Appende "· modificato da <chi>" al summary, quando lo conosciamo (registeredBy ECS / CloudTrail Lambda).
+function withModifier(summary, who, t) {
+  return who ? `${summary} · ${t('build.by', { who })}` : summary
+}
+
+// Summary comune per ECS (servizio o task schedulato): stesso formato, stessa gestione tag/quando/chi.
+function ecsSummary(b, expected, t) {
+  const ago = b.deployedAt ? fmtAgo(b.deployedAt, t) : null
+  const base = b.tag ? t('build.ecs', { tag: b.tag, ago: ago ?? '—' }) : t('build.ecsnotag', { ago: ago ?? '—' })
+  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t) }, expected, b.tag, t)
+}
+
 const BUILDERS = {
   async ecs(cfg, aws, expected, t) {
     const b = await ecsBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
-    const ago = b.deployedAt ? fmtAgo(b.deployedAt, t) : null
-    const summary = b.tag
-      ? t('build.ecs', { tag: b.tag, ago: ago ?? '—' })
-      : t('build.ecsnotag', { ago: ago ?? '—' })
-    return decideStatus({ key, summary }, expected, b.tag, t)
+    return ecsSummary(b, expected, t)
+  },
+
+  // Cron su ECS RunTask (nessun servizio long-running): build letta dalla task def schedulata.
+  'ecs-scheduled': async (cfg, aws, expected, t) => {
+    const b = await ecsScheduledBuildInfo(cfg, aws)
+    if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
+    return ecsSummary(b, expected, t)
   },
 
   async lambda(cfg, aws, expected, t) {
@@ -162,7 +178,7 @@ const BUILDERS = {
           ? `sha ${b.codeSha.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase()}`
           : '$LATEST'
     const ago = b.lastModified ? fmtAgo(b.lastModified, t) : '—'
-    return decideStatus({ key, summary: t('build.lambda', { ver, ago }) }, expected, b.version, t)
+    return decideStatus({ key, summary: withModifier(t('build.lambda', { ver, ago }), b.modifiedBy, t) }, expected, b.version, t)
   },
 
   async ec2(cfg, aws, expected, t) {

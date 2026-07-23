@@ -4,6 +4,7 @@ import {
   DescribeTaskDefinitionCommand,
 } from '@aws-sdk/client-ecs'
 import { clientOpts } from './awsClient.js'
+import { principalName } from '../util/principal.js'
 
 // Finestra di grazia sui rollout (default 120s): un deploy fresco ha running<desired per
 // qualche secondo — è transitorio, non un guasto. Override via env.
@@ -87,11 +88,12 @@ export async function ecsBuildInfo(cfg, aws) {
   // immagine del primo container (o quello che combacia col service, se dichiarato).
   const containers = td.taskDefinition?.containerDefinitions ?? []
   const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image
-  return { tag: imageTag(image), image, deployedAt }
+  // registeredBy = chi ha registrato l'ultima revision della task def (ultimo modificatore), gratis qui.
+  return { tag: imageTag(image), image, deployedAt, modifiedBy: principalName(td.taskDefinition?.registeredBy) }
 }
 
 // "repo:tag" / "repo@sha256:…" → tag o sha breve, prefisso ":" per chiarezza in summary.
-function imageTag(image) {
+export function imageTag(image) {
   if (!image) return null
   const at = image.indexOf('@sha256:')
   if (at !== -1) return ':' + image.slice(at + 8, at + 8 + 12)

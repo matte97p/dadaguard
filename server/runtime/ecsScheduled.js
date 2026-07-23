@@ -1,7 +1,22 @@
 import { ECSClient, DescribeTaskDefinitionCommand } from '@aws-sdk/client-ecs'
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './awsClient.js'
+import { imageTag } from './ecs.js'
+import { principalName } from '../util/principal.js'
 import { identityT } from '../i18n.js'
+
+// #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
+// quindi leggiamo direttamente la sua revision → tag immagine + quando/chi l'ha registrata.
+// registeredAt/registeredBy sono in DescribeTaskDefinition (nessuna chiamata extra oltre a questa).
+export async function ecsScheduledBuildInfo(cfg, aws) {
+  const client = new ECSClient(clientOpts(aws))
+  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))
+  const def = td.taskDefinition
+  if (!def) return null
+  const containers = def.containerDefinitions ?? []
+  const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image
+  return { tag: imageTag(image), image, deployedAt: def.registeredAt ?? null, modifiedBy: principalName(def.registeredBy) }
+}
 
 // Durata compatta con unità tradotte (g/h/m) — allineata a runtime/lambda.js.
 function fmtDur(min, t = identityT) {
