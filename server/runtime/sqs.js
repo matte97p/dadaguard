@@ -32,5 +32,7 @@ export async function sqsRuntime(cfg, aws, opts = {}) {
   const depth = Number(a.ApproximateNumberOfMessages ?? 0)
   const inflight = Number(a.ApproximateNumberOfMessagesNotVisible ?? 0)
   const status = cfg.maxDepth && depth > cfg.maxDepth ? 'degraded' : 'up'
-  return { status, summary: t('sqs.summary', { n: depth, inflight }), depth, inflight }
+  const metrics = [{ label: t('m.queued'), value: String(depth), tone: cfg.maxDepth && depth > cfg.maxDepth ? 'warning' : undefined }]
+  if (inflight > 0) metrics.push({ label: t('m.inflight'), value: String(inflight) })
+  return { status, summary: t('sqs.summary', { n: depth, inflight }), metrics, depth, inflight }
 }

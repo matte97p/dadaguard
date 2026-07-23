@@ -52,5 +52,9 @@ export async function albRuntime(cfg, aws, opts = {}) {
   }
 
   const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'
-  return { status, summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }) }
+  return {
+    status,
+    summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }),
+    metrics: total === 0 ? undefined : [{ label: t('m.targets'), value: `${healthy}/${total}`, tone: healthy >= total ? 'good' : healthy === 0 ? 'critical' : 'warning' }],
+  }
 }
