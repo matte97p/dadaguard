@@ -189,12 +189,14 @@ function ServiceRow({ g, onOpen, t }) {
   const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
   const decided = g.ok + g.failed
   const rateColor = g.failed ? (g.ok ? '#faad14' : '#ff4d4f') : '#52c41a'
+  // Cloudflare registra solo i rollout RIUSCITI → trend/tasso di successo non hanno senso: li nascondo.
+  const isCf = b.provider === 'cloudflare'
   return (
     <ClickableRow b={b} onOpen={onOpen} t={t}>
       <BuildInfo b={b} name={g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-        <DeployTrend builds={g.builds} t={t} />
-        {decided > 0 && (
+        {!isCf && <DeployTrend builds={g.builds} t={t} />}
+        {!isCf && decided > 0 && (
           <Tooltip title={t('deploys.rateTip', { ok: g.ok, total: decided })}>
             <Text style={{ fontSize: 13, fontWeight: 600, color: rateColor, fontVariantNumeric: 'tabular-nums' }}>
               {g.ok}/{decided}
@@ -294,7 +296,10 @@ function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
               </MetaLine>
             )}
             {b.trigger && <MetaLine label={t('deploys.triggerLabel')}>{t(`deploys.trigger.${b.trigger}`)}</MetaLine>}
-            <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
+            {b.author && <MetaLine label={t('deploys.authorLabel')}>{b.author}</MetaLine>}
+            {!(b.provider === 'cloudflare') && (
+              <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
+            )}
             <MetaLine label={t('deploys.whenLabel')}>{fmtAgo(b.inProgress ? b.startedAt : b.endedAt, t) || '—'}</MetaLine>
           </Space>
 
@@ -316,11 +321,15 @@ function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
             </div>
           )}
 
-          {b.logsUrl && (
+          {b.logsUrl ? (
             <Button type="primary" href={b.logsUrl} target="_blank" rel="noreferrer" block>
               {t('deploys.openLogs')}
             </Button>
-          )}
+          ) : b.deployUrl ? (
+            <Button type="primary" href={b.deployUrl} target="_blank" rel="noreferrer" block>
+              {t('deploys.openCf')}
+            </Button>
+          ) : null}
         </Space>
       )}
     </Drawer>

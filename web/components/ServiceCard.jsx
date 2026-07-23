@@ -100,7 +100,8 @@ function RowLabel({ children, tip }) {
 export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpen, t = (k) => k }) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs', 'ecs-scheduled'].includes(service.type) // tipi con log applicativi su CloudWatch
-  const hasEvents = Boolean(service.type) // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail
+  // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail — solo AWS: un Worker Cloudflare non li ha
+  const hasEvents = Boolean(service.type) && service.type !== 'cloudflare-worker'
   // Badge parlante: se il servizio è in stato "problema" (giallo/rosso), il testo dice IL PERCHÉ
   // (il check colpevole, es. "ALLARME" / "ESECUZIONE") invece del generico "ATTENZIONE"/"GIÙ";
   // negli altri stati resta l'etichetta di stato. Il dettaglio esatto va nel tooltip.

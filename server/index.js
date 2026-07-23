@@ -9,6 +9,7 @@ import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts, monthEndProjection } from './costs.js'
 import { listDeploys } from './deploys.js'
+import { cloudflareDeploysAccount } from './cloudflare.js'
 import { getFreeTierUsage } from './freetier.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
@@ -200,6 +201,14 @@ app.get('/api/deploys', async (req, res) => {
         }
       }),
     )
+    // Cloudflare: se c'è un token (env o wrangler), aggiungi i deploy dei Worker come sezione a parte.
+    // Nessun token → cloudflareDeploysAccount ritorna null e la sezione non compare.
+    try {
+      const cf = await cloudflareDeploysAccount()
+      if (cf) out.cloudflare = cf
+    } catch (err) {
+      out.cloudflare = { label: 'Cloudflare', color: '#f6821f', provider: 'cloudflare', error: err.message }
+    }
     res.json(out)
   } catch (err) {
     res.status(500).json({ error: err.message })

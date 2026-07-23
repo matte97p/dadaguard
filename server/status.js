@@ -2,9 +2,10 @@ import { loadConfig } from './config.js'
 import { autoDiscoverServices, mergeServices } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { discoverProfileAccounts } from './awsProfiles.js'
+import { cloudflareWorkersStatus, CF_COLOR, shortId } from './cloudflare.js'
 import { consoleUrl } from './console.js'
 import { MODE, capabilities, autoDiscover, isLocal } from './mode.js'
-import { makeT } from './i18n.js'
+import { makeT, fmtAgo } from './i18n.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
 import { managedResources } from './terraform/state.js'
@@ -123,6 +124,44 @@ export async function resolveServices() {
   const value = { accounts, services, discovered }
   _resolveCache = { at: Date.now(), value }
   return value
+}
+
+// Worker Cloudflare → result-servizio nella STESSA forma delle card AWS, ma i check (version+runtime)
+// li costruiamo direttamente dai dati CF: NON passa per i check AWS (che assumono un contesto AWS).
+export function cfServiceResult(w, t) {
+  const checks = {}
+  if (w.latest) {
+    checks.version = {
+      key: 'version',
+      status: 'up',
+      summary: `${shortId(w.latest.versionId || w.latest.id) ?? '—'} · ${fmtAgo(w.latest.createdOn, t)}`,
+    }
+  }
+  if (w.analytics) {
+    const { requests, errorPct, spark } = w.analytics
+    const status = requests === 0 ? 'idle' : errorPct >= 5 ? 'degraded' : 'up'
+    checks.runtime = {
+      key: 'runtime',
+      status,
+      summary: t('cf.runtimeSummary', { req: requests, err: errorPct >= 10 ? Math.round(errorPct) : errorPct.toFixed(1) }),
+      spark: spark ?? [],
+    }
+  }
+  const { overall, cause, causes } = computeOverall(checks)
+  return {
+    name: w.name,
+    links: w.deployUrl ? { Cloudflare: w.deployUrl } : {},
+    account: { key: 'cloudflare', label: 'Cloudflare', color: CF_COLOR },
+    region: null,
+    type: 'cloudflare-worker',
+    description: null,
+    managed: null,
+    dependsOn: [],
+    overall,
+    cause,
+    causes,
+    checks,
+  }
 }
 
 export async function getStatus(lang) {
@@ -247,6 +286,15 @@ export async function getStatus(lang) {
       }
   })
 
+  // Cloudflare Worker come card-servizio (version + runtime). Se non c'è token → [] (nessuna card).
+  // Costruiti a parte e appesi: NON entrano nella discovery AWS (costi/topologia/deploys restano intatti).
+  let cfResults = []
+  try {
+    cfResults = (await cloudflareWorkersStatus()).map((w) => cfServiceResult(w, t))
+  } catch (err) {
+    log.error('cloudflare: stato Worker non leggibile', { err: err.message })
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     // mode + capabilities da ./mode.js (unica fonte): il frontend mostra/nasconde i pulsanti
@@ -254,6 +302,6 @@ export async function getStatus(lang) {
     mode: MODE,
     capabilities,
     discovered, // != null quando i servizi sono stati auto-scoperti (nessun services.yaml)
-    services: results,
+    services: [...results, ...cfResults],
   }
 }
