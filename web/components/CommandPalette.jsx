@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Input, List, Badge, Typography } from 'antd'
+import { displayName } from '../serviceName.js'
 
 const { Text } = Typography
 
@@ -23,7 +24,12 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
   const results = useMemo(() => {
     const s = q.trim().toLowerCase()
     const list = s
-      ? services.filter((x) => x.name.toLowerCase().includes(s) || String(x.account?.label ?? '').toLowerCase().includes(s))
+      ? services.filter(
+          (x) =>
+            x.name.toLowerCase().includes(s) ||
+            displayName(x).toLowerCase().includes(s) ||
+            String(x.account?.label ?? '').toLowerCase().includes(s),
+        )
       : services
     return list.slice(0, 40)
   }, [q, services])
@@ -75,7 +81,7 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
               <Badge status={STATUS[item.overall] ?? 'default'} />
-              <span style={{ fontWeight: 500 }}>{item.name}</span>
+              <span style={{ fontWeight: 500 }}>{displayName(item)}</span>
               {item.account?.label && (
                 <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
                   {item.account.label}
