@@ -16,6 +16,15 @@
 #  • cloud:       inietti lo YAML via env DADAGUARD_CONFIG (es. da una SSM SecureString) →
 #                 niente file su disco, config read-only (versionata fuori dall'istanza).
 
+# --- Account: NON servono elencarli a mano (in locale) ---
+# In locale, senza `org`, Dadaguard scopre gli account dai profili SSO del tuo ~/.aws/config
+# (ogni profilo con sso_account_id → un account; le varianti -ro / dev- dello stesso account sono
+# deduplicate). Così `security`, `management`, ecc. compaiono da soli. Un account NON nel tuo
+# ~/.aws/config non appare mai. La sezione `accounts:` qui sotto è quindi OPZIONALE: serve solo a
+# rifinire quelli scoperti (label, color, region, terraform, wasteIgnore) o a dichiararne di espliciti.
+# Disattiva la discovery con `discoverAccounts: false`, o salta account con:
+#   discoverAccounts: { exclude: ["123456789012", "nome-profilo"] }
+
 accounts:
   staging:
     # Auth AWS — due modi (mutuamente esclusivi; roleArn vince su profile):

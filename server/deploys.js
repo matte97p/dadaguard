@@ -61,7 +61,9 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     nextToken = r.nextToken
   } while (nextToken)
   const deployProjects = projects.filter((n) => n.endsWith(DEPLOY_SUFFIX))
-  if (deployProjects.length === 0) return { builds: [] }
+  // Nessun progetto `*-deploy`: l'account non fa deploy CodeBuild (es. payer/security).
+  // `noProjects` lo distingue dal "ci sono progetti ma nessuna build" → la UI mostra il messaggio giusto.
+  if (deployProjects.length === 0) return { builds: [], noProjects: true }
 
   // 2. ultimi N id build per progetto (in parallelo)
   const idLists = await Promise.all(
