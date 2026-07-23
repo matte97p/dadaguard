@@ -31,6 +31,13 @@ export async function asgRuntime(cfg, aws, opts = {}) {
   return {
     status,
     summary: t('asg.healthy', { healthy, desired: desiredCount }),
+    metrics: [
+      {
+        label: t('m.instances'),
+        value: `${healthy}/${desiredCount}`,
+        tone: status === 'up' ? 'good' : status === 'down' ? 'critical' : status === 'degraded' ? 'warning' : undefined,
+      },
+    ],
     desiredCount,
     runningCount: healthy,
   }
