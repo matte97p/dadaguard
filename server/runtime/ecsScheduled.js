@@ -1,4 +1,4 @@
-import { ECSClient, DescribeTaskDefinitionCommand } from '@aws-sdk/client-ecs'
+import { ECSClient, DescribeTaskDefinitionCommand, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs'
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './awsClient.js'
 import { imageTag } from './ecs.js'
@@ -84,12 +84,36 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const now = Date.now()
   const nextRunAt = nextRun(cfg.scheduleExpr, now)
   const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
-  const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel }
+  // Durata dell'ultima run (RunTask non ha un p95 come le Lambda): start→stop dell'ultimo task fermato.
+  // Best-effort: se manca il permesso (ecs:ListTasks/DescribeTasks) o non c'è storico → niente durata.
+  const durMs = outcome === 'missed' ? null : await ecsScheduledDuration(cfg, aws)
+  const dur = durMs ? ` · ${t('cron.duration', { d: fmtDur(Math.max(1, Math.round(durMs / 60000)), t) })}` : ''
+  const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel, durationMs: durMs ?? null }
   if (outcome === 'missed') {
     return { status: 'down', summary: t('ecssched.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }), ...base }
   }
   if (outcome === 'failed') {
-    return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }), ...base }
+    return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }) + dur, ...base }
   }
-  return { status: 'up', summary: t('ecssched.ok', { sched: fmtDur(schedMin, t) }), ...base }
+  return { status: 'up', summary: t('ecssched.ok', { sched: fmtDur(schedMin, t) }) + dur, ...base }
+}
+
+// Durata dell'ultima esecuzione: task fermato più recente della famiglia (start→stop). Best-effort.
+async function ecsScheduledDuration(cfg, aws) {
+  try {
+    const client = new ECSClient(clientOpts(aws))
+    const family = /task-definition\/([^:/]+)/.exec(cfg.taskDefinition ?? '')?.[1]
+    if (!family) return null
+    const list = await client.send(
+      new ListTasksCommand({ cluster: cfg.cluster, family, desiredStatus: 'STOPPED', maxResults: 10 }),
+    )
+    if (!(list.taskArns ?? []).length) return null
+    const desc = await client.send(new DescribeTasksCommand({ cluster: cfg.cluster, tasks: list.taskArns }))
+    const runs = (desc.tasks ?? []).filter((t) => t.startedAt && t.stoppedAt)
+    if (!runs.length) return null
+    runs.sort((a, b) => new Date(b.stoppedAt) - new Date(a.stoppedAt))
+    return Math.max(0, new Date(runs[0].stoppedAt) - new Date(runs[0].startedAt))
+  } catch {
+    return null
+  }
 }
