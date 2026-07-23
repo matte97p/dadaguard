@@ -38,6 +38,7 @@ import DriftDrawer from './components/DriftDrawer.jsx'
 import LogsDrawer from './components/LogsDrawer.jsx'
 import EventsDrawer from './components/EventsDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
+import CommandPalette from './components/CommandPalette.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -88,6 +89,7 @@ export default function App() {
   const [health, setHealth] = useState(null) // #6 meta-salute (raggiungibilità account)
   const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
   const [eventsService, setEventsService] = useState(null) // ... e gli eventi recenti
+  const [paletteOpen, setPaletteOpen] = useState(false) // ⌘K ricerca globale servizi
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
@@ -106,6 +108,35 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
   }, [dark])
+
+  // ⌘K / Ctrl+K → apre la palette di ricerca globale dei servizi.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Salta a un servizio: vai alla dashboard e scrolla/evidenzia la sua card.
+  const jumpToService = useCallback(
+    (svc) => {
+      navigate('/')
+      setTimeout(() => {
+        const el = document.querySelector(`[data-service="${(window.CSS?.escape ?? ((s) => s))(svc.name)}"]`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.style.transition = 'box-shadow .2s'
+          el.style.boxShadow = '0 0 0 2px #1677ff'
+          setTimeout(() => (el.style.boxShadow = ''), 1600)
+        }
+      }, 120)
+    },
+    [navigate],
+  )
 
   // Lingua effettiva: preferenza salvata, altrimenti IT in locale / lingua browser in cloud.
   const lang = resolveLang(langPref, data?.mode)
@@ -532,6 +563,13 @@ export default function App() {
           onClose={() => setHealthOpen(false)}
           health={health}
           accountLabels={aggregateLabels}
+          t={t}
+        />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          services={groups.flatMap((g) => g.services)}
+          onPick={jumpToService}
           t={t}
         />
 
