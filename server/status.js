@@ -138,14 +138,12 @@ export function cfServiceResult(w, t) {
     }
   }
   if (w.analytics) {
-    const { requests, errorPct, spark } = w.analytics
+    const { requests, errorPct, spark, cpuP99Ms } = w.analytics
     const status = requests === 0 ? 'idle' : errorPct >= 5 ? 'degraded' : 'up'
-    checks.runtime = {
-      key: 'runtime',
-      status,
-      summary: t('cf.runtimeSummary', { req: requests, err: errorPct >= 10 ? Math.round(errorPct) : errorPct.toFixed(1) }),
-      spark: spark ?? [],
-    }
+    const fmtN = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n))
+    let summary = t('cf.runtimeSummary', { req: fmtN(requests), err: errorPct >= 10 ? Math.round(errorPct) : errorPct.toFixed(1) })
+    if (cpuP99Ms != null) summary += ` · ${t('cf.cpuP99', { ms: Math.round(cpuP99Ms) })}`
+    checks.runtime = { key: 'runtime', status, summary, spark: spark ?? [] }
   }
   const { overall, cause, causes } = computeOverall(checks)
   return {
