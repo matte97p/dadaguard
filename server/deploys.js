@@ -29,6 +29,13 @@ export function triggerOf(initiator) {
   return /gha-deploy|github|hookshot|codeconnection|codestar/i.test(initiator || '') ? 'auto' : 'manuale'
 }
 
+// Chi ha lanciato il deploy: la variabile CodeBuild esportata `DEPLOYER` (autore del commit, scritta dal
+// buildspec). Assente sui build vecchi o su progetti che non la esportano → null. Puro/testabile.
+export function deployerOf(build = {}) {
+  const v = (build.exportedEnvironmentVariables ?? []).find((e) => e.name === 'DEPLOYER')?.value
+  return v || null
+}
+
 const FAILED_PHASE = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 
 // Messaggi tecnici di una fase (contexts CodeBuild): il "perché". Niente valori sensibili — sono
@@ -74,6 +81,7 @@ export function mapBuild(b = {}) {
     commit: shortSha(b.resolvedSourceVersion || b.sourceVersion),
     phase: b.currentPhase ?? null,
     trigger: triggerOf(b.initiator),
+    author: deployerOf(b), // chi ha lanciato (autore commit), da exported-variable DEPLOYER
     startedAt: started,
     endedAt: ended,
     durationMs: started && ended ? new Date(ended).getTime() - new Date(started).getTime() : null,

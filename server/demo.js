@@ -157,7 +157,7 @@ export function demoDeploys() {
       ]
     return [...head, ok('BUILD', 95), ok('POST_BUILD', 18), ok('UPLOAD_ARTIFACTS', 6), { type: 'COMPLETED', status: null, durationMs: null }]
   }
-  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3) => {
+  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3, author = 'mperino@get-cato.com') => {
     const phases = phasesFor(status)
     const fail = FAILED.has(status) ? phases.find((p) => p.status === 'FAILED') : null
     return {
@@ -169,6 +169,7 @@ export function demoDeploys() {
       inProgress: status === 'IN_PROGRESS',
       commit,
       trigger,
+      author,
       phase: status === 'IN_PROGRESS' ? 'BUILD' : 'COMPLETED',
       startedAt: iso(agoMin * m),
       endedAt: status === 'IN_PROGRESS' ? null : iso((agoMin - durMin) * m),

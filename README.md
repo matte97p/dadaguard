@@ -35,7 +35,7 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
     <source media="(prefers-color-scheme: dark)" srcset="assets/deploys-dark.jpeg">
     <img src="assets/deploys-light.jpeg" alt="Vista Deploy: build CodeBuild per account, con esito, tasso di successo e trend per servizio" width="820">
   </picture><br>
-  <sub>Vista <b>Deploy</b> · cosa sta uscendo ora e com'è andata, <b>per account</b> — ultima build, tasso di successo e trend per servizio. Gli account si scoprono da soli dai profili SSO di <code>~/.aws/config</code>.</sub>
+  <sub>Vista <b>Deploy</b> · cosa sta uscendo ora e com'è andata, <b>per account</b> — ultima build, <b>chi l'ha deployata</b>, tasso di successo e trend per servizio. Gli account si scoprono da soli dai profili SSO di <code>~/.aws/config</code>.</sub>
 </p>
 
 ## Segnali
@@ -79,6 +79,8 @@ In alternativa al build locale c'è l'**immagine pubblicata**: togli il commento
 Accesso AWS, a scelta: profili `~/.aws` (montati) + `AWS_PROFILE`, chiavi in `.env`, o il ruolo dell'istanza se giri dentro AWS (EC2/ECS). Cross-account: gli account in `services.yaml` usano `roleArn` (AssumeRole). Read-only by design: zero scritture sull'infra.
 
 Ogni account monitorato concede a Dadaguard un ruolo IAM di sola lettura — [esempio Terraform](deploy/dadaguard-readonly-role.example.tf) o la stessa [policy in JSON](deploy/dadaguard-readonly-policy.json) se non usi Terraform (niente `kms:Decrypt`: i valori dei secret restano inaccessibili).
+
+> **«Chi ha deployato»** — opzionale, nessun permesso extra. La colonna si popola se la tua pipeline di deploy esporta la variabile CodeBuild `DEPLOYER` (letta da `BatchGetBuilds`) oppure tagga la revision della task-def ECS con `deployedBy` (es. l'autore del commit); senza, resta vuota.
 
 ### Hosting su AWS Fargate (avanzato, opzionale)
 Fargate dietro **Cloudflare Access** (Zero Trust, zero porte pubbliche), con la config iniettata da SSM: vedi [`deploy/README.md`](deploy/README.md). È una delle ricette di hosting possibili — per la maggior parte dei casi `docker compose` basta.
