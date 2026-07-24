@@ -79,6 +79,10 @@ services:
   - name: my-api
     account: staging
     healthUrl: https://api.example.com/health
+    # url: endpoint pubblico mostrato come link (🌐) sulla card. Facoltativo: se assente si ricava
+    #   da healthUrl (origine) o dal dominio della risorsa (es. CloudFront). Dichiaralo quando vuoi
+    #   l'URL "bello" — es. i servizi dietro Cloudflare, dove il DNS grezzo non è quello da mostrare.
+    # url: https://api.example.com
     # Versione ATTESA — due provenienze (la dashboard mostra sempre da dove arriva):
     #  • expectedVersion: stringa fissa (statica).
     #  • expectedVersionUrl: fonte di verità DINAMICA (GET read-only di un manifest o
