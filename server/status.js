@@ -277,11 +277,15 @@ export async function getStatus(lang) {
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
       const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
-      const endpoint = endpointFromHealth(service.healthUrl) // endpoint pubblico (da healthUrl) → link sulla card
+      // Endpoint pubblico del servizio (link sulla card), in ordine di precedenza:
+      //  1. `url` dichiarato in config (universale, e per i servizi dietro Cloudflare è il dominio VERO);
+      //  2. dominio ricavato dal check runtime (es. CloudFront, dalla GetDistribution già fatta);
+      //  3. origine dell'healthUrl. Nessuna delle tre → niente endpoint.
+      const endpoint = service.url ?? checks.runtime?.url ?? endpointFromHealth(service.healthUrl)
       const { overall, cause, causes } = computeOverall(checks)
       return {
         name: service.name,
-        url: endpoint, // endpoint pubblico del servizio; null se non dichiarato (healthUrl assente)
+        url: endpoint, // endpoint pubblico del servizio (config url / CloudFront / healthUrl); null se ignoto
         links: {
           ...(service.links ?? {}),
           ...(endpoint ? { [t('link.endpoint')]: endpoint } : {}),
