@@ -6,6 +6,12 @@ import {
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
 
+// Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile
+// da fuori); interno → null (non lo mostro, non sarebbe cliccabile). Puro/testabile.
+export function publicUrlOfLb(lb) {
+  return lb?.Scheme === 'internet-facing' && lb?.DNSName ? `https://${lb.DNSName}` : null
+}
+
 // RuntimeProvider per ALB: stato del LB + target healthy / totali (su tutti i target group).
 // Permessi: elasticloadbalancing:Describe*.
 // Config: aws: { type: alb, name: <lb-name> }  oppure  { type: alb, arn: <lb-arn> }
@@ -18,10 +24,12 @@ export async function albRuntime(cfg, aws, opts = {}) {
   )
   const lb = lbOut.LoadBalancers?.[0]
   if (!lb) return { status: 'unknown', reason: t('alb.notfound') }
+  const url = publicUrlOfLb(lb) // endpoint pubblico (link sulla card), solo se internet-facing
   if (lb.State?.Code !== 'active') {
     return {
       status: lb.State?.Code === 'failed' ? 'down' : 'degraded',
       summary: t('alb.state', { code: lb.State?.Code }),
+      url,
     }
   }
 
@@ -48,7 +56,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
       healthy += th.filter((x) => x.TargetHealth?.State === 'healthy').length
     }
   } catch {
-    return { status: 'degraded', summary: t('alb.healthUnreachable') }
+    return { status: 'degraded', summary: t('alb.healthUnreachable'), url }
   }
 
   const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'
@@ -56,5 +64,6 @@ export async function albRuntime(cfg, aws, opts = {}) {
     status,
     summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }),
     metrics: total === 0 ? undefined : [{ label: t('m.targets'), value: `${healthy}/${total}`, tone: healthy >= total ? 'good' : healthy === 0 ? 'critical' : 'warning' }],
+    url,
   }
 }
