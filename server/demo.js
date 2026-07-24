@@ -22,6 +22,17 @@ function svc(name, acc, type, region, checks, dependsOn = []) {
 // cert in scadenza, bucket pubblico.
 export function demoStatus(lang = 'it') {
   const L = lang === 'en' ? 'en' : 'it'
+  // Worker Cloudflare (Stadio 2): stessa forma delle card AWS, account 'cloudflare', check version+runtime.
+  const cfSvc = (name, checks) => ({
+    name,
+    links: { Cloudflare: `https://dash.cloudflare.com/demo/workers/services/view/${name}/production/deployments` },
+    account: { key: 'cloudflare', label: 'Cloudflare', color: '#f6821f' },
+    region: null,
+    type: 'cloudflare-worker',
+    dependsOn: [],
+    ...computeOverall(checks),
+    checks,
+  })
   const services = [
     svc('checkout-api', 'prod', 'ecs', 'eu-west-1', {
       liveness: { key: 'liveness', status: 'up', httpStatus: 200, latencyMs: 38 },
@@ -105,6 +116,15 @@ export function demoStatus(lang = 'it') {
         scheduleExpr: 'cron(0 1 * * ? *)',
       },
     }),
+
+    cfSvc('website', {
+      version: { key: 'version', status: 'up', summary: pick(L, 'a1b2c3d4 · 8m fa', 'a1b2c3d4 · 8m ago') },
+      runtime: { key: 'runtime', status: 'up', summary: pick(L, '128k richieste · 0.3% errori · 24h', '128k requests · 0.3% errors · 24h'), spark: [3, 5, 8, 12, 20, 32, 44, 52, 48, 40, 30, 22] },
+    }),
+    cfSvc('admin-frontend', {
+      version: { key: 'version', status: 'up', summary: pick(L, 'c9d0e1f2 · 1g fa', 'c9d0e1f2 · 1d ago') },
+      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, '9.1k richieste · 6.4% errori · 24h', '9.1k requests · 6.4% errors · 24h'), spark: [2, 3, 3, 4, 6, 5, 7, 9, 8, 6, 5, 4] },
+    }),
   ]
 
   return {
@@ -159,6 +179,23 @@ export function demoDeploys() {
       logsUrl: 'https://console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fdemo',
     }
   }
+  // Build Cloudflare (Worker): status sempre SUCCEEDED, niente fasi/log, con autore + link dashboard.
+  const cfb = (service, agoMin, source, versionId, author = 'ci@get-cato.com') => ({
+    id: `${service}:${versionId}`,
+    service,
+    project: service,
+    number: null,
+    status: 'SUCCEEDED',
+    inProgress: false,
+    commit: versionId.slice(0, 8),
+    trigger: /dash/.test(source) ? 'manuale' : 'auto',
+    startedAt: iso(agoMin * m),
+    endedAt: iso(agoMin * m),
+    durationMs: null,
+    provider: 'cloudflare',
+    author,
+    deployUrl: `https://dash.cloudflare.com/demo/workers/services/view/${service}/production/deployments`,
+  })
   return {
     staging: {
       label: 'Staging',
@@ -181,6 +218,18 @@ export function demoDeploys() {
     },
     management: { label: 'Management (payer)', color: '#722ed1', builds: [], noProjects: true },
     security: { label: 'Security', color: '#13c2c2', builds: [], noProjects: true },
+    // Cloudflare (Stadio 1): rollout dei Worker via Wrangler/dash. Solo riusciti (CF non registra i falliti).
+    cloudflare: {
+      label: 'Cloudflare',
+      color: '#f6821f',
+      provider: 'cloudflare',
+      builds: [
+        cfb('website', 8, 'wrangler', 'a1b2c3d4e5f6'),
+        cfb('website', 1600, 'wrangler', 'f6e5d4c3b2a1'),
+        cfb('admin-frontend', 90, 'dash', 'c9d0e1f2a3b4', 'matteo@get-cato.com'),
+        cfb('geo-edge', 320, 'wrangler', '0f1e2d3c4b5a'),
+      ],
+    },
   }
 }
 
