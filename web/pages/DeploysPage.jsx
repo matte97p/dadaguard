@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
-import { ClockCircleOutlined } from '@ant-design/icons'
+import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
+import { usePoll } from '../usePoll.js'
 
 const { Text } = Typography
 const MONO = 'ui-monospace, SFMono-Regular, monospace'
@@ -480,28 +481,54 @@ function DeploysSkeleton() {
   )
 }
 
+// Indicatore di freschezza: "aggiornato Ns fa" che scorre in tempo reale + icona che gira durante il
+// refresh in background. Rende visibile che la vista si aggiorna da sola (niente più tab fermo a uno
+// snapshot vecchio senza accorgersene, che era la causa dello sfasamento con la notifica Slack).
+function PollStatus({ lastUpdated, refreshing, t }) {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  let label = ''
+  if (refreshing) label = t('poll.updating')
+  else if (lastUpdated) {
+    const s = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000))
+    label = s < 5 ? t('poll.justNow') : s < 60 ? t('poll.secAgo', { s }) : t('poll.minAgo', { m: Math.floor(s / 60) })
+  }
+  if (!label) return null
+  return (
+    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+      <SyncOutlined spin={refreshing} style={{ marginInlineEnd: 5, opacity: 0.7 }} />
+      {label}
+    </Text>
+  )
+}
+
 // Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora e
 // com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
 // (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
-export default function DeploysPage({ t = (k) => k, lang }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
+  // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
+  // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
+  const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(`/api/deploys?lang=${lang}`, {
+    intervalMs: 15000,
+  })
   const [statusFilter, setStatusFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState('all')
   const [serviceFilter, setServiceFilter] = useState('all')
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
 
+  // Il bottone "Aggiorna" globale nell'header fa +1 su refreshKey → forza un refresh anche di questa
+  // pagina (che ha un fetch proprio, `/api/deploys`, separato da quello della dashboard).
+  const seenRk = useRef(refreshKey)
   useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetch(`/api/deploys?lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [lang])
+    if (refreshKey !== seenRk.current) {
+      seenRk.current = refreshKey
+      refresh()
+    }
+  }, [refreshKey, refresh])
 
   // Tutti gli account risolti, ordinati: quelli con build (o in errore) prima, i "senza deploy" in coda;
   // a parità, per label.
@@ -569,6 +596,7 @@ export default function DeploysPage({ t = (k) => k, lang }) {
         desc={t('deploys.desc')}
         extra={
           <Space wrap size={8}>
+            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
             <Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
             <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
             <Select size="small" value={serviceFilter} onChange={setServiceFilter} options={serviceOptions} style={{ minWidth: 150 }} />

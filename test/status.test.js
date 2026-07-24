@@ -1,8 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeOverall } from '../server/status.js'
+import { computeOverall, endpointFromHealth } from '../server/status.js'
 import * as alarms from '../server/checks/alarms.js'
 const { isAutoscalingAlarm } = alarms
+
+// --- Endpoint pubblico del servizio: origine dell'healthUrl (mostrato solo "dove possibile") ---
+
+test('endpointFromHealth: origine dell’healthUrl (path/query scartati)', () => {
+  assert.equal(endpointFromHealth('https://api.example.com/health'), 'https://api.example.com')
+  assert.equal(endpointFromHealth('https://app.example.com:8443/api/health?x=1'), 'https://app.example.com:8443')
+})
+
+test('endpointFromHealth: assente o malformato → null (niente endpoint)', () => {
+  assert.equal(endpointFromHealth(null), null)
+  assert.equal(endpointFromHealth(undefined), null)
+  assert.equal(endpointFromHealth('non-un-url'), null)
+})
 
 // --- Badge parlante: computeOverall dice colore (overall) + colpevole (cause/causes) ---
 

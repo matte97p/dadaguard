@@ -5,6 +5,7 @@ import {
   FileTextOutlined,
   HistoryOutlined,
   ClockCircleOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import { fmtMs } from '../format.js'
 import { prettyBedrock } from '../serviceName.js'
@@ -180,6 +181,18 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
                 <TerraformIcon color={TF_COLOR[drift.status] ?? '#8c8c8c'} />
               </span>
             </Tooltip>
+          )}
+          {service.url && (
+            <Link
+              href={service.url}
+              target="_blank"
+              rel="noreferrer"
+              type="secondary"
+              title={service.url}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GlobalOutlined />
+            </Link>
           )}
           {onLogs && hasLogs && (
             <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
