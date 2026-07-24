@@ -74,6 +74,16 @@ accounts:
 # `org`, poi sulla catena di credenziali di default (in cloud = il task role, che gira nel payer).
 # freeTierAccount: management
 
+# --- Endpoint pubblici per NOME servizio ---
+# Mappa nome→URL applicata DOPO l'auto-discovery: mostra il link (🌐) sulla card anche per i servizi
+# scoperti automaticamente, senza doverli dichiarare per intero. Precedenza massima (vince su ALB/
+# CloudFront/healthUrl) → usala per l'URL "bello" (es. dominio Cloudflare) al posto del DNS grezzo.
+# Chiave: `<nome>` oppure `<account>/<nome>` per distinguere staging da prod a parità di nome.
+# urls:
+#   frontend: https://staging-app.example.com
+#   production/frontend: https://app.example.com
+#   backend: https://staging-api.example.com
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api
