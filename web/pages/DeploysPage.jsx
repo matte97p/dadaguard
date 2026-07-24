@@ -157,6 +157,11 @@ function BuildInfo({ b, name, t }) {
             {t(`deploys.trigger.${b.trigger}`)}
           </Tag>
         )}
+        {b.author && (
+          <Text type="secondary" style={{ fontSize: 11, opacity: 0.85 }}>
+            {t('deploys.by', { who: b.author.split('@')[0] })}
+          </Text>
+        )}
       </Space>
       {sub && (
         <div>
