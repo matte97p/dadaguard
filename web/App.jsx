@@ -85,6 +85,7 @@ export default function App() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0) // +1 a ogni "Aggiorna": forza il refresh delle pagine con fetch proprio (Deploy)
   const [discoverOpen, setDiscoverOpen] = useState(false)
   const [driftOpen, setDriftOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
@@ -191,6 +192,30 @@ export default function App() {
     load(controller.signal)
     return () => controller.abort()
   }, [load])
+
+  // Auto-refresh della Dashboard (stato servizi) ogni 30s, SOLO quando sei sulla "/": in pausa a tab
+  // nascosto, fetch immediato al rientro/focus. Le altre viste hanno il proprio polling (Deploy, 15s) o
+  // restano manuali (Costi/Quote: chiamate care, es. Cost Explorer a pagamento).
+  useEffect(() => {
+    if (location.pathname !== '/') return undefined
+    const tick = () => {
+      if (!document.hidden) {
+        load()
+        loadHealth()
+      }
+    }
+    const timer = setInterval(tick, 30000)
+    const onVisibility = () => {
+      if (!document.hidden) tick()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', tick)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', tick)
+    }
+  }, [location.pathname, load, loadHealth])
 
   const services = data?.services ?? []
   const detailService = detailName ? services.find((s) => s.name === detailName) : null
@@ -468,6 +493,7 @@ export default function App() {
               onClick={() => {
                 load()
                 loadHealth()
+                setRefreshKey((k) => k + 1)
               }}
             >
               {t('btn.refresh')}
@@ -508,7 +534,7 @@ export default function App() {
               }
             />
             <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} />} />
+            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} />} />
             <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route
               path="/topologia"

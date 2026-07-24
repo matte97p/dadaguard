@@ -32,6 +32,7 @@ const S = {
     'time.unit.d': 'g',
 
     'link.console': 'Console AWS',
+    'link.endpoint': 'Endpoint',
     'cf.runtimeSummary': '{req} richieste · {err}% errori · 24h',
     'cf.cpuP99': 'CPU p99 {ms}ms',
     'lambda.cron.disabled': 'cron disattivata di proposito (ogni {sched})',
@@ -234,6 +235,7 @@ const S = {
     'time.unit.d': 'd',
 
     'link.console': 'AWS Console',
+    'link.endpoint': 'Endpoint',
     'cf.runtimeSummary': '{req} requests · {err}% errors · 24h',
     'cf.cpuP99': 'CPU p99 {ms}ms',
     'lambda.cron.disabled': 'cron disabled on purpose (every {sched})',

@@ -20,6 +20,10 @@ export function resolveLang(saved, mode) {
 const STRINGS = {
   it: {
     'app.subtitle': 'il watchdog del tuo stack',
+    'poll.justNow': 'aggiornato ora',
+    'poll.secAgo': 'aggiornato {s}s fa',
+    'poll.minAgo': 'aggiornato {m}m fa',
+    'poll.updating': 'aggiorno…',
     'btn.dashboard': 'Dashboard',
     'btn.waste': 'Sprechi',
     'btn.costs': 'Costi',
@@ -400,6 +404,10 @@ const STRINGS = {
   },
   en: {
     'app.subtitle': "your stack's watchdog",
+    'poll.justNow': 'updated just now',
+    'poll.secAgo': 'updated {s}s ago',
+    'poll.minAgo': 'updated {m}m ago',
+    'poll.updating': 'refreshing…',
     'btn.dashboard': 'Dashboard',
     'btn.waste': 'Waste',
     'btn.costs': 'Costs',

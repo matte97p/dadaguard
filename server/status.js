@@ -24,6 +24,18 @@ import * as backups from './checks/backups.js'
 // run() può ritornare null se il segnale non si applica al servizio.
 const CHECKS = [liveness, version, runtime, drift, secrets, security, alarms, backups]
 
+// Endpoint pubblico del servizio: l'ORIGINE dell'`healthUrl` dichiarato in config
+// (https://api.x.com/health → https://api.x.com). È già in config (il check liveness lo usa) → zero
+// chiamate extra. Nessun healthUrl (o URL malformato) → null: l'endpoint si mostra solo "dove possibile".
+export function endpointFromHealth(healthUrl) {
+  if (!healthUrl) return null
+  try {
+    return new URL(healthUrl).origin
+  } catch {
+    return null
+  }
+}
+
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
 // Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
 const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 8
@@ -148,6 +160,7 @@ export function cfServiceResult(w, t) {
   const { overall, cause, causes } = computeOverall(checks)
   return {
     name: w.name,
+    url: w.deployUrl ?? null, // endpoint pubblico del Worker (workers.dev / rotta) → link sulla card
     links: w.deployUrl ? { Cloudflare: w.deployUrl } : {},
     account: { key: 'cloudflare', label: 'Cloudflare', color: CF_COLOR },
     region: null,
@@ -264,10 +277,16 @@ export async function getStatus(lang) {
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
       const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
+      const endpoint = endpointFromHealth(service.healthUrl) // endpoint pubblico (da healthUrl) → link sulla card
       const { overall, cause, causes } = computeOverall(checks)
       return {
         name: service.name,
-        links: { ...(service.links ?? {}), ...(cu ? { [t('link.console')]: cu } : {}) },
+        url: endpoint, // endpoint pubblico del servizio; null se non dichiarato (healthUrl assente)
+        links: {
+          ...(service.links ?? {}),
+          ...(endpoint ? { [t('link.endpoint')]: endpoint } : {}),
+          ...(cu ? { [t('link.console')]: cu } : {}),
+        },
         account: acct
           ? { key: service.account, label: acct.label ?? service.account, color: acct.color ?? null }
           : null,
