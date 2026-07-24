@@ -3,8 +3,32 @@ import {
   DescribeServicesCommand,
   DescribeTaskDefinitionCommand,
 } from '@aws-sdk/client-ecs'
+import {
+  ElasticLoadBalancingV2Client,
+  DescribeTargetGroupsCommand,
+  DescribeLoadBalancersCommand,
+} from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
+import { publicUrlOfLb } from './alb.js'
 import { principalName } from '../util/principal.js'
+
+// Endpoint pubblico di un servizio ECS dietro ALB (per la card): dal target group del servizio risalgo
+// al load balancer e ne prendo il DNS SE internet-facing (interno → null). Best-effort: se le describe
+// elbv2 falliscono NON rompe la card (l'endpoint è un extra). Permessi: elasticloadbalancing:Describe*.
+async function ecsAlbUrl(svc, aws) {
+  const tgArn = (svc.loadBalancers ?? [])[0]?.targetGroupArn
+  if (!tgArn) return null // servizio senza LB (worker/interno) → nessun endpoint
+  try {
+    const elb = new ElasticLoadBalancingV2Client(clientOpts(aws))
+    const tg = (await elb.send(new DescribeTargetGroupsCommand({ TargetGroupArns: [tgArn] }))).TargetGroups?.[0]
+    const lbArn = tg?.LoadBalancerArns?.[0]
+    if (!lbArn) return null
+    const lb = (await elb.send(new DescribeLoadBalancersCommand({ LoadBalancerArns: [lbArn] }))).LoadBalancers?.[0]
+    return publicUrlOfLb(lb)
+  } catch {
+    return null
+  }
+}
 
 // Finestra di grazia sui rollout (default 120s): un deploy fresco ha running<desired per
 // qualche secondo — è transitorio, non un guasto. Override via env.
@@ -72,7 +96,8 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
   ]
   if (pendingCount > 0) metrics.push({ label: t('m.pending'), value: String(pendingCount), tone: 'warning' })
 
-  return { status, summary, metrics, desiredCount, runningCount, pendingCount, deploying }
+  const url = await ecsAlbUrl(svc, aws) // endpoint pubblico (link sulla card) se il servizio è dietro un ALB internet-facing
+  return { status, summary, metrics, url, desiredCount, runningCount, pendingCount, deploying }
 }
 
 // #2 build/deploy zero-config per ECS: tag immagine del task definition in uso

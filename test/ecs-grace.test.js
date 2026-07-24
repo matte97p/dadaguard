@@ -1,6 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { classifyEcs } from '../server/runtime/ecs.js'
+import { publicUrlOfLb } from '../server/runtime/alb.js'
+
+// --- endpoint pubblico di un LB: solo internet-facing (interno → non mostrato) ---
+test('publicUrlOfLb: internet-facing → https://<dns>; interno o senza dns → null', () => {
+  assert.equal(publicUrlOfLb({ Scheme: 'internet-facing', DNSName: 'my-alb-123.elb.amazonaws.com' }), 'https://my-alb-123.elb.amazonaws.com')
+  assert.equal(publicUrlOfLb({ Scheme: 'internal', DNSName: 'internal-x.elb.amazonaws.com' }), null)
+  assert.equal(publicUrlOfLb({ Scheme: 'internet-facing' }), null)
+  assert.equal(publicUrlOfLb(null), null)
+})
 
 const NOW = 1_700_000_000_000
 const ago = (ms) => new Date(NOW - ms)
