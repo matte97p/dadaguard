@@ -43,6 +43,10 @@ export function validateConfig(doc) {
     // URL pubblico con cui Dadaguard è esposto (dietro Cloudflare Access): il guardiano
     // anti-esposizione lo sonda per verificare di avere davvero il login davanti (vedi server/exposure.js).
     publicUrl: doc?.publicUrl ?? null,
+    // Endpoint pubblici per NOME servizio: mappa `<nome>` (o `<account>/<nome>` per distinguere
+    // staging da prod) → URL. Applicata dopo l'auto-discovery, precedenza massima sulla card. Utile
+    // quando il servizio non ha un healthUrl e l'URL vero è un dominio Cloudflare (non il DNS grezzo dell'ALB).
+    urls: doc?.urls ?? null,
   }
 }
 

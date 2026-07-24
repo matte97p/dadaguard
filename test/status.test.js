@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeOverall, endpointFromHealth } from '../server/status.js'
+import { computeOverall, endpointFromHealth, urlForService } from '../server/status.js'
 import * as alarms from '../server/checks/alarms.js'
 const { isAutoscalingAlarm } = alarms
 
@@ -15,6 +15,14 @@ test('endpointFromHealth: assente o malformato → null (niente endpoint)', () =
   assert.equal(endpointFromHealth(null), null)
   assert.equal(endpointFromHealth(undefined), null)
   assert.equal(endpointFromHealth('non-un-url'), null)
+})
+
+test('urlForService: `account/nome` vince su `nome`, poi fallback, poi null', () => {
+  const urls = { backend: 'https://stg-api', 'production/backend': 'https://api' }
+  assert.equal(urlForService(urls, 'production', 'backend'), 'https://api') // scoped vince
+  assert.equal(urlForService(urls, 'staging', 'backend'), 'https://stg-api') // fallback al nome
+  assert.equal(urlForService(urls, 'staging', 'frontend'), null) // non mappato
+  assert.equal(urlForService(null, 'staging', 'backend'), null) // nessuna mappa
 })
 
 // --- Badge parlante: computeOverall dice colore (overall) + colpevole (cause/causes) ---

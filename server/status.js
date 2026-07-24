@@ -36,6 +36,13 @@ export function endpointFromHealth(healthUrl) {
   }
 }
 
+// URL dichiarato in config per un servizio: cerca prima `<account>/<nome>` (per distinguere staging da
+// prod a parità di nome), poi `<nome>` secco. Null se non mappato. Puro/testabile.
+export function urlForService(urls, account, name) {
+  if (!urls || !name) return null
+  return urls[`${account}/${name}`] ?? urls[name] ?? null
+}
+
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
 // Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
 const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 8
@@ -81,7 +88,7 @@ export function invalidateServicesCache() {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  const { accounts: declaredAccounts, services: declared, org, discoverAccounts } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -133,7 +140,7 @@ export async function resolveServices() {
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  const value = { accounts, services, discovered }
+  const value = { accounts, services, discovered, urls }
   _resolveCache = { at: Date.now(), value }
   return value
 }
@@ -177,7 +184,7 @@ export function cfServiceResult(w, t) {
 
 export async function getStatus(lang) {
   const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
-  const { accounts, services, discovered } = await resolveServices()
+  const { accounts, services, discovered, urls } = await resolveServices()
   if (discovered) log.info('auto-discovery', discovered)
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
@@ -278,10 +285,12 @@ export async function getStatus(lang) {
 
       const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
       // Endpoint pubblico del servizio (link sulla card), in ordine di precedenza:
-      //  1. `url` dichiarato in config (universale, e per i servizi dietro Cloudflare è il dominio VERO);
-      //  2. dominio ricavato dal check runtime (es. CloudFront, dalla GetDistribution già fatta);
-      //  3. origine dell'healthUrl. Nessuna delle tre → niente endpoint.
-      const endpoint = service.url ?? checks.runtime?.url ?? endpointFromHealth(service.healthUrl)
+      //  1. mappa `urls` in config per nome (vince sempre: intento umano, dominio Cloudflare "vero");
+      //  2. `url` dichiarato sulla singola entry di config;
+      //  3. dominio ricavato dal check runtime (CloudFront / ALB / ECS→ALB, dalle chiamate già fatte);
+      //  4. origine dell'healthUrl. Nessuna → niente endpoint.
+      const endpoint =
+        urlForService(urls, service.account, service.name) ?? service.url ?? checks.runtime?.url ?? endpointFromHealth(service.healthUrl)
       const { overall, cause, causes } = computeOverall(checks)
       return {
         name: service.name,
