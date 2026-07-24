@@ -86,17 +86,33 @@ function groupByService(builds) {
   })
 }
 
-// Mini-trend: pallini colorati per stato, dal più vecchio (sx) al più recente (dx). Mostra le ultime N.
-function DeployTrend({ builds, t }) {
+// Mini-trend: pallini colorati per stato, dal più vecchio (sx) al più recente (dx), ultime N.
+// Ogni pallino è CLICCABILE → apre QUELLA build (stopPropagation, così il resto della riga apre l'ultima).
+function DeployTrend({ builds, onOpen, t }) {
   const recent = builds.slice(0, TREND_MAX).reverse()
   if (recent.length < 2) return null
   return (
-    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }} aria-hidden>
+    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
       {recent.map((b, i) => {
         const st = STATUS[b.status] ?? FALLBACK
         return (
           <Tooltip key={i} title={`#${b.number} · ${t(st.key ?? 'deploys.stopped')}`}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: st.color, opacity: b.inProgress ? 0.55 : 1 }} />
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpen?.(b)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onOpen?.(b)
+                }
+              }}
+              style={{ width: 9, height: 9, borderRadius: 2, background: st.color, opacity: b.inProgress ? 0.55 : 1, cursor: onOpen ? 'pointer' : 'default' }}
+            />
           </Tooltip>
         )
       })}
@@ -107,7 +123,14 @@ function DeployTrend({ builds, t }) {
 // Blocco sinistro condiviso da riga-servizio e riga-build: stato + nome + #num + trigger, sotto
 // commit·durata (o fase, se in corso), e — se fallita — la riga rossa "Fallita in FASE: motivo".
 function BuildInfo({ b, name, t }) {
-  const sub = [b.commit, b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : fmtDur(b.durationMs)]
+  const isCf = b.provider === 'cloudflare'
+  // CF: niente durata (non c'è) → riempio con autore (+ branch per le Pages), così la riga non è mezza vuota.
+  const sub = [
+    b.commit,
+    b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
+    isCf ? b.author : null,
+    isCf && b.kind === 'pages' && b.branch ? b.branch : null,
+  ]
     .filter(Boolean)
     .join(' · ')
   const st = STATUS[b.status] ?? FALLBACK
@@ -195,7 +218,7 @@ function ServiceRow({ g, onOpen, t }) {
     <ClickableRow b={b} onOpen={onOpen} t={t}>
       <BuildInfo b={b} name={g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-        {!isCf && <DeployTrend builds={g.builds} t={t} />}
+        {!isCf && <DeployTrend builds={g.builds} onOpen={onOpen} t={t} />}
         {!isCf && decided > 0 && (
           <Tooltip title={t('deploys.rateTip', { ok: g.ok, total: decided })}>
             <Text style={{ fontSize: 13, fontWeight: 600, color: rateColor, fontVariantNumeric: 'tabular-nums' }}>
@@ -301,6 +324,17 @@ function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
               <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
             )}
             <MetaLine label={t('deploys.whenLabel')}>{fmtAgo(b.inProgress ? b.startedAt : b.endedAt, t) || '—'}</MetaLine>
+            {b.kind === 'pages' && b.branch && (
+              <MetaLine label={t('deploys.branchLabel')}>
+                {b.branch}
+                {b.env ? ` · ${b.env}` : ''}
+              </MetaLine>
+            )}
+            {b.versions?.length > 1 && (
+              <MetaLine label={t('deploys.rollout')}>
+                {b.versions.map((v) => `${String(v.id).slice(0, 8)}${v.percentage != null ? ` ${v.percentage}%` : ''}`).join(' · ')}
+              </MetaLine>
+            )}
           </Space>
 
           {failed && b.failReason && (
