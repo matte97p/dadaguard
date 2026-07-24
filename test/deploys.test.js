@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapPhase, failureOf, mapBuild } from '../server/deploys.js'
+import { mapPhase, failureOf, mapBuild, deployerOf } from '../server/deploys.js'
 
 test('mapPhase: fase ok → niente messaggio; durata in ms', () => {
   const p = mapPhase({ phaseType: 'BUILD', phaseStatus: 'SUCCEEDED', durationInSeconds: 90 })
@@ -49,4 +49,26 @@ test('mapBuild: espone fasi, motivo fallimento e logsUrl', () => {
   assert.equal(out.logsUrl, 'https://console.aws.amazon.com/cloudwatch/x')
   assert.equal(out.phases.length, 2)
   assert.equal(out.phases[1].message, 'exit status 1')
+})
+
+test('deployerOf: legge la exported-variable DEPLOYER; null se assente', () => {
+  assert.equal(
+    deployerOf({ exportedEnvironmentVariables: [{ name: 'FOO', value: 'x' }, { name: 'DEPLOYER', value: 'mperino@get-cato.com' }] }),
+    'mperino@get-cato.com',
+  )
+  assert.equal(deployerOf({ exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: '' }] }), null)
+  assert.equal(deployerOf({ exportedEnvironmentVariables: [] }), null)
+  assert.equal(deployerOf({}), null)
+})
+
+test('mapBuild: espone author da DEPLOYER (chi ha lanciato)', () => {
+  const out = mapBuild({
+    id: 'cato-staging-backend-deploy:abc',
+    projectName: 'cato-staging-backend-deploy',
+    buildStatus: 'SUCCEEDED',
+    exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'mperino@get-cato.com' }],
+  })
+  assert.equal(out.author, 'mperino@get-cato.com')
+  // build senza la variabile → author null (build vecchi / progetti che non la esportano)
+  assert.equal(mapBuild({ projectName: 'cato-staging-backend-deploy', buildStatus: 'SUCCEEDED' }).author, null)
 })

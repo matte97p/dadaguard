@@ -5,6 +5,11 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Vista Deploy: «chi ha deployato»** — ogni build mostra chi l'ha lanciata (autore del commit), nella
+  lista e nel drawer di dettaglio. Il dato arriva dalla variabile CodeBuild esportata `DEPLOYER` (via
+  `BatchGetBuilds`, nessun permesso IAM aggiuntivo); assente sui build che non la esportano → colonna vuota.
+
 ## [0.4.1] — 2026-07-06
 
 ### Changed
