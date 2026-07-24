@@ -119,11 +119,11 @@ export function demoStatus(lang = 'it') {
 
     cfSvc('website', {
       version: { key: 'version', status: 'up', summary: pick(L, 'a1b2c3d4 · 8m fa', 'a1b2c3d4 · 8m ago') },
-      runtime: { key: 'runtime', status: 'up', summary: pick(L, '128k richieste · 0.3% errori · 24h', '128k requests · 0.3% errors · 24h'), spark: [3, 5, 8, 12, 20, 32, 44, 52, 48, 40, 30, 22] },
+      runtime: { key: 'runtime', status: 'up', summary: pick(L, '128k richieste · 0.3% errori · 24h · CPU p99 12ms', '128k requests · 0.3% errors · 24h · CPU p99 12ms'), spark: [3, 5, 8, 12, 20, 32, 44, 52, 48, 40, 30, 22] },
     }),
     cfSvc('admin-frontend', {
       version: { key: 'version', status: 'up', summary: pick(L, 'c9d0e1f2 · 1g fa', 'c9d0e1f2 · 1d ago') },
-      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, '9.1k richieste · 6.4% errori · 24h', '9.1k requests · 6.4% errors · 24h'), spark: [2, 3, 3, 4, 6, 5, 7, 9, 8, 6, 5, 4] },
+      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, '9.1k richieste · 6.4% errori · 24h · CPU p99 48ms', '9.1k requests · 6.4% errors · 24h · CPU p99 48ms'), spark: [2, 3, 3, 4, 6, 5, 7, 9, 8, 6, 5, 4] },
     }),
   ]
 
@@ -179,8 +179,8 @@ export function demoDeploys() {
       logsUrl: 'https://console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fdemo',
     }
   }
-  // Build Cloudflare (Worker): status sempre SUCCEEDED, niente fasi/log, con autore + link dashboard.
-  const cfb = (service, agoMin, source, versionId, author = 'ci@get-cato.com') => ({
+  // Build Cloudflare Worker: status sempre SUCCEEDED, con autore, versioni (rollout) + link dashboard.
+  const cfb = (service, agoMin, source, versionId, author = 'ci@get-cato.com', versions) => ({
     id: `${service}:${versionId}`,
     service,
     project: service,
@@ -193,8 +193,32 @@ export function demoDeploys() {
     endedAt: iso(agoMin * m),
     durationMs: null,
     provider: 'cloudflare',
+    kind: 'worker',
     author,
+    versions: versions ?? [{ id: versionId, percentage: 100 }],
     deployUrl: `https://dash.cloudflare.com/demo/workers/services/view/${service}/production/deployments`,
+  })
+  // Build Cloudflare Pages: hanno uno STATO reale (può fallire) + branch/env.
+  const cfp = (project, agoMin, status, commit, branch = 'main', author = 'matteo@get-cato.com') => ({
+    id: `${project}:${commit}`,
+    service: project,
+    project,
+    number: null,
+    status,
+    inProgress: false,
+    commit: commit.slice(0, 8),
+    trigger: 'auto',
+    startedAt: iso(agoMin * m),
+    endedAt: iso(agoMin * m),
+    durationMs: null,
+    provider: 'cloudflare',
+    kind: 'pages',
+    author,
+    branch,
+    env: 'production',
+    failPhase: status === 'FAILED' ? 'build' : null,
+    failReason: null,
+    deployUrl: `https://dash.cloudflare.com/demo/pages/view/${project}`,
   })
   return {
     staging: {
@@ -218,16 +242,23 @@ export function demoDeploys() {
     },
     management: { label: 'Management (payer)', color: '#722ed1', builds: [], noProjects: true },
     security: { label: 'Security', color: '#13c2c2', builds: [], noProjects: true },
-    // Cloudflare (Stadio 1): rollout dei Worker via Wrangler/dash. Solo riusciti (CF non registra i falliti).
+    // Cloudflare: Worker (rollout via Wrangler/dash, solo riusciti) + Pages (con stato reale, possono fallire).
     cloudflare: {
       label: 'Cloudflare',
       color: '#f6821f',
       provider: 'cloudflare',
       builds: [
-        cfb('website', 8, 'wrangler', 'a1b2c3d4e5f6'),
+        // Worker in rollout graduale (canary): due versioni con % di traffico
+        cfb('website', 8, 'wrangler', 'a1b2c3d4e5f6', 'ci@get-cato.com', [
+          { id: 'a1b2c3d4e5f6', percentage: 90 },
+          { id: 'f6e5d4c3b2a1', percentage: 10 },
+        ]),
         cfb('website', 1600, 'wrangler', 'f6e5d4c3b2a1'),
-        cfb('admin-frontend', 90, 'dash', 'c9d0e1f2a3b4', 'matteo@get-cato.com'),
         cfb('geo-edge', 320, 'wrangler', '0f1e2d3c4b5a'),
+        // Pages: un deploy riuscito + uno FALLITO (le Pages, a differenza dei Worker, registrano i falliti)
+        cfp('admin-frontend', 90, 'SUCCEEDED', 'c9d0e1f2a3b4', 'main'),
+        cfp('marketing-site', 40, 'FAILED', 'b7a6c5d4e3f2', 'feat/new-hero'),
+        cfp('marketing-site', 500, 'SUCCEEDED', '1a2b3c4d5e6f', 'main'),
       ],
     },
   }

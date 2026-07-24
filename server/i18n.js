@@ -33,6 +33,7 @@ const S = {
 
     'link.console': 'Console AWS',
     'cf.runtimeSummary': '{req} richieste · {err}% errori · 24h',
+    'cf.cpuP99': 'CPU p99 {ms}ms',
     'lambda.cron.disabled': 'cron disattivata di proposito (ogni {sched})',
     'cron.next': 'prossima ~tra {in}',
     'cron.duration': 'durata ~{d}',
@@ -234,6 +235,7 @@ const S = {
 
     'link.console': 'AWS Console',
     'cf.runtimeSummary': '{req} requests · {err}% errors · 24h',
+    'cf.cpuP99': 'CPU p99 {ms}ms',
     'lambda.cron.disabled': 'cron disabled on purpose (every {sched})',
     'cron.next': 'next ~in {in}',
     'cron.duration': 'ran in ~{d}',
