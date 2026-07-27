@@ -132,7 +132,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       { label: t('m.errors'), value: String(errors), tone: errors > 0 ? 'critical' : 'good' },
     ]
     if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
-    if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, spark: m.series?.dur, sparkUnit: 'ms' })
+    if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, kind: 'latency', spark: m.series?.dur, sparkUnit: 'ms' })
     return {
       status,
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
@@ -182,6 +182,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     metrics.push({
       label: t('m.latency'),
       value: `~${fmtMs(Math.round(p95))}`,
+      kind: 'latency',
       tone: nearTimeout ? 'warning' : undefined,
       spark: m.series?.dur,
       sparkUnit: 'ms',
