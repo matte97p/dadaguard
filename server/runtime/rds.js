@@ -49,7 +49,7 @@ export async function rdsRuntime(cfg, aws, opts = {}) {
       metrics: [
         { label: t('m.engine'), value: c.Engine },
         { label: t('m.state'), value: stLabel(c.Status), tone: c.Status === 'available' ? 'good' : 'critical' },
-        { label: t('m.instances'), value: `${available}/${total}`, tone: available < total ? 'warning' : 'good' },
+        { label: t('m.instances', { n: total }), value: `${available}/${total}`, tone: available < total ? 'warning' : 'good' },
       ],
     }
   }

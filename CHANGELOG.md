@@ -5,6 +5,37 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Colonna Latenza ordinabile** — «chi è il più lento?» è la domanda naturale di una tabella e non si
+  poteva fare: solo le Lambda esponevano un numero (`p95Ms`), Bedrock/SageMaker no, e ordinare le
+  stringhe mostrate metterebbe «~4m 30s» prima di «~51s». Ora la metrica di latenza porta il suo
+  valore in millisecondi (`ms`) e la colonna ordina su quello, primo clic = i più lenti in cima; chi
+  non ha latenza resta in fondo in entrambi i versi invece di fingere di essere a zero.
+
+### Fixed
+- **Lo stato «ok» non è più solo un colore** — sulle righe e sulle card sane il tag («OK») è nascosto
+  di proposito, quindi restava un pallino verde e nulla più: per chi usa uno screen reader, o non
+  distingue verde da rosso, l'informazione non c'era. Ora il pallino ha un nome accessibile
+  (`role="img"` + `aria-label`, visibile anche al puntatore), e il pallino dell'ambiente — che è
+  decorazione, l'etichetta è accanto — è marcato come tale invece di annunciarsi senza nome.
+- **«1 errori»** — l'etichetta di una metrica che accompagna un conteggio ora concorda col numero
+  («1 errore», «0 errori», «2 esecuzioni»), sia nella frase della tabella sia nelle tile delle card.
+  L'interpolatore del server ha imparato la forma plurale `{n#singolare#plurale}` che il client aveva
+  già, e in entrambi la forma si risolve **anche senza il conteggio** (prima un chiamante distratto
+  avrebbe stampato in pagina il segnaposto grezzo).
+- **Il deploy diventa verde solo quando il servizio serve traffico** — `update-service` ritorna appena
+  ECS accetta la richiesta, non quando i task nuovi rispondono: il workflow risultava riuscito mentre
+  l'app serviva ancora il codice precedente (visto: due minuti di bundle vecchio dopo un merge
+  «riuscito»). Ora attende `services-stable` e, se il rollout non converge entro il timeout,
+  **fallisce** stampando stato del rollout ed eventi del servizio.
+
+### Changed
+- **CHANGELOG per versione** — le voci stavano tutte sotto `[Unreleased]` mentre 0.4.45→0.4.55 erano
+  già uscite: ora ognuna sta sotto la versione che l'ha spedita (ricostruite dai tag), così il
+  changelog dice cosa c'è in ciò che gira.
+
+## [0.4.55] — 2026-07-27
+
 ### Changed
 - **Tabella più leggibile** — la struttura teneva, la lettura no: su una riga larga 1500px l'occhio
   perdeva la riga a metà strada. Ora **righe alternate** e un **separatore verticale** tra il blocco
@@ -18,6 +49,8 @@ All notable changes to Dadaguard are documented here. Format based on
   (numero + etichetta muta), mettendo l'etichetta prima quando il valore è descrittivo
   («motore aurora-postgresql») e dopo quando è un numero («3/3 istanze»).
 
+## [0.4.54] — 2026-07-27
+
 ### Added
 - **Vista tabella della flotta (predefinita)** — una riga per servizio invece di una card: con 48
   servizi le card sono un muro, e nessuna rifinitura le salva. Colonne fisse **Stato · Servizio ·
@@ -29,6 +62,18 @@ All notable changes to Dadaguard are documented here. Format based on
   produzione) gestiti con chiave account+nome. Le **card restano** un clic a lato: l'interruttore in
   cima ricorda la scelta. In una schermata da 25 righe si vede tre volte quello che si vedeva prima.
 
+## [0.4.53] — 2026-07-27
+
+### Fixed
+- **Il check dei cron ECS non dipende da un permesso in più** — il rilevamento del fallimento (0.4.52)
+  usava `logs:DescribeLogStreams`, che il ruolo read-only cross-account non ha: il check passava da un
+  verde sbagliato a «accesso negato». Onesto, ma cieco. Ora dove quel permesso manca si torna sul log
+  group intero **inseguendo le pagine** invece di fidarsi della prima; esaurito il budget di pagine il
+  check dice «non trovato», mai «fallito». Un errore che non è «accesso negato» (throttling, rete) non
+  viene mascherato dal fallback: si propaga.
+
+## [0.4.52] — 2026-07-27
+
 ### Fixed
 - **Un cron FALLITO veniva mostrato verde** (cron su ECS RunTask) — l'errore si cercava su tutto il log
   group con `FilterLogEvents(limit: 1)`, ma quell'API distribuisce uno scan budget tra gli stream e può
@@ -38,9 +83,11 @@ All notable changes to Dadaguard are documented here. Format based on
   stesso meccanismo faceva oscillare la card tra FALLITA e ok senza che i dati cambiassero. Ora la
   domanda è quella che la card dichiara — «com'è andata l'**ultima** esecuzione?»: su RunTask ogni
   esecuzione ha il suo log stream, quindi si prende lo stream più recente e si cerca l'errore **dentro
-  quello**. Deterministico. Dove il ruolo read-only non ha `logs:DescribeLogStreams` (nessun permesso
-  nuovo richiesto) si torna sul log group intero, ma **inseguendo le pagine** invece di fidarsi della
-  prima; esaurito il budget di pagine il check dice «non trovato», mai «fallito».
+  quello**. Deterministico.
+
+## [0.4.51] — 2026-07-27
+
+### Fixed
 - **Fuso dello schedule ignorato** — gli schedule di EventBridge Scheduler possono dichiarare un
   `ScheduleExpressionTimezone` (i cron Cato usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
   `cron(0 17 ? * MON-FRI *)` come 17:00 **UTC** invece che locali: due ore di scarto in estate, una in
@@ -49,6 +96,10 @@ All notable changes to Dadaguard are documented here. Format based on
   anche dopo aver corretto la finestra. Ora l'espressione è valutata nel suo fuso (via `Intl`, quindi
   l'ora legale è gestita per costruzione); fuso assente → UTC come prima, fuso inesistente → UTC
   invece di un errore.
+
+## [0.4.50] — 2026-07-27
+
+### Fixed
 - **Falso «GIÙ» sui cron che non girano ogni giorno** — il dead man's switch deduceva una cadenza
   costante (finestra = cadenza × 1.2), così un `cron(0 17 ? * MON-FRI *)` guardato di lunedì mattina
   risultava fermo: l'ultima esecuzione attesa era **venerdì**, 67 ore prima, fuori da qualunque
@@ -58,6 +109,17 @@ All notable changes to Dadaguard are documented here. Format based on
   nemmeno i due minuti dopo uno scatto danno un falso rosso (le metriche CloudWatch si pubblicano con
   1-3 minuti di ritardo). Il messaggio dice **quando** avrebbe dovuto girare invece della finestra
   cieca. `rate(...)` e caratteri non gestiti (L/W/#) restano sull'euristica precedente.
+
+## [0.4.49] — 2026-07-27
+
+### Fixed
+- **La finestra anche sulle lambda on-demand** — i numeri (e quindi gli andamenti) delle lambda
+  on-demand non dicevano su che periodo erano calcolati: la KPI row non mostrava la finestra e il
+  tooltip del grafico usciva come «chiamate · min 2 · max 16», senza i `60m`. Le cron la avevano già.
+
+## [0.4.48] — 2026-07-27
+
+### Fixed
 - **Mini-grafici illeggibili nelle card** — la linea stava **sciolta** sotto la riga dei numeri, subito
   dopo «latenza ~6.3s», ma disegnava le **invocazioni**: si leggeva come l'andamento della latenza,
   che era un'altra cosa. E la scala era min-max, quindi un p95 che oscillava del 3% riempiva tutta
@@ -68,6 +130,10 @@ All notable changes to Dadaguard are documented here. Format based on
   vedere: servono ≥3 punti e almeno il 10% di escursione, altrimenti niente grafico — via le linee
   piatte e la «punta» isolata della cron giornaliera (una run nella finestra non è un andamento).
   I Worker Cloudflare passano alle stesse stat tile (richieste · errori · CPU p99) invece della frase.
+
+## [0.4.47] — 2026-07-27
+
+### Fixed
 - **Riga Build: valori grezzi che sfondavano la card** — chi tagga le immagini ECS con lo sha del
   commit vedeva 40 cifre esadecimali senza spazi (`:0e89c2198d288ec9…`): niente su cui andare a capo,
   quindi il testo usciva dal bordo e finiva sopra la card accanto. Il tag ora è **nudo** (via il `:`
@@ -77,11 +143,23 @@ All notable changes to Dadaguard are documented here. Format based on
   `expectedVersion`). Chi ha deployato perde il dominio email
   (`81815192+matte97p@users.noreply.github.com` → `matte97p`): erano tre righe per card. E la card
   ora regge qualunque stringa lunga senza sfondare (`overflow-wrap`), non solo i casi noti.
+
 - **Artefatti nelle card** — sparkline di una serie piatta (disegnava un filetto orizzontale che
   sembrava un bordo finito lì per sbaglio), KPI tile per un singolo numero (due righe per dire
   «1/1 task attivi») e ID grezzo del modello Bedrock nel sottotitolo (due righe già nel tooltip del
   nome). I servizi **inattivi** (modelli Bedrock mai invocati) scendono sotto quelli sani: non sono
   un problema e non devono occupare la prima riga della dashboard.
+
+## [0.4.46] — 2026-07-27
+
+### Fixed
+- **La testa comune del nome non compattava sui nomi veri** — la soglia perché un prefisso diventi
+  «famiglia» era metà del gruppo: sull'account Staging reale (21 servizi non Bedrock) `cato-staging-`
+  copre 12 nomi e `cato-staging-cron-` 9, entrambi sotto 13 → nessuna compattazione. Ora la soglia è
+  un terzo del gruppo e i Bedrock, che hanno il loro nome parlante, escono dal conteggio invece di
+  alzare l'asticella per tutti.
+
+## [0.4.45] — 2026-07-27
 
 ### Changed
 - **Card dei servizi ridisegnate** — con 25 servizi a schermo (flotte di cron) la card andava in
@@ -94,11 +172,12 @@ All notable changes to Dadaguard are documented here. Format based on
   tooltip di spiegazione sull'etichetta invece di un `?` per riga, e card della stessa riga alte
   uguali. Le cron **spente di proposito** scendono in fondo al gruppo, sotto i servizi sani.
 
+## [0.4.40] — 2026-07-24
+
 ### Added
 - **Vista Deploy: «chi ha deployato»** — ogni build mostra chi l'ha lanciata (autore del commit), nella
   lista e nel drawer di dettaglio. Il dato arriva dalla variabile CodeBuild esportata `DEPLOYER` (via
   `BatchGetBuilds`, nessun permesso IAM aggiuntivo); assente sui build che non la esportano → colonna vuota.
-
 ## [0.4.1] — 2026-07-06
 
 ### Changed

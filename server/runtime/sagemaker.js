@@ -30,10 +30,10 @@ export async function sagemakerRuntime(cfg, aws, opts = {}) {
   const status = e4 + e5 > 0 ? 'degraded' : 'up'
   const parts = [t('sagemaker.invocations', { n: fmtCount(Math.round(m.inv)) }), t('sagemaker.errors', { n: e4 + e5 })]
   if (m.lat > 0) parts.push(t('sagemaker.latency', { d: fmtMs(Math.round(m.lat / 1000)) }))
-  const metrics = [{ label: t('m.inv'), value: fmtCount(Math.round(m.inv)), spark: m.series?.inv }]
+  const metrics = [{ label: t('m.inv', { n: Math.round(m.inv) }), value: fmtCount(Math.round(m.inv)), spark: m.series?.inv }]
   if (e5 > 0) metrics.push({ label: t('m.errServer'), value: String(e5), tone: 'critical' })
   if (e4 > 0) metrics.push({ label: t('m.errClient'), value: String(e4), tone: 'warning' })
-  if (e4 === 0 && e5 === 0) metrics.push({ label: t('m.errors'), value: '0', tone: 'good' })
-  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat / 1000))}`, kind: 'latency', spark: m.series?.lat?.map((v) => (Number.isFinite(v) ? v / 1000 : v)), sparkUnit: 'ms' })
+  if (e4 === 0 && e5 === 0) metrics.push({ label: t('m.errors', { n: 0 }), value: '0', tone: 'good' })
+  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat / 1000))}`, kind: 'latency', ms: Math.round(m.lat / 1000), spark: m.series?.lat?.map((v) => (Number.isFinite(v) ? v / 1000 : v)), sparkUnit: 'ms' })
   return { status, summary: `${parts.join(' · ')} (${winL})`, metrics, window: winL }
 }

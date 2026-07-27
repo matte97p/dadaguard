@@ -65,8 +65,17 @@ export function StatusTag({ service, t, style }) {
   )
 }
 
-export function StatusDot({ status }) {
-  return <Badge status={(STATUS[status] ?? STATUS.unknown).status} />
+// Il pallino di stato NON può essere solo colore: su una riga sana il tag ("OK") è nascosto di
+// proposito, quindi senza un nome accessibile chi usa uno screen reader — o chi non distingue
+// verde da rosso — non ha alcun segnale. `role="img"` + aria-label danno la parola; `title` la
+// mostra anche al puntatore.
+export function StatusDot({ status, t }) {
+  const label = t ? t(`card.status.${status ?? 'unknown'}`) : (status ?? 'unknown')
+  return (
+    <span role="img" aria-label={label} title={label} style={{ display: 'inline-flex' }}>
+      <Badge status={(STATUS[status] ?? STATUS.unknown).status} />
+    </span>
+  )
 }
 
 // Un summary del server ("sha 9f2a1c · 3g fa · da GitHubActions") è UNA frase: il primo pezzo è il

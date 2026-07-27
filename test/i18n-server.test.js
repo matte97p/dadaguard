@@ -34,3 +34,22 @@ test('i18n server: le chiavi usate nel server (top-level, runtime, checks) esist
   const missing = [...used].filter((k) => it(k) === k || en(k) === k).sort()
   assert.deepEqual(missing, [], `chiavi i18n usate ma assenti nel dizionario server: ${missing.join(', ')}`)
 })
+
+// Forma plurale delle etichette: un conteggio e la sua parola devono concordare. "1 errori" era
+// visibile in tabella, dove la cella compone «numero + etichetta».
+test('makeT: forma plurale {n#singolare#plurale} (IT ed EN)', () => {
+  const it = makeT('it')
+  const en = makeT('en')
+  assert.equal(it('m.errors', { n: 1 }), 'errore')
+  assert.equal(it('m.errors', { n: 0 }), 'errori')
+  assert.equal(it('m.errors', { n: 3 }), 'errori')
+  assert.equal(it('m.runs', { n: 1 }), 'esecuzione')
+  assert.equal(it('m.inv', { n: 2 }), 'invocazioni')
+  assert.equal(en('m.errors', { n: 1 }), 'error')
+  assert.equal(en('m.errors', { n: 2 }), 'errors')
+})
+
+test('makeT: senza il conteggio la forma plurale non lascia in giro i segnaposto', () => {
+  const it = makeT('it')
+  assert.ok(!it('m.errors').includes('#'), `etichetta grezza: ${it('m.errors')}`)
+})
