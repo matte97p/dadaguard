@@ -22,6 +22,24 @@ export function fmtSchedule(schedule, t = (k) => k) {
   return t('card.cron.every', { every })
 }
 
+// Vale la pena disegnare questa serie? Un mini-grafico in una card è CONTESTO di un numero che è
+// già scritto lì accanto: se non aggiunge una forma leggibile è solo un filetto che confonde
+// («grafici incomprensibili»). Si disegna solo quando c'è un andamento vero da vedere:
+//   · almeno 3 punti validi (con 2 è un segmento, non un andamento);
+//   · scala con lo ZERO in basso — così una variazione piccola SEMBRA piccola invece di riempire
+//     tutta l'altezza (la scala min-max trasforma il rumore in una montagna);
+//   · e con lo zero in basso, sotto il 10% di escursione non c'è niente da vedere → niente grafico.
+// Ritorna anche min/max/ultimo, che finiscono nel tooltip: il grafico non è mai l'UNICO modo di
+// leggere il dato. Puro/testabile.
+export function sparkStats(data) {
+  const vals = (data ?? []).filter((v) => Number.isFinite(v))
+  if (vals.length < 3) return { show: false, vals: [] }
+  const max = Math.max(...vals)
+  const min = Math.min(...vals)
+  const show = max > 0 && (max - min) / max >= 0.1
+  return { show, vals, min, max, last: vals[vals.length - 1] }
+}
+
 // Conteggio compatto: 1234 → "1.2k", 9999 → "10k", 15000 → "15k", sotto 1000 invariato.
 export function fmtCount(n) {
   if (!Number.isFinite(n)) return '—'

@@ -160,9 +160,15 @@ export function cfServiceResult(w, t) {
     const { requests, errorPct, spark, cpuP99Ms } = w.analytics
     const status = requests === 0 ? 'idle' : errorPct >= 5 ? 'degraded' : 'up'
     const fmtN = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n))
-    let summary = t('cf.runtimeSummary', { req: fmtN(requests), err: errorPct >= 10 ? Math.round(errorPct) : errorPct.toFixed(1) })
+    const err = errorPct >= 10 ? Math.round(errorPct) : errorPct.toFixed(1)
+    let summary = t('cf.runtimeSummary', { req: fmtN(requests), err })
     if (cpuP99Ms != null) summary += ` · ${t('cf.cpuP99', { ms: Math.round(cpuP99Ms) })}`
-    checks.runtime = { key: 'runtime', status, summary, spark: spark ?? [] }
+    // Stat tile come per i servizi AWS: l'andamento orario viaggia DENTRO la metrica che descrive
+    // (le richieste), non sciolto sotto la riga — dove il lettore lo attribuiva al numero sbagliato.
+    const metrics = [{ label: t('m.requests'), value: fmtN(requests), spark: spark ?? [] }]
+    metrics.push({ label: t('m.errPct'), value: `${err}%`, tone: errorPct >= 5 ? 'critical' : errorPct > 0 ? 'warning' : 'good' })
+    if (cpuP99Ms != null) metrics.push({ label: t('m.cpuP99'), value: `${Math.round(cpuP99Ms)}ms` })
+    checks.runtime = { key: 'runtime', status, summary, metrics, window: '24h' }
   }
   const { overall, cause, causes } = computeOverall(checks)
   return {
