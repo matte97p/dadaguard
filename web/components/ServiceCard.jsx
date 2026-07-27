@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import { fmtMs, fmtCount, fmtSchedule } from '../format.js'
 import { prettyBedrock, splitFamily } from '../serviceName.js'
+import { StatusDot } from './signals.jsx'
 import Sparkline from './Sparkline.jsx'
 
 // Logo Terraform (SVG inline) colorato per stato del drift: la card mostra solo il logo, il testo
@@ -36,7 +37,7 @@ const { Link, Text } = Typography
 // valore a destra col pallino di stato attaccato al testo. UN segnale = UNA riga: è ciò che rende
 // la card leggibile a colpo d'occhio quando ne hai 25 sullo schermo.
 // Il tooltip che spiega il segnale sta sull'etichetta (tratteggiata), non su un "?" a fianco.
-function Row({ label, tip, status, raw, children }) {
+function Row({ label, tip, status, raw, t, children }) {
   return (
     <>
       <div className="dg-label">
@@ -47,7 +48,9 @@ function Row({ label, tip, status, raw, children }) {
       {/* `title`: il valore per intero, non accorciato (sha completo, email di chi ha deployato) —
           in card sta la forma breve, sotto il puntatore quella integrale. */}
       <div className="dg-val" title={raw || undefined}>
-        <Badge status={STATUS[status]?.status ?? 'default'} style={{ marginInlineEnd: 5 }} />
+        <span style={{ marginInlineEnd: 5 }}>
+          <StatusDot status={status} t={t} />
+        </span>
         {children}
       </div>
     </>
@@ -201,7 +204,9 @@ export default function ServiceCard({
             reserveFamily && <div className="dg-fam">&nbsp;</div>
           )}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
-            <Badge status={overall.status} style={{ marginTop: 5 }} />
+            <span style={{ marginTop: 5 }}>
+              <StatusDot status={service.overall} t={t} />
+            </span>
             <Tooltip title={service.name}>
               <span
                 className="dg-name"
@@ -295,7 +300,7 @@ export default function ServiceCard({
     >
       <div className="dg-rows">
         {liveness && (
-          <Row label={t('card.label.reachable')} tip={t('card.tip.reachable')} status={liveness.status}>
+          <Row label={t('card.label.reachable')} tip={t('card.tip.reachable')} status={liveness.status} t={t}>
             <span>
               {liveness.httpStatus ? t('card.responds', { code: liveness.httpStatus }) : (liveness.reason ?? '—')}
             </span>
@@ -306,7 +311,7 @@ export default function ServiceCard({
         )}
 
         {version && (
-          <Row label={t('card.label.build')} tip={t('card.tip.build')} status={version.status} raw={version.summary}>
+          <Row label={t('card.label.build')} tip={t('card.tip.build')} status={version.status} t={t} raw={version.summary}>
             {version.summary ? (
               <Summary
                 text={version.summary}
@@ -319,7 +324,7 @@ export default function ServiceCard({
         )}
 
         {runtime && (
-          <Row label={t('card.label.runtime')} tip={t('card.tip.runtime')} status={runtime.status} raw={runtime.summary}>
+          <Row label={t('card.label.runtime')} tip={t('card.tip.runtime')} status={runtime.status} t={t} raw={runtime.summary}>
             {/* KPI tile solo da DUE numeri in su: per un numero solo ("2/2 task attivi") la coppia
                 label-sopra/valore-sotto occupa due righe per dire una cosa → meglio la frase.
                 Eccezione: se quel numero ha un andamento da mostrare, la tile serve — è lei a dare
@@ -335,25 +340,25 @@ export default function ServiceCard({
         )}
 
         {secrets && (
-          <Row label={t('card.label.secret')} tip={t('card.tip.secret')} status={secrets.status} raw={secrets.summary}>
+          <Row label={t('card.label.secret')} tip={t('card.tip.secret')} status={secrets.status} t={t} raw={secrets.summary}>
             <Summary text={secrets.summary ?? secrets.reason ?? '—'} />
           </Row>
         )}
 
         {security && (
-          <Row label={t('card.label.security')} tip={t('card.tip.security')} status={security.status} raw={security.summary}>
+          <Row label={t('card.label.security')} tip={t('card.tip.security')} status={security.status} t={t} raw={security.summary}>
             <Summary text={security.summary ?? security.reason ?? '—'} />
           </Row>
         )}
 
         {alarms && (
-          <Row label={t('card.label.alarms')} tip={t('card.tip.alarms')} status={alarms.status} raw={alarms.summary}>
+          <Row label={t('card.label.alarms')} tip={t('card.tip.alarms')} status={alarms.status} t={t} raw={alarms.summary}>
             <Summary text={alarms.summary ?? alarms.reason ?? '—'} />
           </Row>
         )}
 
         {backups && (
-          <Row label={t('card.label.backups')} tip={t('card.tip.backups')} status={backups.status} raw={backups.summary}>
+          <Row label={t('card.label.backups')} tip={t('card.tip.backups')} status={backups.status} t={t} raw={backups.summary}>
             <Summary text={backups.summary ?? backups.reason ?? '—'} />
           </Row>
         )}

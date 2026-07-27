@@ -47,7 +47,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       onFilter: (v, s) => s.overall === v,
       render: (_, s) => (
         <Space size={6}>
-          <StatusDot status={s.overall} />
+          <StatusDot status={s.overall} t={t} />
           <StatusTag service={s} t={t} />
         </Space>
       ),
@@ -93,7 +93,9 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       onFilter: (v, s) => s.account?.label === v,
       render: (_, s) => (
         <Space size={6}>
-          {s.account?.color && <Badge color={s.account.color} />}
+          {/* il pallino dell'ambiente è decorazione: l'informazione sta nell'etichetta accanto, quindi
+              va nascosto agli screen reader invece di farsi annunciare come elemento senza nome */}
+          {s.account?.color && <Badge color={s.account.color} aria-hidden="true" />}
           <Text style={{ fontSize: 12 }}>{s.account?.label ?? '—'}</Text>
         </Space>
       ),
@@ -112,7 +114,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         const others = (r.metrics ?? []).filter((m) => m.kind !== 'latency')
         return (
           <span className="dg-cell" title={r.summary || undefined}>
-            <StatusDot status={r.status} />{' '}
+            <StatusDot status={r.status} t={t} />{' '}
             {others.length ? (
               <>
                 {others.map((m, i) => {
@@ -162,6 +164,20 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       key: 'latenza',
       width: 104,
       align: 'right',
+      // "Chi è il più lento?" è LA domanda che una tabella deve saper rispondere. Ordina sul numero
+      // che il server mette sulla metrica (`ms`), non sulla stringa mostrata ("~4m 30s" ordinato come
+      // testo finirebbe prima di "~51s"). Primo clic = i più lenti in cima; chi non ha latenza (un
+      // bucket S3, un worker senza richieste) resta in fondo in entrambi i versi, non finge di essere 0.
+      sortDirections: ['descend', 'ascend'],
+      sorter: (a, b) => {
+        const ms = (x) => latencyMetric(x.checks?.runtime)?.ms
+        const va = ms(a)
+        const vb = ms(b)
+        if (va == null && vb == null) return 0
+        if (va == null) return -1
+        if (vb == null) return 1
+        return va - vb
+      },
       render: (_, s) => {
         const m = latencyMetric(s.checks?.runtime)
         return m ? <MetricValue metric={m} window={s.checks?.runtime?.window} inline /> : <Text type="secondary">—</Text>
@@ -174,7 +190,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       render: (_, s) =>
         s.checks?.version ? (
           <span className="dg-cell" title={s.checks.version.summary || undefined}>
-            <StatusDot status={s.checks.version.status} />{' '}
+            <StatusDot status={s.checks.version.status} t={t} />{' '}
             {s.checks.version.summary ? <Summary text={s.checks.version.summary} /> : (s.checks.version.reason ?? '—')}
           </span>
         ) : (
@@ -273,7 +289,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
                     <span>{t(labelKey)}</span>
                   </div>
                   <div className="dg-val" title={c.summary || undefined}>
-                    <StatusDot status={c.status} />{' '}
+                    <StatusDot status={c.status} t={t} />{' '}
                     {k === 'liveness' && c.httpStatus ? (
                       <>
                         <span>{t('card.responds', { code: c.httpStatus })}</span>

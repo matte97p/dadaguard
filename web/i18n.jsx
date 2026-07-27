@@ -817,11 +817,12 @@ const STRINGS = {
 }
 
 function interpolate(s, vars) {
-  if (!vars) return s
   // Forma plurale: {var#singolare#plurale} sceglie in base a vars[var] (1 → singolare, altrimenti plurale),
-  // es. '{n} {n#servizio#servizi}'. Va risolta prima delle sostituzioni normali {var}.
-  s = s.replace(/\{(\w+)#([^#{}]*)#([^{}]*)\}/g, (_, k, one, other) => (Number(vars[k]) === 1 ? one : other))
-  for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
+  // es. '{n} {n#servizio#servizi}'. Va risolta prima delle sostituzioni normali {var}, e SEMPRE —
+  // anche senza `vars` — altrimenti un chiamante che dimentica il conteggio stampa il segnaposto
+  // grezzo in pagina. Senza numero vince il plurale: è la forma generica.
+  s = String(s).replace(/\{(\w+)#([^#{}]*)#([^{}]*)\}/g, (_, k, one, other) => (Number(vars?.[k]) === 1 ? one : other))
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
   return s
 }
 

@@ -59,10 +59,10 @@ const S = {
     'aws.expired': 'credenziali scadute — rifai login',
     'aws.timeout': 'timeout',
     'aws.error': 'errore AWS',
-    'm.inv': 'invocazioni',
-    'm.runs': 'esecuzioni',
-    'm.calls': 'chiamate',
-    'm.errors': 'errori',
+    'm.inv': '{n#invocazione#invocazioni}',
+    'm.runs': '{n#esecuzione#esecuzioni}',
+    'm.calls': '{n#chiamata#chiamate}',
+    'm.errors': '{n#errore#errori}',
     'm.errServer': 'err. server (5xx)',
     'm.errClient': 'err. client (4xx)',
     'm.errPct': 'errori',
@@ -75,7 +75,7 @@ const S = {
     'm.pending': 'in avvio',
     'm.engine': 'motore',
     'm.state': 'stato',
-    'm.instances': 'istanze',
+    'm.instances': '{n#istanza#istanze}',
     'm.sends': 'inviate',
     'm.bounce': 'bounce',
     'm.complaint': 'complaint',
@@ -265,10 +265,10 @@ const S = {
     'aws.expired': 'credentials expired — log in again',
     'aws.timeout': 'timeout',
     'aws.error': 'AWS error',
-    'm.inv': 'invocations',
-    'm.runs': 'runs',
-    'm.calls': 'calls',
-    'm.errors': 'errors',
+    'm.inv': '{n#invocation#invocations}',
+    'm.runs': '{n#run#runs}',
+    'm.calls': '{n#call#calls}',
+    'm.errors': '{n#error#errors}',
     'm.errServer': 'server err (5xx)',
     'm.errClient': 'client err (4xx)',
     'm.errPct': 'errors',
@@ -281,7 +281,7 @@ const S = {
     'm.pending': 'starting',
     'm.engine': 'engine',
     'm.state': 'state',
-    'm.instances': 'instances',
+    'm.instances': '{n#instance#instances}',
     'm.sends': 'sent',
     'm.bounce': 'bounce',
     'm.complaint': 'complaint',
@@ -418,21 +418,23 @@ const S = {
 }
 
 // Ritorna t(key, vars): interpola {var} nel template della lingua scelta (fallback IT).
-export function makeT(lang) {
-  const L = S[lang] ? lang : 'it'
-  return (key, vars) => {
-    let s = S[L][key] ?? S.it[key] ?? key
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
-    return s
-  }
-}
-
-// t neutro (identità) per quando un check gira senza lingua (es. fuori da una richiesta HTTP).
-export const identityT = (key, vars) => {
-  let s = key
+// Interpolazione con forma PLURALE: `{var#singolare#plurale}` scegle in base a vars[var]
+// (1 → singolare, altrimenti plurale). Stessa sintassi del client (web/i18n.jsx), così le stringhe
+// si spostano da una parte all'altra senza riscriverle. Serve perché un'etichetta che accompagna un
+// conteggio ("1 errori") è sbagliata: il numero e la parola devono concordare.
+function interpolate(s, vars) {
+  s = String(s).replace(/\{(\w+)#([^#{}]*)#([^{}]*)\}/g, (_, k, one, other) => (Number(vars?.[k]) === 1 ? one : other))
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
   return s
 }
+
+export function makeT(lang) {
+  const L = S[lang] ? lang : 'it'
+  return (key, vars) => interpolate(S[L][key] ?? S.it[key] ?? key, vars)
+}
+
+// t neutro (identità) per quando un check gira senza lingua (es. fuori da una richiesta HTTP).
+export const identityT = (key, vars) => interpolate(key, vars)
 
 // Durata compatta "Nu" i18n (bare): da ms di elapsed a "2h"/"12g"/"5m".
 function fmtElapsed(ms, t) {
