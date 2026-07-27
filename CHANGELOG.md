@@ -16,6 +16,14 @@ All notable changes to Dadaguard are documented here. Format based on
   verso un altro host dice quale. Per avere un verde vero serve un `healthUrl` che bypassi il login.
 
 ### Added
+- **La sonda di liveness ora si può accendere sui servizi scoperti** — il segnale #1 richiede un
+  `healthUrl`, ma un servizio trovato dall'auto-discovery non ha un posto dove dichiararlo: era l'unico
+  check spento su tutto il pannello. Nuova mappa `health:` in config, con le stesse chiavi di `urls:`
+  (`<nome>` o `<account>/<nome>`), che vale un URL intero o un **path** risolto su `urls:` — un
+  `backend: /health` accende la sonda senza ridichiarare il servizio. Un path **senza** URL di base non
+  sonda niente: i servizi scoperti espongono il DNS grezzo dell'ALB, che da fuori non risponde, e
+  inventarci sopra un `/health` produrrebbe un rosso che non parla dell'applicazione. Un `healthUrl`
+  scritto a mano vince sempre sulla mappa.
 - **Notifiche Slack: due destinazioni, e una cosa che non si manda affatto** — se i cron avvisano già
   da sé quando crashano (in Cato lo fa `catocron`, col messaggio d'errore vero), ridirlo è duplicare, e
   due canali che dicono la stessa cosa insegnano a ignorarli entrambi. Ora i check dei cron espongono
