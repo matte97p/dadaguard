@@ -91,3 +91,35 @@ test('missedWindow: cron ogni minuto → finestra corta (cadenza + grazia)', () 
 test('missedWindow: espressione non calcolabile → null (il chiamante torna all euristica)', () => {
   assert.equal(missedWindow('rate(4 hours)', Date.UTC(2026, 0, 2, 3, 30)), null)
 })
+
+// --- Fuso dello schedule (ScheduleExpressionTimezone di EventBridge Scheduler) ---
+// Caso reale: i cron Cato hanno `ScheduleExpressionTimezone: Europe/Rome`. Letta in UTC, l'espressione
+// `cron(0 17 ? * MON-FRI *)` punta 2 ore dopo l'esecuzione vera (in estate) — abbastanza per cercare
+// l'invocazione nella finestra sbagliata e dichiarare fermo un cron che ha girato regolarmente.
+
+test('nextRun/prevRun: cron su Europe/Rome — 17:00 locali = 15:00 UTC in estate (CEST)', () => {
+  const lunMattina = Date.UTC(2026, 6, 27, 12, 4) // lunedì 27/07
+  const e = 'cron(0 17 ? * MON-FRI *)'
+  assert.equal(prevRun(e, lunMattina, 'Europe/Rome'), Date.UTC(2026, 6, 24, 15, 0)) // venerdì 15:00Z
+  assert.equal(nextRun(e, lunMattina, 'Europe/Rome'), Date.UTC(2026, 6, 27, 15, 0)) // oggi 15:00Z
+  assert.equal(prevRun(e, lunMattina), Date.UTC(2026, 6, 24, 17, 0)) // senza fuso: 2h di scarto
+})
+
+test('nextRun: ora solare — 17:00 locali = 16:00 UTC (CET), l\'ora legale è gestita da sola', () => {
+  const gennaio = Date.UTC(2026, 0, 5, 6, 0) // lunedì 5 gennaio
+  assert.equal(nextRun('cron(0 17 ? * MON-FRI *)', gennaio, 'Europe/Rome'), Date.UTC(2026, 0, 5, 16, 0))
+})
+
+test('missedWindow: col fuso giusto la finestra COPRE l\'esecuzione vera del venerdì', () => {
+  const lunMattina = Date.UTC(2026, 6, 27, 12, 4)
+  const e = 'cron(0 17 ? * MON-FRI *)'
+  const conFuso = missedWindow(e, lunMattina, 'Europe/Rome')
+  const senzaFuso = missedWindow(e, lunMattina)
+  const runVera = Date.UTC(2026, 6, 24, 15, 0) // l'invocazione che CloudWatch riporta davvero
+  assert.ok(lunMattina - conFuso.windowMin * 60000 <= runVera, 'la finestra col fuso deve coprire la run vera')
+  assert.ok(lunMattina - senzaFuso.windowMin * 60000 > runVera, 'senza fuso la run vera resta fuori: il falso rosso')
+})
+
+test('nextRun: fuso inesistente → si valuta in UTC invece di esplodere', () => {
+  assert.equal(nextRun('cron(0 2 * * ? *)', Date.UTC(2026, 0, 1, 1, 0), 'Mars/Olympus'), Date.UTC(2026, 0, 1, 2, 0))
+})

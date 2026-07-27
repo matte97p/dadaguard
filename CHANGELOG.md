@@ -6,6 +6,14 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Fuso dello schedule ignorato** — gli schedule di EventBridge Scheduler possono dichiarare un
+  `ScheduleExpressionTimezone` (i cron Cato usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
+  `cron(0 17 ? * MON-FRI *)` come 17:00 **UTC** invece che locali: due ore di scarto in estate, una in
+  inverno. Abbastanza per cercare l'esecuzione nella finestra sbagliata e dare per fermo un cron che
+  aveva girato regolarmente — ed è il motivo per cui i due `scrape-volume-monitor` restavano rossi
+  anche dopo aver corretto la finestra. Ora l'espressione è valutata nel suo fuso (via `Intl`, quindi
+  l'ora legale è gestita per costruzione); fuso assente → UTC come prima, fuso inesistente → UTC
+  invece di un errore.
 - **Falso «GIÙ» sui cron che non girano ogni giorno** — il dead man's switch deduceva una cadenza
   costante (finestra = cadenza × 1.2), così un `cron(0 17 ? * MON-FRI *)` guardato di lunedì mattina
   risultava fermo: l'ultima esecuzione attesa era **venerdì**, 67 ore prima, fuori da qualunque
