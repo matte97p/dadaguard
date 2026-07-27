@@ -32,6 +32,9 @@ export function snapshot(services = []) {
       detail: s.checks?.[s.cause]?.summary ?? s.checks?.[s.cause]?.reason ?? null,
       account: s.account?.label ?? null,
       name: s.name,
+      type: s.type ?? null,
+      // esito strutturato del dead-man: 'missed' (mai partita) | 'failed' (partita e caduta) | 'ok'
+      outcome: s.checks?.runtime?.outcome ?? null,
     }
   }
   return out
@@ -66,7 +69,8 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
       continue
     }
     // confermato: aggiorna lo stato noto e valuta se è una notizia
-    next[key] = { confirmed: obs.overall, cause: obs.cause, pending: null }
+    // `route` (dove è stato aperto l'allarme) si conserva: serve a mandare il rientro nello stesso posto
+    next[key] = { confirmed: obs.overall, cause: obs.cause, pending: null, ...(before.route ? { route: before.route } : {}) }
     const from = stateClass(confirmed)
     const to = stateClass(obs.overall)
     if (from !== to && from !== 'unknown' && to !== 'unknown') {
@@ -79,6 +83,8 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
         to: obs.overall,
         cause: obs.cause,
         detail: obs.detail,
+        type: obs.type,
+        outcome: obs.outcome,
       })
     }
   }

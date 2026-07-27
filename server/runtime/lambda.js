@@ -104,8 +104,10 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (invocations === 0) {
       return {
         status: 'down',
-        // Con l'espressione nota il messaggio dice QUANDO avrebbe dovuto girare (l'informazione che
-        // serve per capire se è un guasto o una cadenza che non hai in testa); altrimenti la finestra.
+        // `outcome` STRUTTURATO, non dedotto dal testo: "mai partita" e "partita e fallita" sono due
+        // guasti diversi e vanno a due destinatari diversi (il job che crasha lo scrive già da sé;
+        // il job che non parte non può scriverlo nessuno dall'interno). Vedi server/notify/watch.js.
+        outcome: 'missed',
         summary: missed
           ? t('cron.missed', { ago: fmtAgo(new Date(missed.expectedAt), t) })
           : t('lambda.cron.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }),
@@ -135,6 +137,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, kind: 'latency', ms: Math.round(p95), spark: m.series?.dur, sparkUnit: 'ms' })
     return {
       status,
+      outcome: errors >= invocations ? 'failed' : 'ok',
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
       metrics,
       window: fmtDur(windowMin, t),

@@ -5,6 +5,7 @@ import { makeT } from '../i18n.js'
 import { log } from '../log.js'
 import { diffStates, snapshot } from './diff.js'
 import { slackMessage, postSlack } from './slack.js'
+import { splitByRoute } from './route.js'
 
 // Il watchdog vero e proprio: guarda la flotta a intervalli, e quando qualcosa ATTRAVERSA il confine
 // problema/non-problema lo dice su Slack. Finché questo non esisteva, Dadaguard era una dashboard —
@@ -15,7 +16,13 @@ import { slackMessage, postSlack } from './slack.js'
 // aperta, e alle 4 del mattino non c'è nessuno.
 //
 // Configurazione (tutta opzionale: senza webhook il watcher non parte e non chiama AWS):
-//   DADAGUARD_SLACK_WEBHOOK   URL del webhook (in cloud/ECS arriva da SSM come gli altri segreti)
+//   DADAGUARD_SLACK_WEBHOOK        destinazione di ciò che nessun altro dice (ECS, endpoint, secret,
+//                                  drift, backup, certificati, sicurezza, Bedrock, Cloudflare)
+//   DADAGUARD_SLACK_WEBHOOK_CRON   opzionale: destinazione del solo «cron mai partito» — il buco del
+//                                  canale dei cron, dove la squadra guarda già. Assente → va nel
+//                                  webhook principale
+//   DADAGUARD_NOTIFY_CRON_FAILED   1 per riattivare anche i cron CADUTI (di norma taciuti: li scrive
+//                                  già il job stesso, con più dettaglio)
 //   DADAGUARD_WATCH_INTERVAL  secondi tra i giri (default 300: per i cron 5 minuti sono abbondanti,
 //                             e ogni giro costa chiamate AWS)
 //   DADAGUARD_WATCH_CONFIRM   letture consecutive perché una transizione conti (default 2)
@@ -27,6 +34,8 @@ const DEFAULT_CONFIRMATIONS = 2
 export function watchConfig(env = process.env) {
   return {
     webhook: env.DADAGUARD_SLACK_WEBHOOK || null,
+    webhookCron: env.DADAGUARD_SLACK_WEBHOOK_CRON || null,
+    notifyCronFailed: env.DADAGUARD_NOTIFY_CRON_FAILED === '1',
     intervalMs: Math.max(30, Number(env.DADAGUARD_WATCH_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     confirmations: Math.max(1, Number(env.DADAGUARD_WATCH_CONFIRM) || DEFAULT_CONFIRMATIONS),
     stateFile: env.DADAGUARD_STATE_FILE || '.dadaguard-state.json',
@@ -72,20 +81,49 @@ export async function runOnce(cfg, deps = {}) {
   const { transitions, next } = diffStates(prev, snapshot(status.services ?? []), {
     confirmations: cfg.confirmations,
   })
-  if (transitions.length) {
-    const payload = slackMessage(transitions, { url: cfg.publicUrl, t })
-    const ok = cfg.webhook ? await send(cfg.webhook, payload) : true
+  // Memoria della destinazione usata per ogni allarme aperto: il rientro torna dove è stato aperto.
+  const routeMemory = Object.fromEntries(
+    Object.entries(prev?.services ?? {})
+      .filter(([, v]) => v?.route)
+      .map(([k, v]) => [k, v.route]),
+  )
+  const gruppi = splitByRoute(transitions, { routeMemory, notifyCronFailed: cfg.notifyCronFailed })
+  const destinazioni = [
+    ['main', gruppi.main, cfg.webhook],
+    // senza un webhook dedicato ai cron, «mai partito» va nel principale: meglio nel posto sbagliato
+    // che in nessun posto
+    ['cron', gruppi.cron, cfg.webhookCron || cfg.webhook],
+  ]
+
+  let ok = true
+  for (const [nome, lista, hook] of destinazioni) {
+    if (!lista.length) continue
+    const payload = slackMessage(lista, { url: cfg.publicUrl, t })
+    const inviato = hook ? await send(hook, payload) : true
+    ok = ok && inviato
     log.info('watch: transizioni', {
-      n: transitions.length,
-      inviato: Boolean(cfg.webhook) && ok,
-      servizi: transitions.map((x) => `${x.key}:${x.from}→${x.to}`),
+      dove: nome,
+      n: lista.length,
+      inviato: Boolean(hook) && inviato,
+      servizi: lista.map((x) => `${x.key}:${x.from}→${x.to}`),
     })
-    // Se l'invio FALLISCE non si salva lo stato nuovo: al giro dopo la transizione viene riprovata,
-    // invece di essere persa per sempre perché Slack era irraggiungibile per dieci secondi.
-    if (!ok) return { transitions, sent: false }
+    // ricorda dove è stato aperto ogni allarme, per mandarci il rientro
+    for (const tr of lista) {
+      if (!next.services[tr.key]) continue
+      if (tr.kind === 'alert') next.services[tr.key].route = nome
+      else delete next.services[tr.key].route
+    }
   }
+  if (gruppi.skipped.length) {
+    log.info('watch: transizioni taciute (le scrive già il servizio stesso)', {
+      servizi: gruppi.skipped.map((x) => `${x.key}:${x.outcome}`),
+    })
+  }
+  // Se un invio FALLISCE non si salva lo stato nuovo: al giro dopo la transizione viene riprovata,
+  // invece di essere persa per sempre perché Slack era irraggiungibile per dieci secondi.
+  if (!ok) return { transitions, sent: false, groups: gruppi }
   await writeState(cfg.stateFile, next)
-  return { transitions, sent: true }
+  return { transitions, sent: true, groups: gruppi }
 }
 
 export function startWatcher(env = process.env) {
