@@ -1,12 +1,14 @@
 import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Card, Skeleton } from 'antd'
 import ServiceCard from '../components/ServiceCard.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
+import { familyPrefixes } from '../serviceName.js'
 
 const { Text } = Typography
 
 // Ordinamento: problemi in cima (down → degraded → sconosciuto/idle → ok), poi per nome. Così le
-// cose rotte si vedono per prime senza scorrere.
-const SEV = { down: 0, degraded: 1, unknown: 2, idle: 3, disabled: 3, up: 4 }
+// cose rotte si vedono per prime senza scorrere. In fondo gli SPENTI di proposito (cron disattivate):
+// non sono un problema e non devono stare sopra i servizi sani.
+const SEV = { down: 0, degraded: 1, unknown: 2, idle: 3, up: 4, disabled: 5 }
 const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
 
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
@@ -49,31 +51,40 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
       )}
       {data && groups.length === 0 && <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />}
 
-      {groups.map((g) => (
-        <div key={g.key} style={{ marginBottom: 8 }}>
-          <Divider orientation="left" orientationMargin={0}>
-            <Space size={6}>
-              {g.color && <Badge color={g.color} />}
-              <Text strong>{g.label}</Text>
-              <Text type="secondary">({g.services.length})</Text>
-            </Space>
-          </Divider>
-          <Row gutter={[16, 16]}>
-            {[...g.services].sort(byseverity).map((svc) => (
-              <Col key={svc.name} xs={24} sm={12} md={8} lg={6}>
-                <ServiceCard
-                  service={svc}
-                  onRemove={caps.watchlist ? onRemove : undefined}
-                  onLogs={onLogs}
-                  onEvents={onEvents}
-                  onOpen={onOpen}
-                  t={t}
-                />
-              </Col>
-            ))}
-          </Row>
-        </div>
-      ))}
+      {groups.map((g) => {
+        // Prefissi di famiglia calcolati sul GRUPPO visibile (cato-staging-cron-…): la card li mostra
+        // piccoli e muti e tiene in evidenza la coda, la parte che distingue una card dall'altra.
+        const families = familyPrefixes(g.services.map((s) => s.name))
+        return (
+          <div key={g.key} style={{ marginBottom: 8 }}>
+            <Divider orientation="left" orientationMargin={0}>
+              <Space size={6}>
+                {g.color && <Badge color={g.color} />}
+                <Text strong>{g.label}</Text>
+                <Text type="secondary">({g.services.length})</Text>
+              </Space>
+            </Divider>
+            {/* align="stretch" + Card height:100% → le card di una riga sono alte uguali: bordi
+                allineati invece del zig-zag di buchi che si vedeva prima. */}
+            <Row gutter={[16, 16]} align="stretch">
+              {[...g.services].sort(byseverity).map((svc) => (
+                <Col key={svc.name} xs={24} sm={12} md={8} lg={6} style={{ display: 'flex' }}>
+                  <ServiceCard
+                    service={svc}
+                    onRemove={caps.watchlist ? onRemove : undefined}
+                    onLogs={onLogs}
+                    onEvents={onEvents}
+                    onOpen={onOpen}
+                    familyPrefixes={families}
+                    reserveFamily={families.size > 0}
+                    t={t}
+                  />
+                </Col>
+              ))}
+            </Row>
+          </div>
+        )
+      })}
     </>
   )
 }
