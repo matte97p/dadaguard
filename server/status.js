@@ -36,11 +36,36 @@ export function endpointFromHealth(healthUrl) {
   }
 }
 
-// URL dichiarato in config per un servizio: cerca prima `<account>/<nome>` (per distinguere staging da
-// prod a parità di nome), poi `<nome>` secco. Null se non mappato. Puro/testabile.
-export function urlForService(urls, account, name) {
-  if (!urls || !name) return null
-  return urls[`${account}/${name}`] ?? urls[name] ?? null
+// Lookup nelle mappe di config indicizzate per NOME servizio (`urls`, `health`): cerca prima
+// `<account>/<nome>` (per distinguere staging da prod a parità di nome), poi `<nome>` secco. Null se
+// non mappato. Puro/testabile.
+export function byServiceName(map, account, name) {
+  if (!map || !name) return null
+  return map[`${account}/${name}`] ?? map[name] ?? null
+}
+
+// Nome storico dello stesso lookup, usato per l'endpoint mostrato in card.
+export const urlForService = byServiceName
+
+// Aggancia la sonda HTTP ai servizi SCOPERTI, che non hanno modo di dichiarare `healthUrl`: la mappa
+// `health` vale un URL intero oppure un path (`/health`) risolto sull'URL della mappa `urls`.
+// Un `healthUrl` dichiarato a mano vince sempre. Path senza URL di base → nessuna sonda: meglio un
+// segnale assente che uno inventato su un host indovinato. Puro/testabile.
+export function applyHealthUrls(services, health, urls) {
+  if (!health) return services
+  return services.map((s) => {
+    if (s.healthUrl) return s
+    const probe = byServiceName(health, s.account, s.name)
+    if (!probe) return s
+    if (/^https?:\/\//i.test(probe)) return { ...s, healthUrl: probe }
+    const base = byServiceName(urls, s.account, s.name)
+    if (!base) return s
+    try {
+      return { ...s, healthUrl: new URL(probe, base).toString() }
+    } catch {
+      return s
+    }
+  })
 }
 
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
@@ -88,7 +113,7 @@ export function invalidateServicesCache() {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -140,7 +165,7 @@ export async function resolveServices() {
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  const value = { accounts, services, discovered, urls }
+  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, urls }
   _resolveCache = { at: Date.now(), value }
   return value
 }
