@@ -119,6 +119,16 @@ Tre comportamenti scelti di proposito, perché sono ciò che rende una notifica 
 Se Slack è irraggiungibile lo stato **non** viene salvato: al giro dopo la transizione si riprova,
 invece di perdersi perché il webhook era giù per dieci secondi.
 
+## Test
+```bash
+npm test          # tutto, senza rete e senza credenziali AWS
+```
+Oltre ai test di logica ci sono i **test di contratto** (`test/contract.test.js`): rigiocano risposte
+AWS **vere**, registrate una volta con `scripts/record-aws-fixtures.mjs` e sanificate. Servono perché i
+bug interessanti non stanno nella logica ma nell'incontro con AWS — una pagina vuota che arriva con un
+`nextToken`, un cron che dichiara un fuso, un tag immagine di 40 cifre. Se AWS cambia una di quelle
+forme, quei test cadono: è il loro scopo. Per aggiornarli si ri-registra e si guarda cosa è cambiato.
+
 ## Architettura
 - `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.
 - `web/` — React + Ant Design. Una card per servizio; il semaforo è il check messo peggio.
