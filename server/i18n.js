@@ -22,7 +22,7 @@ const S = {
     'build.ec2': '{ami} · su da {ago}',
     'build.mismatch': 'gira {actual}, atteso {expected}',
     'build.notfound': 'risorsa non trovata',
-    'build.by': 'modificato da {who}',
+    'build.by': 'da {who}',
     'build.unsupported': 'build non disponibile per «{type}»',
     // "tempo fa" i18n (unità singola, già arrotondata)
     'time.ago': '{n}{unit} fa',
@@ -225,7 +225,7 @@ const S = {
     'build.ec2': '{ami} · up for {ago}',
     'build.mismatch': 'running {actual}, expected {expected}',
     'build.notfound': 'resource not found',
-    'build.by': 'modified by {who}',
+    'build.by': 'by {who}',
     'build.unsupported': 'build not available for «{type}»',
     // i18n "ago" (single, already-rounded unit)
     'time.ago': '{n}{unit} ago',
