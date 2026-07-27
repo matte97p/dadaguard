@@ -1,5 +1,5 @@
 import { ECSClient, DescribeTaskDefinitionCommand, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs'
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './awsClient.js'
 import { imageTag } from './ecs.js'
 import { principalName } from '../util/principal.js'
@@ -43,12 +43,28 @@ export function classifyEcsRun({ ran, failed }) {
   return failed ? 'failed' : 'ok'
 }
 
+// Su ECS RunTask ogni esecuzione ha il SUO log stream (`<fam>/<container>/<taskId>`): lo stream più
+// recente È l'ultima esecuzione. Sceglie quello e dice se è caduto dentro la finestra attesa. Pura.
+//
+// Perché non basta cercare l'errore "in tutto il gruppo nella finestra": `FilterLogEvents` distribuisce
+// uno scan budget tra gli stream e può restituire una pagina VUOTA con un `nextToken` anche quando i
+// match esistono — con `limit: 1` succede sistematicamente. Il check leggeva quella pagina vuota come
+// "nessun errore" e dava VERDE un cron con tre traceback nell'ultima run (visto in produzione su
+// refresh-bi-mvs). Restringere all'ultimo stream rende la risposta deterministica, più economica
+// (nessuna paginazione da inseguire) e più aderente a ciò che la card dichiara: «ultima esecuzione».
+export function pickLastRun(streams = [], startTimeMs) {
+  const withEvents = streams.filter((s) => Number.isFinite(s?.lastEventTimestamp))
+  if (!withEvents.length) return { stream: null, ran: false }
+  const last = withEvents.reduce((a, b) => (b.lastEventTimestamp > a.lastEventTimestamp ? b : a))
+  return { stream: last.logStreamName ?? null, ran: last.lastEventTimestamp >= startTimeMs }
+}
+
 // RuntimeProvider per i cron su ECS RunTask (EventBridge Scheduler → RunTask, one-shot su Fargate).
 // A differenza della Lambda NON c'è una metrica "Invocations", E i task fermati spariscono dalle API
 // ECS dopo ~1h → per un cron giornaliero l'exit code non è più leggibile la mattina dopo. Il segnale
 // DUREVOLE è il LOG (retention di giorni): controlliamo che il task sia PARTITO (evento nella cadenza
 // attesa) e che l'ultimo run NON sia FALLITO (nessun traceback/errore). Schedule DISABLED → 'disabled'.
-// Permessi: ecs:DescribeTaskDefinition, logs:FilterLogEvents (già nel ruolo read-only).
+// Permessi: ecs:DescribeTaskDefinition, logs:DescribeLogStreams, logs:FilterLogEvents (già nel ruolo read-only).
 export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
   const schedMin = cfg.scheduleMinutes ?? 1440
@@ -79,12 +95,28 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
 
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const startTime = Date.now() - windowMin * 60 * 1000
-  // 1) È partito? (almeno un evento nella finestra)  2) È fallito? (marcatore d'errore nella finestra)
-  const [any, errs] = await Promise.all([
-    logs.send(new FilterLogEventsCommand({ logGroupName: logGroup, startTime, limit: 1 })),
-    logs.send(new FilterLogEventsCommand({ logGroupName: logGroup, startTime, filterPattern: FAILURE_PATTERN, limit: 1 })),
-  ])
-  const outcome = classifyEcsRun({ ran: (any.events ?? []).length > 0, failed: (errs.events ?? []).length > 0 })
+  // 1) È partito? → lo stream più recente del gruppo (una esecuzione = uno stream) cade nella finestra?
+  // 2) È fallito? → marcatore d'errore DENTRO QUELLO STREAM. Una query su un solo stream è
+  //    deterministica; su tutto il gruppo `FilterLogEvents` può restituire una pagina vuota pur avendo
+  //    match (vedi pickLastRun) e il fallimento passava inosservato.
+  const streams = await logs.send(
+    new DescribeLogStreamsCommand({ logGroupName: logGroup, orderBy: 'LastEventTime', descending: true, limit: 5 }),
+  )
+  const { stream, ran } = pickLastRun(streams.logStreams ?? [], startTime)
+  let failed = false
+  if (ran && stream) {
+    const errs = await logs.send(
+      new FilterLogEventsCommand({
+        logGroupName: logGroup,
+        logStreamNames: [stream],
+        startTime,
+        filterPattern: FAILURE_PATTERN,
+        limit: 1,
+      }),
+    )
+    failed = (errs.events ?? []).length > 0
+  }
+  const outcome = classifyEcsRun({ ran, failed })
 
   const now = Date.now()
   const nextRunAt = nextRun(cfg.scheduleExpr, now, cfg.scheduleTz)

@@ -6,6 +6,15 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Un cron FALLITO veniva mostrato verde** (cron su ECS RunTask) — l'errore si cercava su tutto il log
+  group con `FilterLogEvents(limit: 1)`, ma quell'API distribuisce uno scan budget tra gli stream e può
+  restituire una pagina **vuota** con un `nextToken` pur essendoci i match: con `limit: 1` succede
+  sistematicamente. Il check leggeva la pagina vuota come «nessun errore». In produzione
+  `refresh-bi-mvs` risultava «gira come da schedule» con **tre traceback** nell'ultima esecuzione, e lo
+  stesso meccanismo faceva oscillare la card tra FALLITA e ok senza che i dati cambiassero. Ora la
+  domanda è quella che la card dichiara — «com'è andata l'**ultima** esecuzione?»: su RunTask ogni
+  esecuzione ha il suo log stream, quindi si prende lo stream più recente e si cerca l'errore **dentro
+  quello**. Deterministico, e con una chiamata in meno da inseguire.
 - **Fuso dello schedule ignorato** — gli schedule di EventBridge Scheduler possono dichiarare un
   `ScheduleExpressionTimezone` (i cron Cato usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
   `cron(0 17 ? * MON-FRI *)` come 17:00 **UTC** invece che locali: due ore di scarto in estate, una in
