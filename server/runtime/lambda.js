@@ -128,11 +128,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       // Niente andamento sul CONTEGGIO di una cron: la serie è 0,0,0,1,0,0… e a 66px quella punta
       // isolata non dice nulla che "1 esecuzione" + "prossima ~tra 22h" non dicano già meglio.
       // L'andamento utile su una cron è la LATENZA (più sotto): dice se le run stanno rallentando.
-      { label: t('m.runs'), value: String(invocations) },
-      { label: t('m.errors'), value: String(errors), tone: errors > 0 ? 'critical' : 'good' },
+      { label: t('m.runs', { n: invocations }), value: String(invocations) },
+      { label: t('m.errors', { n: errors }), value: String(errors), tone: errors > 0 ? 'critical' : 'good' },
     ]
     if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
-    if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, kind: 'latency', spark: m.series?.dur, sparkUnit: 'ms' })
+    if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, kind: 'latency', ms: Math.round(p95), spark: m.series?.dur, sparkUnit: 'ms' })
     return {
       status,
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
@@ -175,7 +175,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   ].filter(Boolean)
 
   const metrics = [
-    { label: t('m.calls'), value: fmtCount(invocations), spark: m.series?.inv },
+    { label: t('m.calls', { n: invocations }), value: fmtCount(invocations), spark: m.series?.inv },
     { label: t('m.errPct'), value: `${errRate < 0.05 ? '0' : errRate.toFixed(1)}%`, tone: errors > 0 ? 'critical' : 'good' },
   ]
   if (p95)
@@ -183,6 +183,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       label: t('m.latency'),
       value: `~${fmtMs(Math.round(p95))}`,
       kind: 'latency',
+      ms: Math.round(p95),
       tone: nearTimeout ? 'warning' : undefined,
       spark: m.series?.dur,
       sparkUnit: 'ms',

@@ -35,12 +35,12 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const status = throttles > 0 || serr > 0 || cerr > 0 ? 'degraded' : 'up'
   // Stat tile strutturati (label + valore + tono di stato). Errori: client (4xx, richieste/quota) e
   // server (5xx, colpa di Bedrock) = cause diverse → tile distinti; puliti → "0" verde.
-  const metrics = [{ label: t('m.inv'), value: fmtCount(Math.round(m.inv)), spark: m.series?.inv }]
+  const metrics = [{ label: t('m.inv', { n: Math.round(m.inv) }), value: fmtCount(Math.round(m.inv)), spark: m.series?.inv }]
   if (serr > 0) metrics.push({ label: t('m.errServer'), value: String(serr), tone: 'critical' })
   if (cerr > 0) metrics.push({ label: t('m.errClient'), value: String(cerr), tone: 'warning' })
-  if (serr === 0 && cerr === 0) metrics.push({ label: t('m.errors'), value: '0', tone: 'good' })
+  if (serr === 0 && cerr === 0) metrics.push({ label: t('m.errors', { n: 0 }), value: '0', tone: 'good' })
   if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
-  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat))}`, kind: 'latency', spark: m.series?.lat, sparkUnit: 'ms' })
+  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat))}`, kind: 'latency', ms: Math.round(m.lat), spark: m.series?.lat, sparkUnit: 'ms' })
   if (m.tin > 0 || m.tout > 0) metrics.push({ label: t('m.tokens'), value: `${fmtCount(Math.round(m.tin))} → ${fmtCount(Math.round(m.tout))}` })
   const summary = `${metrics.map((x) => `${x.value} ${x.label}`).join(' · ')} (${winL})`
   return { status, summary, metrics, window: winL, clientErrors: cerr, serverErrors: serr, throttles }

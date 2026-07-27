@@ -65,3 +65,23 @@ jobs:
                 --query taskDefinition.taskDefinitionArn --output text)
           aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$ARN" >/dev/null
           echo "Deployato $IMAGE → $ARN"
+
+      # `update-service` ritorna appena ECS ACCETTA la richiesta, non quando i task nuovi servono
+      # traffico: senza questa attesa il workflow diventava verde mentre l'app rispondeva ancora col
+      # codice precedente (visto: due minuti di bundle vecchio dopo un merge "riuscito"). Qui la spia
+      # verde significa "il servizio è stabile sulla nuova revision"; se non ci arriva, il deploy
+      # FALLISCE — e un rollout che non converge è esattamente ciò che si vuole sapere subito.
+      # Il waiter dell'SDK riprova ogni 15s per un massimo di 10 minuti.
+      - name: Attendi che il servizio sia stabile (rollout completato)
+        run: |
+          if aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"; then
+            echo "Rollout completato: il servizio è stabile sulla nuova revision."
+          else
+            echo "::error::Il servizio non è tornato stabile entro il timeout: rollout non convergente."
+            aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+              --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,deployments:deployments[].{status:status,rollout:rolloutState,reason:rolloutStateReason}}' \
+              --output json
+            aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+              --query 'services[0].events[:5].message' --output json
+            exit 1
+          fi
