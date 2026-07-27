@@ -54,7 +54,9 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
       {groups.map((g) => {
         // Prefissi di famiglia calcolati sul GRUPPO visibile (cato-staging-cron-…): la card li mostra
         // piccoli e muti e tiene in evidenza la coda, la parte che distingue una card dall'altra.
-        const families = familyPrefixes(g.services.map((s) => s.name))
+        // Fuori i Bedrock: hanno il loro nome parlante (Claude Sonnet 4.5) e non usano la testa, ma
+        // nel conteggio alzerebbero la soglia per tutti gli altri.
+        const families = familyPrefixes(g.services.filter((s) => s.type !== 'bedrock').map((s) => s.name))
         return (
           <div key={g.key} style={{ marginBottom: 8 }}>
             <Divider orientation="left" orientationMargin={0}>
