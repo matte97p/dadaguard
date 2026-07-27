@@ -115,11 +115,14 @@ export async function schedulesFromScheduler(aws) {
         const expr = d.ScheduleExpression
         const state = d.State === 'DISABLED' ? 'DISABLED' : 'ENABLED'
         const minutes = scheduleExpressionToMinutes(expr)
+        // Fuso dell'espressione (i cron Cato sono su Europe/Rome): senza, `cron(0 17 …)` viene letto
+        // come 17:00 UTC e ogni calcolo — prossima run, finestra del dead-man — sbaglia di 1-2 ore.
+        const tz = d.ScheduleExpressionTimezone ?? null
         const tgt = classifyScheduleTarget(d.Target)
         if (tgt.kind === 'lambda') {
-          if (!out.lambdas.has(tgt.name)) out.lambdas.set(tgt.name, { expr, minutes, state }) // 1 schedule per cron
+          if (!out.lambdas.has(tgt.name)) out.lambdas.set(tgt.name, { expr, minutes, state, tz }) // 1 schedule per cron
         } else if (tgt.kind === 'ecs') {
-          out.ecs.push({ name: s.Name, cluster: tgt.cluster, taskDefArn: tgt.taskDefArn, expr, minutes, state })
+          out.ecs.push({ name: s.Name, cluster: tgt.cluster, taskDefArn: tgt.taskDefArn, expr, minutes, state, tz })
         }
       } catch {
         /* GetSchedule di questo schedule non leggibile → salta */
