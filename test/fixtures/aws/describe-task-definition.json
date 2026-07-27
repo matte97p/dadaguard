@@ -1,0 +1,94 @@
+{
+  "_nota": "log group reale nel primo container + image taggata con lo sha del commit (40 cifre)",
+  "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "payload": {
+    "taskDefinition": {
+      "taskDefinitionArn": "arn:aws:ecs:eu-central-1:111122223333:task-definition/acme-production-cron-cron-example:3",
+      "containerDefinitions": [
+        {
+          "name": "cron-example",
+          "image": "111122223333.dkr.ecr.eu-central-1.amazonaws.com/cron-example:8af2a8b",
+          "cpu": 0,
+          "portMappings": [],
+          "essential": true,
+          "environment": [
+            {
+              "name": "DRY_RUN",
+              "value": "VALORE-SANIFICATO"
+            },
+            {
+              "name": "SSM_PREFIX",
+              "value": "VALORE-SANIFICATO"
+            },
+            {
+              "name": "DEPLOY_ENVIRONMENT",
+              "value": "VALORE-SANIFICATO"
+            }
+          ],
+          "mountPoints": [],
+          "volumesFrom": [],
+          "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+              "awslogs-group": "/ecs/acme-production/cron-example",
+              "awslogs-region": "eu-central-1",
+              "awslogs-stream-prefix": "cron-example"
+            }
+          },
+          "systemControls": []
+        }
+      ],
+      "family": "acme-production-cron-cron-example",
+      "taskRoleArn": "arn:aws:iam::111122223333:role/acme-production-cron-cron-example-task",
+      "executionRoleArn": "arn:aws:iam::111122223333:role/acme-production-cron-cron-example-execution",
+      "networkMode": "awsvpc",
+      "revision": 3,
+      "volumes": [],
+      "status": "ACTIVE",
+      "requiresAttributes": [
+        {
+          "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+          "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+          "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+          "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+          "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+          "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+          "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+          "name": "ecs.capability.task-eni"
+        }
+      ],
+      "placementConstraints": [],
+      "compatibilities": [
+        "EC2",
+        "FARGATE",
+        "MANAGED_INSTANCES"
+      ],
+      "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+      },
+      "requiresCompatibilities": [
+        "FARGATE"
+      ],
+      "cpu": "512",
+      "memory": "1024",
+      "registeredAt": "2026-07-27T10:48:39.269Z",
+      "registeredBy": "arn:aws:sts::111122223333:assumed-role/Ruolo/persona"
+    },
+    "tags": []
+  }
+}
