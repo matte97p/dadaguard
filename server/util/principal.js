@@ -30,6 +30,20 @@ function prettifyRole(role) {
   )
 }
 
+// Chi ha deployato, in forma LEGGIBILE. Il valore grezzo è spesso un'email (tag `deployedBy` =
+// autore del commit) e in card mangiava tre righe:
+//   81815192+matte97p@users.noreply.github.com → matte97p     (noreply GitHub: via l'id numerico)
+//   ggiacometti@get-cato.com                   → ggiacometti
+//   MatteoPerino                               → MatteoPerino (già un nome: invariato)
+// Il valore completo resta nel tooltip della riga Build: qui accorciamo solo la resa.
+export function shortActor(who) {
+  const s = String(who ?? '').trim()
+  if (!s) return null
+  const at = s.indexOf('@')
+  if (at <= 0) return s
+  return s.slice(0, at).replace(/^\d+\+/, '') || s
+}
+
 export function principalName(arn) {
   if (!arn) return null
   const s = String(arn)

@@ -13,6 +13,7 @@ import { lambdaBuildInfo } from '../runtime/lambda.js'
 import { ec2BuildInfo } from '../runtime/ec2.js'
 import { lastModifier, resourceIdentifier } from '../runtime/lastModifier.js'
 import { cleanAwsReason } from '../runtime/awsClient.js'
+import { shortActor } from '../util/principal.js'
 import { fmtAgo, fmtDuration } from '../i18n.js'
 
 const TIMEOUT_MS = 5000
@@ -20,6 +21,15 @@ const TIMEOUT_MS = 5000
 export const key = 'version'
 
 const norm = (v) => String(v).trim().replace(/^v/i, '')
+
+// Tag immagine da MOSTRARE. Chi tagga con lo sha del commit si ritrova 40 cifre esadecimali: una
+// stringa senza spazi che in card non va a capo e sfonda il bordo. Le prime 8 bastano a identificare
+// il build (è la convenzione git); il confronto con la versione attesa resta sul tag INTERO.
+const SHA_LIKE = /^[0-9a-f]{20,}$/i
+export function displayTag(tag) {
+  const s = String(tag ?? '')
+  return SHA_LIKE.test(s) ? s.slice(0, 8) : s
+}
 
 // --- #4 PROVENIENZA della versione attesa ---
 // "Atteso" non è più solo un literal stantio in config: può venire da una fonte di verità
@@ -156,16 +166,20 @@ async function fromHealth(service, expected, t) {
 }
 
 // --- (2) builders per tipo AWS. Se `expected` c'è, confronto → degraded su mismatch. ---
-// Appende "· modificato da <chi>" al summary, quando lo conosciamo (registeredBy ECS / CloudTrail Lambda).
+// Appende "· da <chi>" al summary, quando lo conosciamo (registeredBy ECS / CloudTrail Lambda).
+// `shortActor`: il tag `deployedBy` è l'email dell'autore del commit e in card occupava tre righe.
 function withModifier(summary, who, t) {
-  return who ? `${summary} · ${t('build.by', { who })}` : summary
+  const short = shortActor(who)
+  return short ? `${summary} · ${t('build.by', { who: short })}` : summary
 }
 
 // Summary comune per ECS (servizio o task schedulato): stesso formato, stessa gestione tag/quando/chi.
+// Il tag va in card ACCORCIATO (uno sha di 40 cifre sfonderebbe la card) ma si confronta INTERO.
 function ecsSummary(b, expected, t) {
   const ago = b.deployedAt ? fmtAgo(b.deployedAt, t) : null
-  const base = b.tag ? t('build.ecs', { tag: b.tag, ago: ago ?? '—' }) : t('build.ecsnotag', { ago: ago ?? '—' })
-  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t) }, expected, b.tag, t)
+  const shown = displayTag(b.tag)
+  const base = b.tag ? t('build.ecs', { tag: shown, ago: ago ?? '—' }) : t('build.ecsnotag', { ago: ago ?? '—' })
+  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t) }, expected, b.tag, t, shown)
 }
 
 const BUILDERS = {
@@ -213,8 +227,10 @@ const BUILDERS = {
 
 // Decide lo status: se `expected` è dichiarato confronta col valore reale (degraded su mismatch),
 // altrimenti il segnale è puramente informativo → up con il summary "cosa gira e da quando".
-function decideStatus(base, expected, actual, t) {
+// `actual` è il valore su cui si CONFRONTA (tag intero); `shown` quello da scrivere nel messaggio
+// di mismatch (accorciato) — se non passato, coincidono.
+function decideStatus(base, expected, actual, t, shown = actual) {
   if (!expected) return { ...base, status: 'up' }
   if (actual != null && norm(actual) === norm(expected)) return { ...base, status: 'up' }
-  return { ...base, status: 'degraded', summary: t('build.mismatch', { actual: actual ?? '—', expected }) }
+  return { ...base, status: 'degraded', summary: t('build.mismatch', { actual: shown ?? '—', expected }) }
 }
