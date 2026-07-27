@@ -40,7 +40,7 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   if (cerr > 0) metrics.push({ label: t('m.errClient'), value: String(cerr), tone: 'warning' })
   if (serr === 0 && cerr === 0) metrics.push({ label: t('m.errors'), value: '0', tone: 'good' })
   if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
-  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat))}`, spark: m.series?.lat, sparkUnit: 'ms' })
+  if (m.lat > 0) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(m.lat))}`, kind: 'latency', spark: m.series?.lat, sparkUnit: 'ms' })
   if (m.tin > 0 || m.tout > 0) metrics.push({ label: t('m.tokens'), value: `${fmtCount(Math.round(m.tin))} → ${fmtCount(Math.round(m.tout))}` })
   const summary = `${metrics.map((x) => `${x.value} ${x.label}`).join(' · ')} (${winL})`
   return { status, summary, metrics, window: winL, clientErrors: cerr, serverErrors: serr, throttles }

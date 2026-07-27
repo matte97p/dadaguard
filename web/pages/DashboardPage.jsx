@@ -1,5 +1,8 @@
-import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Card, Skeleton } from 'antd'
+import { useState } from 'react'
+import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Card, Skeleton, Segmented } from 'antd'
+import { TableOutlined, AppstoreOutlined } from '@ant-design/icons'
 import ServiceCard from '../components/ServiceCard.jsx'
+import ServicesTable from '../components/ServicesTable.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
 import { familyPrefixes } from '../serviceName.js'
 
@@ -14,15 +17,36 @@ const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || St
 
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
 export default function DashboardPage({ data, groups, caps, loading, error, onRemove, onLogs, onEvents, onOpen, t }) {
+  // Tabella o card. Oltre la ventina di servizi la tabella vince (una riga per servizio, colonne
+  // ordinabili); le card restano per le flotte piccole e per chi le preferisce. Scelta ricordata.
+  const [view, setView] = useState(() => localStorage.getItem('dadaguard-view') ?? 'table')
+  const pickView = (v) => {
+    localStorage.setItem('dadaguard-view', v)
+    setView(v)
+  }
+  const flat = groups.flatMap((g) => g.services)
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-        {data ? <StatusSummary services={groups.flatMap((g) => g.services)} t={t} /> : <span />}
-        {data?.generatedAt && (
-          <Text type="secondary">
-            {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
-          </Text>
-        )}
+        {data ? <StatusSummary services={flat} t={t} /> : <span />}
+        <Space size={12} wrap>
+          {data && (
+            <Segmented
+              size="small"
+              value={view}
+              onChange={pickView}
+              options={[
+                { value: 'table', icon: <TableOutlined />, title: t('view.table') },
+                { value: 'cards', icon: <AppstoreOutlined />, title: t('view.cards') },
+              ]}
+            />
+          )}
+          {data?.generatedAt && (
+            <Text type="secondary">
+              {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
+            </Text>
+          )}
+        </Space>
       </Space>
 
       {data?.discovered && (
@@ -52,7 +76,20 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
       )}
       {data && groups.length === 0 && <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />}
 
-      {groups.map((g) => {
+      {data && view === 'table' && groups.length > 0 && (
+        <ServicesTable
+          services={flat}
+          caps={caps}
+          onRemove={onRemove}
+          onLogs={onLogs}
+          onEvents={onEvents}
+          onOpen={onOpen}
+          t={t}
+        />
+      )}
+
+      {view === 'cards' &&
+        groups.map((g) => {
         // Prefissi di famiglia calcolati sul GRUPPO visibile (cato-staging-cron-…): la card li mostra
         // piccoli e muti e tiene in evidenza la coda, la parte che distingue una card dall'altra.
         // Fuori i Bedrock: hanno il loro nome parlante (Claude Sonnet 4.5) e non usano la testa, ma
@@ -85,9 +122,9 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
                 </Col>
               ))}
             </Row>
-          </div>
-        )
-      })}
+            </div>
+          )
+        })}
     </>
   )
 }

@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Vista tabella della flotta (predefinita)** — una riga per servizio invece di una card: con 48
+  servizi le card sono un muro, e nessuna rifinitura le salva. Colonne fisse **Stato · Servizio ·
+  Ambiente · Tipo · Build · Esecuzione · Latenza**, ordinabili e filtrabili (il pattern delle service
+  list di Datadog/Sentry/ArgoCD); i segnali secondari (raggiungibilità, secret, sicurezza, allarmi,
+  backup, Terraform) nella **riga espansa**, il dettaglio completo nel drawer, le azioni che si
+  accendono sulla riga sotto il puntatore. La latenza ha una colonna sua, così il suo andamento
+  eredita l'etichetta dall'intestazione. Nomi duplicati tra account (`backend` esiste in staging e in
+  produzione) gestiti con chiave account+nome. Le **card restano** un clic a lato: l'interruttore in
+  cima ricorda la scelta. In una schermata da 25 righe si vede tre volte quello che si vedeva prima.
+
 ### Fixed
 - **Un cron FALLITO veniva mostrato verde** (cron su ECS RunTask) — l'errore si cercava su tutto il log
   group con `FilterLogEvents(limit: 1)`, ma quell'API distribuisce uno scan budget tra gli stream e può
