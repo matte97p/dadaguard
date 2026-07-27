@@ -42,6 +42,10 @@ function logsDaFixture(pagine, streams) {
 // errore" e mostrava VERDE un cron di produzione con tre traceback nell'ultima esecuzione.
 test('contratto: pagina 1 vuota CON nextToken — la forma esiste, registrata da AWS', () => {
   const p1 = fixture('filter-log-events-page1')
+  // Questa coppia di asserzioni È il bug: la vecchia logica leggeva `events: []` come "nessun errore"
+  // e ignorava il token che dice "lo scan non è finito". Se una ri-registrazione perde questa forma,
+  // il test di contratto qui sotto non prova più niente — per questo il guardiano delle fixture la
+  // pretende esplicitamente.
   assert.deepEqual(p1.events, [], 'la fixture deve contenere proprio la pagina vuota')
   assert.ok(p1.nextToken, 'e il token che dice "lo scan non è finito"')
 })
@@ -54,13 +58,6 @@ test('contratto: il fallimento si trova a pagina 2, non fermandosi alla prima', 
   // senza DescribeLogStreams (ruolo read-only): strada B, inseguendo le pagine
   const out = await runOutcome(logsDaFixture([p1, p2], null), '/gruppo', Date.now() - 1000 * 60 * 60)
   assert.equal(out.failed, true, 'con la paginazione il fallimento si vede')
-})
-
-test('contratto: fermarsi alla prima pagina è il bug — un cron fallito passerebbe per verde', async () => {
-  const p1 = fixture('filter-log-events-page1')
-  // simula il comportamento vecchio: UNA sola chiamata, nessun token inseguito
-  const unaSolaPagina = (p1.events ?? []).length > 0
-  assert.equal(unaSolaPagina, false, 'la vecchia logica leggeva "nessun errore" da questa pagina')
 })
 
 // ── Guasto 2: il fuso dello schedule ───────────────────────────────────────────────────────────

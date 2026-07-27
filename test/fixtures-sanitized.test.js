@@ -33,6 +33,27 @@ test('le fixture registrate esistono (il registratore è stato usato)', () => {
   assert.ok(files.length >= 4, `attese almeno 4 fixture, trovate ${files.length}`)
 })
 
+// Una fixture può perdere il suo senso restando valida: `FilterLogEvents` con una finestra diversa
+// può tornare una pagina 1 PIENA, e il test di contratto continuerebbe a passare senza provare più
+// niente. Le forme che sono il MOTIVO della fixture vanno pretese qui, così una ri-registrazione che
+// le perde fallisce a voce alta invece di svuotare i test in silenzio.
+test('la forma che conta è ancora nelle fixture (una ri-registrazione non deve svuotarle)', () => {
+  const leggi = (n) => JSON.parse(readFileSync(join(DIR, `${n}.json`), 'utf8')).payload
+  const p1 = leggi('filter-log-events-page1')
+  assert.deepEqual(p1.events, [], 'page1 deve essere LA pagina vuota: è il bug che documenta')
+  assert.ok(p1.nextToken, 'page1 deve avere il nextToken: senza, non c’è niente da inseguire')
+  const p2 = leggi('filter-log-events-page2')
+  assert.ok((p2.events ?? []).length > 0, 'page2 deve contenere il match che page1 non mostrava')
+
+  const s = leggi('get-schedule-timezone')
+  assert.ok(s.ScheduleExpressionTimezone, 'lo schedule deve portare un fuso: è il secondo bug')
+  assert.notEqual(s.ScheduleExpressionTimezone, 'UTC', 'e non deve essere UTC, altrimenti non prova nulla')
+
+  const m = leggi('get-metric-data-weekday-cron')
+  const giorni = new Set(m.MetricDataResults[0].Timestamps.map((t) => new Date(t).getUTCDay()))
+  assert.ok(!giorni.has(0) && !giorni.has(6), 'il cron registrato deve essere lun-ven: è il terzo bug')
+})
+
 for (const f of files) {
   test(`fixture sanificata: ${f}`, () => {
     const raw = readFileSync(join(DIR, f), 'utf8')
