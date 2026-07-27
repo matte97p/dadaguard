@@ -33,13 +33,18 @@ export function displayName(service) {
 // rumore che schiaccia la parte che DISTINGUE davvero. Qui contiamo, sui confini `-`, quali prefissi
 // tornano abbastanza spesso da essere una "famiglia" del gruppo.
 //
-// Soglia = METÀ del gruppo (minimo 2), non "tutti" e non "almeno 2":
+// Soglia = UN TERZO del gruppo (minimo 2), non "tutti", non "almeno 2" e non "metà":
 //  · "tutti" → un solo outlier (avvista-staging-db tra i cato-*) fa perdere la compattazione a tutti;
 //  · "almeno 2" → due soli fratelli diventano famiglia (…cron-scraped- accanto a …cron-) e ogni card
 //    mostra una testa diversa, mangiandosi anche una parola che serve a capire il nome. La testa muta
-//    funziona solo se è LA STESSA su tutto il gruppo: l'occhio la salta una volta e non ci torna.
+//    funziona solo se è LA STESSA su tutto il gruppo: l'occhio la salta una volta e non ci torna;
+//  · "metà" → troppo severa sulle flotte vere: un account con 21 servizi di cui 12 `cato-staging-`
+//    (57%) e 9 `cato-staging-cron-` (43%) non compattava NIENTE. Un terzo tiene entrambe le teste.
+// Con un terzo possono convivere 2-3 famiglie sorelle in un gruppo, ma a quel peso sono famiglie vere.
 // I prefissi che sopravvivono sono innestati (cato-staging- ⊂ cato-staging-cron-): splitFamily prende
 // il più lungo che combacia, quindi i cron hanno la testa lunga e gli altri servizi quella corta.
+// Il chiamante passa solo i nomi che una testa la possono usare (i Bedrock hanno il loro nome
+// parlante): dentro il conteggio gonfierebbero il denominatore e alzerebbero la soglia per tutti.
 export function familyPrefixes(names = []) {
   const counts = new Map()
   for (const name of names) {
@@ -49,7 +54,7 @@ export function familyPrefixes(names = []) {
       counts.set(p, (counts.get(p) ?? 0) + 1)
     }
   }
-  const floor = Math.max(2, Math.ceil(names.length / 2))
+  const floor = Math.max(2, Math.ceil(names.length / 3))
   return new Set([...counts].filter(([, n]) => n >= floor).map(([p]) => p))
 }
 
