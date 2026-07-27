@@ -228,6 +228,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       if (sched?.minutes) {
         svcAws.schedule = minutesToSchedule(sched.minutes) // cadenza attesa → attiva il dead-man switch
         svcAws.scheduleExpr = sched.expr // espressione originale, per la UI
+        svcAws.scheduleTz = sched.tz ?? null // fuso dell'espressione (EventBridge Scheduler); null = UTC
         svcAws.scheduleState = sched.state // ENABLED/DISABLED → 'disabled' se lo schedule è spento di proposito
       }
       return { name: n, kind: 'lambda', aws: svcAws, ...(lamDesc[n] ? { description: lamDesc[n] } : {}) }
@@ -246,6 +247,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
         cluster: e.cluster,
         taskDefinition: e.taskDefArn,
         scheduleExpr: e.expr,
+        scheduleTz: e.tz ?? null,
         scheduleState: e.state,
         windowMinutes: 60,
       }

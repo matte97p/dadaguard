@@ -41,7 +41,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   // di lunedì ha l'ultima esecuzione attesa il venerdì, fuori da qualunque finestra "giornaliera".
   // Se l'espressione non è calcolabile (`rate(...)`) si resta sull'euristica: cadenza × 1.2, min 10m
   // per assorbire la latenza di pubblicazione delle metriche CloudWatch.
-  const missed = isCron ? missedWindow(cfg.scheduleExpr, Date.now()) : null
+  const missed = isCron ? missedWindow(cfg.scheduleExpr, Date.now(), cfg.scheduleTz) : null
   const windowMin = isCron
     ? (missed?.windowMin ?? Math.max(Math.round(schedMin * 1.2), 10))
     : cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
@@ -96,7 +96,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
 
   // Prossima esecuzione (solo cron attivi): dal cron() EventBridge. rate() → null (anchor ignoto).
   const now = Date.now()
-  const nextRunAt = isCron ? nextRun(cfg.scheduleExpr, now) : null
+  const nextRunAt = isCron ? nextRun(cfg.scheduleExpr, now, cfg.scheduleTz) : null
   const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
 
   // --- Cron: dead man's switch ---

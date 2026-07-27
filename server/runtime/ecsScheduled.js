@@ -55,7 +55,7 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   // Finestra dall'ESPRESSIONE vera (fino all'ultimo fire atteso + grazia), come per le Lambda cron:
   // una cadenza dedotta grida al guasto ogni volta che il cron NON gira ogni giorno (es. lun-ven).
   // Espressione non calcolabile (`rate(...)`) → euristica: cadenza × 1.2, minimo 10 min.
-  const missed = missedWindow(cfg.scheduleExpr, Date.now())
+  const missed = missedWindow(cfg.scheduleExpr, Date.now(), cfg.scheduleTz)
   const windowMin = missed?.windowMin ?? Math.max(Math.round(schedMin * 1.2), 10)
 
   // Schedule spento di proposito → niente allarme, niente chiamate inutili.
@@ -87,7 +87,7 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const outcome = classifyEcsRun({ ran: (any.events ?? []).length > 0, failed: (errs.events ?? []).length > 0 })
 
   const now = Date.now()
-  const nextRunAt = nextRun(cfg.scheduleExpr, now)
+  const nextRunAt = nextRun(cfg.scheduleExpr, now, cfg.scheduleTz)
   const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
   // Durata dell'ultima run (RunTask non ha un p95 come le Lambda): start→stop dell'ultimo task fermato.
   // Best-effort: se manca il permesso (ecs:ListTasks/DescribeTasks) o non c'è storico → niente durata.
