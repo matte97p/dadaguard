@@ -146,7 +146,9 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   // Best-effort: se manca il permesso (ecs:ListTasks/DescribeTasks) o non c'è storico → niente durata.
   const durMs = outcome === 'missed' ? null : await ecsScheduledDuration(cfg, aws)
   const dur = durMs ? ` · ${t('cron.duration', { d: fmtDur(Math.max(1, Math.round(durMs / 60000)), t) })}` : ''
-  const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel, durationMs: durMs ?? null }
+  // `outcome` esce dal check: distingue "mai partita" da "partita e fallita", che hanno due
+  // destinatari diversi (vedi server/notify/watch.js).
+  const base = { outcome, schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel, durationMs: durMs ?? null }
   if (outcome === 'missed') {
     const summary = missed
       ? t('cron.missed', { ago: fmtAgo(new Date(missed.expectedAt), t) })

@@ -6,6 +6,42 @@ const TIMEOUT_MS = 5000
 
 export const key = 'liveness'
 
+// Porte d'ingresso di autenticazione: se la sonda finisce QUI, ha visto la porta, non l'applicazione.
+const AUTH_HOSTS = [
+  /\.cloudflareaccess\.com$/i,
+  /\.okta\.com$/i,
+  /\.auth0\.com$/i,
+  /^accounts\.google\.com$/i,
+  /^login\.microsoftonline\.com$/i,
+]
+
+const hostOf = (u) => {
+  try {
+    return new URL(u).host
+  } catch {
+    return null
+  }
+}
+
+// Classifica la risposta della sonda. PURA, quindi testabile senza rete — ed è dove stava il bug:
+// seguendo i redirect, un servizio dietro Cloudflare Access rispondeva `200` perché la sonda leggeva
+// la PAGINA DI LOGIN («risponde · HTTP 200» su un'app che poteva essere spenta). Verificato sul vero:
+//   GET https://dadaguard.get-cato.com/  →  302  →  tech-cato.cloudflareaccess.com/cdn-cgi/access/login/…  →  200
+// Una sonda anonima da fuori NON PUÒ dire se un'app protetta è sana: dirlo è peggio che non saperlo.
+export function classifyProbe({ httpStatus, location = null, target = null }, t = (k) => k) {
+  if (httpStatus >= 500) return { status: 'down' }
+  if (httpStatus >= 400) return { status: 'degraded' }
+  if (httpStatus >= 300) {
+    const to = hostOf(location)
+    if (to && AUTH_HOSTS.some((re) => re.test(to))) return { status: 'unknown', reason: t('liveness.gated') }
+    const from = hostOf(target)
+    // Redirect verso un altro host: chi risponde non è (necessariamente) l'app che stiamo sondando.
+    if (to && from && to !== from) return { status: 'unknown', reason: t('liveness.elsewhere', { host: to }) }
+    return { status: 'up' } // redirect interno: http→https, / → /app, dominio canonico
+  }
+  return { status: 'up' }
+}
+
 export async function run(service, ctx) {
   if (!service.healthUrl) {
     return null // segnale non applicabile (es. Lambda/worker senza endpoint HTTP)
@@ -17,19 +53,20 @@ export async function run(service, ctx) {
   const startedAt = performance.now()
 
   try {
+    // `manual`: i redirect si LEGGONO, non si seguono. Seguirli fa arrivare la sonda alla pagina di
+    // login di Access e restituire un 200 che parla della porta, non dell'applicazione.
     const res = await fetch(service.healthUrl, {
       method: 'GET',
-      redirect: 'follow',
+      redirect: 'manual',
       signal: controller.signal,
     })
     const latencyMs = Math.round(performance.now() - startedAt)
     const httpStatus = res.status
-
-    let status = 'up'
-    if (httpStatus >= 500) status = 'down'
-    else if (httpStatus >= 400) status = 'degraded'
-
-    return { key, status, httpStatus, latencyMs }
+    const verdict = classifyProbe(
+      { httpStatus, location: res.headers.get('location'), target: service.healthUrl },
+      t,
+    )
+    return { key, httpStatus, latencyMs, ...verdict }
   } catch (err) {
     const latencyMs = Math.round(performance.now() - startedAt)
     // Messaggi distinti per causa invece dell'err.message grezzo del fetch: timeout / DNS / connessione
