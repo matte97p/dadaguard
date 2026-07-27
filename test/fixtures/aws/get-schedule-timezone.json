@@ -1,0 +1,30 @@
+{
+  "_nota": "ScheduleExpressionTimezone: il cron NON è in UTC (qui Europe/Rome)",
+  "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "payload": {
+    "Arn": "arn:aws:scheduler:eu-central-1:111122223333:schedule/acme-production-cron/acme-production-cron-weekday",
+    "GroupName": "acme-production-cron",
+    "Name": "acme-production-cron-weekday",
+    "ScheduleExpression": "cron(0 17 ? * MON-FRI *)",
+    "Description": "acme-lambdas/cron-weekday",
+    "ScheduleExpressionTimezone": "Europe/Rome",
+    "State": "ENABLED",
+    "CreationDate": "2026-06-30T11:16:47.616Z",
+    "LastModificationDate": "2026-07-08T15:59:28.402Z",
+    "Target": {
+      "Arn": "arn:aws:lambda:eu-central-1:111122223333:function:acme-production-cron-cron-weekday",
+      "RoleArn": "arn:aws:iam::111122223333:role/acme-production-cron-scheduler",
+      "DeadLetterConfig": {
+        "Arn": "arn:aws:sqs:eu-central-1:111122223333:acme-production-cron-dlq"
+      },
+      "RetryPolicy": {
+        "MaximumEventAgeInSeconds": 86400,
+        "MaximumRetryAttempts": 2
+      }
+    },
+    "FlexibleTimeWindow": {
+      "Mode": "OFF"
+    },
+    "ActionAfterCompletion": "NONE"
+  }
+}

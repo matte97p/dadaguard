@@ -1,0 +1,17 @@
+{
+  "_nota": "la pagina successiva: qui il match c’è. Chi si ferma alla prima pagina legge \"nessun errore\"",
+  "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "payload": {
+    "events": [
+      {
+        "logStreamName": "cron-example/cron-example/b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "timestamp": 1785109008484,
+        "message": "Traceback (most recent call last):",
+        "ingestionTime": 1785109009530,
+        "eventId": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf994319670161299457179650"
+      }
+    ],
+    "searchedLogStreams": [],
+    "nextToken": "TOKEN-PAGINA-SUCCESSIVA"
+  }
+}

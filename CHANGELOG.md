@@ -6,6 +6,20 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Test di contratto sulle risposte AWS vere** — i test provavano la nostra logica su dati scritti da
+  noi, e per questo non hanno trovato i tre guasti del 27/07: stavano tutti nell'**incontro** con AWS.
+  `scripts/record-aws-fixtures.mjs` registra **una volta** le risposte vere (sola lettura,
+  sanificate: id account, ARN, nomi di risorsa, identità e valori delle env var diventano segnaposto
+  stabili — resta la *forma*), e `test/contract.test.js` le rigioca senza rete né credenziali. Le tre
+  forme che ci sono costate la giornata sono ora tre test: la pagina di `FilterLogEvents` **vuota con
+  un `nextToken`** (il cron fallito mostrato verde), il `ScheduleExpressionTimezone: Europe/Rome` (i
+  cron sani dati per fermi) e il tag immagine con lo sha di 40 cifre. Ogni fixture registra anche **la
+  richiesta** con cui è stata ottenuta: una risposta senza la sua domanda non è un contratto — è così
+  che si è scoperto che i timestamp di `GetMetricData` sono inizi di secchio, non istanti di
+  esecuzione. Un test separato **vigila sulla sanificazione** delle fixture, perché il repo è pubblico
+  e una regola scritta una volta si dimentica.
+
+### Added
 - **Notifiche Slack: da dashboard a watchdog** — Dadaguard non aspetta più che qualcuno apra la pagina.
   Con `DADAGUARD_SLACK_WEBHOOK` configurato il server guarda la flotta a intervalli e scrive su Slack
   **quando qualcosa attraversa il confine problema/non-problema**: `🔴` quando va giù o si degrada,

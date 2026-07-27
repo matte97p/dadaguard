@@ -1,0 +1,9 @@
+{
+  "_nota": "FilterLogEvents(limit:1) su tutto il log group: può tornare events:[] CON nextToken pur essendoci i match",
+  "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "payload": {
+    "events": [],
+    "searchedLogStreams": [],
+    "nextToken": "TOKEN-PAGINA-SUCCESSIVA"
+  }
+}
