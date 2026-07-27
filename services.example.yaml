@@ -84,6 +84,19 @@ accounts:
 #   production/frontend: https://app.example.com
 #   backend: https://staging-api.example.com
 
+# --- Sonda HTTP per NOME servizio ---
+# Accende il segnale #1 (liveness) sui servizi SCOPERTI, che non hanno un posto dove scrivere
+# `healthUrl`. Stesse chiavi di `urls`. Il valore è un URL intero, oppure un path risolto sull'URL
+# della mappa `urls` qui sopra (path senza quell'URL = nessuna sonda: meglio un segnale assente che
+# un rosso inventato su un host indovinato).
+# Sonda un endpoint pensato per essere chiamato SENZA login e che NON tocchi il database: se il
+# /health interroga il DB, un DB lento spegne insieme il semaforo di tutti i servizi e non si capisce
+# più cosa è rotto davvero. Attenzione alle SPA: servono 200 su qualunque path (fallback su
+# index.html), quindi lì la sonda dice "l'origine risponde", non "l'applicazione è sana".
+# health:
+#   backend: /health
+#   production/frontend: https://app.example.com/
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api

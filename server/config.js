@@ -47,6 +47,10 @@ export function validateConfig(doc) {
     // staging da prod) → URL. Applicata dopo l'auto-discovery, precedenza massima sulla card. Utile
     // quando il servizio non ha un healthUrl e l'URL vero è un dominio Cloudflare (non il DNS grezzo dell'ALB).
     urls: doc?.urls ?? null,
+    // Sonda HTTP per NOME servizio, stessa forma di `urls`: `<account>/<nome>` (o `<nome>` secco) →
+    // URL intero, oppure path relativo (`/health`) risolto sull'URL della mappa `urls`. Serve ai
+    // servizi SCOPERTI dall'auto-discovery, che non possono dichiarare `healthUrl` a mano.
+    health: doc?.health ?? null,
   }
 }
 
