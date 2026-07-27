@@ -31,12 +31,49 @@ test('splitFamily: la coda è la parte che distingue, la testa è il prefisso co
 
 test('splitFamily: la testa è la STESSA su tutto il gruppo (due fratelli non fanno famiglia)', () => {
   const fam = familyPrefixes(STAGING)
-  // `…cron-scraped-` e `…cron-widget-` sono condivisi da 2 nomi: sotto la soglia (metà del gruppo),
+  // `…cron-scraped-` e `…cron-widget-` sono condivisi da 2 nomi su 10: sotto la soglia (un terzo),
   // altrimenti card vicine mostrerebbero teste diverse — e la testa muta non si "salterebbe" più.
   for (const n of STAGING.filter((n) => n.startsWith('acme-staging-cron-'))) {
     assert.equal(splitFamily(n, fam).family, 'acme-staging-cron-')
   }
   assert.ok(!fam.has('acme-staging-cron-scraped-'))
+})
+
+// Regressione dal campo: account Staging reale, 21 servizi (i Bedrock già esclusi dal chiamante).
+// `acme-staging-` copre 12/21 (57%) e `acme-staging-cron-` 9/21 (43%): con una soglia a metà gruppo
+// NESSUNA delle due passava e in produzione non si compattava niente.
+test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" il 43% del gruppo', () => {
+  const real = [
+    'acme-staging-cron-scrape-volume-monitor',
+    'acme-staging-cron-scraped-documents-monitor',
+    'acme-staging-cron-scraped-tenders-public-sync',
+    'acme-staging-cron-clickhouse-esiti-cleanup',
+    'acme-staging-cron-widget-leadgen-enrichment',
+    'acme-staging-cron-widget-scraper-storage-sync',
+    'acme-staging-cron-refresh-bi-materialized-views',
+    'acme-staging-cron-elasticsearch-reindex-tenders',
+    'acme-staging-cron-follow-competitor-notifier',
+    'acme-staging-backend',
+    'acme-staging-frontend',
+    'acme-staging-agentic-chat',
+    'widget-staging-db',
+    'widget-staging-reader',
+    'ws-redis-staging',
+    'analytics-staging-worker',
+    'admin-frontend-staging',
+    'website-staging',
+    'esiti-staging-index',
+    'tender-search-staging',
+    'garanzia-staging-api',
+  ]
+  assert.equal(real.length, 21)
+  const fam = familyPrefixes(real)
+  assert.ok(fam.has('acme-staging-cron-'), 'la testa dei cron deve passare')
+  assert.ok(fam.has('acme-staging-'), 'la testa dei servizi acme deve passare')
+  assert.equal(splitFamily('acme-staging-cron-scrape-volume-monitor', fam).tail, 'scrape-volume-monitor')
+  assert.equal(splitFamily('acme-staging-backend', fam).tail, 'backend')
+  // e nessuna testa inventata sui nomi che non fanno famiglia
+  assert.equal(splitFamily('ws-redis-staging', fam).family, null)
 })
 
 test('splitFamily: un outlier nel gruppo resta col nome intero (niente troncature inventate)', () => {
