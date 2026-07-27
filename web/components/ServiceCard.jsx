@@ -1,20 +1,19 @@
-import { Card, Badge, Descriptions, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
+import { Card, Badge, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
 import {
   DeleteOutlined,
-  QuestionCircleOutlined,
   FileTextOutlined,
   HistoryOutlined,
   ClockCircleOutlined,
   GlobalOutlined,
 } from '@ant-design/icons'
-import { fmtMs } from '../format.js'
-import { prettyBedrock } from '../serviceName.js'
+import { fmtMs, fmtSchedule } from '../format.js'
+import { prettyBedrock, splitFamily } from '../serviceName.js'
 import Sparkline from './Sparkline.jsx'
 
 // Logo Terraform (SVG inline) colorato per stato del drift: la card mostra solo il logo, il testo
 // (sì/no · diffs) va nel tooltip. Verde=conforme, rosso=drift, giallo=stato ignoto.
 const TF_COLOR = { up: '#52c41a', degraded: '#ff4d4f', down: '#ff4d4f', unknown: '#faad14' }
-function TerraformIcon({ color, size = 15 }) {
+function TerraformIcon({ color, size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true">
       <path d="M1.44 0v7.575l6.561 3.79V3.787zm21.12 4.227l-6.561 3.789v7.577l6.561-3.789zM8.72 4.23v7.575l6.562 3.79V8.019zm0 8.405v7.574L15.282 24v-7.578z" />
@@ -33,33 +32,40 @@ const STATUS = {
 
 const { Link, Text } = Typography
 
-function CheckBadge({ status }) {
-  return <Badge status={STATUS[status]?.status ?? 'default'} />
+// Riga di un check: etichetta a sinistra (colonna a larghezza fissa, vedi .dg-rows in app.css) e
+// valore a destra col pallino di stato attaccato al testo. UN segnale = UNA riga: è ciò che rende
+// la card leggibile a colpo d'occhio quando ne hai 25 sullo schermo.
+// Il tooltip che spiega il segnale sta sull'etichetta (tratteggiata), non su un "?" a fianco.
+function Row({ label, tip, status, children }) {
+  return (
+    <>
+      <div className="dg-label">
+        <Tooltip title={tip}>
+          <span>{label}</span>
+        </Tooltip>
+      </div>
+      <div className="dg-val">
+        <Badge status={STATUS[status]?.status ?? 'default'} style={{ marginInlineEnd: 5 }} />
+        {children}
+      </div>
+    </>
+  )
 }
 
-
-// Espone un summary denso ("a · b · c (60m)") come PILLOLE separate che vanno a capo pulite,
-// invece di una stringa unica illeggibile. L'eventuale finestra finale "(60m)" resta muta a destra.
-function MetricChips({ text }) {
-  if (!text) return <span>—</span>
-  const s = String(text)
-  const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/) // estrae la finestra finale, non i "(4xx)" a metà
-  const body = m ? m[1] : s
-  const win = m ? m[2] : null
-  const parts = body.split(' · ').map((p) => p.trim()).filter(Boolean)
-  if (parts.length <= 1 && !win) return <span>{s}</span>
+// Un summary del server ("sha 9f2a1c · 3g fa · modificato da GitHubActions") è UNA frase: il primo
+// pezzo è il fatto, il resto è contesto → primo pezzo in ink normale, il resto muto sulla stessa
+// riga (prima erano pillole tutte uguali che andavano a capo una per riga).
+// dropParen: la cadenza tra parentesi ("(attesa ogni 1g)") è già nell'header della card → via.
+function Summary({ text, dropParen = false, extra = null }) {
+  const s = dropParen ? String(text).replace(/\s*\([^()]*\)/, '') : String(text)
+  const [head, ...rest] = s.split(' · ').map((p) => p.trim()).filter(Boolean)
+  const tail = [...rest, extra].filter(Boolean).join(' · ')
   return (
-    <Space size={[6, 3]} wrap>
-      {parts.map((p, i) => (
-        <span
-          key={i}
-          style={{ background: 'rgba(128,128,128,0.14)', borderRadius: 6, padding: '0 6px', fontSize: 12, whiteSpace: 'nowrap' }}
-        >
-          {p}
-        </span>
-      ))}
-      {win && <Text type="secondary" style={{ fontSize: 11 }}>{win}</Text>}
-    </Space>
+    <>
+      <span>{head}</span>
+      {/* contesto un filo più piccolo del fatto: gerarchia leggibile e una riga sola invece di due */}
+      {tail && <Text type="secondary" style={{ fontSize: 11 }}> · {tail}</Text>}
+    </>
   )
 }
 
@@ -72,33 +78,30 @@ const STAT_TONE = { critical: '#ff4d4f', warning: '#faad14', serious: '#fa8c16',
 function StatRow({ metrics, window }) {
   const Tile = ({ label, value, color }) => (
     <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
-      <Text type="secondary" style={{ fontSize: 10, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{label || ' '}</Text>
+      <Text type="secondary" style={{ fontSize: 10, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{label || ' '}</Text>
       <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', color }}>{value}</span>
     </span>
   )
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px', alignItems: 'flex-end' }}>
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '2px 14px', alignItems: 'flex-end', verticalAlign: 'top' }}>
       {metrics.map((m, i) => (
         <Tile key={i} label={m.label} value={m.value} color={m.tone ? STAT_TONE[m.tone] : undefined} />
       ))}
       {window && <Text type="secondary" style={{ fontSize: 11, alignSelf: 'flex-end' }}>{window}</Text>}
-    </div>
+    </span>
   )
 }
 
-// Etichetta riga + tooltip che spiega COSA misura il segnale (il contenuto, da solo, è gergo).
-function RowLabel({ children, tip }) {
-  return (
-    <Space size={4}>
-      <span>{children}</span>
-      <Tooltip title={tip}>
-        <QuestionCircleOutlined style={{ color: '#bfbfbf', fontSize: 11, cursor: 'help' }} />
-      </Tooltip>
-    </Space>
-  )
-}
-
-export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpen, t = (k) => k }) {
+export default function ServiceCard({
+  service,
+  onRemove,
+  onLogs,
+  onEvents,
+  onOpen,
+  familyPrefixes,
+  reserveFamily = false,
+  t = (k) => k,
+}) {
   const overall = STATUS[service.overall] ?? STATUS.unknown
   const hasLogs = ['lambda', 'ecs', 'ecs-scheduled'].includes(service.type) // tipi con log applicativi su CloudWatch
   // eventi operativi (ECS/RDS/ASG) e/o modifiche CloudTrail — solo AWS: un Worker Cloudflare non li ha
@@ -109,12 +112,7 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
   const isBad = service.overall === 'degraded' || service.overall === 'down'
   const causeKey = isBad ? service.cause : null
   const causeCheck = causeKey ? service.checks?.[causeKey] : null
-  const overallText =
-    isBad && causeKey
-      ? t(`cause.${causeKey}`)
-      : service.overall && service.overall !== 'unknown'
-        ? t(`card.status.${service.overall}`)
-        : '—'
+  const overallText = isBad && causeKey ? t(`cause.${causeKey}`) : t(`card.status.${service.overall ?? 'unknown'}`)
   const moreCauses = (service.causes?.length ?? 0) - 1
   const overallTip = isBad
     ? [t(`card.status.${service.overall}`), causeCheck?.summary ?? causeCheck?.reason]
@@ -132,191 +130,215 @@ export default function ServiceCard({ service, onRemove, onLogs, onEvents, onOpe
   const links = service.links ?? {}
   const account = service.account
 
+  // Nome: i modelli Bedrock hanno il loro nome parlante; per tutto il resto testa muta (la famiglia
+  // condivisa nel gruppo, es. `cato-staging-cron-`) + coda in evidenza — su 25 card leggi subito la
+  // parte che le distingue, senza perdere il nome completo (testa + coda, in fila).
+  const bedrock = service.type === 'bedrock' ? prettyBedrock(service.name) : null
+  const { family, tail } = bedrock
+    ? { family: null, tail: bedrock.name ?? service.name }
+    : splitFamily(service.name, familyPrefixes)
+  const sub = bedrock
+    ? bedrock.name !== service.name
+      ? [bedrock.meta, service.name].filter(Boolean).join(' · ')
+      : null
+    : service.description
+
+  // Cadenza del cron in parole ("ogni 1g", non "1440m" che non dice niente a chi legge); per gli
+  // altri il tipo di risorsa, che altrimenti la card non nomina mai ("Database", "Cron lungo", …).
+  const cadence = runtime?.schedule ? fmtSchedule(runtime.schedule, t) : null
+  const typeKey = service.type ? `type.${service.type}` : null
+  const typeLabel = typeKey ? (t(typeKey) === typeKey ? service.type : t(typeKey)) : null
+
   return (
     <Card
       size="small"
+      className="dg-card"
       data-service={service.name}
-      // accento colore dell'ambiente: riconosci prod da staging a colpo d'occhio
-      style={account?.color ? { borderTop: `3px solid ${account.color}` } : undefined}
+      // accento colore dell'ambiente: riconosci prod da staging a colpo d'occhio. height:100% →
+      // le card di una riga sono alte uguali (griglia ordinata invece di bordi a zig-zag).
+      style={{
+        width: '100%', // la Col è flex (card alte uguali): senza questo la card si stringe sul contenuto
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        ...(account?.color ? { borderTop: `3px solid ${account.color}` } : null),
+      }}
+      styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column' } }}
+      // Tutto l'header sta nel `title` (niente `extra`): con `extra` il titolo viene strozzato a
+      // metà card ed è per quello che i nomi lunghi andavano a capo su 4 righe.
       title={
-        (() => {
-          const bedrock = service.type === 'bedrock' ? prettyBedrock(service.name) : null
-          const sub = bedrock ? (bedrock.name !== service.name ? [bedrock.meta, service.name].filter(Boolean).join(' · ') : null) : service.description
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-              <Tooltip title={service.name}>
-                <span
-                  onClick={onOpen ? () => onOpen(service.name) : undefined}
-                  style={onOpen ? { cursor: 'pointer' } : undefined}
-                >
-                  <Badge status={overall.status} text={bedrock?.name ?? service.name} />
-                </span>
-              </Tooltip>
-              {sub && (
-                <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, whiteSpace: 'normal' }}>
-                  {sub}
-                </Text>
-              )}
+        <>
+          {/* Se qualcuno nel gruppo ha una famiglia, la riga la tengono TUTTI (vuota se non serve):
+              così i nomi restano incolonnati sulla stessa riga di card invece di ballare di 15px. */}
+          {family ? (
+            <div className="dg-fam" title={`${t('card.fullName')}: ${service.name}`}>
+              {family}
             </div>
-          )
-        })()
-      }
-      extra={
-        <Space size={8}>
-          {runtime?.schedule && (
-            <Tooltip title={[runtime.scheduleExpr || t('card.cron.tip'), runtime.nextRunLabel].filter(Boolean).join(' · ')}>
-              <Tag icon={<ClockCircleOutlined />} style={{ marginInlineEnd: 0 }}>
-                {runtime.schedule}
-              </Tag>
-            </Tooltip>
+          ) : (
+            reserveFamily && <div className="dg-fam">&nbsp;</div>
           )}
-          <Tooltip title={overallTip}>
-            <Tag color={overall.tag} style={{ marginInlineEnd: 0, fontWeight: 600 }}>
-              {overallText}
-            </Tag>
-          </Tooltip>
-          {drift && (
-            <Tooltip title={`${t('card.label.drift')}: ${drift.summary ?? drift.reason ?? '—'}`}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help' }}>
-                <TerraformIcon color={TF_COLOR[drift.status] ?? '#8c8c8c'} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+            <Badge status={overall.status} style={{ marginTop: 5 }} />
+            <Tooltip title={service.name}>
+              <span
+                className="dg-name"
+                onClick={onOpen ? () => onOpen(service.name) : undefined}
+                style={{ flex: 1, ...(onOpen ? { cursor: 'pointer' } : null) }}
+              >
+                {tail}
               </span>
             </Tooltip>
+            {/* Tag di stato solo quando c'è qualcosa da dire: un "OK" verde su ogni card sana è
+                rumore — il pallino verde lo dice già. */}
+            {service.overall !== 'up' && (
+              <Tooltip title={overallTip}>
+                <Tag
+                  color={overall.tag}
+                  style={{ marginInlineEnd: 0, fontWeight: 600, fontSize: 11, lineHeight: '18px', marginTop: 1 }}
+                >
+                  {overallText}
+                </Tag>
+              </Tooltip>
+            )}
+          </div>
+          {sub && (
+            <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.6, whiteSpace: 'normal', lineHeight: 1.3 }}>{sub}</div>
           )}
-          {service.url && (
-            <Link
-              href={service.url}
-              target="_blank"
-              rel="noreferrer"
-              type="secondary"
-              title={service.url}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <GlobalOutlined />
-            </Link>
-          )}
-          {onLogs && hasLogs && (
-            <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
-              <FileTextOutlined />
-            </Link>
-          )}
-          {onEvents && hasEvents && (
-            <Link type="secondary" onClick={() => onEvents(service.name)} title={t('events.button')}>
-              <HistoryOutlined />
-            </Link>
-          )}
-          {onRemove && (
-            <Popconfirm
-              title={t('card.removeTitle')}
-              description={t('card.removeDesc')}
-              okText={t('card.removeOk')}
-              cancelText={t('card.removeCancel')}
-              onConfirm={() => onRemove(service.name)}
-            >
-              <Link type="secondary">
-                <DeleteOutlined />
-              </Link>
-            </Popconfirm>
-          )}
-        </Space>
+
+          {/* Riga meta: a sinistra cadenza (cron) o tipo di risorsa, a destra le azioni. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 3 }}>
+            {cadence ? (
+              <Tooltip title={[runtime.scheduleExpr || t('card.cron.tip'), runtime.nextRunLabel].filter(Boolean).join(' · ')}>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, cursor: 'help', whiteSpace: 'nowrap' }}>
+                  <ClockCircleOutlined style={{ marginInlineEnd: 4 }} />
+                  {cadence}
+                </Text>
+              </Tooltip>
+            ) : (
+              <Text
+                type="secondary"
+                style={{ fontSize: 11, fontWeight: 400, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+              >
+                {typeLabel}
+              </Text>
+            )}
+            <span className="dg-actions">
+              {drift && (
+                <Tooltip title={`${t('card.label.drift')}: ${drift.summary ?? drift.reason ?? '—'}`}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help' }}>
+                    <TerraformIcon color={TF_COLOR[drift.status] ?? '#8c8c8c'} />
+                  </span>
+                </Tooltip>
+              )}
+              {service.url && (
+                <Link
+                  href={service.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  type="secondary"
+                  title={service.url}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <GlobalOutlined />
+                </Link>
+              )}
+              {onLogs && hasLogs && (
+                <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
+                  <FileTextOutlined />
+                </Link>
+              )}
+              {onEvents && hasEvents && (
+                <Link type="secondary" onClick={() => onEvents(service.name)} title={t('events.button')}>
+                  <HistoryOutlined />
+                </Link>
+              )}
+              {onRemove && (
+                <Popconfirm
+                  title={t('card.removeTitle')}
+                  description={t('card.removeDesc')}
+                  okText={t('card.removeOk')}
+                  cancelText={t('card.removeCancel')}
+                  onConfirm={() => onRemove(service.name)}
+                >
+                  <Link type="secondary">
+                    <DeleteOutlined />
+                  </Link>
+                </Popconfirm>
+              )}
+            </span>
+          </div>
+        </>
       }
     >
-      <Descriptions
-        column={1}
-        size="small"
-        labelStyle={{ fontSize: 12, opacity: 0.65 }}
-        contentStyle={{ fontSize: 12.5 }}
-      >
+      <div className="dg-rows">
         {liveness && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.reachable')}>{t('card.label.reachable')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={liveness.status} />
-              <span>
-                {liveness.httpStatus
-                  ? t('card.responds', { code: liveness.httpStatus })
-                  : liveness.reason ?? '—'}
-              </span>
-              {typeof liveness.latencyMs === 'number' && (
-                <Text type="secondary">· {fmtMs(liveness.latencyMs)}</Text>
-              )}
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.reachable')} tip={t('card.tip.reachable')} status={liveness.status}>
+            <span>
+              {liveness.httpStatus ? t('card.responds', { code: liveness.httpStatus }) : (liveness.reason ?? '—')}
+            </span>
+            {typeof liveness.latencyMs === 'number' && (
+              <Text type="secondary" style={{ fontSize: 11 }}> · {fmtMs(liveness.latencyMs)}</Text>
+            )}
+          </Row>
         )}
 
         {version && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.build')}>{t('card.label.build')}</RowLabel>}>
-            <Space size={4} align="start">
-              <CheckBadge status={version.status} />
-              {version.summary ? <MetricChips text={version.summary} /> : <span>{version.reason ?? '—'}</span>}
-              {version.expectedSource === 'url' && (
-                <Text type="secondary">· {t('card.expectedFrom', { from: version.expectedFrom })}</Text>
-              )}
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.build')} tip={t('card.tip.build')} status={version.status}>
+            {version.summary ? (
+              <Summary
+                text={version.summary}
+                extra={version.expectedSource === 'url' ? t('card.expectedFrom', { from: version.expectedFrom }) : null}
+              />
+            ) : (
+              <span>{version.reason ?? '—'}</span>
+            )}
+          </Row>
         )}
 
         {runtime && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.runtime')}>{t('card.label.runtime')}</RowLabel>}>
-            <Space size={4} align="start" wrap>
-              <CheckBadge status={runtime.status} />
-              {runtime.metrics?.length ? (
-                <StatRow metrics={runtime.metrics} window={runtime.window} />
-              ) : runtime.summary ? (
-                <MetricChips text={runtime.summary} />
-              ) : (
-                <span>{runtime.reason ?? '—'}</span>
-              )}
-              {runtime.nextRunLabel && (
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  · {runtime.nextRunLabel}
-                </Text>
-              )}
-              {runtime.spark?.length > 1 && <Sparkline data={runtime.spark} />}
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.runtime')} tip={t('card.tip.runtime')} status={runtime.status}>
+            {runtime.metrics?.length ? (
+              <StatRow metrics={runtime.metrics} window={runtime.window} />
+            ) : runtime.summary ? (
+              <Summary text={runtime.summary} dropParen={Boolean(cadence)} extra={runtime.nextRunLabel} />
+            ) : (
+              <span>{runtime.reason ?? '—'}</span>
+            )}
+            {runtime.spark?.length > 1 && <Sparkline data={runtime.spark} />}
+          </Row>
         )}
 
-
         {secrets && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.secret')}>{t('card.label.secret')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={secrets.status} />
-              <span>{secrets.summary ?? secrets.reason ?? '—'}</span>
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.secret')} tip={t('card.tip.secret')} status={secrets.status}>
+            <Summary text={secrets.summary ?? secrets.reason ?? '—'} />
+          </Row>
         )}
 
         {security && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.security')}>{t('card.label.security')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={security.status} />
-              <span>{security.summary ?? security.reason ?? '—'}</span>
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.security')} tip={t('card.tip.security')} status={security.status}>
+            <Summary text={security.summary ?? security.reason ?? '—'} />
+          </Row>
         )}
 
         {alarms && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.alarms')}>{t('card.label.alarms')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={alarms.status} />
-              <span>{alarms.summary ?? alarms.reason ?? '—'}</span>
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.alarms')} tip={t('card.tip.alarms')} status={alarms.status}>
+            <Summary text={alarms.summary ?? alarms.reason ?? '—'} />
+          </Row>
         )}
 
         {backups && (
-          <Descriptions.Item label={<RowLabel tip={t('card.tip.backups')}>{t('card.label.backups')}</RowLabel>}>
-            <Space size={4}>
-              <CheckBadge status={backups.status} />
-              <span>{backups.summary ?? backups.reason ?? '—'}</span>
-            </Space>
-          </Descriptions.Item>
+          <Row label={t('card.label.backups')} tip={t('card.tip.backups')} status={backups.status}>
+            <Summary text={backups.summary ?? backups.reason ?? '—'} />
+          </Row>
         )}
-      </Descriptions>
+      </div>
 
+      {/* I link (Console AWS & co.) restano incollati in basso: con le card della riga alte uguali,
+          la riga dei link è sempre allo stesso posto e non balla da una card all'altra. */}
       {Object.keys(links).length > 0 && (
-        <Space size="small" wrap style={{ marginTop: 8 }}>
+        <Space size="small" wrap style={{ marginTop: 'auto', paddingTop: 8 }}>
           {Object.entries(links).map(([label, url]) => (
-            <Link key={label} href={url} target="_blank" rel="noreferrer">
+            <Link key={label} href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
               {label} ↗
             </Link>
           ))}

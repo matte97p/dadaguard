@@ -11,6 +11,17 @@ export function fmtMs(ms) {
   return s ? `${m}m ${s}s` : `${m}m`
 }
 
+// Cadenza di un cron in parole: "1440m" (come arriva da EventBridge) non dice niente a chi legge →
+// "ogni 1g". Stesse unità di server/runtime/*.js (fmtDur) così la cadenza nell'header e quella dentro
+// il testo del check coincidono. Input non riconosciuto → invariato (mai inventare).
+export function fmtSchedule(schedule, t = (k) => k) {
+  const min = Number(String(schedule ?? '').match(/^(\d+)m$/)?.[1])
+  if (!Number.isFinite(min) || min <= 0) return schedule ?? null
+  const every =
+    min % 1440 === 0 ? `${min / 1440}${t('time.unit.d')}` : min >= 60 ? `${Math.round(min / 60)}${t('time.unit.h')}` : `${min}${t('time.unit.m')}`
+  return t('card.cron.every', { every })
+}
+
 // Conteggio compatto: 1234 → "1.2k", 9999 → "10k", 15000 → "15k", sotto 1000 invariato.
 export function fmtCount(n) {
   if (!Number.isFinite(n)) return '—'

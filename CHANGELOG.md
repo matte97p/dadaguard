@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Card dei servizi ridisegnate** — con 25 servizi a schermo (flotte di cron) la card andava in
+  crisi: nomi lunghi a capo su 4 righe perché il titolo era strozzato dai badge, un segnale sparso su
+  3-4 righe, etichette disallineate da card a card e buchi a zig-zag tra le colonne. Ora: il nome sta
+  su una riga (testa comune del gruppo — `cato-staging-cron-` — piccola e muta, coda in evidenza,
+  niente troncature), **un segnale = una riga** con le etichette incolonnate a larghezza fissa,
+  cadenza dei cron in parole nell'header (`ogni 1g` invece di `1440m`), tag di stato solo quando c'è
+  qualcosa da dire (via l'«OK» verde su ogni card sana), azioni discrete che si accendono sull'hover,
+  tooltip di spiegazione sull'etichetta invece di un `?` per riga, e card della stessa riga alte
+  uguali. Le cron **spente di proposito** scendono in fondo al gruppo, sotto i servizi sani.
+
 ### Added
 - **Vista Deploy: «chi ha deployato»** — ogni build mostra chi l'ha lanciata (autore del commit), nella
   lista e nel drawer di dettaglio. Il dato arriva dalla variabile CodeBuild esportata `DEPLOYER` (via
