@@ -33,7 +33,7 @@
   font-size: 10.5px;
   line-height: 1.35;
   letter-spacing: 0.2px;
-  opacity: 0.5;
+  opacity: 0.42;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -97,14 +97,48 @@
    Densità: una riga per servizio, 48 righe leggibili senza scorrere in orizzontale sul grosso
    delle colonne. Il resto lo fa antd. */
 .dg-table .ant-table-cell {
-  padding: 6px 10px !important;
+  padding: 7px 10px !important;
   font-size: 12px;
   vertical-align: middle;
 }
 .dg-table .ant-table-thead .ant-table-cell {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.3px;
+}
+/* Separatore verticale tra CHI (stato, nome, ambiente) e COME VA (esecuzione, latenza, build):
+   spezza la riga in due blocchi e dà all'occhio un punto di riferimento a metà strada. */
+.dg-table .ant-table-tbody > tr > .ant-table-cell:nth-child(4),
+.dg-table .ant-table-thead > tr > .ant-table-cell:nth-child(4) {
+  border-inline-start: 1px solid rgba(128, 128, 128, 0.16);
+}
+
+/* Righe alternate + bordo sottile: su una tabella larga è ciò che tiene la riga sotto l'occhio
+   mentre lo sguardo attraversa 1500px (senza, si salta di riga a metà strada). Tinta bassissima:
+   deve dare il ritmo, non disegnare una scacchiera. */
+.dg-table .dg-zebra > .ant-table-cell {
+  background: rgba(128, 128, 128, 0.075);
+}
+.dg-table .ant-table-tbody > tr > .ant-table-cell {
+  border-bottom-color: rgba(128, 128, 128, 0.14) !important;
+}
+/* Riga sotto il puntatore: evidenziazione più netta di quella di serie, sempre per non perdere la riga. */
+.dg-table .ant-table-tbody > tr:hover > .ant-table-cell,
+.dg-table .dg-zebra:hover > .ant-table-cell {
+  background: rgba(124, 58, 237, 0.09) !important;
+}
+/* Intestazione: un filo più leggibile e con lo stacco dal corpo. */
+.dg-table .ant-table-thead .ant-table-cell {
+  background: transparent;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.28) !important;
+}
+/* Numeri in colonna: cifre a larghezza fissa, così le latenze si incolonnano e le confronti a occhio
+   (tabular-nums serve QUI, non sui numeri grandi isolati). */
+.dg-num {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 /* La cella di un segnale: pallino + frase su una riga, tagliata con l'ellissi (il testo intero è
    nel `title`). In tabella una cella che va a capo rompe l'allineamento di tutta la riga. */
