@@ -5,6 +5,27 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **«Risponde · HTTP 200» su un'app protetta da un login** — la sonda di liveness seguiva i redirect,
+  quindi dietro Cloudflare Access leggeva `200` sulla **pagina di login** e dichiarava sano un servizio
+  che poteva essere spento. Verificato sul vero: `GET dadaguard.get-cato.com` → `302` →
+  `tech-cato.cloudflareaccess.com/cdn-cgi/access/login/…` → `200`. Ora i redirect si **leggono** invece
+  di seguirli: se portano a una porta di autenticazione nota (Access, Okta, Auth0, Google, Microsoft) lo
+  stato è **sconosciuto** con la spiegazione — da fuori, in anonimo, non si può dire se l'app è sana, e
+  dirlo è peggio che non saperlo. Un redirect interno (http→https, dominio canonico) resta «su»; uno
+  verso un altro host dice quale. Per avere un verde vero serve un `healthUrl` che bypassi il login.
+
+### Added
+- **Notifiche Slack: due destinazioni, e una cosa che non si manda affatto** — se i cron avvisano già
+  da sé quando crashano (in Cato lo fa `catocron`, col messaggio d'errore vero), ridirlo è duplicare, e
+  due canali che dicono la stessa cosa insegnano a ignorarli entrambi. Ora i check dei cron espongono
+  un **esito strutturato** (`missed` / `failed` / `ok`, non dedotto dal testo) e il notificatore lo usa
+  per instradare: **«mai partito»** va nel canale dei cron (è il buco che nessuno può coprire
+  dall'interno: schedule non applicato, target sbagliato, IAM, concorrenza a zero), **«caduto»** non si
+  manda (`DADAGUARD_NOTIFY_CRON_FAILED=1` per riaccenderlo), **tutto il resto** — ECS a 0/N, endpoint,
+  secret, drift, backup, certificati, sicurezza, Bedrock, Cloudflare — va nel webhook principale,
+  perché oggi non ha voce da nessuna parte. Il **rientro** torna dove l'allarme è stato aperto.
+
 ### Added
 - **Test di contratto sulle risposte AWS vere** — i test provavano la nostra logica su dati scritti da
   noi, e per questo non hanno trovato i tre guasti del 27/07: stavano tutti nell'**incontro** con AWS.

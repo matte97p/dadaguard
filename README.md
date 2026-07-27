@@ -103,11 +103,26 @@ guasto, e `→ stato sconosciuto` è un problema del controllo, non del servizio
 
 ```bash
 DADAGUARD_SLACK_WEBHOOK=https://hooks.slack.com/services/...   # senza questo il watcher non parte
+DADAGUARD_SLACK_WEBHOOK_CRON=https://hooks.slack.com/...       # opzionale: solo «cron mai partito»
+DADAGUARD_NOTIFY_CRON_FAILED=1 # opzionale: notifica anche i cron CADUTI (di norma taciuti)
 DADAGUARD_WATCH_INTERVAL=300   # secondi tra i giri (default 300; ogni giro costa chiamate AWS)
 DADAGUARD_WATCH_CONFIRM=2      # letture consecutive perché una transizione conti (anti-sfarfallio)
 DADAGUARD_STATE_FILE=.dadaguard-state.json   # dove ricorda l'ultimo stato annunciato
 DADAGUARD_PUBLIC_URL=https://dadaguard.example   # link in fondo al messaggio
 ```
+
+**Due destinazioni, perché non tutto va detto da Dadaguard.** Se i tuoi cron avvisano già da sé quando
+crashano (in Cato lo fa `catocron`, col messaggio di errore vero), ridirlo è duplicare — e due canali
+che dicono la stessa cosa insegnano a ignorarli entrambi. Quindi:
+
+| Cosa | Dove | Perché |
+|---|---|---|
+| Cron **mai partito** | `WEBHOOK_CRON` (o il principale, se non lo imposti) | schedule non applicato, target sbagliato, IAM, concorrenza a zero: il job non esiste nel momento in cui dovrebbe parlare, quindi **nessuno** può dirlo dall'interno |
+| Cron **caduto** | nessuno | lo scrive il job stesso, con più dettaglio. `NOTIFY_CRON_FAILED=1` per riaccenderlo |
+| Tutto il resto | `WEBHOOK` | task ECS a 0/N, endpoint che non risponde, secret mancante, drift, backup vecchio, certificato in scadenza, bucket pubblico, Bedrock 5xx, worker Cloudflare: oggi non hanno voce da nessuna parte |
+
+Il **rientro** torna dove l'allarme è stato aperto: un `<!channel>` che nessuno chiude lascia un canale
+pieno di rossi di cui non sai quali sono ancora aperti.
 
 Tre comportamenti scelti di proposito, perché sono ciò che rende una notifica sopportabile:
 - **Al primo giro non annuncia niente**, prende solo nota. Su Fargate il filesystem del task è

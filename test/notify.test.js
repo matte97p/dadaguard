@@ -206,3 +206,102 @@ test('watchConfig: valori di default sensati e limiti minimi', () => {
   assert.equal(watchConfig({ DADAGUARD_WATCH_INTERVAL: '1' }).intervalMs, 30_000)
   assert.equal(watchConfig({ DADAGUARD_WATCH_CONFIRM: '0' }).confirmations, 2)
 })
+
+// --- INSTRADAMENTO: cosa si manda, dove, e cosa NON si manda -------------------------------------
+// La regola parte da cosa parla già: un cron catocron che crasha lo scrive da sé (con la query e il
+// privilegio, meglio di quanto potrebbe dirlo Dadaguard). Ridirlo è duplicare, e due canali che
+// dicono la stessa cosa insegnano a ignorarli entrambi. Resta il buco che nessuno può coprire
+// dall'interno: il job che NON è mai partito.
+import { routeOf, splitByRoute } from '../server/notify/route.js'
+
+const tr = (over) => ({ kind: 'alert', key: 'prod/x', name: 'x', account: 'Production', from: 'up', to: 'down', ...over })
+
+test('instradamento: un cron CADUTO non si manda (lo scrive già il job)', () => {
+  assert.equal(routeOf(tr({ type: 'lambda', outcome: 'failed' })), null)
+  assert.equal(routeOf(tr({ type: 'ecs-scheduled', outcome: 'failed' })), null)
+})
+
+test('instradamento: un cron MAI PARTITO va nel canale dei cron (nessuno può dirlo dall’interno)', () => {
+  assert.equal(routeOf(tr({ type: 'lambda', outcome: 'missed' })), 'cron')
+  assert.equal(routeOf(tr({ type: 'ecs-scheduled', outcome: 'missed' })), 'cron')
+})
+
+test('instradamento: tutto ciò che non è un cron va nella destinazione principale', () => {
+  assert.equal(routeOf(tr({ type: 'ecs' })), 'main') // task a 0/N, secret mancante, drift…
+  assert.equal(routeOf(tr({ type: 'rds' })), 'main') // backup vecchio
+  assert.equal(routeOf(tr({ type: 'bedrock' })), 'main') // 5xx / throttle
+  assert.equal(routeOf(tr({ type: 'cloudflare-worker' })), 'main') // errori a runtime
+  assert.equal(routeOf(tr({ type: 'acm' })), 'main') // certificato in scadenza
+})
+
+test('instradamento: una lambda ON-DEMAND non è un cron (nessun outcome) → principale', () => {
+  assert.equal(routeOf(tr({ type: 'lambda', outcome: null })), 'main')
+})
+
+test('instradamento: si può riaccendere il cron caduto se lo si vuole comunque', () => {
+  assert.equal(routeOf(tr({ type: 'lambda', outcome: 'failed' }), { notifyCronFailed: true }), 'main')
+})
+
+test('instradamento: il RIENTRO torna dove l’allarme è stato aperto', () => {
+  const rientro = { kind: 'recovery', key: 'prod/cron', name: 'cron', to: 'up', type: 'lambda', outcome: 'ok' }
+  const g = splitByRoute([rientro], { routeMemory: { 'prod/cron': 'cron' } })
+  assert.deepEqual(g.cron, [rientro], 'chiude il ciclo nel canale dove era stato aperto')
+  assert.deepEqual(g.main, [])
+})
+
+test('instradamento: senza memoria il rientro segue la regola normale', () => {
+  const rientro = { kind: 'recovery', key: 'stg/api', name: 'api', to: 'up', type: 'ecs' }
+  const g = splitByRoute([rientro], { routeMemory: {} })
+  assert.deepEqual(g.main, [rientro])
+})
+
+test('instradamento: divide un giro misto e dice cosa ha taciuto', () => {
+  const g = splitByRoute([
+    tr({ key: 'p/cron-caduto', type: 'lambda', outcome: 'failed' }),
+    tr({ key: 'p/cron-fermo', type: 'ecs-scheduled', outcome: 'missed' }),
+    tr({ key: 's/chat', type: 'ecs' }),
+  ])
+  assert.deepEqual(g.cron.map((x) => x.key), ['p/cron-fermo'])
+  assert.deepEqual(g.main.map((x) => x.key), ['s/chat'])
+  assert.deepEqual(g.skipped.map((x) => x.key), ['p/cron-caduto'])
+})
+
+test('runOnce: il cron mai partito va al webhook dei cron, il resto al principale', async () => {
+  const inviati = []
+  const svcCron = { name: 'cron', account: { key: 'prod', label: 'Production' }, overall: 'down', cause: 'runtime', type: 'lambda', checks: { runtime: { summary: 'mai partita', outcome: 'missed' } } }
+  const svcEcs = { name: 'chat', account: { key: 'stg', label: 'Staging' }, overall: 'down', cause: 'secrets', type: 'ecs', checks: { secrets: { summary: '1 secret mancante' } } }
+  await runOnce(
+    { ...watchConfig({}), webhook: 'https://hook/main', webhookCron: 'https://hook/cron', confirmations: 1 },
+    {
+      getStatus: async () => ({ services: [svcCron, svcEcs] }),
+      loadState: async () => ({ services: { 'prod/cron': { confirmed: 'up' }, 'stg/chat': { confirmed: 'up' } } }),
+      saveState: async () => {},
+      postSlack: async (hook, payload) => {
+        inviati.push({ hook, testo: payload.text })
+        return true
+      },
+    },
+  )
+  assert.equal(inviati.length, 2, 'due destinazioni, due messaggi')
+  const cron = inviati.find((x) => x.hook.endsWith('/cron'))
+  const main = inviati.find((x) => x.hook.endsWith('/main'))
+  assert.match(cron.testo, /cron/)
+  assert.match(main.testo, /chat/)
+  assert.ok(!main.testo.includes('mai partita'), 'niente mescolanza fra le due destinazioni')
+})
+
+test('runOnce: senza webhook dedicato, il cron mai partito finisce nel principale', async () => {
+  const inviati = []
+  const svc = { name: 'cron', account: { key: 'prod', label: 'Production' }, overall: 'down', cause: 'runtime', type: 'ecs-scheduled', checks: { runtime: { summary: 'mai partita', outcome: 'missed' } } }
+  await runOnce(
+    { ...watchConfig({}), webhook: 'https://hook/main', webhookCron: null, confirmations: 1 },
+    {
+      getStatus: async () => ({ services: [svc] }),
+      loadState: async () => ({ services: { 'prod/cron': { confirmed: 'up' } } }),
+      saveState: async () => {},
+      postSlack: async (hook, payload) => inviati.push({ hook, testo: payload.text }) && true,
+    },
+  )
+  assert.equal(inviati.length, 1)
+  assert.match(inviati[0].hook, /\/main$/, 'meglio nel posto sbagliato che in nessun posto')
+})
