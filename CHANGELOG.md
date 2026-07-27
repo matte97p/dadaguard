@@ -6,6 +6,15 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Falso «GIÙ» sui cron che non girano ogni giorno** — il dead man's switch deduceva una cadenza
+  costante (finestra = cadenza × 1.2), così un `cron(0 17 ? * MON-FRI *)` guardato di lunedì mattina
+  risultava fermo: l'ultima esecuzione attesa era **venerdì**, 67 ore prima, fuori da qualunque
+  finestra «giornaliera». Due ambienti diventavano rossi nello stesso istante — l'indizio che era il
+  controllo, non i cron. Ora la finestra arriva dall'**espressione vera** (fino all'ultimo fire
+  atteso, più una grazia) e come riferimento si prende l'ultimo fire più vecchio della grazia, così
+  nemmeno i due minuti dopo uno scatto danno un falso rosso (le metriche CloudWatch si pubblicano con
+  1-3 minuti di ritardo). Il messaggio dice **quando** avrebbe dovuto girare invece della finestra
+  cieca. `rate(...)` e caratteri non gestiti (L/W/#) restano sull'euristica precedente.
 - **Mini-grafici illeggibili nelle card** — la linea stava **sciolta** sotto la riga dei numeri, subito
   dopo «latenza ~6.3s», ma disegnava le **invocazioni**: si leggeva come l'andamento della latenza,
   che era un'altra cosa. E la scala era min-max, quindi un p95 che oscillava del 3% riempiva tutta

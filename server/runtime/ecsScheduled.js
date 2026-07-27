@@ -3,8 +3,8 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import { clientOpts } from './awsClient.js'
 import { imageTag } from './ecs.js'
 import { principalName } from '../util/principal.js'
-import { nextRun } from '../util/nextrun.js'
-import { identityT } from '../i18n.js'
+import { nextRun, missedWindow } from '../util/nextrun.js'
+import { fmtAgo, identityT } from '../i18n.js'
 
 // #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
 // quindi leggiamo direttamente la sua revision → tag immagine + quando/chi l'ha registrata.
@@ -52,8 +52,11 @@ export function classifyEcsRun({ ran, failed }) {
 export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
   const schedMin = cfg.scheduleMinutes ?? 1440
-  // Finestra = cadenza × 1.2 (minimo 10 min), come il dead-man switch delle Lambda cron.
-  const windowMin = Math.max(Math.round(schedMin * 1.2), 10)
+  // Finestra dall'ESPRESSIONE vera (fino all'ultimo fire atteso + grazia), come per le Lambda cron:
+  // una cadenza dedotta grida al guasto ogni volta che il cron NON gira ogni giorno (es. lun-ven).
+  // Espressione non calcolabile (`rate(...)`) → euristica: cadenza × 1.2, minimo 10 min.
+  const missed = missedWindow(cfg.scheduleExpr, Date.now())
+  const windowMin = missed?.windowMin ?? Math.max(Math.round(schedMin * 1.2), 10)
 
   // Schedule spento di proposito → niente allarme, niente chiamate inutili.
   if ((opts.scheduleState ?? cfg.scheduleState) === 'DISABLED') {
@@ -92,7 +95,10 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const dur = durMs ? ` · ${t('cron.duration', { d: fmtDur(Math.max(1, Math.round(durMs / 60000)), t) })}` : ''
   const base = { schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel, durationMs: durMs ?? null }
   if (outcome === 'missed') {
-    return { status: 'down', summary: t('ecssched.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }), ...base }
+    const summary = missed
+      ? t('cron.missed', { ago: fmtAgo(new Date(missed.expectedAt), t) })
+      : t('ecssched.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) })
+    return { status: 'down', summary, ...base }
   }
   if (outcome === 'failed') {
     return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }) + dur, ...base }
