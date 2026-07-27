@@ -3,7 +3,7 @@ import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule } from '../format.js'
 import { prettyBedrock, splitFamily, familyPrefixes } from '../serviceName.js'
-import { StatusDot, StatusTag, Summary, MetricValue, TerraformIcon, latencyMetric } from './signals.jsx'
+import { StatusDot, StatusTag, Summary, MetricValue, TerraformIcon, latencyMetric, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
 
@@ -40,7 +40,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     {
       title: t('col.status'),
       key: 'stato',
-      width: 116,
+      width: 108,
       sorter: (a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)),
       defaultSortOrder: 'ascend',
       filters: uniq(rows.map((s) => s.overall)).map((v) => ({ text: t(`card.status.${v}`), value: v })),
@@ -55,6 +55,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     {
       title: t('col.service'),
       key: 'servizio',
+      width: 420,
       sorter: (a, b) => String(a.name).localeCompare(String(b.name)),
       render: (_, s) => {
         // Nome: testa comune del gruppo piccola e muta, coda in evidenza (niente troncature: il nome
@@ -86,7 +87,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     {
       title: t('col.account'),
       key: 'ambiente',
-      width: 130,
+      width: 104,
       sorter: (a, b) => String(a.account?.label ?? '').localeCompare(String(b.account?.label ?? '')),
       filters: uniq(rows.map((s) => s.account?.label)).map((v) => ({ text: v, value: v })),
       onFilter: (v, s) => s.account?.label === v,
@@ -98,21 +99,78 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       ),
     },
     {
-      title: t('col.type'),
-      key: 'tipo',
-      width: 120,
-      filters: uniq(rows.map((s) => s.type)).map((v) => ({ text: typeLabel(v), value: v })),
-      onFilter: (v, s) => s.type === v,
-      render: (_, s) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {typeLabel(s.type)}
-        </Text>
-      ),
+      title: <ColHead label={t('card.label.runtime')} tip={t('card.tip.runtime')} />,
+      key: 'esecuzione',
+      width: 340,
+      render: (_, s) => {
+        const r = s.checks?.runtime
+        if (!r) return <Text type="secondary">—</Text>
+        const cadence = r.schedule ? fmtSchedule(r.schedule, t) : null
+        // Quando ci sono le metriche la cella le compone da quelle, ESCLUSA la latenza (ha la sua
+        // colonna): ripeterla qui ruba spazio alla colonna più larga e fa leggere due volte lo stesso
+        // numero. Comporre invece di tagliare la frase: nessun parsing, nessuna parola da indovinare.
+        const others = (r.metrics ?? []).filter((m) => m.kind !== 'latency')
+        return (
+          <span className="dg-cell" title={r.summary || undefined}>
+            <StatusDot status={r.status} />{' '}
+            {others.length ? (
+              <>
+                {others.map((m, i) => {
+                  // Un numero regge l'etichetta DOPO ("3/3 istanze", "1 esecuzioni"); un valore
+                  // descrittivo la vuole PRIMA ("motore aurora-postgresql"), altrimenti si legge
+                  // al contrario. L'etichetta resta muta in entrambi i casi: il valore è il fatto.
+                  const numerico = /^[\d.,]/.test(String(m.value ?? ''))
+                  const val = <span style={{ color: m.tone ? STAT_TONE[m.tone] : undefined }}>{m.value}</span>
+                  const lab = (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {m.label}
+                    </Text>
+                  )
+                  return (
+                    <span key={i}>
+                      {i > 0 && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {' '}
+                          ·{' '}
+                        </Text>
+                      )}
+                      {numerico ? (
+                        <>
+                          {val} {lab}
+                        </>
+                      ) : (
+                        <>
+                          {lab} {val}
+                        </>
+                      )}
+                    </span>
+                  )
+                })}
+                {r.nextRunLabel && (
+                  <Text type="secondary" style={{ fontSize: 11 }}> · {r.nextRunLabel}</Text>
+                )}
+              </>
+            ) : (
+              <Summary text={r.summary ?? r.reason ?? '—'} dropParen={Boolean(cadence)} extra={r.nextRunLabel} />
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      title: <ColHead label={t('col.latency')} tip={t('col.tip.latency')} />,
+      key: 'latenza',
+      width: 104,
+      align: 'right',
+      render: (_, s) => {
+        const m = latencyMetric(s.checks?.runtime)
+        return m ? <MetricValue metric={m} window={s.checks?.runtime?.window} inline /> : <Text type="secondary">—</Text>
+      },
     },
     {
       title: <ColHead label={t('card.label.build')} tip={t('card.tip.build')} />,
       key: 'build',
-      width: 230,
+      width: 250,
       render: (_, s) =>
         s.checks?.version ? (
           <span className="dg-cell" title={s.checks.version.summary || undefined}>
@@ -122,33 +180,6 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         ) : (
           <Text type="secondary">—</Text>
         ),
-    },
-    {
-      title: <ColHead label={t('card.label.runtime')} tip={t('card.tip.runtime')} />,
-      key: 'esecuzione',
-      width: 300,
-      render: (_, s) => {
-        const r = s.checks?.runtime
-        if (!r) return <Text type="secondary">—</Text>
-        const cadence = r.schedule ? fmtSchedule(r.schedule, t) : null
-        // Le metriche hanno colonne proprie (latenza) o stanno nella riga espansa: qui la frase.
-        const text = r.summary ?? r.reason ?? '—'
-        return (
-          <span className="dg-cell" title={r.summary || undefined}>
-            <StatusDot status={r.status} /> <Summary text={text} dropParen={Boolean(cadence)} extra={r.nextRunLabel} />
-          </span>
-        )
-      },
-    },
-    {
-      title: <ColHead label={t('col.latency')} tip={t('col.tip.latency')} />,
-      key: 'latenza',
-      width: 110,
-      align: 'right',
-      render: (_, s) => {
-        const m = latencyMetric(s.checks?.runtime)
-        return m ? <MetricValue metric={m} window={s.checks?.runtime?.window} /> : <Text type="secondary">—</Text>
-      },
     },
     {
       title: '',
@@ -217,6 +248,8 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     <Table
       className="dg-table"
       size="small"
+      tableLayout="fixed"
+      rowClassName={(_, i) => (i % 2 ? 'dg-zebra' : '')}
       rowKey={rowKey}
       dataSource={rows}
       columns={columns}
@@ -225,9 +258,13 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       scroll={{ x: 'max-content' }}
       onRow={(s) => ({ 'data-service': s.name })}
       expandable={{
-        rowExpandable: (s) => extrasOf(s).length > 0,
+        rowExpandable: () => true, // il tipo c'è sempre, quindi la riga si apre sempre
         expandedRowRender: (s) => (
           <div className="dg-rows" style={{ marginInlineStart: 8 }}>
+            <div className="dg-label">
+              <span>{t('col.type')}</span>
+            </div>
+            <div className="dg-val">{typeLabel(s.type)}</div>
             {extrasOf(s).map(([k, labelKey]) => {
               const c = s.checks[k]
               return (
