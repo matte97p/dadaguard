@@ -91,3 +91,41 @@ export function nextRun(expr, fromMs) {
   }
   return null
 }
+
+// Fire PRECEDENTE (ms) a `fromMs`, o null. Serve al dead man's switch: "quando avrebbe dovuto
+// girare l'ultima volta?" è l'unica domanda che rende il controllo corretto per i cron che NON
+// hanno cadenza costante (lun-ven, giorni del mese, mesi).
+export function prevRun(expr, fromMs) {
+  const c = parseCron(expr)
+  if (!c) return null
+  let t = Math.floor(fromMs / 60000) * 60000 // minuto pieno corrente
+  const horizon = t - 366 * 24 * 60 * 60000
+  for (; t >= horizon; t -= 60000) {
+    if (matches(new Date(t), c)) return t
+  }
+  return null
+}
+
+const GRACE_MIN = 10 // pubblicazione metriche CloudWatch (~1-3 min) + durata della run
+
+// Finestra del dead man's switch: entro quanto tempo indietro DEVE esserci una traccia di esecuzione.
+//
+// Prima si assumeva una cadenza costante (finestra = cadenza × 1.2) e per i cron lun-ven questo dava
+// un ROSSO falso ogni fine settimana: un `cron(0 17 ? * MON-FRI *)` visto di lunedì mattina ha
+// l'ultima esecuzione attesa il venerdì, 67 ore prima, ben oltre le 29h di una cadenza "giornaliera".
+//
+// Qui la finestra arriva dall'espressione vera: fino all'ultimo fire atteso, più una grazia. E si
+// prende come riferimento l'ultimo fire più VECCHIO della grazia: subito dopo uno scatto la metrica
+// non è ancora pubblicata, e misurare da lì darebbe un altro falso rosso per un paio di minuti.
+// Ritorna null se l'espressione non è calcolabile (`rate(...)`, caratteri L/W/#) → il chiamante
+// resta sull'euristica della cadenza.
+export function missedWindow(expr, nowMs, graceMin = GRACE_MIN) {
+  const graceMs = graceMin * 60000
+  let ref = prevRun(expr, nowMs)
+  while (ref != null && nowMs - ref < graceMs) ref = prevRun(expr, ref - 60000)
+  if (ref == null) return null
+  const windowMin = Math.ceil((nowMs - ref) / 60000) + graceMin
+  // Tetto a 31 giorni: oltre, la finestra non è più un dead-man ma un'archeologia (e le metriche
+  // CloudWatch a quella distanza sono aggregate in bucket enormi).
+  return { windowMin: Math.min(windowMin, 31 * 24 * 60), expectedAt: ref }
+}

@@ -3,7 +3,7 @@ import { metricValues } from './cw.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig } from './lambdaConfig.js'
 import { lastModifier } from './lastModifier.js'
-import { nextRun } from '../util/nextrun.js'
+import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { fmtMs, fmtCount } from '../util/format.js'
 
@@ -36,9 +36,15 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const opts3 = clientOpts(aws)
   const isCron = Boolean(cfg.schedule)
   const schedMin = isCron ? parseSchedule(cfg.schedule) : null
-  // Cron: finestra = cadenza × 1.2, ma MINIMO 10 min per assorbire la latenza di pubblicazione delle
-  // metriche CloudWatch (~1-3 min) → niente falsi "GIÙ" sulle cron ad alta frequenza (1m/5m).
-  const windowMin = isCron ? Math.max(Math.round(schedMin * 1.2), 10) : cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
+  // Finestra del dead man's switch dall'ESPRESSIONE vera (fino all'ultimo fire atteso + grazia):
+  // una cadenza dedotta dà falsi "GIÙ" sui cron che non girano ogni giorno — un `MON-FRI` guardato
+  // di lunedì ha l'ultima esecuzione attesa il venerdì, fuori da qualunque finestra "giornaliera".
+  // Se l'espressione non è calcolabile (`rate(...)`) si resta sull'euristica: cadenza × 1.2, min 10m
+  // per assorbire la latenza di pubblicazione delle metriche CloudWatch.
+  const missed = isCron ? missedWindow(cfg.scheduleExpr, Date.now()) : null
+  const windowMin = isCron
+    ? (missed?.windowMin ?? Math.max(Math.round(schedMin * 1.2), 10))
+    : cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
 
   // Cron col proprio schedule EventBridge DISABLED (dallo state TF) → ferma di proposito.
   // Niente allarme, niente chiamate metriche inutili.
@@ -98,7 +104,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (invocations === 0) {
       return {
         status: 'down',
-        summary: t('lambda.cron.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }),
+        // Con l'espressione nota il messaggio dice QUANDO avrebbe dovuto girare (l'informazione che
+        // serve per capire se è un guasto o una cadenza che non hai in testa); altrimenti la finestra.
+        summary: missed
+          ? t('cron.missed', { ago: fmtAgo(new Date(missed.expectedAt), t) })
+          : t('lambda.cron.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) }),
         invocations: 0,
         errors,
         throttles,
