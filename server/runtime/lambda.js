@@ -182,6 +182,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     status,
     summary: aliasInfo + parts.join(' · '),
     metrics,
+    window: fmtDur(windowMin, t), // su che periodo sono i numeri (e quindi anche gli andamenti)
     invocations,
     errors,
     throttles,
