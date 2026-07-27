@@ -1,6 +1,6 @@
 import { ECSClient, DescribeTaskDefinitionCommand, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs'
 import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs'
-import { clientOpts } from './awsClient.js'
+import { clientOpts, isDenied } from './awsClient.js'
 import { imageTag } from './ecs.js'
 import { principalName } from '../util/principal.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
@@ -53,10 +53,50 @@ export function classifyEcsRun({ ran, failed }) {
 // refresh-bi-mvs). Restringere all'ultimo stream rende la risposta deterministica, più economica
 // (nessuna paginazione da inseguire) e più aderente a ciò che la card dichiara: «ultima esecuzione».
 export function pickLastRun(streams = [], startTimeMs) {
-  const withEvents = streams.filter((s) => Number.isFinite(s?.lastEventTimestamp))
+  const withEvents = (streams ?? []).filter((s) => Number.isFinite(s?.lastEventTimestamp))
   if (!withEvents.length) return { stream: null, ran: false }
   const last = withEvents.reduce((a, b) => (b.lastEventTimestamp > a.lastEventTimestamp ? b : a))
   return { stream: last.logStreamName ?? null, ran: last.lastEventTimestamp >= startTimeMs }
+}
+
+// "C'è almeno un evento?" SEGUENDO le pagine: con `FilterLogEvents` una pagina vuota NON è una
+// risposta — finché torna un `nextToken` lo scan non è finito. È questo il passo che mancava e che
+// faceva leggere "nessun errore" dove gli errori c'erano. Tetto di pagine per non trasformare un
+// check in una scansione infinita: esaurito il budget diciamo "non trovato", mai "fallito".
+const MAX_PAGES = 15
+async function anyEvent(logs, params) {
+  let token
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const r = await logs.send(new FilterLogEventsCommand({ ...params, nextToken: token, limit: 1 }))
+    if ((r.events ?? []).length) return true
+    token = r.nextToken
+    if (!token) return false
+  }
+  return false
+}
+
+// È partito? è fallito? Due strade, per non dipendere da un permesso in più:
+//  A) `DescribeLogStreams` → l'ultima esecuzione è lo stream più recente (su RunTask uno stream per
+//     run): due chiamate, deterministico, ed è la domanda che la card dichiara.
+//  B) permesso assente (ruolo read-only senza `logs:DescribeLogStreams`) → si torna sul log group
+//     intero, ma inseguendo le pagine invece di fidarsi della prima.
+export async function runOutcome(logs, logGroup, startTime) {
+  try {
+    const streams = await logs.send(
+      new DescribeLogStreamsCommand({ logGroupName: logGroup, orderBy: 'LastEventTime', descending: true, limit: 5 }),
+    )
+    const { stream, ran } = pickLastRun(streams.logStreams ?? [], startTime)
+    if (!ran || !stream) return { ran: false, failed: false }
+    const failed = await anyEvent(logs, { logGroupName: logGroup, logStreamNames: [stream], startTime, filterPattern: FAILURE_PATTERN })
+    return { ran: true, failed }
+  } catch (err) {
+    if (!isDenied(err)) throw err
+    const [ran, failed] = await Promise.all([
+      anyEvent(logs, { logGroupName: logGroup, startTime }),
+      anyEvent(logs, { logGroupName: logGroup, startTime, filterPattern: FAILURE_PATTERN }),
+    ])
+    return { ran, failed }
+  }
 }
 
 // RuntimeProvider per i cron su ECS RunTask (EventBridge Scheduler → RunTask, one-shot su Fargate).
@@ -64,7 +104,8 @@ export function pickLastRun(streams = [], startTimeMs) {
 // ECS dopo ~1h → per un cron giornaliero l'exit code non è più leggibile la mattina dopo. Il segnale
 // DUREVOLE è il LOG (retention di giorni): controlliamo che il task sia PARTITO (evento nella cadenza
 // attesa) e che l'ultimo run NON sia FALLITO (nessun traceback/errore). Schedule DISABLED → 'disabled'.
-// Permessi: ecs:DescribeTaskDefinition, logs:DescribeLogStreams, logs:FilterLogEvents (già nel ruolo read-only).
+// Permessi: ecs:DescribeTaskDefinition, logs:FilterLogEvents; logs:DescribeLogStreams OPZIONALE
+// (con quello il check è più preciso ed economico, senza si usa la strada B — vedi runOutcome).
 export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
   const schedMin = cfg.scheduleMinutes ?? 1440
@@ -95,27 +136,7 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
 
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const startTime = Date.now() - windowMin * 60 * 1000
-  // 1) È partito? → lo stream più recente del gruppo (una esecuzione = uno stream) cade nella finestra?
-  // 2) È fallito? → marcatore d'errore DENTRO QUELLO STREAM. Una query su un solo stream è
-  //    deterministica; su tutto il gruppo `FilterLogEvents` può restituire una pagina vuota pur avendo
-  //    match (vedi pickLastRun) e il fallimento passava inosservato.
-  const streams = await logs.send(
-    new DescribeLogStreamsCommand({ logGroupName: logGroup, orderBy: 'LastEventTime', descending: true, limit: 5 }),
-  )
-  const { stream, ran } = pickLastRun(streams.logStreams ?? [], startTime)
-  let failed = false
-  if (ran && stream) {
-    const errs = await logs.send(
-      new FilterLogEventsCommand({
-        logGroupName: logGroup,
-        logStreamNames: [stream],
-        startTime,
-        filterPattern: FAILURE_PATTERN,
-        limit: 1,
-      }),
-    )
-    failed = (errs.events ?? []).length > 0
-  }
+  const { ran, failed } = await runOutcome(logs, logGroup, startTime)
   const outcome = classifyEcsRun({ ran, failed })
 
   const now = Date.now()

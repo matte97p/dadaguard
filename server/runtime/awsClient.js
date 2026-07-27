@@ -67,6 +67,11 @@ function awsReasonKey(err) {
   return null
 }
 
+// "Non ti è permesso" (per scegliere una strada alternativa invece di arrendersi al check).
+export function isDenied(err) {
+  return awsReasonKey(err) === 'denied'
+}
+
 // Traduce un errore AWS in un messaggio pulito e azionabile per l'utente, invece dell'eccezione SDK
 // grezza (es. "AccessDenied: User ... is not authorized to perform ..."). Con `t` localizza (it/en);
 // senza `t` ripiega sui testi EN. `err.message` resta il fallback per gli errori non riconosciuti.
