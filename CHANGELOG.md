@@ -14,7 +14,9 @@ All notable changes to Dadaguard are documented here. Format based on
   stesso meccanismo faceva oscillare la card tra FALLITA e ok senza che i dati cambiassero. Ora la
   domanda è quella che la card dichiara — «com'è andata l'**ultima** esecuzione?»: su RunTask ogni
   esecuzione ha il suo log stream, quindi si prende lo stream più recente e si cerca l'errore **dentro
-  quello**. Deterministico, e con una chiamata in meno da inseguire.
+  quello**. Deterministico. Dove il ruolo read-only non ha `logs:DescribeLogStreams` (nessun permesso
+  nuovo richiesto) si torna sul log group intero, ma **inseguendo le pagine** invece di fidarsi della
+  prima; esaurito il budget di pagine il check dice «non trovato», mai «fallito».
 - **Fuso dello schedule ignorato** — gli schedule di EventBridge Scheduler possono dichiarare un
   `ScheduleExpressionTimezone` (i cron Cato usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
   `cron(0 17 ? * MON-FRI *)` come 17:00 **UTC** invece che locali: due ore di scarto in estate, una in
