@@ -95,6 +95,30 @@ npm run check -- --fail-on degraded   # soglia più severa (gating di pipeline)
 - **`/metrics`** — formato Prometheus (severità per servizio/check + latenza + running/desired): aggancialo a Grafana/Alertmanager per dashboard, alert e storico, senza che Dadaguard diventi un servizio stateful.
 - **`/healthz`** — liveness dell'app (non chiama AWS).
 
+## Notifiche Slack (il watchdog che ti chiama)
+Una dashboard è una cosa che devi ricordarti di aprire. Con un webhook configurato, Dadaguard guarda la
+flotta da sé e scrive su Slack **quando qualcosa attraversa il confine problema/non-problema** —
+`🔴` quando un servizio va giù o si degrada, `🟢` quando rientra. Nient'altro: `up → idle` non è un
+guasto, e `→ stato sconosciuto` è un problema del controllo, non del servizio.
+
+```bash
+DADAGUARD_SLACK_WEBHOOK=https://hooks.slack.com/services/...   # senza questo il watcher non parte
+DADAGUARD_WATCH_INTERVAL=300   # secondi tra i giri (default 300; ogni giro costa chiamate AWS)
+DADAGUARD_WATCH_CONFIRM=2      # letture consecutive perché una transizione conti (anti-sfarfallio)
+DADAGUARD_STATE_FILE=.dadaguard-state.json   # dove ricorda l'ultimo stato annunciato
+DADAGUARD_PUBLIC_URL=https://dadaguard.example   # link in fondo al messaggio
+```
+
+Tre comportamenti scelti di proposito, perché sono ciò che rende una notifica sopportabile:
+- **Al primo giro non annuncia niente**, prende solo nota. Su Fargate il filesystem del task è
+  effimero: senza questa regola ogni rilascio rovescerebbe in chat lo stato del mondo.
+- **Debounce** (`WATCH_CONFIRM`): un throttle CloudWatch di trenta secondi non sveglia nessuno.
+- **Un messaggio per transizione, non per stato**: se resta rosso tre giorni, resta un messaggio.
+  `<!channel>` solo su un guasto in **produzione**; se suona sempre, non suona più.
+
+Se Slack è irraggiungibile lo stato **non** viene salvato: al giro dopo la transizione si riprova,
+invece di perdersi perché il webhook era giù per dieci secondi.
+
 ## Architettura
 - `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.
 - `web/` — React + Ant Design. Una card per servizio; il semaforo è il check messo peggio.
