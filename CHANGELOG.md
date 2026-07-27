@@ -5,6 +5,19 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Tabella più leggibile** — la struttura teneva, la lettura no: su una riga larga 1500px l'occhio
+  perdeva la riga a metà strada. Ora **righe alternate** e un **separatore verticale** tra il blocco
+  «chi» (stato · servizio · ambiente) e il blocco «come va» (esecuzione · latenza · build), che dà un
+  punto di riferimento a metà. **Altezza di riga costante**: l'andamento della latenza sta accanto al
+  numero invece che sotto, e le cifre sono a larghezza fissa (`tabular-nums`) così le latenze si
+  incolonnano e le confronti a occhio. Una **colonna in meno** (Tipo, che era già un filtro nella
+  barra in cima, è scesa nella riga espansa) e l'ordine rifatto: dopo il nome viene ciò che conta —
+  esecuzione e latenza — con la build in coda, che è provenienza, non urgenza. La colonna Esecuzione
+  non ripete più la p95 che la colonna Latenza dice già: quando ci sono metriche la cella le compone
+  (numero + etichetta muta), mettendo l'etichetta prima quando il valore è descrittivo
+  («motore aurora-postgresql») e dopo quando è un numero («3/3 istanze»).
+
 ### Added
 - **Vista tabella della flotta (predefinita)** — una riga per servizio invece di una card: con 48
   servizi le card sono un muro, e nessuna rifinitura le salva. Colonne fisse **Stato · Servizio ·

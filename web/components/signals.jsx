@@ -95,8 +95,28 @@ export const SPARK_FMT = { ms: (v) => fmtMs(Math.round(v)), count: (v) => fmtCou
 
 // Valore di una metrica + il suo andamento. L'andamento sta SEMPRE attaccato alla metrica che
 // descrive (mai sciolto accanto ad altri numeri): è l'etichetta della metrica a dire cosa disegna.
-export function MetricValue({ metric, window, showLabel = false, color }) {
+export function MetricValue({ metric, window, showLabel = false, color, inline = false }) {
   if (!metric) return <span>—</span>
+  // `inline`: valore e andamento AFFIANCATI (per la tabella, dove una riga più alta delle altre
+  // rompe il ritmo verticale) invece che impilati (per la card, dove c'è l'altezza).
+  if (inline) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+        <span className="dg-num" style={{ color: color ?? (metric.tone ? STAT_TONE[metric.tone] : undefined) }}>
+          {metric.value}
+        </span>
+        {metric.spark?.length > 2 && (
+          <Sparkline
+            data={metric.spark}
+            width={44}
+            height={11}
+            label={[metric.label, window].filter(Boolean).join(' · ')}
+            fmt={SPARK_FMT[metric.sparkUnit] ?? SPARK_FMT.count}
+          />
+        )}
+      </span>
+    )
+  }
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
       {showLabel && (
