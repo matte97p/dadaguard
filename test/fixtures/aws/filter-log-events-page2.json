@@ -1,6 +1,12 @@
 {
   "_nota": "la pagina successiva: qui il match c’è. Chi si ferma alla prima pagina legge \"nessun errore\"",
   "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "_richiesta": {
+    "limit": 1,
+    "filterPattern": "?Traceback ?\"ERROR:\" ?\"CRITICAL:\"",
+    "windowMinutes": 1000,
+    "nextToken": "(quello di page1)"
+  },
   "payload": {
     "events": [
       {
