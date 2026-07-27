@@ -6,7 +6,7 @@ import {
   ClockCircleOutlined,
   GlobalOutlined,
 } from '@ant-design/icons'
-import { fmtMs, fmtSchedule } from '../format.js'
+import { fmtMs, fmtCount, fmtSchedule } from '../format.js'
 import { prettyBedrock, splitFamily } from '../serviceName.js'
 import Sparkline from './Sparkline.jsx'
 
@@ -77,19 +77,41 @@ const STAT_TONE = { critical: '#ff4d4f', warning: '#faad14', serious: '#fa8c16',
 
 // KPI row di stat tile: label muta piccola sopra, valore semibold sotto. La forma giusta per "un
 // pugno di numeri di testa" (dataviz: KPI row), invece della stringa/pillole indistinte.
+//
+// L'andamento (sparkline) sta DENTRO la tile della sua metrica, sotto il valore: è la label della
+// tile a dire cosa disegna. Prima viaggiava sciolto sotto la riga e il lettore lo attribuiva al
+// numero più vicino — cioè leggeva "latenza" un grafico che era il conteggio delle invocazioni.
+// Il tooltip del grafico riporta min/max/ultimo NELL'UNITÀ della metrica: la tile dice "~6.3s", il
+// tooltip non può dire "6300" (la serie CloudWatch è in ms). L'unità la dichiara il server.
+const SPARK_FMT = { ms: (v) => fmtMs(Math.round(v)), count: (v) => fmtCount(Math.round(v)) }
+
 function StatRow({ metrics, window }) {
-  const Tile = ({ label, value, color }) => (
+  const Tile = ({ label, value, color, spark, unit }) => (
     <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
       <Text type="secondary" style={{ fontSize: 10, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{label || ' '}</Text>
       <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', color }}>{value}</span>
+      {spark?.length > 2 && (
+        <Sparkline
+          data={spark}
+          label={[label, window].filter(Boolean).join(' · ')}
+          fmt={SPARK_FMT[unit] ?? SPARK_FMT.count}
+        />
+      )}
     </span>
   )
   return (
-    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '2px 14px', alignItems: 'flex-end', verticalAlign: 'top' }}>
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '2px 14px', alignItems: 'flex-start', verticalAlign: 'top' }}>
       {metrics.map((m, i) => (
-        <Tile key={i} label={m.label} value={m.value} color={m.tone ? STAT_TONE[m.tone] : undefined} />
+        <Tile
+          key={i}
+          label={m.label}
+          value={m.value}
+          color={m.tone ? STAT_TONE[m.tone] : undefined}
+          spark={m.spark}
+          unit={m.sparkUnit}
+        />
       ))}
-      {window && <Text type="secondary" style={{ fontSize: 11, alignSelf: 'flex-end' }}>{window}</Text>}
+      {window && <Text type="secondary" style={{ fontSize: 11, marginTop: 12 }}>{window}</Text>}
     </span>
   )
 }
@@ -299,15 +321,16 @@ export default function ServiceCard({
         {runtime && (
           <Row label={t('card.label.runtime')} tip={t('card.tip.runtime')} status={runtime.status} raw={runtime.summary}>
             {/* KPI tile solo da DUE numeri in su: per un numero solo ("2/2 task attivi") la coppia
-                label-sopra/valore-sotto occupa due righe per dire una cosa → meglio la frase. */}
-            {runtime.metrics?.length > 1 ? (
+                label-sopra/valore-sotto occupa due righe per dire una cosa → meglio la frase.
+                Eccezione: se quel numero ha un andamento da mostrare, la tile serve — è lei a dare
+                al grafico l'etichetta che lo rende leggibile. */}
+            {runtime.metrics?.length > 1 || runtime.metrics?.some((m) => m.spark?.length > 2) ? (
               <StatRow metrics={runtime.metrics} window={runtime.window} />
             ) : runtime.summary ? (
               <Summary text={runtime.summary} dropParen={Boolean(cadence)} extra={runtime.nextRunLabel} />
             ) : (
               <span>{runtime.reason ?? '—'}</span>
             )}
-            {runtime.spark?.length > 1 && <Sparkline data={runtime.spark} />}
           </Row>
         )}
 

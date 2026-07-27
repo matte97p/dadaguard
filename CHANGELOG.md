@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Mini-grafici illeggibili nelle card** — la linea stava **sciolta** sotto la riga dei numeri, subito
+  dopo «latenza ~6.3s», ma disegnava le **invocazioni**: si leggeva come l'andamento della latenza,
+  che era un'altra cosa. E la scala era min-max, quindi un p95 che oscillava del 3% riempiva tutta
+  l'altezza e sembrava un problema. Ora ogni andamento sta **dentro la stat tile della sua metrica**
+  (è la label della tile a dire cosa disegna: `latenza`, `chiamate`, `richieste`), la scala parte da
+  **zero** (una variazione piccola sembra piccola) e il tooltip riporta min/max/ultimo **nell'unità
+  della metrica** (`min 2.1s · max 6.3s`, non `6300`). Si disegna solo quando c'è un andamento da
+  vedere: servono ≥3 punti e almeno il 10% di escursione, altrimenti niente grafico — via le linee
+  piatte e la «punta» isolata della cron giornaliera (una run nella finestra non è un andamento).
+  I Worker Cloudflare passano alle stesse stat tile (richieste · errori · CPU p99) invece della frase.
 - **Riga Build: valori grezzi che sfondavano la card** — chi tagga le immagini ECS con lo sha del
   commit vedeva 40 cifre esadecimali senza spazi (`:0e89c2198d288ec9…`): niente su cui andare a capo,
   quindi il testo usciva dal bordo e finiva sopra la card accanto. Il tag ora è **nudo** (via il `:`

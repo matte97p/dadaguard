@@ -119,11 +119,31 @@ export function demoStatus(lang = 'it') {
 
     cfSvc('website', {
       version: { key: 'version', status: 'up', summary: pick(L, 'a1b2c3d4 · 8m fa', 'a1b2c3d4 · 8m ago') },
-      runtime: { key: 'runtime', status: 'up', summary: pick(L, '128k richieste · 0.3% errori · 24h · CPU p99 12ms', '128k requests · 0.3% errors · 24h · CPU p99 12ms'), spark: [3, 5, 8, 12, 20, 32, 44, 52, 48, 40, 30, 22] },
+      runtime: {
+        key: 'runtime',
+        status: 'up',
+        summary: pick(L, '128k richieste · 0.3% errori · 24h · CPU p99 12ms', '128k requests · 0.3% errors · 24h · CPU p99 12ms'),
+        metrics: [
+          { label: pick(L, 'richieste', 'requests'), value: '128k', spark: [3, 5, 8, 12, 20, 32, 44, 52, 48, 40, 30, 22] },
+          { label: pick(L, 'errori', 'errors'), value: '0.3%', tone: 'warning' },
+          { label: 'CPU p99', value: '12ms' },
+        ],
+        window: '24h',
+      },
     }),
     cfSvc('admin-frontend', {
       version: { key: 'version', status: 'up', summary: pick(L, 'c9d0e1f2 · 1g fa', 'c9d0e1f2 · 1d ago') },
-      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, '9.1k richieste · 6.4% errori · 24h · CPU p99 48ms', '9.1k requests · 6.4% errors · 24h · CPU p99 48ms'), spark: [2, 3, 3, 4, 6, 5, 7, 9, 8, 6, 5, 4] },
+      runtime: {
+        key: 'runtime',
+        status: 'degraded',
+        summary: pick(L, '9.1k richieste · 6.4% errori · 24h · CPU p99 48ms', '9.1k requests · 6.4% errors · 24h · CPU p99 48ms'),
+        metrics: [
+          { label: pick(L, 'richieste', 'requests'), value: '9.1k', spark: [2, 3, 3, 4, 6, 5, 7, 9, 8, 6, 5, 4] },
+          { label: pick(L, 'errori', 'errors'), value: '6.4%', tone: 'critical' },
+          { label: 'CPU p99', value: '48ms' },
+        ],
+        window: '24h',
+      },
     }),
   ]
 
