@@ -50,3 +50,67 @@ test('pickLastRun: stream creati ma senza eventi vengono ignorati', () => {
   assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/buono', ran: true })
   assert.deepEqual(pickLastRun([{ logStreamName: 'fam/c/vuoto' }], finestra), { stream: null, ran: false })
 })
+
+// --- runOutcome: le due strade, e la pagina vuota che non è una risposta ---
+import { DescribeLogStreamsCommand, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import { runOutcome } from '../server/runtime/ecsScheduled.js'
+
+// Client CloudWatch finto: `pagine` è la sequenza di risposte che FilterLogEvents restituirà.
+function fakeLogs({ streams, streamsError, pagine }) {
+  let i = 0
+  const chiamate = { describe: 0, filter: 0 }
+  return {
+    chiamate,
+    async send(cmd) {
+      if (cmd instanceof DescribeLogStreamsCommand) {
+        chiamate.describe++
+        if (streamsError) throw streamsError
+        return { logStreams: streams }
+      }
+      if (cmd instanceof FilterLogEventsCommand) {
+        chiamate.filter++
+        return pagine[Math.min(i++, pagine.length - 1)]
+      }
+      throw new Error('comando inatteso')
+    },
+  }
+}
+const denied = Object.assign(new Error('User is not authorized'), { name: 'AccessDeniedException' })
+const start = Date.UTC(2026, 6, 27, 0, 0)
+const dentro = [{ logStreamName: 'fam/c/ultima', lastEventTimestamp: start + 3600_000 }]
+
+test('runOutcome: il match a pagina 2 NON deve sfuggire (era il falso verde)', async () => {
+  const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [{ message: 'Traceback' }] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
+})
+
+test('runOutcome: pagine tutte vuote e token finito → nessun errore trovato', async () => {
+  const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false })
+})
+
+test('runOutcome: budget di pagine esaurito → "non trovato", mai un fallimento inventato', async () => {
+  const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'sempre' }] })
+  const out = await runOutcome(logs, '/gruppo', start)
+  assert.deepEqual(out, { ran: true, failed: false })
+  assert.ok(logs.chiamate.filter <= 15, `pagine ${logs.chiamate.filter}: deve fermarsi al tetto`)
+})
+
+test('runOutcome: senza logs:DescribeLogStreams ripiega sul gruppo intero (e continua a funzionare)', async () => {
+  const logs = fakeLogs({ streamsError: denied, pagine: [{ events: [{ message: 'INFO ...' }] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
+  assert.equal(logs.chiamate.describe, 1)
+})
+
+test('runOutcome: ultima run fuori finestra → missed, senza cercare errori', async () => {
+  const fuori = [{ logStreamName: 'fam/c/vecchia', lastEventTimestamp: start - 3600_000 }]
+  const logs = fakeLogs({ streams: fuori, pagine: [{ events: [{ message: 'Traceback' }] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: false, failed: false })
+  assert.equal(logs.chiamate.filter, 0)
+})
+
+test('runOutcome: un errore che NON è "accesso negato" non va mascherato', async () => {
+  const boom = Object.assign(new Error('kaboom'), { name: 'ThrottlingException' })
+  const logs = fakeLogs({ streamsError: boom, pagine: [] })
+  await assert.rejects(() => runOutcome(logs, '/gruppo', start), /kaboom/)
+})
