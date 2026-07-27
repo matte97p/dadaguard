@@ -84,7 +84,11 @@
   border-bottom: 1px dotted currentColor;
   cursor: help;
 }
+/* `anywhere`: i valori arrivano da AWS e possono essere token SENZA spazi (uno sha di 40 cifre, un
+   ARN, il nome di un secret) → senza questo escono dal bordo e finiscono sopra la card accanto.
+   Accorciamo i casi noti alla fonte, ma qui la card resta a prova di stringa lunga qualunque. */
 .dg-val {
   min-width: 0;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }

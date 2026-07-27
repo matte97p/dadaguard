@@ -5,6 +5,22 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Riga Build: valori grezzi che sfondavano la card** — chi tagga le immagini ECS con lo sha del
+  commit vedeva 40 cifre esadecimali senza spazi (`:0e89c2198d288ec9…`): niente su cui andare a capo,
+  quindi il testo usciva dal bordo e finiva sopra la card accanto. Il tag ora è **nudo** (via il `:`
+  iniziale, che si leggeva come un errore di sintassi) e in card è **accorciato a 8 cifre**, con il
+  valore intero nel tooltip della riga; il confronto con la versione attesa resta sul tag completo.
+  Quel `:` rompeva anche il confronto (`:v2` ≠ `v2` → mismatch inventato su chi dichiara
+  `expectedVersion`). Chi ha deployato perde il dominio email
+  (`81815192+matte97p@users.noreply.github.com` → `matte97p`): erano tre righe per card. E la card
+  ora regge qualunque stringa lunga senza sfondare (`overflow-wrap`), non solo i casi noti.
+- **Artefatti nelle card** — sparkline di una serie piatta (disegnava un filetto orizzontale che
+  sembrava un bordo finito lì per sbaglio), KPI tile per un singolo numero (due righe per dire
+  «1/1 task attivi») e ID grezzo del modello Bedrock nel sottotitolo (due righe già nel tooltip del
+  nome). I servizi **inattivi** (modelli Bedrock mai invocati) scendono sotto quelli sani: non sono
+  un problema e non devono occupare la prima riga della dashboard.
+
 ### Changed
 - **Card dei servizi ridisegnate** — con 25 servizi a schermo (flotte di cron) la card andava in
   crisi: nomi lunghi a capo su 4 righe perché il titolo era strozzato dai badge, un segnale sparso su

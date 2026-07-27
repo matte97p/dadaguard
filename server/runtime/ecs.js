@@ -128,13 +128,15 @@ export async function ecsBuildInfo(cfg, aws) {
   return { tag: imageTag(image), image, deployedAt, modifiedBy: deployedBy || principalName(td.taskDefinition?.registeredBy) }
 }
 
-// "repo:tag" / "repo@sha256:…" → tag o sha breve, prefisso ":" per chiarezza in summary.
+// "repo:tag" / "repo@sha256:…" → il tag NUDO (o le prime 12 cifre del digest).
+// Niente prefisso ":": (a) in card si leggeva come un errore di sintassi (":0e89c21…"), (b) rompeva
+// il confronto con la versione ATTESA dichiarata in config (`:v2` !== `v2` → falso mismatch).
 export function imageTag(image) {
   if (!image) return null
   const at = image.indexOf('@sha256:')
-  if (at !== -1) return ':' + image.slice(at + 8, at + 8 + 12)
+  if (at !== -1) return image.slice(at + 8, at + 8 + 12)
   const colon = image.lastIndexOf(':')
   // evita di scambiare la porta del registry (host:port/repo) per un tag
-  if (colon > image.lastIndexOf('/')) return ':' + image.slice(colon + 1)
+  if (colon > image.lastIndexOf('/')) return image.slice(colon + 1)
   return null
 }

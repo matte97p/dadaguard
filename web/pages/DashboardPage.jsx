@@ -5,10 +5,11 @@ import { familyPrefixes } from '../serviceName.js'
 
 const { Text } = Typography
 
-// Ordinamento: problemi in cima (down → degraded → sconosciuto/idle → ok), poi per nome. Così le
-// cose rotte si vedono per prime senza scorrere. In fondo gli SPENTI di proposito (cron disattivate):
-// non sono un problema e non devono stare sopra i servizi sani.
-const SEV = { down: 0, degraded: 1, unknown: 2, idle: 3, up: 4, disabled: 5 }
+// Ordinamento: problemi in cima (down → degraded → sconosciuto → ok), poi per nome. Così le cose
+// rotte si vedono per prime senza scorrere. In fondo quello che NON è un problema e non deve stare
+// sopra i servizi sani: prima gli inattivi (modelli Bedrock mai invocati, funzioni mai chiamate —
+// roba da pagina Sprechi, non da dashboard), poi gli SPENTI di proposito (cron disattivate).
+const SEV = { down: 0, degraded: 1, unknown: 2, up: 3, idle: 4, disabled: 5 }
 const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
 
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
