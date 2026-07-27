@@ -1,6 +1,11 @@
 {
   "_nota": "su ECS RunTask ogni esecuzione ha il suo stream; il più recente è l’ultima run",
   "_registrato": "una volta, con scripts/record-aws-fixtures.mjs (sanificato)",
+  "_richiesta": {
+    "orderBy": "LastEventTime",
+    "descending": true,
+    "limit": 5
+  },
   "payload": {
     "logStreams": [
       {
@@ -9,7 +14,7 @@
         "firstEventTimestamp": 1785106867204,
         "lastEventTimestamp": 1785109008489,
         "lastIngestionTime": 1785109009530,
-        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf086102185598551175903407",
+        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf812650005022773860342190",
         "arn": "arn:aws:logs:eu-central-1:111122223333:log-group:/ecs/acme-production/cron-example",
         "storedBytes": 0
       },
@@ -19,7 +24,7 @@
         "firstEventTimestamp": 1785020470612,
         "lastEventTimestamp": 1785022607141,
         "lastIngestionTime": 1785022608228,
-        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf731838713561257739466974",
+        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf458353602665005090838924",
         "arn": "arn:aws:logs:eu-central-1:111122223333:log-group:/ecs/acme-production/cron-example",
         "storedBytes": 0
       },
@@ -29,7 +34,7 @@
         "firstEventTimestamp": 1784934074420,
         "lastEventTimestamp": 1784936139170,
         "lastIngestionTime": 1784936141371,
-        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf328964376542930828179543",
+        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf055383933449766000892314",
         "arn": "arn:aws:logs:eu-central-1:111122223333:log-group:/ecs/acme-production/cron-example",
         "storedBytes": 0
       },
@@ -39,7 +44,7 @@
         "firstEventTimestamp": 1784847669206,
         "lastEventTimestamp": 1784851880066,
         "lastIngestionTime": 1784851882065,
-        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf070746366582850521839699",
+        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf797033337516655907150200",
         "arn": "arn:aws:logs:eu-central-1:111122223333:log-group:/ecs/acme-production/cron-example",
         "storedBytes": 0
       },
@@ -49,7 +54,7 @@
         "firstEventTimestamp": 1784761266062,
         "lastEventTimestamp": 1784767921186,
         "lastIngestionTime": 1784767923221,
-        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf816899071237105230461057",
+        "uploadSequenceToken": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf543113408116120384412065",
         "arn": "arn:aws:logs:eu-central-1:111122223333:log-group:/ecs/acme-production/cron-example",
         "storedBytes": 0
       }

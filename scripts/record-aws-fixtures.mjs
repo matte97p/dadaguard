@@ -20,6 +20,14 @@
 //        --schedule-group cato-production-cron --schedule cato-production-scrape-volume-monitor \
 //        --function cato-production-cron-scrape-volume-monitor
 //
+// ATTENZIONE, RI-REGISTRANDO: una fixture può restare valida e perdere il suo SENSO. La pagina vuota
+// di FilterLogEvents dipende da come AWS alloca lo scan in quel momento: con la stessa finestra, a
+// distanza di ore, la prima pagina può tornare piena — e il test di contratto continuerebbe a passare
+// senza provare più niente. Per questo `test/fixtures-sanitized.test.js` PRETENDE le forme che sono il
+// motivo delle fixture: se una ri-registrazione le perde, i test cadono a voce alta. In quel caso non
+// si allenta il test: si ripristina la registrazione buona (è in git) o si trova una finestra che
+// riproduce la forma.
+//
 // SANIFICAZIONE: le fixture finiscono in un repo PUBBLICO. Prima di scrivere, ogni payload passa da
 // `sanitize()`: id account, ARN, nomi di risorsa e token diventano segnaposto stabili. Cio' che si
 // conserva e' la FORMA (campi, tipi, presenza/assenza, paginazione) — l'unica cosa che serve al test.
@@ -117,18 +125,34 @@ if (logGroup) {
   const pagina = await logs.send(
     new FilterLogEventsCommand({ logGroupName: logGroup, startTime, filterPattern: '?Traceback ?"ERROR:" ?"CRITICAL:"', limit: 1 }),
   )
-  await salva('filter-log-events-page1', pagina, 'FilterLogEvents(limit:1) su tutto il log group: può tornare events:[] CON nextToken pur essendoci i match')
+  const richiestaLog = { limit: 1, filterPattern: '?Traceback ?"ERROR:" ?"CRITICAL:"', windowMinutes: windowMin }
+  await salva(
+    'filter-log-events-page1',
+    pagina,
+    'FilterLogEvents(limit:1) su tutto il log group: può tornare events:[] CON nextToken pur essendoci i match',
+    richiestaLog,
+  )
   if (pagina.nextToken) {
     const pagina2 = await logs.send(
       new FilterLogEventsCommand({ logGroupName: logGroup, startTime, filterPattern: '?Traceback ?"ERROR:" ?"CRITICAL:"', limit: 1, nextToken: pagina.nextToken }),
     )
-    await salva('filter-log-events-page2', pagina2, 'la pagina successiva: qui il match c’è. Chi si ferma alla prima pagina legge "nessun errore"')
+    await salva(
+      'filter-log-events-page2',
+      pagina2,
+      'la pagina successiva: qui il match c’è. Chi si ferma alla prima pagina legge "nessun errore"',
+      { ...richiestaLog, nextToken: '(quello di page1)' },
+    )
   }
   // (2) uno stream per esecuzione: la base di "com’è andata l’ULTIMA run"
   const streams = await logs.send(
     new DescribeLogStreamsCommand({ logGroupName: logGroup, orderBy: 'LastEventTime', descending: true, limit: 5 }),
   )
-  await salva('describe-log-streams', streams, 'su ECS RunTask ogni esecuzione ha il suo stream; il più recente è l’ultima run')
+  await salva(
+    'describe-log-streams',
+    streams,
+    'su ECS RunTask ogni esecuzione ha il suo stream; il più recente è l’ultima run',
+    { orderBy: 'LastEventTime', descending: true, limit: 5 },
+  )
 }
 
 if (taskDef) {
