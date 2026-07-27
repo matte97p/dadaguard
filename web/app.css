@@ -92,3 +92,34 @@
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+
+/* ── Vista TABELLA della flotta (ServicesTable) ────────────────────────────────────────────────
+   Densità: una riga per servizio, 48 righe leggibili senza scorrere in orizzontale sul grosso
+   delle colonne. Il resto lo fa antd. */
+.dg-table .ant-table-cell {
+  padding: 6px 10px !important;
+  font-size: 12px;
+  vertical-align: middle;
+}
+.dg-table .ant-table-thead .ant-table-cell {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+/* La cella di un segnale: pallino + frase su una riga, tagliata con l'ellissi (il testo intero è
+   nel `title`). In tabella una cella che va a capo rompe l'allineamento di tutta la riga. */
+.dg-cell {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Le azioni si accendono sulla riga sotto il puntatore (come sulle card). */
+.dg-table .ant-table-row:hover .dg-actions,
+.dg-table .ant-table-row:focus-within .dg-actions {
+  opacity: 1;
+}
+/* La griglia dei segnali secondari dentro la riga espansa. */
+.dg-table .ant-table-expanded-row .dg-rows {
+  padding: 2px 0 4px;
+}
