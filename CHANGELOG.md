@@ -6,6 +6,21 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Notifiche Slack: da dashboard a watchdog** — Dadaguard non aspetta più che qualcuno apra la pagina.
+  Con `DADAGUARD_SLACK_WEBHOOK` configurato il server guarda la flotta a intervalli e scrive su Slack
+  **quando qualcosa attraversa il confine problema/non-problema**: `🔴` quando va giù o si degrada,
+  `🟢` quando rientra, col segnale colpevole, il suo testo e il link alla dashboard. È la differenza
+  che si è vista oggi: il cron di produzione fallito all'01:01 l'abbiamo scoperto alle 14:30 guardando
+  una card. Le tre regole che rendono una notifica sopportabile sono nel codice e nei test: **al primo
+  giro prende solo nota** (su Fargate il filesystem è effimero, e un rilascio non deve rovesciare in
+  chat lo stato del mondo), **debounce** di N letture consecutive (un throttle CloudWatch di trenta
+  secondi non sveglia nessuno), **un messaggio per transizione, non per stato**. `up → idle` non è un
+  guasto e `→ sconosciuto` è un problema del controllo, non del servizio: nessuno dei due parla.
+  `<!channel>` solo sui guasti in produzione. Se Slack è irraggiungibile lo stato non viene salvato e
+  al giro dopo la transizione si riprova. Senza webhook il watcher non parte e non fa una sola
+  chiamata AWS.
+
+### Added
 - **Colonna Latenza ordinabile** — «chi è il più lento?» è la domanda naturale di una tabella e non si
   poteva fare: solo le Lambda esponevano un numero (`p95Ms`), Bedrock/SageMaker no, e ordinare le
   stringhe mostrate metterebbe «~4m 30s» prima di «~51s». Ora la metrica di latenza porta il suo

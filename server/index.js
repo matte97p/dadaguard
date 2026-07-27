@@ -29,6 +29,7 @@ import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
+import { startWatcher } from './notify/watch.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -448,4 +449,8 @@ if (existsSync(DIST)) {
 // :: (IPv6) non-dual-stack → un sidecar che chiama 127.0.0.1 non raggiunge l'app.
 app.listen(PORT, '0.0.0.0', () => {
   log.info('dadaguard up', { port: Number(PORT), mode: MODE })
+  // Watchdog: guarda la flotta a intervalli e avvisa su Slack quando qualcosa attraversa il confine
+  // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
+  // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
+  if (!isDemo) startWatcher()
 })
