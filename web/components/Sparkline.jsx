@@ -5,7 +5,10 @@ export default function Sparkline({ data, width = 76, height = 18, color = '#8c8
   if (vals.length < 2) return null
   const max = Math.max(...vals)
   const min = Math.min(...vals)
-  const range = max - min || 1
+  // Serie piatta: il grafico sarebbe un segmento orizzontale, indistinguibile da un filetto grafico
+  // finito lì per sbaglio — e non dice nulla che i numeri accanto non dicano già. Meglio niente.
+  if (max === min) return null
+  const range = max - min
   const step = width / (vals.length - 1)
   const pts = vals
     .map((v, i) => `${(i * step).toFixed(1)},${(height - ((v - min) / range) * (height - 2) - 1).toFixed(1)}`)
