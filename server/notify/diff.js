@@ -54,7 +54,9 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     // Servizio nuovo (o primo giro in assoluto): si prende nota, non si annuncia. Dopo un riavvio
     // il notificatore non deve rovesciare in chat lo stato del mondo — solo i cambi che vede lui.
     if (!before) {
-      next[key] = { confirmed: obs.overall, cause: obs.cause, since: obs.at ?? null, pending: null }
+      // `alerted: false` è esplicito di proposito: è la memoria di "per questa chiave non abbiamo mai
+      // annunciato niente", e serve a non mandare un rientro per un allarme che nessuno ha visto.
+      next[key] = { confirmed: obs.overall, cause: obs.cause, since: obs.at ?? null, pending: null, alerted: false }
       continue
     }
     const confirmed = before.confirmed ?? 'unknown'
@@ -70,10 +72,25 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     }
     // confermato: aggiorna lo stato noto e valuta se è una notizia
     // `route` (dove è stato aperto l'allarme) si conserva: serve a mandare il rientro nello stesso posto
-    next[key] = { confirmed: obs.overall, cause: obs.cause, pending: null, ...(before.route ? { route: before.route } : {}) }
+    // `alerted` va conservato come `route`: un cambio DENTRO la stessa classe (es. down → degraded) passa
+    // da qui senza generare transizioni, e se perdessimo il flag il rientro vero verrebbe poi soppresso.
+    next[key] = {
+      confirmed: obs.overall,
+      cause: obs.cause,
+      pending: null,
+      ...(before.route ? { route: before.route } : {}),
+      ...(before.alerted ? { alerted: true } : {}),
+    }
     const from = stateClass(confirmed)
     const to = stateClass(obs.overall)
-    if (from !== to && from !== 'unknown' && to !== 'unknown') {
+    const attraversa = from !== to && from !== 'unknown' && to !== 'unknown'
+    // Regola 4: un rientro si annuncia SOLO se l'allarme è stato davvero mandato. Una chiave mai
+    // annunciata (servizio nuovo nato già rotto, vedi sopra, o allarme taciuto dal routing) altrimenti
+    // produce un verde "tornato OK" che non corrisponde a nessun rosso — e il lettore va a cercare un
+    // allarme che non c'è mai stato. Visto dal vivo sui modelli Bedrock, che sono autoscoperti e
+    // compaiono nella watchlist appena qualcuno li chiama.
+    const rientroOrfano = to !== 'problem' && !before.alerted
+    if (attraversa && !rientroOrfano) {
       transitions.push({
         kind: to === 'problem' ? 'alert' : 'recovery',
         key,
