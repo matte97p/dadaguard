@@ -11,6 +11,8 @@ import {
   trendRange,
   notCreditsOrTax,
   monthRange,
+  buildFilter,
+  aggregateCategories,
 } from '../server/costs.js'
 import { mergeTrend } from '../web/format.js'
 
@@ -135,4 +137,41 @@ test('mergeTrend: somma gli account, e un mese parziale per uno resta parziale p
   assert.equal(merged[0].usage, 120)
   assert.equal(merged[0].infraUsage, 60) // 100−60 + 20−0
   assert.equal(merged[1].partial, true)
+})
+
+test('buildFilter: zero termini = nessun filtro, uno = nudo, due = And', () => {
+  // Un `And` di un solo elemento è un errore di validazione di Cost Explorer, non un filtro più
+  // semplice: la forma va scelta in base a quanti termini ci sono davvero.
+  assert.equal(buildFilter({}), undefined)
+  assert.deepEqual(buildFilter({ accountId: '1' }), { Dimensions: { Key: 'LINKED_ACCOUNT', Values: ['1'] } })
+  const due = buildFilter({ accountId: '1', type: 'database' })
+  assert.equal(due.And.length, 2)
+  assert.deepEqual(due.And[1], { CostCategories: { Key: 'Livello', Values: ['database'] } })
+  assert.equal(buildFilter({ accountId: '1', type: 'database', onlyUsage: true }).And.length, 3)
+})
+
+test('buildFilter: "all" e il non-categorizzato non diventano un filtro', () => {
+  // 'all' = nessuna scelta; '__none__' (non categorizzato) non si esprime come filtro — `Values: ['']`
+  // non seleziona nulla — quindi lo si guarda dalla ripartizione, non filtrando.
+  assert.equal(buildFilter({ type: 'all' }), undefined)
+  assert.equal(buildFilter({ type: '__none__' }), undefined)
+  assert.equal(buildFilter({ type: '' }), undefined)
+})
+
+test('aggregateCategories: livelli per spesa, non-categorizzato incluso', () => {
+  const out = aggregateCategories(
+    [
+      g(['Livello$compute', 'Amazon ECS'], 142.3),
+      g(['Livello$compute', 'AWS Lambda'], 12.4),
+      g(['Livello$', 'Amazon CloudFront'], 9.1),
+      g(['Livello$database', 'Amazon RDS'], 88),
+    ],
+    'Livello',
+  )
+  assert.deepEqual(
+    out.map((c) => c.category),
+    ['compute', 'database', null],
+  )
+  assert.ok(near(out[0].amount, 154.7))
+  assert.deepEqual(out[0].services.map((s) => s.service), ['Amazon ECS', 'AWS Lambda'])
 })
