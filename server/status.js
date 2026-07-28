@@ -172,16 +172,23 @@ export async function resolveServices() {
   // con watchlist presente e DADAGUARD_DISCOVER attivo, unisci gli scoperti ai dichiarati (i
   // dichiarati vincono e mantengono gli override).
   let discovered = null
+  // Le letture NON riuscite durante la scoperta: vanno tenute e mostrate. `mergeServices` costruisce
+  // un array nuovo, quindi non si possono lasciare attaccate alla lista — si prendono qui.
+  let discoveryProblems = []
   if (services.length === 0) {
-    services = await autoDiscoverServices(accounts)
+    const found = await autoDiscoverServices(accounts)
+    discoveryProblems = found.problems ?? []
+    services = found
     if (services.length) discovered = { count: services.length, accounts: Object.keys(accounts) }
   } else if (autoDiscover) {
     const before = services.length
-    services = mergeServices(services, await autoDiscoverServices(accounts))
+    const found = await autoDiscoverServices(accounts)
+    discoveryProblems = found.problems ?? []
+    services = mergeServices(services, found)
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, urls }
+  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, discoveryProblems, urls }
   _resolveCache = { at: Date.now(), value }
   return value
 }
@@ -231,7 +238,7 @@ export function cfServiceResult(w, t) {
 
 export async function getStatus(lang) {
   const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
-  const { accounts, services, discovered, urls } = await resolveServices()
+  const { accounts, services, discovered, discoveryProblems, urls } = await resolveServices()
   if (discovered) log.info('auto-discovery', discovered)
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
@@ -382,6 +389,9 @@ export async function getStatus(lang) {
     // Gli account RISOLTI, non solo quelli che hanno prodotto un servizio: le pagine per-account
     // (Costi, Sprechi, Quote) devono poter mostrare un account con spesa e zero servizi monitorati.
     accounts: accountsSummary(accounts),
+    // Account in cui una lettura è FALLITA: il pannello lo dice, invece di mostrarli vuoti. Un account
+    // "senza risorse" e un account "che non ho potuto leggere" sono due cose opposte.
+    discoveryProblems,
     services: [...results, ...cfResults],
   }
 }

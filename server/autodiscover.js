@@ -18,15 +18,24 @@ export async function autoDiscoverServices(accounts) {
     for (const region of regionsOf(a)) jobs.push({ key, a, region })
   }
   const CAP = Number(process.env.DADAGUARD_CONCURRENCY) || 8
+  const problems = [] // letture non riuscite, per account: vanno DETTE, non inghiottite
   const lists = await mapLimit(jobs, CAP, async ({ key, a, region }) => {
     try {
-      const { candidates } = await discover({
+      const { candidates, problems: probs } = await discover({
         profile: a.profile,
         roleArn: a.roleArn,
         externalId: a.externalId,
         region,
         stateBucket: a.terraform?.stateBucket,
       })
+      // Letture fallite dentro l'account: un elenco AWS non dà errore quando non c'è nulla (torna
+      // vuoto), quindi un errore qui è SEMPRE un problema reale — permessi, ruolo non assumibile,
+      // throttling. Prima venivano inghiottite in silenzio e l'account risultava semplicemente
+      // "vuoto": indistinguibile da un account sano senza risorse.
+      if (probs?.length) {
+        log.error('auto-discovery: letture non riuscite', { account: key, region, problems: probs })
+        problems.push({ account: key, region, problems: probs })
+      }
       // tagga la region solo se stiamo davvero spazzolando più region per l'account
       const tag = regionsOf(a).length > 1 ? region : undefined
       return candidatesToServices(candidates, key, tag)
@@ -35,7 +44,11 @@ export async function autoDiscoverServices(accounts) {
       return []
     }
   })
-  return lists.flat()
+  const services = lists.flat()
+  // `problems` viaggia come proprietà della lista: i chiamanti che non la guardano si comportano come
+  // prima, chi la guarda (lo stato) può dirlo in faccia all'utente.
+  services.problems = problems
+  return services
 }
 
 // Identità di una risorsa AWS monitorata: account + tipo + identificatori. Serve a de-duplicare
