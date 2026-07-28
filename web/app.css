@@ -157,3 +157,39 @@
 .dg-table .ant-table-expanded-row .dg-rows {
   padding: 2px 0 4px;
 }
+
+/* ── Striscia di conteggi sopra la tabella ─────────────────────────────────────────────────────
+   Una riga sola, sopra le colonne: "devo preoccuparmi?" con risposta prima di ordinare o filtrare.
+   Sono bottoni, quindi hanno stato attivo e anello di fuoco visibili — un filtro che non si vede
+   attivo è un filtro che fa concludere "non ci sono servizi" quando invece sono solo nascosti. */
+.dg-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.dg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  line-height: 18px;
+}
+.dg-chip:hover {
+  border-color: rgba(124, 58, 237, 0.55);
+  background: rgba(124, 58, 237, 0.08);
+}
+.dg-chip:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+.dg-chip-on {
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.16);
+}

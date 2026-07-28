@@ -66,3 +66,20 @@ export function latencyOf(service) {
   const ms = service?.checks?.liveness?.latencyMs
   return Number.isFinite(ms) ? { ms, source: 'probe' } : null
 }
+
+// Quanti servizi per stato, dal peggio al meglio: la domanda "devo preoccuparmi?" deve avere
+// risposta SENZA ordinare o filtrare niente. Ordine fisso (giù → degradato → sconosciuto →
+// inattivo → disattivato → su), stati assenti omessi: una striscia di zeri non informa.
+const STATUS_ORDER = ['down', 'degraded', 'unknown', 'idle', 'disabled', 'up']
+export function countByStatus(services) {
+  const n = new Map()
+  for (const s of services ?? []) {
+    const k = s?.overall ?? 'unknown'
+    n.set(k, (n.get(k) ?? 0) + 1)
+  }
+  const known = STATUS_ORDER.filter((k) => n.has(k)).map((k) => ({ status: k, count: n.get(k) }))
+  // Uno stato che il server introducesse domani non deve sparire dalla striscia solo perché questo
+  // elenco non lo conosce: finisce in coda, in ordine alfabetico.
+  const extra = [...n.keys()].filter((k) => !STATUS_ORDER.includes(k)).sort()
+  return [...known, ...extra.map((k) => ({ status: k, count: n.get(k) }))]
+}

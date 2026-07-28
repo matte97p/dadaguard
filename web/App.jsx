@@ -522,6 +522,9 @@ export default function App() {
                 <DashboardPage
                   data={data}
                   groups={groups}
+                  allServices={services}
+                  statusFilter={statusFilter}
+                  onStatusFilter={setStatusFilter}
                   caps={caps}
                   loading={loading}
                   error={error}
