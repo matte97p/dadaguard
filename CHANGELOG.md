@@ -6,6 +6,23 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Le notifiche parlano la grammatica di casa** — il formato inventava un terzo dialetto rispetto a
+  quello che il team legge già in `#aws-deploy` (notifiche di deploy) e `#aws-cron-test` (esiti dei
+  cron), costringendo a imparare due convenzioni per la stessa cosa. Allineate una per una: emoji come
+  **shortcode** Slack (`:red_circle:`, `:warning:`, `:white_check_mark:`) e non unicode, nome del
+  servizio in **backtick** e non in grassetto, ambiente in **MAIUSCOLO tra parentesi quadre**
+  (`[PROD]`, `[STAGING]`) e non minuscolo tra tonde, esito **a parole** e non con la freccia
+  `→ *STATO*`, dettaglio sulla **stessa riga** dopo `—` e non in una citazione a capo, fatti separati
+  da `·`. Il link finale usa l'etichetta dei messaggi di deploy — «stato su Dadaguard» — che già
+  rimandano allo stesso posto: chi li legge riconosce la porta.
+
+```
+<!channel> :red_circle: `refresh-bi-mvs` [PROD] GIÙ · esecuzione — mai partito: nessuna esecuzione…
+:warning: `backend` [STAGING] ATTENZIONE · non risponde — HTTP 503
+:white_check_mark: `frontend` [STAGING] tornato OK · <…|stato su Dadaguard>
+```
+
+### Changed
 - **Le pagine non aspettano più un giro completo di controlli** — ogni apertura rifaceva da zero i 52
   servizi × 8 segnali su 4 account: **5,8s**, ogni volta, anche con due schede aperte, anche per due
   persone insieme, anche solo tornando sulla scheda (c'è un refresh al focus). Ora lo stato ha una cache
