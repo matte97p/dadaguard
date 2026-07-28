@@ -45,6 +45,27 @@ variable "tunnel_token_ssm_arn" {
   type        = string
 }
 
+# Notifiche Slack. Facoltative: senza webhook il notificatore resta INERTE (nessun messaggio, nessun
+# errore). Due destinazioni perche' un cron che non parte interessa chi guarda i cron, mentre tutto il
+# resto interessa chi guarda i deploy: un solo canale che dice due cose insegna a ignorarlo.
+variable "slack_webhook_ssm_arn" {
+  description = "ARN del parametro SSM SecureString col webhook Slack principale (in Cato: #aws-deploy). Null = notifiche spente."
+  type        = string
+  default     = null
+}
+
+variable "slack_webhook_cron_ssm_arn" {
+  description = "ARN del parametro SSM SecureString col webhook Slack dei cron (in Cato: #tech-devops-cron), dove finiscono i cron MAI PARTITI. Null = tutto sul webhook principale."
+  type        = string
+  default     = null
+}
+
+variable "cloudflare_api_token_ssm_arn" {
+  description = "ARN del parametro SSM SecureString col token API Cloudflare (stato dei Worker). Null = check Cloudflare spento."
+  type        = string
+  default     = null
+}
+
 variable "container_port" {
   description = "Porta su cui Express serve frontend + API."
   type        = number
