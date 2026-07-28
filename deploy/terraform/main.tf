@@ -36,10 +36,16 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 
 data "aws_iam_policy_document" "secrets_read" {
   statement {
-    sid       = "ReadInjectedSecrets"
-    effect    = "Allow"
-    actions   = ["ssm:GetParameters"]
-    resources = [var.config_ssm_arn, var.tunnel_token_ssm_arn]
+    sid     = "ReadInjectedSecrets"
+    effect  = "Allow"
+    actions = ["ssm:GetParameters"]
+    resources = compact([
+      var.config_ssm_arn,
+      var.tunnel_token_ssm_arn,
+      var.cloudflare_api_token_ssm_arn,
+      var.slack_webhook_ssm_arn,
+      var.slack_webhook_cron_ssm_arn,
+    ])
   }
   statement {
     sid       = "DecryptSecureString"
@@ -112,7 +118,14 @@ resource "aws_ecs_task_definition" "this" {
       essential    = true
       portMappings = [{ containerPort = var.container_port, protocol = "tcp" }]
       environment  = [{ name = "PORT", value = tostring(var.container_port) }]
-      secrets      = [{ name = "DADAGUARD_CONFIG", valueFrom = var.config_ssm_arn }]
+      # I secret FACOLTATIVI si aggiungono solo se l'ARN c'e': un `valueFrom` che punta a un parametro
+      # inesistente non da' un errore di plan, fa fallire l'AVVIO del task (il container non parte).
+      secrets = concat(
+        [{ name = "DADAGUARD_CONFIG", valueFrom = var.config_ssm_arn }],
+        var.cloudflare_api_token_ssm_arn == null ? [] : [{ name = "CLOUDFLARE_API_TOKEN", valueFrom = var.cloudflare_api_token_ssm_arn }],
+        var.slack_webhook_ssm_arn == null ? [] : [{ name = "DADAGUARD_SLACK_WEBHOOK", valueFrom = var.slack_webhook_ssm_arn }],
+        var.slack_webhook_cron_ssm_arn == null ? [] : [{ name = "DADAGUARD_SLACK_WEBHOOK_CRON", valueFrom = var.slack_webhook_cron_ssm_arn }],
+      )
       logConfiguration = {
         logDriver = "awslogs"
         options = {
