@@ -9,6 +9,7 @@ import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, COMPONENT_TAG } from './costs.js'
 import { cached } from './util/ttlcache.js'
+import { isQueryable } from './accounts.js'
 import { listDeploys } from './deploys.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { getFreeTierUsage } from './freetier.js'
@@ -136,7 +137,7 @@ app.get('/api/waste', async (req, res) => {
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
-        if (!a.profile && !a.roleArn) return
+        if (!isQueryable(a)) return
         try {
           out[key] = {
             label: a.label ?? key,
@@ -168,7 +169,7 @@ app.get('/api/costs', async (req, res) => {
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
-        if (!a.profile && !a.roleArn) return
+        if (!isQueryable(a)) return
         try {
           const cost = await cached(`costs:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
             getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId }),
@@ -199,7 +200,7 @@ app.get('/api/costs/trend', async (req, res) => {
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
-        if (!a.profile && !a.roleArn) return
+        if (!isQueryable(a)) return
         try {
           const trend = await cached(`trend:${key}:${months}`, COSTS_TTL, () =>
             getCostTrend({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, months }),
@@ -227,7 +228,7 @@ app.get('/api/costs/components', async (req, res) => {
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
-        if (!a.profile && !a.roleArn) return
+        if (!isQueryable(a)) return
         try {
           const byComp = await cached(`components:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
             getCostByComponent({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, month }),
@@ -256,7 +257,7 @@ app.get('/api/deploys', async (req, res) => {
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
-        if (!a.profile && !a.roleArn) return
+        if (!isQueryable(a)) return
         try {
           const { builds, noProjects } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
           out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }

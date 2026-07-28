@@ -5,6 +5,27 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Un account con spesa e ZERO servizi monitorati spariva dalle pagine per-account** — le etichette
+  degli account si ricavavano dai **servizi**, quindi l'account che non ne aveva nemmeno uno non
+  compariva né nel filtro né in Costi/Sprechi/Quote. È esattamente il caso del **payer**, dove vivono
+  Bedrock, Marketplace e CodeBuild: la sua spesa non si vedeva, e chi guardava concludeva «non costa
+  niente» invece di «non lo sto guardando» — il modo peggiore di sbagliare per un pannello.
+  Ora `/api/status` espone gli **account risolti** (con `queryable`, che dice quali si possono
+  davvero leggere) e le liste partono da lì.
+- **Il filtro «Regione» sulla pagina Costi non filtrava i costi: faceva sparire l'account** — Cost
+  Explorer è globale e la query non raggruppa per regione, quindi quel filtro agiva solo sulla lista
+  degli account (per la regione dei loro *servizi*). Rimosso da quella pagina: resta dove le risorse
+  hanno davvero una regione (Sprechi, Quote, Topologia).
+
+### Added
+- **`inAccount: true` in config** — dichiara l'account in cui Dadaguard **stesso** gira, che usa le
+  credenziali dell'ambiente (in cloud il task role) invece di assumere un ruolo. Prima un account senza
+  `profile` né `roleArn` veniva semplicemente saltato, quindi il payer non era interrogabile: ma
+  «nessuna credenziale» e «le credenziali di qui» sono due cose diverse, e indovinare significherebbe
+  leggere l'account sbagliato riportandolo sotto un altro nome. Va sempre accompagnato da `accountId`:
+  sul payer, senza filtro, Cost Explorer risponde coi costi di **tutta** l'organizzazione.
+
 ### Added
 - **Andamento dei costi su 13 mesi: consumo a listino contro fatturato** — la pagina rispondeva a
   «quanto», mai a «sta crescendo?», che è l'unica delle due che fa agire. Due serie sullo stesso asse

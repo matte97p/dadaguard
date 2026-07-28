@@ -152,6 +152,15 @@ export function demoStatus(lang = 'it') {
     mode: 'demo',
     capabilities: { watchlist: false, discover: false, fullDrift: false },
     discovered: null,
+    // `management` è di proposito SENZA servizi: è il caso del payer, che ha spesa (Bedrock,
+    // CodeBuild) e nulla da monitorare. Serve a far vedere in demo che un account così compare
+    // comunque nel filtro e nelle pagine per-account — prima sparivano in silenzio.
+    accounts: [
+      { key: 'prod', label: 'Production', color: '#cf1322', region: 'eu-west-1', queryable: true },
+      { key: 'staging', label: 'Staging', color: '#1677ff', region: 'eu-west-1', queryable: true },
+      { key: 'cloudflare', label: 'Cloudflare', color: '#f38020', region: null, queryable: true },
+      { key: 'management', label: 'Management (payer)', color: '#722ed1', region: 'eu-central-1', queryable: true },
+    ],
     services,
   }
 }
@@ -300,6 +309,15 @@ export function demoCosts() {
         { service: 'Amazon Bedrock', amount: 402.0 },
       ],
       gross: 653.8, credits: -40, tax: 3.2, aiGross: 402, infraGross: 251.8, total: 617.0, net: 617.0,
+      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+    }),
+    management: withProjection({
+      label: 'Management (payer)', color: '#722ed1',
+      items: [
+        { service: 'AWS Marketplace (Claude Sonnet)', amount: 118.4 },
+        { service: 'CodeBuild', amount: 14.2 },
+      ],
+      gross: 132.6, credits: 0, tax: 0, aiGross: 118.4, infraGross: 14.2, total: 132.6, net: 132.6,
       period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
     }),
     staging: withProjection({
