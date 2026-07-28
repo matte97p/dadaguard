@@ -6,6 +6,21 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Salute dei target dietro il load balancer, sui servizi ECS** — e con questo i microservizi
+  **interni** hanno finalmente un segnale di liveness. La diagnosi precedente era sbagliata: non
+  aspettavano un cutover di DNS, sono interni **per costruzione** (dietro un ALB interno, un target
+  group a testa), quindi una sonda HTTP da fuori non li raggiungerà mai — né adesso né dopo. Il segnale
+  giusto non passa dalla rete ma dall'API: `DescribeTargetHealth` dice se il load balancer li considera
+  sani *da dentro*.
+  Vale anche per i servizi pubblici, perché dice una cosa che «task attivi» **non** dice: un servizio
+  può avere 2/2 container su e **0/2 target sani** — health check che falliscono, porta sbagliata,
+  draining — e allora il load balancer non gli manda traffico, cioè per chi lo usa è **giù**, mentre il
+  conteggio dei task lo mostrava verde. Ora quel caso è rosso.
+  Durante un deploy il segnale **non** giudica: i target vecchi vanno in draining e i nuovi si
+  registrano, e metà non sani lì è normale — un rosso a ogni rilascio insegnerebbe solo a ignorarlo.
+  La regola è una funzione pura con sei test, perché è quella che decide se una card è rossa.
+
+### Added
 - **Mappa alias delle persone (`people:` in config)** — il tag `deployedBy` è l'email dell'autore del
   commit, e la stessa persona può committare con più identità git: il pannello mostrava
   `ggiacometti` su un deploy e `giovanni1.giacometti` su un altro, e chi guarda conclude che sono due
