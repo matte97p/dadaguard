@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/diff.js'
-import { slackMessage } from '../server/notify/slack.js'
+import { slackMessage, envTag } from '../server/notify/slack.js'
 import { runOnce, watchConfig } from '../server/notify/watch.js'
 
 // Il notificatore vive o muore su una cosa: mandare i messaggi GIUSTI. Un watchdog che grida per
@@ -181,6 +181,33 @@ test('serviceKey distingue lo stesso nome in due account (backend esiste in stag
 })
 
 // --- il messaggio ---
+// La forma è quella che il team legge già in #aws-deploy e #aws-cron-test: emoji shortcode, nome in
+// backtick, ambiente in MAIUSCOLO tra quadre, esito a parole, dettaglio dopo "—", fatti separati da
+// "·". Questi test la inchiodano: un terzo dialetto costringerebbe a imparare due grammatiche.
+test('messaggio: la grammatica di casa (shortcode, backtick, [AMBIENTE], — dettaglio)', () => {
+  const t = (k) => ({ 'notify.status.down': 'GIÙ', 'notify.cause.runtime': 'esecuzione', 'notify.open': 'stato su Dadaguard' })[k] ?? k
+  const { text } = slackMessage(
+    [{ kind: 'alert', name: 'cron-refresh-bi-mvs', account: 'Production', to: 'down', cause: 'runtime', detail: 'mai partito' }],
+    { url: 'https://dadaguard.example', t },
+  )
+  assert.match(text, /:red_circle:/, 'emoji come shortcode, non unicode')
+  assert.match(text, /`cron-refresh-bi-mvs`/, 'il soggetto in backtick')
+  assert.match(text, /\[PROD\]/, "l'ambiente in maiuscolo tra quadre")
+  assert.match(text, /GIÙ · esecuzione — mai partito/, 'esito · causa — dettaglio, sulla stessa riga')
+  assert.match(text, / · <https:\/\/dadaguard\.example\|stato su Dadaguard>$/, 'il link chiude la riga come nei deploy')
+  assert.ok(!text.includes('🔴'), 'niente emoji unicode')
+  assert.ok(!text.includes('\n> '), 'niente citazione a capo')
+})
+
+test('envTag: PROD e STAGING come li scrivono cron e deploy', () => {
+  assert.equal(envTag('production'), ' [PROD]')
+  assert.equal(envTag('Production'), ' [PROD]')
+  assert.equal(envTag('staging'), ' [STAGING]')
+  assert.equal(envTag('security'), ' [SECURITY]') // gli altri: la propria chiave, in maiuscolo
+  assert.equal(envTag(''), '')
+  assert.equal(envTag(undefined), '')
+})
+
 test('messaggio: cosa, dove, perché, e il link per continuare', () => {
   const t = (k) => ({ 'notify.status.down': 'GIÙ', 'notify.cause.runtime': 'esecuzione', 'notify.open': 'Apri Dadaguard' })[k] ?? k
   const { text } = slackMessage(
@@ -188,7 +215,7 @@ test('messaggio: cosa, dove, perché, e il link per continuare', () => {
     { url: 'https://dadaguard.example', t },
   )
   assert.match(text, /cron-refresh-bi-mvs/)
-  assert.match(text, /Production/)
+  assert.match(text, /\[PROD\]/) // l'ambiente si scrive come nei cron e nei deploy
   assert.match(text, /GIÙ/)
   assert.match(text, /esecuzione/)
   assert.match(text, /ultima esecuzione FALLITA/)
@@ -202,7 +229,7 @@ test('messaggio: niente <!channel> per staging né per un rientro', () => {
   const ok = slackMessage([{ kind: 'recovery', name: 'cron', account: 'Production', to: 'up' }], { t })
   assert.ok(!stg.text.includes('<!channel>'), 'staging non sveglia nessuno')
   assert.ok(!ok.text.includes('<!channel>'), 'un rientro non sveglia nessuno')
-  assert.match(ok.text, /🟢/)
+  assert.match(ok.text, /:white_check_mark:/)
 })
 
 // --- il giro completo, con le dipendenze finte ---
