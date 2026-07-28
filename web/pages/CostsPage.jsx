@@ -162,7 +162,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
       />
       {loading && !data && <CostsSkeleton />}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-      {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} style={{ marginTop: 24 }} />}
+      {/* Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli
+          allo stesso modo manda a cercare un problema di configurazione che non esiste. */}
+      {data && accounts.length === 0 && (
+        <Empty
+          description={Object.keys(data).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')}
+          style={{ marginTop: 24 }}
+        />
+      )}
 
       {accounts.length > 0 &&
         (() => {

@@ -309,6 +309,7 @@ const STRINGS = {
     'costs.creditsRefunds': 'Crediti e rimborsi',
     'costs.creditMark': '(credito)',
     'costs.none': 'Nessun costo registrato',
+    'costs.allFiltered': 'Nessun account corrisponde al filtro attivo.',
     'costs.noAccounts': 'Nessun account configurato',
 
     'waste.title': 'Risorse fisse & sprechi · a listino',
@@ -739,6 +740,7 @@ const STRINGS = {
     'costs.creditsRefunds': 'Credits & refunds',
     'costs.creditMark': '(credit)',
     'costs.none': 'No cost recorded',
+    'costs.allFiltered': 'No account matches the active filter.',
     'costs.noAccounts': 'No account configured',
 
     'waste.title': 'Fixed resources & waste · list price',

@@ -6,6 +6,19 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **«Nessun account configurato» sulla pagina Costi, mentre i costi c'erano** — le pagine per-account
+  filtrano sulle etichette degli account, e quella lista arriva da `/api/status`, che con decine di
+  servizi da controllare risponde in **secondi**. Nel frattempo la lista era un insieme **vuoto**, e un
+  filtro vuoto non lascia passare niente: la pagina scriveva che non c'erano account configurati mentre
+  i dati dei costi erano già arrivati. Ora «non ho ancora la lista» (`null`) e «la lista esclude tutto»
+  sono due cose distinte: nel primo caso non si filtra affatto.
+  È lo stesso errore del resto della giornata — **assente e vuoto non sono la stessa cosa**, e
+  confonderli fa affermare il falso con la faccia di chi sa.
+- **Il vuoto della pagina Costi distingue i due casi** — «nessun account leggibile» e «il filtro attivo
+  li nasconde tutti» dicevano la stessa frase, mandando a cercare un problema di configurazione che non
+  esisteva.
+
+### Fixed
 - **La pagina saltava all'arrivo dello stato della flotta** — la barra dei filtri ha bisogno dei dati
   (le sue opzioni vengono da account e servizi), ma il suo **spazio** no: restava nascosta finché
   `/api/status` non rispondeva — e con 48 servizi da controllare sono **secondi** — poi compariva e

@@ -299,10 +299,17 @@ export default function App() {
   // La lista parte dagli ACCOUNT risolti, non dai servizi: un account con spesa e zero servizi
   // monitorati (il payer) altrimenti non compariva affatto, senza un messaggio che lo dicesse.
   const aggregateLabels = useMemo(() => {
-    const out = new Set()
-    const all = data?.accounts?.length
+    // `null` = NON filtrare. Va distinto da "un insieme vuoto", che invece nasconde tutto: finché lo
+    // stato della flotta non è arrivato (e con decine di servizi da controllare sono secondi) la lista
+    // degli account è vuota, e un filtro vuoto faceva scrivere «Nessun account configurato» sulla
+    // pagina Costi — una bugia, mentre i costi erano già lì. Stesso principio del resto: assente e
+    // vuoto sono cose diverse, e confonderle fa affermare il falso.
+    if (!data) return null
+    const all = data.accounts?.length
       ? data.accounts.map((a) => ({ key: a.key, label: a.label }))
       : services.map((svc) => ({ key: svc.account?.key ?? '__none__', label: svc.account?.label ?? t('filter.noAccount') }))
+    if (all.length === 0) return null // nessuna lista da cui filtrare: meglio mostrare tutto che niente
+    const out = new Set()
     for (const a of all) {
       if (accountFilter !== 'all' && a.key !== accountFilter) continue
       out.add(a.label)
