@@ -692,3 +692,106 @@ export function demoCostComponents() {
     },
   }
 }
+
+// Livelli demo (Cost Category «Livello»): un `null` in mezzo perché la spesa non categorizzata è il
+// caso vero più comune, e vederla è il punto — una categorizzazione incompleta nascosta si legge come
+// completa.
+export function demoCostCategories() {
+  const svc = (service, amount) => ({ service, amount })
+  return {
+    prod: {
+      label: 'Production',
+      color: '#cf1322',
+      currency: 'USD',
+      categoryName: 'Livello',
+      period: { start: '2026-07-01', end: '2026-07-13' },
+      categories: [
+        { category: 'llms', amount: 402.0, services: [svc('Amazon Bedrock', 402.0)] },
+        {
+          category: 'compute',
+          amount: 154.7,
+          services: [svc('Amazon Elastic Container Service', 142.3), svc('AWS Lambda', 12.4)],
+        },
+        { category: 'database', amount: 88.0, services: [svc('Amazon RDS', 88.0)] },
+        { category: null, amount: 9.1, services: [svc('Amazon CloudFront', 9.1)] },
+      ],
+    },
+    staging: {
+      label: 'Staging',
+      color: '#1677ff',
+      currency: 'USD',
+      categoryName: 'Livello',
+      period: { start: '2026-07-01', end: '2026-07-13' },
+      categories: [
+        { category: 'compute', amount: 33.2, services: [svc('Amazon Elastic Container Service', 33.2)] },
+        { category: 'database', amount: 18.0, services: [svc('Amazon ElastiCache', 18.0)] },
+      ],
+    },
+    management: {
+      label: 'Management (payer)',
+      color: '#722ed1',
+      currency: 'USD',
+      categoryName: 'Livello',
+      period: { start: '2026-07-01', end: '2026-07-13' },
+      categories: [
+        { category: 'llms', amount: 118.4, services: [svc('AWS Marketplace (Claude Sonnet)', 118.4)] },
+        { category: 'deploy', amount: 14.2, services: [svc('CodeBuild', 14.2)] },
+      ],
+    },
+  }
+}
+
+// Il filtro Livello applicato ai dati finti. Una demo che mostra un menu inerte insegna che il menu
+// non serve: qui il filtro agisce davvero, usando la mappa livello→servizi delle categorie demo
+// (l'unica fonte di verità della finzione, così le due viste non si contraddicono).
+//
+// Il TREND resta non filtrato: i dati demo non hanno una ripartizione per livello mese per mese, e
+// inventarne una significherebbe disegnare una forma che non deriva da nulla. In cloud il filtro
+// arriva a Cost Explorer e il trend lo rispetta.
+export function demoApplyType(costs, type) {
+  if (!type || type === 'all') return costs
+  const cats = demoCostCategories()
+  const out = {}
+  for (const [key, acc] of Object.entries(costs)) {
+    const wanted = new Set(
+      (cats[key]?.categories ?? []).filter((c) => c.category === type).flatMap((c) => c.services.map((s) => s.service)),
+    )
+    const items = (acc.items ?? []).filter((i) => wanted.has(i.service))
+    const gross = items.reduce((n, i) => n + i.amount, 0)
+    const aiGross = items.filter((i) => /bedrock|marketplace/i.test(i.service)).reduce((n, i) => n + i.amount, 0)
+    out[key] = {
+      ...acc,
+      items,
+      gross,
+      aiGross,
+      infraGross: gross - aiGross,
+      // Crediti e tasse NON si filtrano per livello: sono voci di conto, non di risorsa. Con un
+      // livello selezionato spariscono dal quadro, come fa Cost Explorer con un filtro attivo.
+      credits: 0,
+      tax: 0,
+      total: gross,
+      net: gross,
+      projection: monthEndProjection({ gross, total: gross, period: acc.period }),
+    }
+  }
+  return out
+}
+
+export function demoApplyTypeComponents(comps, type) {
+  if (!type || type === 'all') return comps
+  const cats = demoCostCategories()
+  const out = {}
+  for (const [key, acc] of Object.entries(comps)) {
+    const wanted = new Set(
+      (cats[key]?.categories ?? []).filter((c) => c.category === type).flatMap((c) => c.services.map((s) => s.service)),
+    )
+    const components = (acc.components ?? [])
+      .map((c) => {
+        const services = c.services.filter((s) => wanted.has(s.service))
+        return { ...c, services, amount: services.reduce((n, s) => n + s.amount, 0) }
+      })
+      .filter((c) => c.services.length > 0)
+    out[key] = { ...acc, components }
+  }
+  return out
+}

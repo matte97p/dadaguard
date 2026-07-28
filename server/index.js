@@ -7,7 +7,7 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
-import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, COMPONENT_TAG } from './costs.js'
+import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCostByCategory, COMPONENT_TAG, COST_CATEGORY } from './costs.js'
 import { cached } from './util/ttlcache.js'
 import { isQueryable } from './accounts.js'
 import { listDeploys } from './deploys.js'
@@ -26,7 +26,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -162,17 +162,18 @@ const COSTS_TTL = 60 * 60 * 1000
 // Costi: spesa MTD per servizio AWS, per account. On-demand (Cost Explorer è a pagamento).
 app.get('/api/costs', async (req, res) => {
   try {
-    if (isDemo) return res.json(demoCosts())
+    if (isDemo) return res.json(demoApplyType(demoCosts(), req.query.type))
     const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const month = req.query.month // 'YYYY-MM' opzionale (default: mese corrente)
+    const type = req.query.type // filtro Cost Category (es. 'database'); assente/'all' = tutto
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
         if (!isQueryable(a)) return
         try {
-          const cost = await cached(`costs:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
-            getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId }),
+          const cost = await cached(`costs:${key}:${month ?? 'now'}:${type ?? 'all'}`, COSTS_TTL, () =>
+            getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId, type }),
           )
           // Proiezione di fine mese: run-rate deterministico sui giorni trascorsi (niente ML/GetCostForecast,
           // niente chiamata extra a pagamento né permesso in più). `null` per un mese già chiuso → la UI la
@@ -197,13 +198,14 @@ app.get('/api/costs/trend', async (req, res) => {
     const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const months = Math.min(24, Math.max(3, Number(req.query.months) || 13))
+    const type = req.query.type
     const out = {}
     await Promise.all(
       Object.entries(accounts).map(async ([key, a]) => {
         if (!isQueryable(a)) return
         try {
-          const trend = await cached(`trend:${key}:${months}`, COSTS_TTL, () =>
-            getCostTrend({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, months }),
+          const trend = await cached(`trend:${key}:${months}:${type ?? 'all'}`, COSTS_TTL, () =>
+            getCostTrend({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, months, type }),
           )
           out[key] = { label: a.label ?? key, color: a.color ?? null, ...trend }
         } catch (err) {
@@ -221,7 +223,37 @@ app.get('/api/costs/trend', async (req, res) => {
 // AWS". Se il tag non è attivato in Billing, Cost Explorer risponde tutto non-taggato: lo diciamo.
 app.get('/api/costs/components', async (req, res) => {
   try {
-    if (isDemo) return res.json(demoCostComponents())
+    if (isDemo) return res.json(demoApplyTypeComponents(demoCostComponents(), req.query.type))
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const month = req.query.month
+    const type = req.query.type
+    const out = {}
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!isQueryable(a)) return
+        try {
+          const byComp = await cached(`components:${key}:${month ?? 'now'}:${type ?? 'all'}`, COSTS_TTL, () =>
+            getCostByComponent({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, month, type }),
+          )
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...byComp }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t), tagKey: COMPONENT_TAG }
+        }
+      }),
+    )
+    res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Costi per LIVELLO (Cost Category): è il "type" della pagina di analytics. Doppio scopo — la
+// ripartizione da mostrare e i valori per il menu del filtro, senza una chiamata in più solo per
+// sapere quali livelli esistono.
+app.get('/api/costs/categories', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoCostCategories())
     const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const month = req.query.month
@@ -230,12 +262,12 @@ app.get('/api/costs/components', async (req, res) => {
       Object.entries(accounts).map(async ([key, a]) => {
         if (!isQueryable(a)) return
         try {
-          const byComp = await cached(`components:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
-            getCostByComponent({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, month }),
+          const byCat = await cached(`categories:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
+            getCostByCategory({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, month }),
           )
-          out[key] = { label: a.label ?? key, color: a.color ?? null, ...byComp }
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...byCat }
         } catch (err) {
-          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t), tagKey: COMPONENT_TAG }
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t), categoryName: COST_CATEGORY }
         }
       }),
     )

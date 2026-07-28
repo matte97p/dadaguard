@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spin, Alert, Empty, Typography, Space, Badge, Select, Segmented } from 'antd'
+import { Alert, Empty, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 import CostTrend from '../components/CostTrend.jsx'
 import { mergeTrend } from '../format.js'
@@ -58,36 +58,76 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
   const [trend, setTrend] = useState(null)
   const [comps, setComps] = useState(null)
   const [trendMetric, setTrendMetric] = useState('usage') // 'usage' = tutto · 'infra' = senza AI
+  const [cats, setCats] = useState(null)
+  // Un flag per sezione: senza, "sto ancora arrivando" e "non c'è niente" sono indistinguibili — e la
+  // sezione compariva di colpo, spostando quello che stavi leggendo.
+  const [trendLoading, setTrendLoading] = useState(true)
+  const [compsLoading, setCompsLoading] = useState(true)
+  const [catsLoading, setCatsLoading] = useState(true)
+  const [type, setType] = useState('all') // filtro Livello (Cost Category), come il "TYPE" di analytics
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch(`/api/costs?month=${month}&lang=${lang}`)
+    fetch(`/api/costs?month=${month}&type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [month, lang])
+  }, [month, type, lang])
 
   // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): si carica una volta, così
   // cambiare mese non rifà una chiamata a pagamento. I componenti invece sono del mese selezionato.
   useEffect(() => {
-    fetch(`/api/costs/trend?lang=${lang}`)
+    setTrendLoading(true)
+    fetch(`/api/costs/trend?type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setTrend)
       .catch(() => setTrend(null)) // il trend è un extra: se manca, la pagina resta utile
-  }, [lang])
+      .finally(() => setTrendLoading(false))
+  }, [type, lang])
 
   useEffect(() => {
-    fetch(`/api/costs/components?month=${month}&lang=${lang}`)
+    setCompsLoading(true)
+    fetch(`/api/costs/components?month=${month}&type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setComps)
       .catch(() => setComps(null))
+      .finally(() => setCompsLoading(false))
+  }, [month, type, lang])
+
+  // I livelli NON si filtrano per livello: questa è la vista che li mostra, e dà anche i valori al
+  // menu — così sapere quali livelli esistono non costa una chiamata in più.
+  useEffect(() => {
+    setCatsLoading(true)
+    fetch(`/api/costs/categories?month=${month}&lang=${lang}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setCats)
+      .catch(() => setCats(null))
+      .finally(() => setCatsLoading(false))
   }, [month, lang])
 
   const accounts = (data ? Object.entries(data) : []).filter(
     ([, acc]) => !accountLabels || accountLabels.has(acc.label),
   )
+  // Opzioni del filtro: i livelli che ESISTONO in questo mese, sommati su tutti gli account. Un
+  // elenco scritto a mano andrebbe stantio al primo livello nuovo (e la Cost Category cambia: la
+  // tassonomia di Cato è stata rivista di recente).
+  const typeOptions = (() => {
+    const seen = new Map()
+    for (const acc of cats ? Object.values(cats) : []) {
+      if (acc.error) continue
+      for (const c of acc.categories ?? []) {
+        if (!c.category) continue // il non-categorizzato non è un filtro: si guarda dalla ripartizione
+        seen.set(c.category, (seen.get(c.category) ?? 0) + c.amount)
+      }
+    }
+    return [
+      { value: 'all', label: t('costs.type.all') },
+      ...[...seen.entries()].sort((a, b) => b[1] - a[1]).map(([value]) => ({ value, label: value })),
+    ]
+  })()
+
   const now = new Date()
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
@@ -102,19 +142,23 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
         title={t('costs.title')}
         desc={t('costs.desc')}
         extra={
-          <Space size={6}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('costs.month')}
-            </Text>
-            <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
+          <Space size={10} wrap>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('costs.type')}
+              </Text>
+              <Select size="small" value={type} onChange={setType} options={typeOptions} style={{ minWidth: 150 }} />
+            </Space>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('costs.month')}
+              </Text>
+              <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
+            </Space>
           </Space>
         }
       />
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin />
-        </div>
-      )}
+      {loading && !data && <CostsSkeleton />}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
       {data && accounts.length === 0 && <Empty description={t('costs.noAccounts')} style={{ marginTop: 24 }} />}
 
@@ -163,6 +207,18 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
               Object.values(trend).filter((a) => !a.error && (!accountLabels || accountLabels.has(a.label))),
             )
           : []
+        // Mentre arriva, uno scheletro ALTO COME il grafico: se lo spazio non è riservato, quando i
+        // dati atterrano tutto quello che c'è sotto scivola giù e si perde il punto in cui si leggeva.
+        if (trendLoading && !trend) {
+          return (
+            <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
+              <Skeleton active title={{ width: 180 }} paragraph={{ rows: 1, width: '55%' }} />
+              <Skeleton.Node active style={{ width: '100%', height: 210 }}>
+                <span />
+              </Skeleton.Node>
+            </div>
+          )
+        }
         if (rows.length < 2) return null
         return (
           <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
@@ -287,6 +343,67 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
         })}
       </div>
 
+      {/* Ripartizione per LIVELLO (Cost Category): il "type" della pagina di analytics. Non risente del
+          filtro Livello — è la vista che lo mostra, e filtrarla su un valore la ridurrebbe a una riga. */}
+      {(() => {
+        const list = cats
+          ? Object.entries(cats).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
+          : []
+        if (catsLoading && !cats) return <SectionSkeleton />
+        if (list.length === 0) return null
+        return (
+          <>
+            <div style={{ margin: '20px 0 8px' }}>
+              <Text strong>{t('costs.cat.title')}</Text>
+              <div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {t('costs.cat.desc', { cat: list[0][1].categoryName ?? 'Livello' })}
+                </Text>
+              </div>
+            </div>
+            <div style={PANEL_GRID}>
+              {list.map(([key, acc]) => {
+                const rows = acc.categories ?? []
+                const max = Math.max(1, ...rows.map((c) => Math.abs(c.amount)))
+                return (
+                  <div key={key} style={PANEL_CARD}>
+                    <Space>
+                      {acc.color && <Badge color={acc.color} />}
+                      <Text strong>{acc.label}</Text>
+                    </Space>
+                    <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
+                      {rows.map((c) => (
+                        <details key={c.category ?? '__none__'}>
+                          <summary className="dg-summary">
+                            <span className="dg-chev" aria-hidden="true">
+                              ▸
+                            </span>
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <Bar label={c.category ?? t('costs.cat.none')} amount={c.amount} max={max} t={t} />
+                            </span>
+                          </summary>
+                          <div style={{ marginTop: 6, marginInlineStart: 10 }}>
+                            {c.services.map((sv) => (
+                              <div
+                                key={sv.service}
+                                style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75 }}
+                              >
+                                <span>{sv.service}</span>
+                                <span className="dg-num">{money(sv.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ))}
+                    </Space>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )
+      })()}
+
       {/* Attribuzione per COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è — ed è il
           secondo a far decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare
           l'attribuzione completa quando non lo è. */}
@@ -294,6 +411,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
         const list = comps
           ? Object.entries(comps).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
+        if (compsLoading && !comps) return <SectionSkeleton />
         if (list.length === 0) return null
         return (
           <>
@@ -363,6 +481,53 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
           </>
         )
       })()}
+    </>
+  )
+}
+
+// Scheletro della pagina: la FORMA che arriverà (riquadri in alto, grafico, pannelli), non uno
+// spinner al centro. Uno spinner dice "attendi" e poi fa saltare la pagina di 600px; lo scheletro
+// tiene lo spazio, così quando i dati atterrano nulla si sposta. Mostrato solo al PRIMO caricamento:
+// cambiando mese i dati vecchi restano visibili, che è meglio di un vuoto.
+function CostsSkeleton() {
+  return (
+    <>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 36px', alignItems: 'flex-end', margin: '4px 0 18px' }}>
+        {[86, 70, 78, 54, 120, 92, 74].map((w, i) => (
+          <Skeleton.Button key={i} active size="small" style={{ width: w, height: 38 }} />
+        ))}
+      </div>
+      <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
+        <Skeleton active title={{ width: 180 }} paragraph={{ rows: 1, width: '55%' }} />
+        <Skeleton.Node active style={{ width: '100%', height: 210 }}>
+          <span />
+        </Skeleton.Node>
+      </div>
+      <div style={PANEL_GRID}>
+        {[4, 2, 2].map((rows, i) => (
+          <div key={i} style={PANEL_CARD}>
+            <Skeleton active title={{ width: 140 }} paragraph={{ rows, width: '100%' }} />
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// Scheletro di una sezione a pannelli (Per livello / Per componente): titolo + due pannelli.
+function SectionSkeleton() {
+  return (
+    <>
+      <div style={{ margin: '20px 0 8px' }}>
+        <Skeleton active title={{ width: 130 }} paragraph={{ rows: 1, width: '45%' }} />
+      </div>
+      <div style={PANEL_GRID}>
+        {[3, 2].map((rows, i) => (
+          <div key={i} style={PANEL_CARD}>
+            <Skeleton active title={{ width: 120 }} paragraph={{ rows, width: '100%' }} />
+          </div>
+        ))}
+      </div>
     </>
   )
 }
