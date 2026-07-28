@@ -70,6 +70,42 @@ export default function DashboardPage({ data, groups, allServices, statusFilter,
         />
       )}
 
+      {/* Account in cui una lettura è FALLITA. Il server li riporta (`discoveryProblems`) e finora
+          finivano solo nei log: in pagina quell'account sembrava semplicemente vuoto — e «non c'è
+          niente» è l'opposto di «non sono riuscito a guardare». Non è chiudibile: un avviso che si
+          può far sparire su un dato che manca torna a essere una bugia comoda. */}
+      {data?.discoveryProblems?.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t('discover.problemsTitle', { n: data.discoveryProblems.length })}
+          description={
+            <div>
+              <div style={{ marginBottom: 6 }}>{t('discover.problemsDesc')}</div>
+              {data.discoveryProblems.map((p) => (
+                <div key={`${p.account}/${p.region}`} style={{ fontSize: 12, marginBottom: 4 }}>
+                  <Text strong>{p.account}</Text>
+                  {p.region ? <Text type="secondary"> · {p.region}</Text> : null}
+                  <div style={{ marginInlineStart: 12 }}>
+                    {(p.problems ?? []).map((x, i) => (
+                      <div key={i}>
+                        <Text code style={{ fontSize: 11 }}>
+                          {x.what}
+                        </Text>{' '}
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {x.err}
+                        </Text>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
+        />
+      )}
+
       {error && (
         <Alert type="error" message={`${t('content.errorPrefix')} ${error}`} style={{ marginBottom: 16 }} showIcon />
       )}
