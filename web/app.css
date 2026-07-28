@@ -228,3 +228,148 @@ details[open] > .dg-summary .dg-chev {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* ── Tabella con data-bar (ripartizioni per livello e per componente) ──────────────────────────
+   Prima erano liste di barre a piena larghezza: più informazione di una tabella nuda, ma senza
+   intestazioni non sai cosa leggi, senza incolonnamento non confronti e senza ordinamento non
+   puoi chiedere altro che "dal più grande". Qui la barra è una COLONNA dentro una tabella vera. */
+.dg-bt {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+/* Intestazione: minuscola in maiuscoletto spaziato e in inchiostro tenue — deve etichettare, non
+   competere con i dati. Stacco dal corpo con una hairline, come sulla tabella della flotta. */
+.dg-bt thead th {
+  padding: 0 6px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  opacity: 0.55;
+  text-align: start;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.28);
+  white-space: nowrap;
+}
+.dg-bt thead th button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.dg-bt thead th button:focus-visible,
+.dg-bt tbody button:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+/* La freccetta di ordinamento tiene il suo spazio anche quando è vuota, così l'intestazione non
+   si sposta di un pixel al cambio di colonna ordinata. */
+.dg-bt-sort {
+  display: inline-block;
+  min-width: 7px;
+  font-size: 8px;
+}
+.dg-bt tbody td {
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  vertical-align: middle;
+}
+.dg-bt tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Riga sotto il puntatore: stessa tinta viola bassa della tabella della flotta, per non perdere la
+   riga mentre l'occhio va dall'etichetta all'importo. Solo sulle righe apribili: su una riga che
+   non fa niente, l'evidenziazione promette un clic che non c'è. */
+.dg-bt tbody tr.dg-bt-open:hover td {
+  background: rgba(124, 58, 237, 0.09);
+}
+.dg-bt tbody td:first-child button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  font: inherit;
+}
+/* Riga non apribile: stesso rientro di una apribile, così le etichette restano incolonnate
+   invece di scalare di 15px quando in tabella si mescolano righe con e senza dettaglio. */
+.dg-bt-flat {
+  display: flex;
+  align-items: center;
+  padding-inline-start: 15px;
+}
+.dg-bt td:first-child span:not(.dg-chev) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* «non categorizzato» / «non taggato»: è l'assenza di un dato, non un nome. In corsivo tenue si
+   legge come tale senza sparire — nasconderlo farebbe sembrare completa un'attribuzione che non è. */
+.dg-bt-muted {
+  font-style: italic;
+  opacity: 0.7;
+}
+/* La colonna della barra: larghezza fissa, perché è l'unica che deve poter essere confrontata da
+   una riga all'altra (se respirasse col testo, barre uguali sembrerebbero diverse). */
+.dg-bt-bar {
+  width: 64px;
+  min-width: 64px;
+}
+.dg-bt-r {
+  text-align: end;
+}
+.dg-bt td.dg-num {
+  font-size: 12px;
+}
+.dg-bt-share {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+  width: 46px;
+}
+/* La freccetta dentro la tabella: il glifo ▸ della lista apribile, a questo corpo, si legge come un
+   punto elenco. Qui è un triangolo disegnato col bordo — nitido a qualsiasi dimensione e indipendente
+   dal font. Occupa sempre lo stesso spazio, così apra o no l'etichetta parte dallo stesso x. */
+.dg-bt .dg-chev {
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-inline: 2px 3px;
+  border-inline-start: 4.5px solid currentColor;
+  border-block: 3.5px solid transparent;
+  opacity: 0.5;
+  transition: transform 0.12s ease;
+}
+.dg-bt tbody td:first-child button:hover .dg-chev {
+  opacity: 0.9;
+}
+
+/* Dettaglio per servizio: righe vere della stessa tabella (quindi già incolonnate), ma in corpo
+   minore, inchiostro tenue e senza separatore — sono la spiegazione della riga sopra, non voci di
+   pari rango. Il rientro le lega alla riga padre. Nota la specificità: serve almeno quella di
+   `.dg-bt tbody td` sopra, altrimenti vince quella e il padding qui non si vede (già capitato). */
+.dg-bt tbody tr.dg-bt-detail td {
+  padding: 1px 6px;
+  border-bottom: none;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.dg-bt tbody tr.dg-bt-detail td:first-child {
+  padding-inline-start: 21px;
+  max-width: 0;
+}
+.dg-bt tbody tr.dg-bt-detail td.dg-num {
+  font-size: 11px;
+  font-weight: 500;
+}
+/* Ultima riga di dettaglio: un filo d'aria prima della voce successiva, così il blocco aperto si
+   chiude visivamente invece di incollarsi alla riga dopo. */
+.dg-bt tbody tr.dg-bt-detail:last-of-type td {
+  padding-bottom: 5px;
+}
