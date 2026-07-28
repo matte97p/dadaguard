@@ -319,6 +319,17 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
                       <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
                         {t('costs.comp.none')}
                       </Text>
+                    ) : rows.length === 1 && rows[0].component === null ? (
+                      // Tutto in un'unica voce non taggata: quasi sempre il tag non è attivo come cost
+                      // allocation tag, o è scritto con un'altra maiuscola (Cost Explorer è
+                      // case-sensitive e non dà errore: dà "non taggato"). Meglio dire il sospetto che
+                      // mostrare una riga sola e lasciar pensare che sia l'attribuzione vera.
+                      <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginTop: 8 }}
+                        message={t('costs.comp.allUntagged', { tag: acc.tagKey ?? 'Component' })}
+                      />
                     ) : (
                       <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
                         {rows.map((c) => (
