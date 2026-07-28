@@ -97,6 +97,19 @@ accounts:
 #   backend: /health
 #   production/frontend: https://app.example.com/
 
+# --- Account in cui Dadaguard STESSO gira ---
+# `inAccount: true` = usa le credenziali dell'ambiente (in cloud il task role) invece di assumere un
+# ruolo. Serve per l'account che ospita Dadaguard: non c'è nessun ruolo da assumere, ma "nessuna
+# credenziale" e "le credenziali di qui" sono due cose diverse, quindi va dichiarato.
+# Dichiara SEMPRE anche `accountId`: sul payer, senza filtro, Cost Explorer risponde coi costi di
+# TUTTA l'organizzazione (e li vedresti sommati due volte).
+# accounts:
+#   management:
+#     inAccount: true
+#     accountId: "111122223333"
+#     region: eu-central-1
+#     label: Management (payer)
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api

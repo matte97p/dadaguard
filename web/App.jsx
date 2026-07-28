@@ -66,7 +66,9 @@ const QUICK_PRESETS = [
 // ridotta ad Account + Regione; Dashboard e Topologia filtrano singoli servizi → barra piena.
 const NAV = [
   { to: '/', key: 'dashboard', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL },
-  { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  // Costi: solo Account. Non la Regione — Cost Explorer è globale e la nostra query non raggruppa
+  // per regione, quindi quel filtro non filtrava i costi: faceva sparire l'account.
+  { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: ['account'] },
   { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
@@ -228,6 +230,10 @@ export default function App() {
 
   const accountOptions = useMemo(() => {
     const seen = new Map()
+    // Prima dagli account risolti dal server: un account può avere spesa/quote e ZERO servizi
+    // monitorati (il payer, dove vivono Bedrock e CodeBuild). Ricavando le opzioni dai soli servizi
+    // quell'account non era selezionabile — e sulle pagine per-account spariva senza dirlo.
+    for (const a of data?.accounts ?? []) seen.set(a.key, a.label)
     for (const s of services) {
       const key = s.account?.key ?? '__none__'
       if (!seen.has(key)) seen.set(key, s.account?.label ?? t('filter.noAccount'))
@@ -298,17 +304,24 @@ export default function App() {
   // Account (per label) dopo il filtro servizi completo → per la Topologia (che filtra i servizi).
   const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
 
-  // Account visibili applicando SOLO Account + Regione → per i pannelli aggregati (Costi/Sprechi/Quote),
-  // che sono per-account e non devono risentire dei filtri di tipo/stato/schedule.
+  // Account visibili sulle pagine per-account (Costi/Sprechi/Quote): si applica SOLO il filtro
+  // Account. Non il tipo/stato/schedule (sono filtri di servizi, non di account) e nemmeno la
+  // REGIONE: quelle pagine non sono per-regione — i costi di Cost Explorer sono globali — e
+  // filtrarle per regione faceva sparire l'intero account, non le sue righe di una certa regione.
+  //
+  // La lista parte dagli ACCOUNT risolti, non dai servizi: un account con spesa e zero servizi
+  // monitorati (il payer) altrimenti non compariva affatto, senza un messaggio che lo dicesse.
   const aggregateLabels = useMemo(() => {
-    const s = new Set()
-    for (const svc of services) {
-      if (accountFilter !== 'all' && (svc.account?.key ?? '__none__') !== accountFilter) continue
-      if (regionFilter.length && !regionFilter.includes(svc.region)) continue
-      s.add(svc.account?.label ?? t('filter.noAccount'))
+    const out = new Set()
+    const all = data?.accounts?.length
+      ? data.accounts.map((a) => ({ key: a.key, label: a.label }))
+      : services.map((svc) => ({ key: svc.account?.key ?? '__none__', label: svc.account?.label ?? t('filter.noAccount') }))
+    for (const a of all) {
+      if (accountFilter !== 'all' && a.key !== accountFilter) continue
+      out.add(a.label)
     }
-    return s
-  }, [services, accountFilter, regionFilter, t])
+    return out
+  }, [services, data, accountFilter, t])
 
   const filtersActive =
     accountFilter !== 'all' ||

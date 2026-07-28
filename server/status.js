@@ -1,4 +1,5 @@
 import { loadConfig } from './config.js'
+import { accountsSummary } from './accounts.js'
 import { autoDiscoverServices, mergeServices } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { discoverProfileAccounts } from './awsProfiles.js'
@@ -363,6 +364,9 @@ export async function getStatus(lang) {
     mode: MODE,
     capabilities,
     discovered, // != null quando i servizi sono stati auto-scoperti (nessun services.yaml)
+    // Gli account RISOLTI, non solo quelli che hanno prodotto un servizio: le pagine per-account
+    // (Costi, Sprechi, Quote) devono poter mostrare un account con spesa e zero servizi monitorati.
+    accounts: accountsSummary(accounts),
     services: [...results, ...cfResults],
   }
 }
