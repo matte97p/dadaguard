@@ -67,6 +67,12 @@ niente profili SSO, ma un **task role** che assume un ruolo read-only in ogni ac
    **davvero** il servizio che stai guardando: durante una migrazione un hostname può rispondere
    ancora dal vecchio hosting, e un verde su quello è peggio di nessun segnale.
 
+Per passare dall'elenco a mano degli account alla **scoperta via AWS Organizations** (punto 1 del
+blocco `org` in `services.example.yaml`) su un'istanza già in esecuzione:
+[`enable-org-discovery.sh`](enable-org-discovery.sh) — crea il ruolo read-only nell'account mancante
+(con guardrail sul plan), aggiunge il blocco `org` alla config in SSM salvandone una copia, riavvia e
+mostra quali account vede dopo. Idempotente e reversibile.
+
 Su un'istanza già in esecuzione, i punti 5 e 6 si accendono con
 [`enable-notifications.sh`](enable-notifications.sh) (idempotente: copia i webhook, allarga la
 policy del ruolo di esecuzione, aggiunge la mappa `health:`, registra una revision del task e
