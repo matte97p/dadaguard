@@ -84,6 +84,17 @@ accounts:
 #   production/frontend: https://app.example.com
 #   backend: https://staging-api.example.com
 
+# --- Alias delle persone ---
+# La stessa persona può committare con più identità git, e il tag `deployedBy` è l'email dell'autore
+# del commit: senza questa mappa il pannello mostra due nomi diversi per la stessa persona, e chi
+# guarda conclude che sono due colleghi. Chiave = identità grezza (o la sua forma accorciata),
+# valore = nome canonico da mostrare.
+# NON è dedotta dai nomi somiglianti di proposito: quando un'euristica del genere sbaglia, attribuisce
+# un deploy in produzione a qualcun altro.
+# people:
+#   giovanni1.giacometti@mail.polimi.it: ggiacometti
+#   81815192+matte97p@users.noreply.github.com: matte97p
+
 # --- Sonda HTTP per NOME servizio ---
 # Accende il segnale #1 (liveness) sui servizi SCOPERTI, che non hanno un posto dove scrivere
 # `healthUrl`. Stesse chiavi di `urls`. Il valore è un URL intero, oppure un path risolto sull'URL

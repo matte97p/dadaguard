@@ -134,7 +134,7 @@ export function invalidateServicesCache() {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, people } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -193,7 +193,7 @@ export async function resolveServices() {
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, discoveryProblems, urls }
+  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, discoveryProblems, urls, people }
   _resolveCache = { at: Date.now(), value }
   return value
 }
@@ -250,7 +250,7 @@ export async function getStatus(lang) {
   traceReset()
   const startedAt = performance.now()
   const resolvedAt0 = performance.now()
-  const { accounts, services, discovered, discoveryProblems, urls } = await resolveServices()
+  const { accounts, services, discovered, discoveryProblems, urls, people } = await resolveServices()
   const resolveMs = performance.now() - resolvedAt0
   if (discovered) log.info('auto-discovery', discovered)
 
@@ -342,6 +342,7 @@ export async function getStatus(lang) {
         alarms: service.account ? alarmsByAccount[service.account] : undefined,
         env: acct ? (acct.env ?? acct.terraform?.env ?? service.account) : undefined,
         secretsIndex: service.account ? secretsByAccount[service.account] : undefined,
+        people, // alias delle persone: due identità git della stessa persona = un nome solo
         t, // traduttore dei summary (i check lo usano per parlare nella lingua scelta)
       }
 

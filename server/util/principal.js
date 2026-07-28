@@ -58,3 +58,27 @@ export function principalName(arn) {
   // user/<name>, role/<name>, federated-user/<name>, ...
   return parts[parts.length - 1] || s
 }
+
+// Nome CANONICO di chi ha fatto una modifica, dato l'elenco degli alias in config.
+//
+// Perché serve: il tag `deployedBy` è l'email dell'autore del commit, e la stessa persona può
+// committare con più identità git (in Cato: `ggiacometti@get-cato.com` e
+// `giovanni1.giacometti@mail.polimi.it` sono la stessa persona). Il pannello mostrava due nomi diversi
+// per la stessa persona, e chi guarda conclude che sono due colleghi.
+//
+// Perché una MAPPA e non un'euristica sui nomi somiglianti: fondere due identità perché "si assomigliano"
+// significa, quando sbaglia, attribuire un deploy in produzione alla persona sbagliata. Qui dentro
+// esistono davvero persone con nomi simili. Una riga per alias, scritta a mano, è l'unica forma onesta.
+//
+// La chiave si cerca sul valore GREZZO (l'email intera) e sulla sua forma accorciata, senza distinzione
+// di maiuscole. Nessun alias → si accorcia come prima. Pura/testabile.
+export function canonicalActor(who, aliases = null) {
+  const raw = String(who ?? '').trim()
+  if (!raw) return null
+  if (aliases) {
+    const lower = Object.fromEntries(Object.entries(aliases).map(([k, v]) => [String(k).toLowerCase(), v]))
+    const hit = lower[raw.toLowerCase()] ?? lower[String(shortActor(raw) ?? '').toLowerCase()]
+    if (hit) return String(hit)
+  }
+  return shortActor(raw)
+}
