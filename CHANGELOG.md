@@ -6,6 +6,15 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Abilitando la scoperta degli account, il payer finiva in errore** — `buildOrgAccounts` costruiva un
+  `roleArn` per **ogni** membro dell'organizzazione, compreso l'account in cui Dadaguard **gira**: verso
+  se stessi non c'è alcun ruolo da assumere, e il tentativo falliva con un `AccessDenied` che sembra un
+  problema di permessi mentre è solo la ricetta sbagliata. Ed è l'account peggiore da perdere: è il
+  payer, dove vive la spesa di Bedrock, Marketplace e CodeBuild. Ora Dadaguard riconosce il proprio
+  account (`sts:GetCallerIdentity`, gratis e senza permessi) e lo marca `inAccount`. Se l'identità non
+  si ottiene, il comportamento resta quello di prima.
+
+### Fixed
 - **Un account con spesa e ZERO servizi monitorati spariva dalle pagine per-account** — le etichette
   degli account si ricavavano dai **servizi**, quindi l'account che non ne aveva nemmeno uno non
   compariva né nel filtro né in Costi/Sprechi/Quote. È esattamente il caso del **payer**, dove vivono
