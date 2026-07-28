@@ -68,9 +68,11 @@ for pair in "$P_MAIN|$SRC_MAIN|#tech-devops-alert — destinazione principale de
     echo "  $src_name è vuoto: mi fermo" >&2
     exit 1
   }
+  # `--overwrite` serve nel caso FORCE=1 (parametro che esiste già, lo si ri-punta a un altro canale):
+  # senza, SSM risponde ParameterAlreadyExists. Alla creazione è innocuo.
   payer ssm put-parameter --region "$REGION" --name "$dst" --type SecureString --value "$value" \
-    --description "Webhook Slack $desc (copia di $src_name)" >/dev/null
-  echo "  $dst creato"
+    --description "Webhook Slack $desc (copia di $src_name)" --overwrite >/dev/null
+  [ "$REWIRED" = "1" ] && echo "  $dst ri-puntato" || echo "  $dst creato"
 done
 
 # --- 2. il ruolo di esecuzione può leggerli ----------------------------------------------------
