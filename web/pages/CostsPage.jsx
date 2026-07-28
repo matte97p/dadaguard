@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Alert, Empty, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 import CostTrend from '../components/CostTrend.jsx'
@@ -31,17 +31,157 @@ function Bar({ label, amount, max, credit, projected, t }) {
           )}
         </span>
       </div>
-      <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'rgba(128,128,128,0.15)' }}>
+      <div style={{ position: 'relative', height: 8, borderRadius: 4, background: track(credit) }}>
         {projected != null && (
           <div
-            style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${proj}%`, borderRadius: 4, background: color, opacity: 0.28 }}
+            style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${proj}%`, borderRadius: BAR_RADIUS, background: color, opacity: 0.28 }}
           />
         )}
         <div
-          style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${base}%`, borderRadius: 4, background: color }}
+          style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${base}%`, borderRadius: BAR_RADIUS, background: color }}
         />
       </div>
     </div>
+  )
+}
+
+// Una barra parte da una linea, non da una pillola: base quadrata e punta arrotondata, così a
+// colpo d'occhio si vede da dove cresce. E il "quanto manca" è uno step chiaro dello STESSO colore,
+// non un grigio neutro: fondo e riempimento sono la stessa scala, non due cose diverse.
+const BAR_RADIUS = '0 4px 4px 0'
+const track = (credit) => (credit ? 'rgba(82,196,26,0.16)' : 'rgba(124,58,237,0.16)')
+
+// La barra da mettere in tabella: solo il grafico, senza etichetta né importo — quelli sono colonne.
+// Ripeterli dentro la barra è la ragione per cui la vecchia lista non poteva avere intestazioni.
+function BarCell({ amount, max, credit }) {
+  const w = Math.min(100, (Math.abs(amount) / max) * 100)
+  return (
+    <div style={{ position: 'relative', height: 8, borderRadius: 4, background: track(credit) }}>
+      <div
+        style={{
+          position: 'absolute',
+          insetBlock: 0,
+          left: 0,
+          width: `${w}%`,
+          borderRadius: BAR_RADIUS,
+          background: credit ? '#52c41a' : '#7c3aed',
+        }}
+      />
+    </div>
+  )
+}
+
+// Tabella con data-bar, usata da entrambe le ripartizioni (per livello e per componente).
+//
+// Perché non la lista di barre di prima: senza intestazioni non sai cosa stai leggendo, senza
+// incolonnamento non confronti gli importi a occhio, e senza ordinamento non puoi chiedere altro
+// che "dal più grande". Perché non una tabella nuda come su Analytics: la barra è l'unica cosa che
+// dà le proporzioni a colpo d'occhio, e la colonna «%» da sola non la sostituisce. Quindi entrambe:
+// la barra diventa una colonna, dentro la disciplina di una tabella vera.
+//
+// `rows`: { key, label, amount, services?, muted? }. Una riga con `services` si apre; una senza no.
+function BreakdownTable({ rows, headLabel, t, empty }) {
+  const [by, setBy] = useState('amount')
+  const [dir, setDir] = useState('desc')
+  const [open, setOpen] = useState(() => new Set())
+
+  if (!rows.length) {
+    return (
+      <Text type="secondary" style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
+        {empty}
+      </Text>
+    )
+  }
+
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.amount)))
+  const total = rows.reduce((s, r) => s + Math.abs(r.amount), 0) || 1
+  const sorted = [...rows].sort((a, b) => {
+    const d = by === 'label' ? String(a.label).localeCompare(String(b.label)) : Math.abs(a.amount) - Math.abs(b.amount)
+    return dir === 'asc' ? d : -d
+  })
+  const sortOn = (key) => () => {
+    if (by === key) setDir(dir === 'asc' ? 'desc' : 'asc')
+    else {
+      setBy(key)
+      setDir(key === 'label' ? 'asc' : 'desc')
+    }
+  }
+  const Head = ({ col, children, right }) => (
+    <th className={right ? 'dg-bt-r' : undefined} aria-sort={by === col ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={sortOn(col)}>
+        {children}
+        <span className="dg-bt-sort" aria-hidden="true">
+          {by === col ? (dir === 'asc' ? '▲' : '▼') : ''}
+        </span>
+      </button>
+    </th>
+  )
+  const toggle = (key) =>
+    setOpen((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+
+  return (
+    <table className="dg-bt">
+      <thead>
+        <tr>
+          <Head col="label">{headLabel}</Head>
+          {/* La colonna della barra non ha intestazione: è la resa grafica della colonna accanto,
+              non un dato in più — un titolo qui suggerirebbe una terza misura che non esiste. */}
+          <th aria-hidden="true" />
+          <Head col="amount" right>
+            {t('costs.th.spend')}
+          </Head>
+          <th className="dg-bt-r">{t('costs.th.share')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((r) => {
+          const openable = (r.services?.length ?? 0) > 0
+          const isOpen = open.has(r.key)
+          return (
+            <Fragment key={r.key}>
+              <tr className={openable ? 'dg-bt-open' : undefined}>
+                <td>
+                  {openable ? (
+                    <button type="button" onClick={() => toggle(r.key)} aria-expanded={isOpen}>
+                      {/* Triangolo disegnato in CSS, non il glifo ▸ della lista apribile: a 11px quello
+                          si legge come un punto elenco (provato), questo resta nitido. */}
+                      <span className="dg-chev" style={isOpen ? { transform: 'rotate(90deg)' } : undefined} aria-hidden="true" />
+                      <span className={r.muted ? 'dg-bt-muted' : undefined}>{r.label}</span>
+                    </button>
+                  ) : (
+                    <span className="dg-bt-flat">
+                      <span className={r.muted ? 'dg-bt-muted' : undefined}>{r.label}</span>
+                    </span>
+                  )}
+                </td>
+                <td className="dg-bt-bar">
+                  <BarCell amount={r.amount} max={max} />
+                </td>
+                <td className="dg-bt-r dg-num">{money(r.amount)}</td>
+                <td className="dg-bt-r dg-bt-share">{`${((Math.abs(r.amount) / total) * 100).toFixed(1)}%`}</td>
+              </tr>
+              {/* Il dettaglio usa le CELLE della tabella, non un blocco in colSpan: così gli importi dei
+                  servizi cadono nella colonna «spesa» come quelli della riga padre, senza allineamenti
+                  a mano che si sfascerebbero al primo cambio di larghezza. */}
+              {openable &&
+                isOpen &&
+                r.services.map((sv) => (
+                  <tr key={sv.service} className="dg-bt-detail">
+                    <td>{sv.service}</td>
+                    <td />
+                    <td className="dg-bt-r dg-num">{money(sv.amount)}</td>
+                    <td />
+                  </tr>
+                ))}
+            </Fragment>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
 
@@ -352,59 +492,63 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
         })}
       </div>
 
-      {/* Ripartizione per LIVELLO (Cost Category): il "type" della pagina di analytics. Non risente del
-          filtro Livello — è la vista che lo mostra, e filtrarla su un valore la ridurrebbe a una riga. */}
+      {/* Ripartizione per LIVELLO (Cost Category): il "type" della pagina di analytics.
+          Il filtro Livello agisce ANCHE qui, ma non riducendo la lista a una riga (che sarebbe un
+          numero già presente nei riquadri in cima): scelto un livello, la sezione si APRE su di lui
+          e le righe diventano i servizi che lo compongono. Il drill-down non costa una chiamata in
+          più: `/api/costs/categories` raggruppa già per [livello, servizio], quindi i servizi del
+          livello scelto sono un `find` su dati che abbiamo — e Cost Explorer si paga a richiesta.
+          La chiamata resta NON filtrata anche per un secondo motivo: è lei a dare i valori al menu,
+          e filtrarla lo svuoterebbe. */}
       {(() => {
         const list = cats
           ? Object.entries(cats).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
         if (catsLoading && !cats) return <SectionSkeleton />
         if (list.length === 0) return null
+        const drill = type !== 'all'
         return (
           <>
             <div style={{ margin: '20px 0 8px' }}>
-              <Text strong>{t('costs.cat.title')}</Text>
+              <Text strong>{drill ? t('costs.cat.inside', { level: type }) : t('costs.cat.title')}</Text>
               <div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
-                  {t('costs.cat.desc', { cat: list[0][1].categoryName ?? 'Livello' })}
+                  {drill
+                    ? t('costs.cat.insideDesc', { level: type })
+                    : t('costs.cat.desc', { cat: list[0][1].categoryName ?? 'Livello' })}
                 </Text>
               </div>
             </div>
             <div style={PANEL_GRID}>
               {list.map(([key, acc]) => {
-                const rows = acc.categories ?? []
-                const max = Math.max(1, ...rows.map((c) => Math.abs(c.amount)))
+                const cs = acc.categories ?? []
+                // Con un livello scelto le righe sono i suoi servizi (nessuna sotto-apertura: un
+                // servizio non ha dettaglio); senza filtro sono i livelli, apribili sui servizi.
+                const rows = drill
+                  ? (cs.find((c) => c.category === type)?.services ?? []).map((sv) => ({
+                      key: sv.service,
+                      label: sv.service,
+                      amount: sv.amount,
+                    }))
+                  : cs.map((c) => ({
+                      key: c.category ?? '__none__',
+                      label: c.category ?? t('costs.cat.none'),
+                      amount: c.amount,
+                      services: c.services,
+                      muted: !c.category,
+                    }))
                 return (
                   <div key={key} style={PANEL_CARD}>
                     <Space>
                       {acc.color && <Badge color={acc.color} />}
                       <Text strong>{acc.label}</Text>
                     </Space>
-                    <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
-                      {rows.map((c) => (
-                        <details key={c.category ?? '__none__'}>
-                          <summary className="dg-summary">
-                            <span className="dg-chev" aria-hidden="true">
-                              ▸
-                            </span>
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <Bar label={c.category ?? t('costs.cat.none')} amount={c.amount} max={max} t={t} />
-                            </span>
-                          </summary>
-                          <div style={{ marginTop: 6, marginInlineStart: 10 }}>
-                            {c.services.map((sv) => (
-                              <div
-                                key={sv.service}
-                                style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75 }}
-                              >
-                                <span>{sv.service}</span>
-                                <span className="dg-num">{money(sv.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      ))}
-                    </Space>
+                    <BreakdownTable
+                      rows={rows}
+                      headLabel={drill ? t('costs.th.service') : t('costs.th.level')}
+                      t={t}
+                      empty={drill ? t('costs.cat.emptyLevel', { level: type }) : t('costs.comp.none')}
+                    />
                   </div>
                 )
               })}
@@ -435,7 +579,6 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
             <div style={PANEL_GRID}>
               {list.map(([key, acc]) => {
                 const rows = acc.components ?? []
-                const max = Math.max(1, ...rows.map((c) => Math.abs(c.amount)))
                 return (
                   <div key={key} style={PANEL_CARD}>
                     <Space>
@@ -458,30 +601,18 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
                         message={t('costs.comp.allUntagged', { tag: acc.tagKey ?? 'Component' })}
                       />
                     ) : (
-                      <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
-                        {rows.map((c) => (
-                          <details key={c.component ?? '__untagged__'}>
-                            {/* Il marcatore predefinito di <summary> lo rende `display:list-item` e
-                                manda la barra a capo: freccetta nostra, riga in flex. */}
-                            <summary className="dg-summary">
-                              <span className="dg-chev" aria-hidden="true">
-                                ▸
-                              </span>
-                              <span style={{ flex: 1, minWidth: 0 }}>
-                                <Bar label={c.component ?? t('costs.comp.untagged')} amount={c.amount} max={max} t={t} />
-                              </span>
-                            </summary>
-                            <div style={{ marginTop: 6, marginInlineStart: 10 }}>
-                              {c.services.map((sv) => (
-                                <div key={sv.service} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75 }}>
-                                  <span>{sv.service}</span>
-                                  <span className="dg-num">{money(sv.amount)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        ))}
-                      </Space>
+                      <BreakdownTable
+                        rows={rows.map((c) => ({
+                          key: c.component ?? '__untagged__',
+                          label: c.component ?? t('costs.comp.untagged'),
+                          amount: c.amount,
+                          services: c.services,
+                          muted: !c.component,
+                        }))}
+                        headLabel={t('costs.th.component')}
+                        t={t}
+                        empty={t('costs.comp.none')}
+                      />
                     )}
                   </div>
                 )
