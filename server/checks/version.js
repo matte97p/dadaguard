@@ -13,7 +13,7 @@ import { lambdaBuildInfo } from '../runtime/lambda.js'
 import { ec2BuildInfo } from '../runtime/ec2.js'
 import { lastModifier, resourceIdentifier } from '../runtime/lastModifier.js'
 import { cleanAwsReason } from '../runtime/awsClient.js'
-import { shortActor } from '../util/principal.js'
+import { canonicalActor } from '../util/principal.js'
 import { fmtAgo, fmtDuration } from '../i18n.js'
 
 const TIMEOUT_MS = 5000
@@ -114,7 +114,7 @@ async function compute(service, ctx, expected, t) {
       region: cfg.region ?? ctx?.region,
     }
     try {
-      return await BUILDERS[cfg.type](cfg, aws, expected, t)
+      return await BUILDERS[cfg.type](cfg, aws, expected, t, ctx?.people)
     } catch (err) {
       // Messaggio pulito e azionabile invece dell'eccezione SDK grezza (throttle/denied/notfound/expired/…).
       return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
@@ -168,35 +168,35 @@ async function fromHealth(service, expected, t) {
 // --- (2) builders per tipo AWS. Se `expected` c'è, confronto → degraded su mismatch. ---
 // Appende "· da <chi>" al summary, quando lo conosciamo (registeredBy ECS / CloudTrail Lambda).
 // `shortActor`: il tag `deployedBy` è l'email dell'autore del commit e in card occupava tre righe.
-function withModifier(summary, who, t) {
-  const short = shortActor(who)
+function withModifier(summary, who, t, people = null) {
+  const short = canonicalActor(who, people)
   return short ? `${summary} · ${t('build.by', { who: short })}` : summary
 }
 
 // Summary comune per ECS (servizio o task schedulato): stesso formato, stessa gestione tag/quando/chi.
 // Il tag va in card ACCORCIATO (uno sha di 40 cifre sfonderebbe la card) ma si confronta INTERO.
-function ecsSummary(b, expected, t) {
+function ecsSummary(b, expected, t, people) {
   const ago = b.deployedAt ? fmtAgo(b.deployedAt, t) : null
   const shown = displayTag(b.tag)
   const base = b.tag ? t('build.ecs', { tag: shown, ago: ago ?? '—' }) : t('build.ecsnotag', { ago: ago ?? '—' })
-  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t) }, expected, b.tag, t, shown)
+  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t, people) }, expected, b.tag, t, shown)
 }
 
 const BUILDERS = {
-  async ecs(cfg, aws, expected, t) {
+  async ecs(cfg, aws, expected, t, people) {
     const b = await ecsBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
-    return ecsSummary(b, expected, t)
+    return ecsSummary(b, expected, t, people)
   },
 
   // Cron su ECS RunTask (nessun servizio long-running): build letta dalla task def schedulata.
-  'ecs-scheduled': async (cfg, aws, expected, t) => {
+  'ecs-scheduled': async (cfg, aws, expected, t, people) => {
     const b = await ecsScheduledBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
-    return ecsSummary(b, expected, t)
+    return ecsSummary(b, expected, t, people)
   },
 
-  async lambda(cfg, aws, expected, t) {
+  async lambda(cfg, aws, expected, t, people) {
     const b = await lambdaBuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
     // Versionata (numero o alias) → "v<n>". Non versionata ($LATEST) → fingerprint del codice
@@ -208,10 +208,10 @@ const BUILDERS = {
           ? `sha ${b.codeSha.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase()}`
           : '$LATEST'
     const ago = b.lastModified ? fmtAgo(b.lastModified, t) : '—'
-    return decideStatus({ key, summary: withModifier(t('build.lambda', { ver, ago }), b.modifiedBy, t) }, expected, b.version, t)
+    return decideStatus({ key, summary: withModifier(t('build.lambda', { ver, ago }), b.modifiedBy, t, people) }, expected, b.version, t)
   },
 
-  async ec2(cfg, aws, expected, t) {
+  async ec2(cfg, aws, expected, t, people) {
     const b = await ec2BuildInfo(cfg, aws)
     if (!b) return { key, status: 'unknown', reason: t('build.notfound') }
     // "su da {dur}" → durata bare (senza "fa"), perché la frase ha già la preposizione.

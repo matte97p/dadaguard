@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { principalName } from '../server/util/principal.js'
+import { principalName, canonicalActor} from '../server/util/principal.js'
 
 test('principalName: IAM user → nome', () => {
   assert.equal(principalName('arn:aws:iam::123456789012:user/matteo'), 'matteo')
@@ -44,4 +44,24 @@ test('principalName: null/vuoto → null', () => {
   assert.equal(principalName(null), null)
   assert.equal(principalName(''), null)
   assert.equal(principalName(undefined), null)
+})
+
+test('canonicalActor: la mappa alias unisce due identità git della stessa persona', () => {
+  // In Acme la stessa persona committa come `mrossi@example.com` e
+  // `mario1.rossi@mail.polimi.it`: il pannello mostrava due nomi e sembravano due colleghi.
+  const people = { 'mario1.rossi@mail.polimi.it': 'mrossi' }
+  assert.equal(canonicalActor('mario1.rossi@mail.polimi.it', people), 'mrossi')
+  assert.equal(canonicalActor('mrossi@example.com', people), 'mrossi') // già canonico
+})
+
+test('canonicalActor: la chiave vale anche sulla forma accorciata, senza maiuscole', () => {
+  assert.equal(canonicalActor('Mario1.Rossi@mail.polimi.it', { 'mario1.rossi@mail.polimi.it': 'gg' }), 'gg')
+  assert.equal(canonicalActor('mario.rossi@x.it', { 'mario.rossi': 'mrossi' }), 'mrossi')
+})
+
+test('canonicalActor: senza alias si comporta come prima, e regge il vuoto', () => {
+  assert.equal(canonicalActor('81815192+matte97p@users.noreply.github.com'), 'matte97p')
+  assert.equal(canonicalActor('mrossi@example.com', null), 'mrossi')
+  assert.equal(canonicalActor(''), null)
+  assert.equal(canonicalActor(undefined, { a: 'b' }), null)
 })
