@@ -16,7 +16,7 @@ const SEV = { down: 0, degraded: 1, unknown: 2, up: 3, idle: 4, disabled: 5 }
 const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
 
 // Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
-export default function DashboardPage({ data, groups, caps, loading, error, onRemove, onLogs, onEvents, onOpen, t }) {
+export default function DashboardPage({ data, groups, allServices, statusFilter, onStatusFilter, caps, loading, error, onRemove, onLogs, onEvents, onOpen, t }) {
   // Tabella o card. Oltre la ventina di servizi la tabella vince (una riga per servizio, colonne
   // ordinabili); le card restano per le flotte piccole e per chi le preferisce. Scelta ricordata.
   const [view, setView] = useState(() => localStorage.getItem('dadaguard-view') ?? 'table')
@@ -28,7 +28,17 @@ export default function DashboardPage({ data, groups, caps, loading, error, onRe
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-        {data ? <StatusSummary services={flat} t={t} /> : <span />}
+        {data ? (
+          <StatusSummary
+            services={flat}
+            all={allServices}
+            statusFilter={statusFilter}
+            onStatusFilter={onStatusFilter}
+            t={t}
+          />
+        ) : (
+          <span />
+        )}
         <Space size={12} wrap>
           {data && (
             <Segmented

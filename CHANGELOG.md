@@ -5,6 +5,23 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Lo stato non è più solo un colore, e il perché si legge dove guardi** — in tabella la colonna
+  «Stato» era larga 108px e su una riga sana conteneva **un pallino e nient'altro**: la colonna con
+  meno informazione per pixel di tutta la vista, e — peggio — lo stato «su» codificato col **solo
+  colore**, perché il badge col testo compare solo quando c'è un problema. Chi non distingue verde da
+  rosso non aveva alcun segnale. Ora il glifo ha una **forma** diversa per stato (✓ su · ! degradato ·
+  ✕ giù · ⊖ spento · ? sconosciuto) in 56px, e il badge con la **causa** si è spostato accanto al nome
+  del servizio: leggerlo due colonne più a sinistra voleva dire tornare indietro con gli occhi.
+- **Il riepilogo in cima è diventato il filtro** — «2 giù · 7 attenzione · 1 spento · 7 ok» erano
+  numeri da guardare; ora ogni conteggio è un bottone che filtra, e usa il filtro «Stato» che **esiste
+  già** nella barra invece di aggiungere un secondo meccanismo parallelo (due filtri per la stessa
+  cosa si contraddicono e non si capisce quale stia agendo). I conteggi restano sempre quelli della
+  **flotta intera**: se si restringessero alla selezione, dopo un clic su «giù» la striscia direbbe
+  «2 giù» e nient'altro, cancellando la strada per tornare. Il numero grande dice invece cosa stai
+  guardando ora — con un filtro attivo diventa `2/17`, così un filtro dimenticato non si traveste da
+  flotta vuota. Bottoni veri: raggiungibili col tab, `aria-pressed`, anello di fuoco visibile.
+
 ### Fixed
 - **Colonna «Latenza» vuota su servizi che una latenza ce l'avevano** — con le sonde accese il
   pannello *aveva* il numero (`risponde · HTTP 200 · 179ms` nella riga espansa) e nella colonna

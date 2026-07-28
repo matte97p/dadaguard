@@ -3,7 +3,7 @@ import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule } from '../format.js'
 import { prettyBedrock, splitFamily, familyPrefixes } from '../serviceName.js'
-import { StatusDot, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
+import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
 
@@ -31,6 +31,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     if (s.type !== 'bedrock') famByAccount.get(k).push(s.name)
   }
   for (const [k, names] of famByAccount) famByAccount.set(k, familyPrefixes(names))
+
   const rows = [...services].sort((a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)))
 
   const typeLabel = (ty) => (ty ? (t(`type.${ty}`) === `type.${ty}` ? ty : t(`type.${ty}`)) : '—')
@@ -40,17 +41,14 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
     {
       title: t('col.status'),
       key: 'stato',
-      width: 108,
+      // Stretta: il glifo è tutto il contenuto. Il PERCHÉ (il badge con la causa) sta accanto al nome,
+      // dove l'occhio già legge — leggerlo qui vorrebbe dire tornare indietro di due colonne. Il
+      // dropdown di filtro è sparito: lo fa la striscia di conteggi, che è più visibile.
+      width: 56,
+      align: 'center',
       sorter: (a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)),
       defaultSortOrder: 'ascend',
-      filters: uniq(rows.map((s) => s.overall)).map((v) => ({ text: t(`card.status.${v}`), value: v })),
-      onFilter: (v, s) => s.overall === v,
-      render: (_, s) => (
-        <Space size={6}>
-          <StatusDot status={s.overall} t={t} />
-          <StatusTag service={s} t={t} />
-        </Space>
-      ),
+      render: (_, s) => <StatusGlyph status={s.overall} t={t} />,
     },
     {
       title: t('col.service'),
@@ -73,6 +71,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
             >
               {family && <span className="dg-fam" style={{ maxWidth: 150 }}>{family}</span>}
               <span style={{ fontWeight: 600, fontSize: 13 }}>{tail}</span>
+              <StatusTag service={s} t={t} />
               {cadence && (
                 <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
                   <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
