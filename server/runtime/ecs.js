@@ -7,6 +7,7 @@ import {
   ElasticLoadBalancingV2Client,
   DescribeTargetGroupsCommand,
   DescribeLoadBalancersCommand,
+  DescribeTargetHealthCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
 import { cached } from '../util/ttlcache.js'
@@ -27,6 +28,9 @@ const TASKDEF_TTL_MS = Number(process.env.DADAGUARD_TASKDEF_TTL_MS ?? 60 * 60 * 
 // ALB e target group: il DNS di un load balancer non cambia mai nella pratica (cambia se lo ricrei,
 // e allora cambia anche l'ARN). Dieci minuti.
 const ELB_TTL_MS = Number(process.env.DADAGUARD_ELB_TTL_MS ?? 10 * 60 * 1000)
+
+// La salute dei target cambia in secondi (è il polso del servizio): TTL corto, come DescribeServices.
+const HEALTH_TTL_MS = Number(process.env.DADAGUARD_TARGET_HEALTH_TTL_MS ?? 15_000)
 
 const credKey = (aws) => `${aws?.region ?? ''}|${aws?.profile ?? ''}|${aws?.roleArn ?? ''}`
 
@@ -106,6 +110,51 @@ export function classifyEcs(svc, now = Date.now(), graceMs = GRACE_MS) {
   return { status, desiredCount, runningCount, pendingCount, deploying }
 }
 
+// Come la salute dei target cambia lo stato del servizio. Pura/testabile, perché è la regola che
+// decide se una card è rossa: va inchiodata, non dedotta leggendo il codice.
+//   - nessun target o nessun dato → non si applica (lo stato resta quello dei task)
+//   - zero sani con task voluti → GIÙ: i container girano ma il load balancer non manda traffico,
+//     e per chi usa il servizio "non risponde" è esattamente essere giù
+//   - alcuni sani su molti → ATTENZIONE, anche se i task risultano tutti su
+//   - durante un deploy non si giudica: i target vecchi vanno in draining e i nuovi si registrano,
+//     un rosso lì sarebbe un falso allarme a ogni rilascio
+export function applyTargetHealth({ status, desiredCount = 0, deploying = false }, health) {
+  if (deploying || !health || !health.total) return { status, changed: false }
+  if (health.healthy === 0 && desiredCount > 0) return { status: 'down', changed: true }
+  if (health.healthy < health.total && status === 'up') return { status: 'degraded', changed: true }
+  return { status, changed: false }
+}
+
+// Salute dei TARGET dietro l'ALB: quanti bersagli il load balancer considera sani.
+//
+// Per un servizio INTERNO (dietro un ALB interno, come i microservizi di staging) è l'unico segnale di
+// liveness ottenibile: una sonda HTTP da fuori non arriverà mai in quella VPC, né adesso né dopo un
+// cutover — non è un problema di DNS, è che il servizio non è pubblico per costruzione.
+//
+// E dice una cosa che "task attivi" NON dice: un servizio può avere 2/2 container su e 0/2 target sani
+// (health check che fallisce, target in draining, porta sbagliata). In quel caso il load balancer non
+// gli manda traffico, cioè per chi lo usa è GIÙ — mentre il conteggio dei task lo mostrava verde.
+// Nessun load balancer → null, e il segnale non si applica (non si inventa).
+async function targetHealth(svc, aws) {
+  const arns = (svc.loadBalancers ?? []).map((lb) => lb.targetGroupArn).filter(Boolean)
+  if (!arns.length) return null
+  try {
+    const elb = new ElasticLoadBalancingV2Client(clientOpts(aws))
+    const per = await Promise.all(
+      arns.map((TargetGroupArn) =>
+        cached(`elb:health:${credKey(aws)}|${TargetGroupArn}`, HEALTH_TTL_MS, async () => {
+          const out = await elb.send(new DescribeTargetHealthCommand({ TargetGroupArn }))
+          const states = (out.TargetHealthDescriptions ?? []).map((d) => d.TargetHealth?.State)
+          return { total: states.length, healthy: states.filter((x) => x === 'healthy').length }
+        }),
+      ),
+    )
+    return per.reduce((a, b) => ({ total: a.total + b.total, healthy: a.healthy + b.healthy }), { total: 0, healthy: 0 })
+  } catch {
+    return null // permesso mancante o chiamata fallita: nessun segnale, non un falso allarme
+  }
+}
+
 // RuntimeProvider per ECS: desired vs running task count di un servizio.
 // Permesso richiesto: ecs:DescribeServices.
 export async function ecsRuntime(cfg, aws, opts = {}) {
@@ -128,8 +177,34 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
   ]
   if (pendingCount > 0) metrics.push({ label: t('m.pending'), value: String(pendingCount), tone: 'warning' })
 
-  const url = await ecsAlbUrl(svc, aws) // endpoint pubblico (link sulla card) se il servizio è dietro un ALB internet-facing
-  return { status, summary, metrics, url, desiredCount, runningCount, pendingCount, deploying }
+  // Salute dei target: per un servizio interno è l'unico segnale di liveness, e per uno pubblico dice
+  // se il load balancer gli manda davvero traffico. Peggiora lo stato quando i container sono su ma
+  // l'ALB non li considera sani — che per chi usa il servizio significa GIÙ.
+  const [url, health] = await Promise.all([ecsAlbUrl(svc, aws), targetHealth(svc, aws)])
+  if (health && health.total > 0 && !deploying) {
+    metrics.push({
+      label: t('m.targets'),
+      value: `${health.healthy}/${health.total}`,
+      tone: health.healthy === health.total ? 'good' : health.healthy === 0 ? 'critical' : 'warning',
+    })
+  }
+  const { status: finalStatus } = applyTargetHealth({ status, desiredCount, deploying }, health)
+  const finalSummary =
+    health && health.total > 0 && health.healthy < health.total && !deploying
+      ? `${summary} · ${t('ecs.targets', { healthy: health.healthy, total: health.total })}`
+      : summary
+
+  return {
+    status: finalStatus,
+    summary: finalSummary,
+    metrics,
+    url,
+    desiredCount,
+    runningCount,
+    pendingCount,
+    deploying,
+    targetHealth: health,
+  }
 }
 
 // #2 build/deploy zero-config per ECS: tag immagine del task definition in uso

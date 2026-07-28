@@ -91,6 +91,7 @@ const S = {
     'm.cpuP99': 'CPU p99',
     'm.tokens': 'token in→out',
     'm.tasks': 'task attivi',
+    'm.targets': 'target sani',
     'm.pending': 'in avvio',
     'm.engine': 'motore',
     'm.state': 'stato',
@@ -124,6 +125,7 @@ const S = {
     'lambda.aliasnotfound': "alias '{alias}' non trovato",
 
     'ecs.tasks': '{running}/{desired} task attivi',
+    'ecs.targets': 'solo {healthy}/{total} sani dietro il load balancer',
     'ecs.pending': ' · {n} in avvio',
     'ecs.deploying': 'rollout in corso · {running}/{desired}',
     'ecs.notfound': 'servizio ECS non trovato',
@@ -314,6 +316,7 @@ const S = {
     'm.cpuP99': 'CPU p99',
     'm.tokens': 'tokens in→out',
     'm.tasks': 'tasks up',
+    'm.targets': 'healthy targets',
     'm.pending': 'starting',
     'm.engine': 'engine',
     'm.state': 'state',
@@ -347,6 +350,7 @@ const S = {
     'lambda.aliasnotfound': "alias '{alias}' not found",
 
     'ecs.tasks': '{running}/{desired} tasks running',
+    'ecs.targets': 'only {healthy}/{total} healthy behind the load balancer',
     'ecs.pending': ' · {n} starting',
     'ecs.deploying': 'rollout in progress · {running}/{desired}',
     'ecs.notfound': 'ECS service not found',
