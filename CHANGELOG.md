@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Mappa alias delle persone (`people:` in config)** — il tag `deployedBy` è l'email dell'autore del
+  commit, e la stessa persona può committare con più identità git: il pannello mostrava
+  `ggiacometti` su un deploy e `giovanni1.giacometti` su un altro, e chi guarda conclude che sono due
+  colleghi. Una riga per alias, chiave = identità grezza (o la sua forma accorciata, senza distinzione
+  di maiuscole), valore = nome da mostrare.
+  **Non** è dedotta dai nomi somiglianti, e non lo sarà: quando un'euristica del genere sbaglia,
+  attribuisce un deploy in produzione a qualcun altro — e qui dentro esistono davvero persone con nomi
+  simili. Senza mappa il comportamento è quello di prima.
+
+### Added
 - **Un account che non si riesce a leggere lo dice in pagina** — il server riportava già le letture
   fallite (`discoveryProblems`, aggiunte stamattina) ma finivano solo nei log: sul pannello quell'account
   sembrava semplicemente **vuoto**, e «non c'è niente» è l'opposto di «non sono riuscito a guardare».
