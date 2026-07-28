@@ -59,3 +59,16 @@ test('senza sapere chi siamo, il comportamento è quello di prima', () => {
   const out = buildOrgAccounts([{ Id: '1', Name: 'Solo', Status: 'ACTIVE' }], {}, null)
   assert.equal(out.solo.roleArn, 'arn:aws:iam::1:role/dadaguard-readonly')
 })
+
+test('selfUsesRole: nel proprio account si assume il ruolo come per gli altri', () => {
+  // Serve quando in quell'account il ruolo read-only ESISTE: il task role resta minimo (sa solo fare
+  // AssumeRole) e si riusa la stessa policy revisionata, invece di duplicare i permessi di lettura.
+  const out = buildOrgAccounts(
+    [{ Id: '708895069864', Name: 'AppaltiGPT', Status: 'ACTIVE' }],
+    { externalId: 'x', selfUsesRole: true },
+    '708895069864',
+  )
+  assert.equal(out.appaltigpt.roleArn, 'arn:aws:iam::708895069864:role/dadaguard-readonly')
+  assert.equal(out.appaltigpt.inAccount, undefined)
+  assert.equal(out.appaltigpt.externalId, 'x')
+})
