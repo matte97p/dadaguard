@@ -113,3 +113,24 @@ export function detailTabs(service) {
     deploy: Boolean(service?.checks?.version),
   }
 }
+
+// Somma i trend di più account in una serie sola: la domanda "la spesa sta crescendo?" riguarda il
+// conto totale, non un account per volta (tre grafici da confrontare a occhio non rispondono).
+// Un mese resta PARZIALE se lo è per qualcuno: mescolare un mese chiuso con uno in corso e chiamarlo
+// chiuso farebbe leggere un crollo dove c'è solo un mese incompleto. Puro/testabile.
+export function mergeTrend(accounts = []) {
+  const byMonth = new Map()
+  for (const acc of accounts) {
+    for (const r of acc?.months ?? []) {
+      if (!r?.month) continue
+      const cur = byMonth.get(r.month) ?? { month: r.month, usage: 0, invoiced: 0, aiUsage: 0, infraUsage: 0, partial: false }
+      cur.usage += r.usage ?? 0
+      cur.invoiced += r.invoiced ?? 0
+      cur.aiUsage += r.aiUsage ?? 0
+      cur.infraUsage += r.infraUsage ?? (r.usage ?? 0) - (r.aiUsage ?? 0)
+      cur.partial = cur.partial || Boolean(r.partial)
+      byMonth.set(r.month, cur)
+    }
+  }
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month))
+}
