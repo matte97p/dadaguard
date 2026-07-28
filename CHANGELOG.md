@@ -5,6 +5,29 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Filtro «Livello» sui costi, come su Analytics** — la Cost Category (`Livello`: compute, database,
+  llms, deploy…) filtra **tutta** la pagina: riquadri, andamento 13 mesi e le ripartizioni. È il
+  «TYPE» della pagina interna; l'«ENVIRONMENT» è il filtro Account che c'era già. Verificato che una
+  Cost Category si legge **anche dagli account membri**, non solo dal payer — quindi non serve
+  cambiare architettura per interrogarla.
+- **Ripartizione «Per livello»**, gemella di «Per componente»: ogni livello si apre sul dettaglio per
+  servizio AWS. Doppio scopo — è anche la fonte dei valori del menu, così sapere quali livelli
+  esistono non costa una chiamata in più (un elenco scritto a mano andrebbe stantio al primo livello
+  nuovo: la tassonomia di Cato è stata rivista di recente).
+- **Scheletri di caricamento** — la pagina mostrava uno spinner al centro e poi *saltava* di 600px
+  quando i dati atterravano, e le tre sezioni nuove non avevano alcuno stato di attesa: comparivano di
+  colpo spostando quello che stavi leggendo. Ora ogni sezione riserva la sua forma (compreso lo spazio
+  esatto del grafico), e al cambio mese i dati vecchi restano visibili invece di lasciare un vuoto.
+  Stesso schema già usato in Deploy.
+
+### Fixed
+- **La costruzione del filtro Cost Explorer era sparsa in tre punti** — ora è una funzione sola, che
+  sceglie la forma in base a quanti termini ci sono davvero: un `And` di **un** elemento è un errore di
+  validazione, non un filtro più semplice.
+- **In demo il filtro Livello agisce davvero** sui dati finti: un menu che non fa niente insegna che
+  il menu non serve.
+
 ### Fixed
 - **Abilitando la scoperta degli account, il payer finiva in errore** — `buildOrgAccounts` costruiva un
   `roleArn` per **ogni** membro dell'organizzazione, compreso l'account in cui Dadaguard **gira**: verso
