@@ -1,4 +1,5 @@
 import { ssmSecrets } from './ssm.js'
+import { cached } from '../util/ttlcache.js'
 
 // Indice secret per-account, ZERO-CONFIG (#4 senza dichiarare ssm.path a mano).
 // Convenzione Cato: /cato/<env>/<componente>[/<job>]/<KEY>. Elenchiamo UNA volta la radice
@@ -79,9 +80,18 @@ function canonicalEnv(env) {
 
 // Carica l'indice per un account. Ritorna { base, byComponent } o null se manca l'ambiente
 // (nessuna convenzione applicabile → il check resta muto, non inventa).
-export async function loadSecretsIndex({ profile, roleArn, externalId, region, env, base } = {}) {
+// L'indice dei NOMI dei secret (mai i valori) cambia quando qualcuno aggiunge o toglie un parametro:
+// settimane, non secondi. Leggerlo costava 36 chiamate paginate e ~1,7s per ogni risposta. Cinque
+// minuti di cache non cambiano una diagnosi, e la promessa condivisa evita che i quattro account
+// partano tutti insieme sulla stessa lettura.
+const INDEX_TTL_MS = Number(process.env.DADAGUARD_SECRETS_INDEX_TTL_MS ?? 5 * 60 * 1000)
+
+export function loadSecretsIndex({ profile, roleArn, externalId, region, env, base } = {}) {
   const root = base ?? (env ? `/cato/${canonicalEnv(env)}` : null)
   if (!root) return null
-  const { names } = await ssmSecrets({ profile, roleArn, externalId, region, path: root })
-  return { base: root.replace(/\/$/, ''), byComponent: indexComponents(names) }
+  const key = `ssmIndex:${region ?? ''}|${profile ?? ''}|${roleArn ?? ''}|${root}`
+  return cached(key, INDEX_TTL_MS, async () => {
+    const { names } = await ssmSecrets({ profile, roleArn, externalId, region, path: root })
+    return { base: root.replace(/\/$/, ''), byComponent: indexComponents(names) }
+  })
 }
