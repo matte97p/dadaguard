@@ -5,6 +5,28 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Le pagine non aspettano più un giro completo di controlli** — ogni apertura rifaceva da zero i 52
+  servizi × 8 segnali su 4 account: **5,8s**, ogni volta, anche con due schede aperte, anche per due
+  persone insieme, anche solo tornando sulla scheda (c'è un refresh al focus). Ora lo stato ha una cache
+  di **30 secondi**: la prima apertura paga il giro, le successive rispondono in **4 millisecondi**.
+  I dati guardano finestre di 24 ore, quindi 30 secondi di età non cambiano una diagnosi — e l'età è
+  scritta in pagina («ultimo fetch»), che è la differenza tra una cache e una bugia. È lo stesso
+  mestiere che `/metrics` fa da tempo. Il bottone **«Aggiorna» salta la cache** (`?fresh=1`): un
+  aggiornamento che restituisce la risposta di prima non è un aggiornamento.
+- **Concorrenza dei controlli da 8 a 16** — il lavoro è attesa di rete, non calcolo. Misurato sui 52
+  servizi veri: 8 → 5,8s · 16 → 4,9s · 24 → 4,4s · 32 → 5,4s (peggiora), senza un solo throttle. Si
+  resta a 16 e non a 24 perché la misura è su un portatile, mentre il task Fargate ha una frazione di
+  vCPU: là il collo di bottiglia si sposta prima sulla CPU. Alzabile con `DADAGUARD_CONCURRENCY`.
+
+### Added
+- **Dadaguard misura quanto ci mette Dadaguard** — ogni risposta di `/api/status` logga il tempo
+  totale, quello della risoluzione degli account e la somma per **tipo** di controllo, ordinata dal più
+  costoso; e il tempo viaggia anche nel payload (`ms`). Serviva per ottimizzare senza indovinare — è
+  così che si è visto che il costo sta in `runtime` (metriche CloudWatch, 17,8s di chiamate) e in
+  `version` (CloudTrail, 9,5s), mentre gli altri sei segnali insieme non arrivano a mezzo secondo
+  perché sono già precaricati per account. E resta utile: se un domani peggiora, si vede dove.
+
 ### Fixed
 - **«Nessun account configurato» sulla pagina Costi, mentre i costi c'erano** — le pagine per-account
   filtrano sulle etichette degli account, e quella lista arriva da `/api/status`, che con decine di
