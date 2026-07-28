@@ -155,6 +155,17 @@ export function demoStatus(lang = 'it') {
     // `management` è di proposito SENZA servizi: è il caso del payer, che ha spesa (Bedrock,
     // CodeBuild) e nulla da monitorare. Serve a far vedere in demo che un account così compare
     // comunque nel filtro e nelle pagine per-account — prima sparivano in silenzio.
+    // Un account con letture NON riuscite: è il caso che il pannello prima mostrava come "vuoto".
+    discoveryProblems: [
+      {
+        account: 'security',
+        region: 'eu-central-1',
+        problems: [
+          { what: 'ecs', err: 'access denied (insufficient permissions)' },
+          { what: 'lambda', err: 'access denied (insufficient permissions)' },
+        ],
+      },
+    ],
     accounts: [
       { key: 'prod', label: 'Production', color: '#cf1322', region: 'eu-west-1', queryable: true },
       { key: 'staging', label: 'Staging', color: '#1677ff', region: 'eu-west-1', queryable: true },

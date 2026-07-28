@@ -6,6 +6,14 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Un account che non si riesce a leggere lo dice in pagina** — il server riportava già le letture
+  fallite (`discoveryProblems`, aggiunte stamattina) ma finivano solo nei log: sul pannello quell'account
+  sembrava semplicemente **vuoto**, e «non c'è niente» è l'opposto di «non sono riuscito a guardare».
+  Ora un avviso in cima elenca account, regione, quali letture sono fallite e perché. **Non è
+  chiudibile**: un avviso che si può far sparire, su un dato che manca, torna a essere una bugia comoda.
+  In modalità demo c'è un account illeggibile di esempio, così il caso si vede senza doverlo provocare.
+
+### Added
 - **Traccia delle chiamate AWS (`DADAGUARD_TRACE=1`)** — conta chiamate e tempo per servizio AWS,
   agganciandosi al gestore HTTP, così vede **tutte** le chiamate (AssumeRole e retry compresi) senza
   strumentare un modulo alla volta. Nata perché due volte ho stimato a occhio dove andasse il tempo e
