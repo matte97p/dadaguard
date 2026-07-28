@@ -516,7 +516,9 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
   })
   const [statusFilter, setStatusFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState('all')
-  const [serviceFilter, setServiceFilter] = useState('all')
+  // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
+  // arriveresti sui deploy di tutta la flotta da cercare a mano.
+  const [serviceFilter, setServiceFilter] = useState(() => new URLSearchParams(window.location.search).get('service') ?? 'all')
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
 

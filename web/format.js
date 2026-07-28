@@ -97,3 +97,19 @@ export function rowClickOpens(target, selection = '') {
   if (!target || typeof target.closest !== 'function') return true
   return !target.closest(ROW_CLICK_EXEMPT)
 }
+
+// Quali schede ha senso mostrare nel pannello di un servizio. Una scheda che apre un pannello vuoto
+// ("questo tipo non ha log") è una promessa non mantenuta: meglio non offrirla.
+//   - log    → solo dove esiste un log group da leggere (lambda, ECS, ECS schedulato);
+//   - eventi → dove AWS racconta eventi/modifiche (tutto tranne i worker Cloudflare, che non stanno
+//              in CloudTrail);
+//   - deploy → dove c'è davvero una build da mostrare (il segnale versione), altrimenti la pagina
+//              Deploy non ha nulla su questo servizio.
+const LOG_TYPES = ['lambda', 'ecs', 'ecs-scheduled']
+export function detailTabs(service) {
+  return {
+    logs: LOG_TYPES.includes(service?.type),
+    events: Boolean(service?.type) && service.type !== 'cloudflare-worker',
+    deploy: Boolean(service?.checks?.version),
+  }
+}
