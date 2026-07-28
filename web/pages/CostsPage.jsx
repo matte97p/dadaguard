@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Spin, Alert, Empty, Typography, Space, Badge, Select } from 'antd'
+import { Spin, Alert, Empty, Typography, Space, Badge, Select, Segmented } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
+import CostTrend from '../components/CostTrend.jsx'
+import { mergeTrend } from '../format.js'
 
 const { Text } = Typography
 
@@ -53,6 +55,9 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
+  const [trend, setTrend] = useState(null)
+  const [comps, setComps] = useState(null)
+  const [trendMetric, setTrendMetric] = useState('usage') // 'usage' = tutto · 'infra' = senza AI
 
   useEffect(() => {
     setLoading(true)
@@ -62,6 +67,22 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
+  }, [month, lang])
+
+  // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): si carica una volta, così
+  // cambiare mese non rifà una chiamata a pagamento. I componenti invece sono del mese selezionato.
+  useEffect(() => {
+    fetch(`/api/costs/trend?lang=${lang}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setTrend)
+      .catch(() => setTrend(null)) // il trend è un extra: se manca, la pagina resta utile
+  }, [lang])
+
+  useEffect(() => {
+    fetch(`/api/costs/components?month=${month}&lang=${lang}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setComps)
+      .catch(() => setComps(null))
   }, [month, lang])
 
   const accounts = (data ? Object.entries(data) : []).filter(
@@ -105,7 +126,11 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
           const credits = sum((a) => a.credits)
           const net = sum((a) => (a.total != null ? a.total : a.gross))
           const proj = sum((a) => (a.projection ? a.projection.gross : a.gross))
+          const tax = sum((a) => a.tax)
+          const ai = sum((a) => a.aiGross)
           const hasCred = Math.abs(credits) > 0.005
+          const hasTax = Math.abs(tax) > 0.005
+          const hasAi = Math.abs(ai) > 0.005
           const Hero = ({ label, value, size = 22, color }) => (
             <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
               <Text type="secondary" style={{ fontSize: 11 }}>
@@ -119,10 +144,53 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
               <Hero label={t('costs.h.gross')} value={money(gross)} />
               {hasCred && <Hero label={t('costs.h.credits')} value={money(credits)} size={18} color="#52c41a" />}
               {hasCred && <Hero label={t('costs.h.net')} value={money(net)} size={18} />}
+              {hasTax && <Hero label={t('costs.h.tax')} value={money(tax)} size={18} />}
+              {/* L'AI a parte: con i modelli che valgono la maggior parte del conto, un totale unico
+                  nasconde l'andamento dell'infrastruttura — sale l'uso dei modelli e sembra che sia
+                  cresciuto tutto. Due numeri, due domande diverse. */}
+              {hasAi && <Hero label={t('costs.h.ai')} value={money(ai)} size={18} color="#7c3aed" />}
+              {hasAi && <Hero label={t('costs.h.infra')} value={money(gross - ai)} size={18} />}
               <Hero label={t('costs.h.proj')} value={money(proj)} size={18} color="#8c8c8c" />
             </div>
           )
         })()}
+
+      {/* Trend: la domanda "sta crescendo?", che un mese solo non può rispondere. Somma degli account
+          visibili, così il grafico parla del conto e non di un pezzo per volta. */}
+      {(() => {
+        const rows = trend
+          ? mergeTrend(
+              Object.values(trend).filter((a) => !a.error && (!accountLabels || accountLabels.has(a.label))),
+            )
+          : []
+        if (rows.length < 2) return null
+        return (
+          <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <Text strong>{t('costs.trend.title')}</Text>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {t('costs.trend.desc')}
+                  </Text>
+                </div>
+              </div>
+              <Segmented
+                size="small"
+                value={trendMetric}
+                onChange={setTrendMetric}
+                options={[
+                  { value: 'usage', label: t('costs.trend.all') },
+                  { value: 'infra', label: t('costs.trend.noAi') },
+                ]}
+              />
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <CostTrend months={rows} metric={trendMetric} t={t} lang={lang} />
+            </div>
+          </div>
+        )
+      })()}
 
       <div style={PANEL_GRID}>
         {accounts.map(([key, acc]) => {
@@ -218,6 +286,72 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
           )
         })}
       </div>
+
+      {/* Attribuzione per COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è — ed è il
+          secondo a far decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare
+          l'attribuzione completa quando non lo è. */}
+      {(() => {
+        const list = comps
+          ? Object.entries(comps).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
+          : []
+        if (list.length === 0) return null
+        return (
+          <>
+            <div style={{ margin: '20px 0 8px' }}>
+              <Text strong>{t('costs.comp.title')}</Text>
+              <div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {t('costs.comp.desc', { tag: list[0][1].tagKey ?? 'component' })}
+                </Text>
+              </div>
+            </div>
+            <div style={PANEL_GRID}>
+              {list.map(([key, acc]) => {
+                const rows = acc.components ?? []
+                const max = Math.max(1, ...rows.map((c) => Math.abs(c.amount)))
+                return (
+                  <div key={key} style={PANEL_CARD}>
+                    <Space>
+                      {acc.color && <Badge color={acc.color} />}
+                      <Text strong>{acc.label}</Text>
+                    </Space>
+                    {rows.length === 0 ? (
+                      <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                        {t('costs.comp.none')}
+                      </Text>
+                    ) : (
+                      <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
+                        {rows.map((c) => (
+                          <details key={c.component ?? '__untagged__'}>
+                            {/* Il marcatore predefinito di <summary> lo rende `display:list-item` e
+                                manda la barra a capo: freccetta nostra, riga in flex. */}
+                            <summary className="dg-summary">
+                              <span className="dg-chev" aria-hidden="true">
+                                ▸
+                              </span>
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <Bar label={c.component ?? t('costs.comp.untagged')} amount={c.amount} max={max} t={t} />
+                              </span>
+                            </summary>
+                            <div style={{ marginTop: 6, marginInlineStart: 10 }}>
+                              {c.services.map((sv) => (
+                                <div key={sv.service} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75 }}>
+                                  <span>{sv.service}</span>
+                                  <span className="dg-num">{money(sv.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        ))}
+                      </Space>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )
+      })()}
     </>
   )
 }

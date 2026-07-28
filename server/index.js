@@ -7,7 +7,8 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
-import { getCosts, monthEndProjection } from './costs.js'
+import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, COMPONENT_TAG } from './costs.js'
+import { cached } from './util/ttlcache.js'
 import { listDeploys } from './deploys.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { getFreeTierUsage } from './freetier.js'
@@ -24,7 +25,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -153,6 +154,10 @@ app.get('/api/waste', async (req, res) => {
   }
 })
 
+// Cost Explorer si paga a chiamata e si aggiorna poche volte al giorno: un'ora di cache non perde
+// niente di reale e evita di ripagare la stessa risposta a ogni apertura della pagina.
+const COSTS_TTL = 60 * 60 * 1000
+
 // Costi: spesa MTD per servizio AWS, per account. On-demand (Cost Explorer è a pagamento).
 app.get('/api/costs', async (req, res) => {
   try {
@@ -165,13 +170,71 @@ app.get('/api/costs', async (req, res) => {
       Object.entries(accounts).map(async ([key, a]) => {
         if (!a.profile && !a.roleArn) return
         try {
-          const cost = await getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId })
+          const cost = await cached(`costs:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
+            getCosts({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, month, accountId: a.accountId }),
+          )
           // Proiezione di fine mese: run-rate deterministico sui giorni trascorsi (niente ML/GetCostForecast,
           // niente chiamata extra a pagamento né permesso in più). `null` per un mese già chiuso → la UI la
           // mostra solo sul mese corrente.
           out[key] = { label: a.label ?? key, color: a.color ?? null, ...cost, projection: monthEndProjection(cost) }
         } catch (err) {
           out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+        }
+      }),
+    )
+    res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Trend costi: 13 mesi, consumo a listino vs fatturato (dopo crediti e tasse). Una chiamata a Cost
+// Explorer per account copre tutti i mesi. Non dipende dal mese selezionato → cache a parte.
+app.get('/api/costs/trend', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoCostTrend())
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const months = Math.min(24, Math.max(3, Number(req.query.months) || 13))
+    const out = {}
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!a.profile && !a.roleArn) return
+        try {
+          const trend = await cached(`trend:${key}:${months}`, COSTS_TTL, () =>
+            getCostTrend({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, months }),
+          )
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...trend }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+        }
+      }),
+    )
+    res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Costi per COMPONENTE (tag di allocazione costi): "di chi è questa spesa", non solo "quale servizio
+// AWS". Se il tag non è attivato in Billing, Cost Explorer risponde tutto non-taggato: lo diciamo.
+app.get('/api/costs/components', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoCostComponents())
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const month = req.query.month
+    const out = {}
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!a.profile && !a.roleArn) return
+        try {
+          const byComp = await cached(`components:${key}:${month ?? 'now'}`, COSTS_TTL, () =>
+            getCostByComponent({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, month }),
+          )
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...byComp }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t), tagKey: COMPONENT_TAG }
         }
       }),
     )
