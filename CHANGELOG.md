@@ -6,6 +6,18 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Tutta la riga apre il servizio** — il bersaglio era il solo nome, alto 18px su una riga alta 32: su
+  una tabella densa il bersaglio grande è metà del lavoro. Ora il clic vale su tutta la riga, senza
+  rubare i gesti che vivono dentro di lei: link (endpoint, log, eventi, rimuovi), bottoni, freccia di
+  espansione e l'intera colonna azioni restano loro. E se stai **selezionando del testo** il clic non
+  apre niente: trascinare per copiare un nome finisce con un mouseup, che è un clic — aprire un
+  pannello lì fa perdere la selezione appena fatta.
+  Il nome del servizio è diventato un **controllo vero** (`role="button"`, raggiungibile col tab,
+  Invio/Spazio, fuoco visibile): una `<tr>` non si mette a fuoco, quindi senza questo la tastiera
+  avrebbe perso l'unico modo di aprire il pannello dalla tabella — che, a dirla tutta, non ce l'aveva
+  nemmeno prima.
+
+### Changed
 - **Lo stato non è più solo un colore, e il perché si legge dove guardi** — in tabella la colonna
   «Stato» era larga 108px e su una riga sana conteneva **un pallino e nient'altro**: la colonna con
   meno informazione per pixel di tutta la vista, e — peggio — lo stato «su» codificato col **solo

@@ -193,3 +193,11 @@
   border-color: #7c3aed;
   background: rgba(124, 58, 237, 0.16);
 }
+
+/* Nome del servizio: da tastiera è il modo di aprire il pannello (una <tr> non si mette a fuoco),
+   quindi il fuoco deve VEDERSI — altrimenti tabulando si finisce su un elemento invisibile. */
+.dg-openable:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+  border-radius: 3px;
+}

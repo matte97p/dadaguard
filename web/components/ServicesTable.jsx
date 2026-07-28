@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
-import { fmtMs, fmtSchedule } from '../format.js'
+import { fmtMs, fmtSchedule, rowClickOpens } from '../format.js'
 import { prettyBedrock, splitFamily, familyPrefixes } from '../serviceName.js'
 import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
@@ -66,7 +66,28 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         return (
           <Tooltip title={s.name}>
             <span
-              onClick={onOpen ? () => onOpen(s.name) : undefined}
+              role={onOpen ? 'button' : undefined}
+              tabIndex={onOpen ? 0 : undefined}
+              className={onOpen ? 'dg-openable' : undefined}
+              onClick={
+                onOpen
+                  ? (e) => {
+                      e.stopPropagation() // la riga apre già: senza questo il gesto conta due volte
+                      onOpen(s.name)
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                onOpen
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onOpen(s.name)
+                      }
+                    }
+                  : undefined
+              }
               style={{ cursor: onOpen ? 'pointer' : undefined, display: 'inline-flex', alignItems: 'baseline', gap: 6 }}
             >
               {family && <span className="dg-fam" style={{ maxWidth: 150 }}>{family}</span>}
@@ -282,7 +303,17 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       pagination={false}
       sticky
       scroll={{ x: 'max-content' }}
-      onRow={(s) => ({ 'data-service': s.name })}
+      onRow={(s) => ({
+        'data-service': s.name,
+        // Tutta la riga apre il servizio: il bersaglio grande è metà del lavoro su una tabella densa
+        // (il nome da solo è alto 18px). I gesti interni restano loro — vedi `rowClickOpens`.
+        onClick: onOpen
+          ? (e) => {
+              if (rowClickOpens(e.target, window.getSelection?.()?.toString())) onOpen(s.name)
+            }
+          : undefined,
+        style: onOpen ? { cursor: 'pointer' } : undefined,
+      })}
       expandable={{
         rowExpandable: () => true, // il tipo c'è sempre, quindi la riga si apre sempre
         expandedRowRender: (s) => (
