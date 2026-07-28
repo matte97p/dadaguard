@@ -49,7 +49,9 @@ function Bar({ label, amount, max, credit, projected, t }) {
 // Cost Explorer è a pagamento → fetch on-mount e al cambio mese.
 export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
+  // `true` da subito: al mount una richiesta parte SEMPRE, quindi partire da `false` dipingeva un
+  // primo fotogramma vuoto (nessuno scheletro, nessun dato) prima che l'effetto la facesse partire.
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [month, setMonth] = useState(() => {
     const d = new Date()
