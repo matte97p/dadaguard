@@ -16,6 +16,18 @@ All notable changes to Dadaguard are documented here. Format based on
   verso un altro host dice quale. Per avere un verde vero serve un `healthUrl` che bypassi il login.
 
 ### Added
+- **Le notifiche e le sonde si accendono davvero** — il notificatore Slack e il segnale #1 esistevano
+  nel codice ma in cloud restavano inerti: mancavano i webhook nel task e la mappa `health:` in
+  config. La ricetta Terraform ora accetta `slack_webhook_ssm_arn`, `slack_webhook_cron_ssm_arn` e
+  `cloudflare_api_token_ssm_arn` (facoltativi: `null` = spento, e i `secrets` si aggiungono solo se
+  l'ARN c'è — un `valueFrom` verso un parametro inesistente non fallisce il plan, fa fallire l'AVVIO
+  del task), e `deploy/enable-notifications.sh` accende tutto su un'istanza già in esecuzione, in
+  modo idempotente. Serve perché il workflow di deploy riusa la task definition **viva** cambiandone
+  solo l'immagine: una revision registrata così sopravvive ai deploy successivi.
+  Le sonde dichiarate coprono **solo** gli host verificati serviti da AWS — una richiesta marcata è
+  stata ritrovata in `/ecs/cato-staging/{backend,frontend}`. Restano fuori i tre microservizi di
+  staging (rispondono da Railway: `x-railway-*`) e `app.get-cato.com` (Vercel: `x-vercel-id`): là un
+  verde parlerebbe del vecchio hosting.
 - **La sonda di liveness ora si può accendere sui servizi scoperti** — il segnale #1 richiede un
   `healthUrl`, ma un servizio trovato dall'auto-discovery non ha un posto dove dichiararlo: era l'unico
   check spento su tutto il pannello. Nuova mappa `health:` in config, con le stesse chiavi di `urls:`

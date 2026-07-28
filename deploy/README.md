@@ -55,6 +55,20 @@ niente profili SSO, ma un **task role** che assume un ruolo read-only in ogni ac
 4. **Cloudflare**: sidecar `cloudflared` (Tunnel) + un'Access application che
    limita l'ingresso al team. Guida passo-passo (tunnel, route, Access, gotcha):
    [`CLOUDFLARE_ZERO_TRUST.md`](CLOUDFLARE_ZERO_TRUST.md).
+5. **Notifiche Slack** (facoltative): due webhook in SSM SecureString, iniettati come
+   `DADAGUARD_SLACK_WEBHOOK` (tutto) e `DADAGUARD_SLACK_WEBHOOK_CRON` (solo i cron **mai
+   partiti**: un cron che *crasha* lo racconta già da sé, con più dettaglio). Senza webhook il
+   notificatore è **inerte**: nessun messaggio, nessun errore.
+6. **Sonde HTTP** (facoltative): la mappa `health:` in config accende il segnale #1 sui servizi
+   scoperti. Vale un URL intero o un path risolto su `urls:`. Dichiara solo host che servono
+   **davvero** il servizio che stai guardando: durante una migrazione un hostname può rispondere
+   ancora dal vecchio hosting, e un verde su quello è peggio di nessun segnale.
+
+Su un'istanza già in esecuzione, i punti 5 e 6 si accendono con
+[`enable-notifications.sh`](enable-notifications.sh) (idempotente: copia i webhook, allarga la
+policy del ruolo di esecuzione, aggiunge la mappa `health:`, registra una revision del task e
+attende che sia stabile). Serve perché il workflow di deploy riusa la task definition **viva**
+cambiandone solo l'immagine: una revision registrata così sopravvive ai deploy successivi.
 
 ## Build & run locale del container
 
