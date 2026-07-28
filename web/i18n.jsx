@@ -433,6 +433,8 @@ const STRINGS = {
     'discover.notInTf': '⚠ non in TF',
     'discover.added': '{n} {n#aggiunto#aggiunti} alla watchlist',
     'discover.autoTitle': 'Auto-discovery attiva',
+    'discover.problemsTitle': '{n} {n#account con letture non riuscite#account con letture non riuscite}',
+    'discover.problemsDesc': 'In questi account alcune risorse non sono state lette (permessi, ruolo non assumibile, throttling): quello che vedi NON è la lista completa. Un account senza risorse e un account che non si riesce a leggere sono due cose opposte.',
     'discover.autoDesc':
       '{n} {n#servizio scoperto#servizi scoperti} in automatico dai tuoi account AWS (nessun services.yaml). Crea services.yaml per fissare la watchlist, le versioni attese e gli account.',
     'demo.title': 'Modalità demo — dati finti',
@@ -863,6 +865,8 @@ const STRINGS = {
     'discover.notInTf': '⚠ not in TF',
     'discover.added': '{n} added to the watchlist',
     'discover.autoTitle': 'Auto-discovery on',
+    'discover.problemsTitle': '{n} {n#account with failed reads#accounts with failed reads}',
+    'discover.problemsDesc': 'Some resources in these accounts could not be read (permissions, role that cannot be assumed, throttling): what you see is NOT the full list. An account with no resources and an account that cannot be read are opposites.',
     'discover.autoDesc':
       '{n} {n#service#services} auto-discovered from your AWS accounts (no services.yaml). Create a services.yaml to pin the watchlist, expected versions and accounts.',
     'demo.title': 'Demo mode — fake data',
