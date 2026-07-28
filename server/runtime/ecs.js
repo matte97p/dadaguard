@@ -9,8 +9,41 @@ import {
   DescribeLoadBalancersCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
+import { cached } from '../util/ttlcache.js'
 import { publicUrlOfLb } from './alb.js'
 import { principalName } from '../util/principal.js'
+
+// Le stesse informazioni servivano a DUE check diversi (`runtime` e `version`), che girano in
+// parallelo sullo stesso servizio: erano due `DescribeServices` identiche per ogni servizio ECS.
+// `cached` condivide anche la promessa in volo, quindi le due richieste concorrenti diventano una.
+// TTL corto: `runningCount` e `desiredCount` vengono da qui, e la risposta ha comunque una cache di 30s.
+const SERVICE_TTL_MS = Number(process.env.DADAGUARD_ECS_SERVICE_TTL_MS ?? 15_000)
+
+// Una task definition, dato il suo ARN, è IMMUTABILE: una revisione non cambia più. Rileggerla non
+// può dare un risultato diverso, quindi la cache non è un compromesso — è la verità, letta una volta.
+// Un deploy registra una revisione NUOVA, cioè una chiave nuova: si invalida da sé.
+const TASKDEF_TTL_MS = Number(process.env.DADAGUARD_TASKDEF_TTL_MS ?? 60 * 60 * 1000)
+
+// ALB e target group: il DNS di un load balancer non cambia mai nella pratica (cambia se lo ricrei,
+// e allora cambia anche l'ARN). Dieci minuti.
+const ELB_TTL_MS = Number(process.env.DADAGUARD_ELB_TTL_MS ?? 10 * 60 * 1000)
+
+const credKey = (aws) => `${aws?.region ?? ''}|${aws?.profile ?? ''}|${aws?.roleArn ?? ''}`
+
+function describeService(cfg, aws) {
+  return cached(`ecs:svc:${credKey(aws)}|${cfg.cluster}|${cfg.service}`, SERVICE_TTL_MS, async () => {
+    const client = new ECSClient(clientOpts(aws))
+    const out = await client.send(new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }))
+    return out.services?.[0] ?? null
+  })
+}
+
+function describeTaskDef(taskDefArn, aws) {
+  return cached(`ecs:td:${credKey(aws)}|${taskDefArn}`, TASKDEF_TTL_MS, async () => {
+    const client = new ECSClient(clientOpts(aws))
+    return client.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefArn, include: ['TAGS'] }))
+  })
+}
 
 // Endpoint pubblico di un servizio ECS dietro ALB (per la card): dal target group del servizio risalgo
 // al load balancer e ne prendo il DNS SE internet-facing (interno → null). Best-effort: se le describe
@@ -20,10 +53,14 @@ async function ecsAlbUrl(svc, aws) {
   if (!tgArn) return null // servizio senza LB (worker/interno) → nessun endpoint
   try {
     const elb = new ElasticLoadBalancingV2Client(clientOpts(aws))
-    const tg = (await elb.send(new DescribeTargetGroupsCommand({ TargetGroupArns: [tgArn] }))).TargetGroups?.[0]
+    const tg = await cached(`elb:tg:${credKey(aws)}|${tgArn}`, ELB_TTL_MS, async () =>
+      (await elb.send(new DescribeTargetGroupsCommand({ TargetGroupArns: [tgArn] }))).TargetGroups?.[0],
+    )
     const lbArn = tg?.LoadBalancerArns?.[0]
     if (!lbArn) return null
-    const lb = (await elb.send(new DescribeLoadBalancersCommand({ LoadBalancerArns: [lbArn] }))).LoadBalancers?.[0]
+    const lb = await cached(`elb:lb:${credKey(aws)}|${lbArn}`, ELB_TTL_MS, async () =>
+      (await elb.send(new DescribeLoadBalancersCommand({ LoadBalancerArns: [lbArn] }))).LoadBalancers?.[0],
+    )
     return publicUrlOfLb(lb)
   } catch {
     return null
@@ -73,12 +110,7 @@ export function classifyEcs(svc, now = Date.now(), graceMs = GRACE_MS) {
 // Permesso richiesto: ecs:DescribeServices.
 export async function ecsRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
-  const client = new ECSClient(clientOpts(aws))
-  const out = await client.send(
-    new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }),
-  )
-
-  const svc = out.services?.[0]
+  const svc = await describeService(cfg, aws)
   if (!svc) return { status: 'unknown', reason: t('ecs.notfound') }
 
   const { status, desiredCount, runningCount, pendingCount, deploying } = classifyEcs(svc)
@@ -104,11 +136,7 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
 // + timestamp del deploy più recente. Permessi: ecs:DescribeServices,
 // ecs:DescribeTaskDefinition. Ritorna { tag?, image?, deployedAt? } o null.
 export async function ecsBuildInfo(cfg, aws) {
-  const client = new ECSClient(clientOpts(aws))
-  const out = await client.send(
-    new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }),
-  )
-  const svc = out.services?.[0]
+  const svc = await describeService(cfg, aws)
   if (!svc) return null
 
   // deploy più recente (PRIMARY) → timestamp; il task definition in uso è il suo.
@@ -118,7 +146,7 @@ export async function ecsBuildInfo(cfg, aws) {
   const taskDefArn = primary?.taskDefinition ?? svc.taskDefinition
   if (!taskDefArn) return { deployedAt }
 
-  const td = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefArn, include: ['TAGS'] }))
+  const td = await describeTaskDef(taskDefArn, aws)
   // immagine del primo container (o quello che combacia col service, se dichiarato).
   const containers = td.taskDefinition?.containerDefinitions ?? []
   const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image

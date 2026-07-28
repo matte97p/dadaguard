@@ -5,6 +5,39 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Traccia delle chiamate AWS (`DADAGUARD_TRACE=1`)** — conta chiamate e tempo per servizio AWS,
+  agganciandosi al gestore HTTP, così vede **tutte** le chiamate (AssumeRole e retry compresi) senza
+  strumentare un modulo alla volta. Nata perché due volte ho stimato a occhio dove andasse il tempo e
+  mi sono sbagliato: le metriche CloudWatch erano già unite in batch, e il costo vero stava altrove.
+  Spenta per default.
+
+### Changed
+- **Molte meno chiamate AWS per la stessa risposta.** Misurato sui 4 account veri, con la traccia:
+
+| | prima | dopo |
+|---|---|---|
+| state Terraform (S3) | 69 chiamate · 7,4s | 0 (in cache 10 min) |
+| ECS | 48 chiamate · 5,7s | **3** · 0,3s |
+| load balancer | 22 chiamate · 1,5s | 0 (in cache 10 min) |
+| check `version` | 8,9s | **0,6s** |
+| giro completo forzato | 4,25s | **3,6s** |
+
+  Le tre cose che lo permettono, in ordine di guadagno:
+  - **lo state Terraform si rilegge ogni 10 minuti, non a ogni richiesta**: si elenca il bucket e si
+    scarica ogni `.tfstate` (uno per layer, decine per ambiente) — era il costo più alto di tutti, più
+    di ECS. Cambia solo quando qualcuno fa `apply`, che dura minuti;
+  - **`DescribeServices` era chiamata due volte per servizio ECS**, una dal check `runtime` e una da
+    `version`, che girano in parallelo sullo stesso servizio con la stessa richiesta. Ora la promessa
+    è condivisa: una sola chiamata;
+  - **una task definition, dato l'ARN, è immutabile** — rileggerla non può dare un risultato diverso,
+    quindi tenerla in cache non è un compromesso. Un deploy registra una revisione nuova, cioè una
+    chiave nuova: si invalida da sé. Idem per il DNS dei load balancer.
+- **L'indice dei nomi dei secret in cache 5 minuti** (36 chiamate paginate, ~1,7s per risposta): i nomi
+  cambiano quando qualcuno aggiunge un parametro, cioè settimane. ⚠️ È l'unica delle quattro modifiche
+  **non** misurata contro AWS: il token SSO è scaduto a metà sessione. Il pattern è identico a quello
+  dello state e i test coprono il comportamento della cache.
+
 ### Changed
 - **Le notifiche parlano la grammatica di casa** — il formato inventava un terzo dialetto rispetto a
   quello che il team legge già in `#aws-deploy` (notifiche di deploy) e `#aws-cron-test` (esiti dei
