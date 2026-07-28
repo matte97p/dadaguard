@@ -83,3 +83,17 @@ export function countByStatus(services) {
   const extra = [...n.keys()].filter((k) => !STATUS_ORDER.includes(k)).sort()
   return [...known, ...extra.map((k) => ({ status: k, count: n.get(k) }))]
 }
+
+// Un clic sulla RIGA apre il servizio. Ma una riga cliccabile non deve rubare i gesti che già
+// esistono al suo interno, altrimenti diventa una trappola:
+//   - link e bottoni (apri endpoint, log, eventi, rimuovi, freccia di espansione) hanno già il loro;
+//   - la colonna azioni è tutta gesti: nessun clic lì deve navigare;
+//   - se stai SELEZIONANDO del testo (trascini per copiare un nome) il rilascio del mouse è un clic:
+//     aprire un pannello mentre copi è il modo più rapido di far perdere la selezione.
+// Puro/testabile: prende il bersaglio (qualunque cosa sappia fare `closest`) e il testo selezionato.
+const ROW_CLICK_EXEMPT = 'a, button, input, .dg-actions, .ant-table-row-expand-icon, [data-no-row-click]'
+export function rowClickOpens(target, selection = '') {
+  if (String(selection ?? '').trim()) return false
+  if (!target || typeof target.closest !== 'function') return true
+  return !target.closest(ROW_CLICK_EXEMPT)
+}
