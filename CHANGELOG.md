@@ -28,6 +28,12 @@ All notable changes to Dadaguard are documented here. Format based on
   (altrimenti un `AccessDenied` momentaneo diventava un'ora di pagina rotta).
 
 ### Fixed
+- **Il nome del tag dei componenti era in minuscolo, e sarebbe stato muto** — in Cost Explorer le
+  chiavi dei tag sono **case-sensitive** e sbagliare la maiuscola non dà errore: dà *tutto non
+  taggato*. Il tag attivo in Cato è `Component` (verificato con
+  `aws ce list-cost-allocation-tags --status Active`). E se la risposta torna comunque tutta non
+  taggata, ora la pagina lo **dice** — col nome del tag cercato e il comando per controllare — invece
+  di mostrare una riga sola e far credere che quella sia l'attribuzione vera.
 - **Le tasse finivano dentro il consumo per servizio** — nell'aggregazione ogni `RECORD_TYPE` che non
   fosse credito o rimborso veniva sommato al servizio, tasse incluse: il consumo risultava gonfiato e
   il netto sbagliato. Ora sono tre voci distinte — consumo a listino, tasse (addebitate **sopra**),

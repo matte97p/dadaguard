@@ -195,7 +195,10 @@ export async function getCostTrend({ profile, roleArn, externalId, accountId, mo
 // Il servizio AWS dice COSA costa (RDS, S3), il tag dice DI CHI è (avvista-db, teleport): è il
 // secondo che fa decidere. Richiede che il tag sia attivato come "cost allocation tag" — se non lo è,
 // Cost Explorer risponde con tutto in `untagged` (e lo diciamo, invece di mostrare una lista vuota).
-export const COMPONENT_TAG = process.env.DADAGUARD_COMPONENT_TAG || 'component'
+// Il nome del tag è CASE-SENSITIVE in Cost Explorer, e sbagliare la maiuscola non dà errore: dà
+// tutto "non taggato". In Cato il tag attivo è `Component` (verificato con
+// `aws ce list-cost-allocation-tags --status Active`, che è anche il modo di controllarlo altrove).
+export const COMPONENT_TAG = process.env.DADAGUARD_COMPONENT_TAG || 'Component'
 
 // Gruppi [TAG, SERVICE] → componenti ordinati per spesa, ognuno col dettaglio per servizio AWS.
 // Le chiavi TAG arrivano come `chiave$valore` (valore vuoto = risorsa non taggata). Puro/testabile.
