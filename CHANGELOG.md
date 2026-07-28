@@ -6,6 +6,18 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **La scoperta inghiottiva gli errori: un account che non si riesce a leggere sembrava un account
+  vuoto** — ogni collettore aveva il suo `.catch(() => [])` **muto**, quindi permessi mancanti, un ruolo
+  non assumibile o un throttling producevano «zero risorse e zero log». Per un monitor è il fallimento
+  peggiore possibile: *non si distingue dal successo*. Trovato sul vero — dopo aver acceso la scoperta
+  via Organizations, l'account Security compariva con zero servizi mentre ne ha due; CloudTrail ha
+  mostrato che Dadaguard non tentava nemmeno di assumere il ruolo, e nei log non c'era una riga.
+  Le API di elenco AWS **non** danno errore quando non c'è nulla: restituiscono una lista vuota. Quindi
+  un errore lì è sempre un problema reale. Ora ogni lettura fallita viene raccolta, loggata con account
+  e regione, e riportata in `/api/status` (`discoveryProblems`) — così il pannello può dire «non ho
+  potuto leggere questo account» invece di mostrarlo vuoto.
+
+### Fixed
 - **Accendere la scoperta degli account avrebbe spento i controlli di drift, in silenzio** — la fusione
   era `{...dichiarati, ...scoperti}`: l'account trovato via AWS Organizations **sostituiva in blocco**
   quello dichiarato a mano, e con lui sparivano `color` e soprattutto `terraform.stateBucket` — che è

@@ -9,7 +9,7 @@ import {
   DescribeAutoScalingGroupsCommand,
 } from '@aws-sdk/client-auto-scaling'
 import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch'
-import { clientOpts } from './runtime/awsClient.js'
+import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { managedResources } from './terraform/state.js'
 import { discoverSchedules, minutesToSchedule } from './schedules.js'
 
@@ -186,15 +186,30 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   const aws = { profile, roleArn, externalId, region }
   const ex = exclude ? new RegExp(exclude) : null
 
+  // Ogni lettura che FALLISCE va raccolta, non inghiottita. Prima ogni collettore aveva il suo
+  // `.catch(() => [])` muto: il risultato era che un account senza permessi, o un ruolo che non si
+  // riesce ad assumere, produceva «zero risorse e zero log» — cioè il pannello diceva «qui non c'è
+  // niente» quando il vero significato era «non sono riuscito a guardare». Per un monitor è il
+  // fallimento peggiore possibile: non si distingue dal successo.
+  //
+  // Le API di elenco AWS non danno errore quando non c'è nulla: restituiscono una lista vuota. Quindi
+  // un errore qui è SEMPRE un problema reale (permessi, ruolo, throttling), mai "niente da vedere".
+  const problems = []
+  const soft = (what, promise, fallback) =>
+    promise.catch((err) => {
+      problems.push({ what, err: cleanAwsReason(err) })
+      return fallback
+    })
+
   let [lam, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses] = await Promise.all([
-    listLambda(aws).catch(() => ({ names: [], desc: {} })),
-    listEcs(aws).catch(() => []),
-    listAsg(aws).catch(() => []),
-    discoverSchedules(aws).catch(() => ({ lambdas: new Map(), ecs: [] })),
-    listBedrockModels(aws).catch(() => []),
-    listMetricDimension(aws, 'AWS/SageMaker', 'Invocations', 'EndpointName').catch(() => []),
-    listOpenSearchDomains(aws).catch(() => []),
-    sesActive(aws).catch(() => false),
+    soft('lambda', listLambda(aws), { names: [], desc: {} }),
+    soft('ecs', listEcs(aws), []),
+    soft('asg', listAsg(aws), []),
+    soft('schedules', discoverSchedules(aws), { lambdas: new Map(), ecs: [] }),
+    soft('bedrock', listBedrockModels(aws), []),
+    soft('sagemaker', listMetricDimension(aws, 'AWS/SageMaker', 'Invocations', 'EndpointName'), []),
+    soft('opensearch', listOpenSearchDomains(aws), []),
+    soft('ses', sesActive(aws), false),
   ])
   let lambdas = lam.names
   const lamDesc = lam.desc // FunctionName → Description (per la card, senza chiamate extra)
@@ -202,7 +217,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
   let activeInfo = null
   if (!all && lambdas.length) {
     const total = lambdas.length
-    const active = new Set(await filterActiveLambda(aws, lambdas, activeDays).catch(() => lambdas))
+    const active = new Set(await soft('lambda-invocazioni', filterActiveLambda(aws, lambdas, activeDays), lambdas))
     // I cron (Lambda con schedule) vanno tenuti SEMPRE, anche a 0 invocazioni: un cron spento o
     // rotto è proprio ciò che il monitor deve mostrare (badge disabilitato / dead-man switch), non
     // nascondere. Union: attivi ∪ schedulati.
@@ -280,5 +295,5 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     }
   }
 
-  return { candidates, activeInfo, tfState }
+  return { candidates, activeInfo, tfState, problems }
 }
