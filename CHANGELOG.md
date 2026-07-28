@@ -5,6 +5,35 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Andamento dei costi su 13 mesi: consumo a listino contro fatturato** — la pagina rispondeva a
+  «quanto», mai a «sta crescendo?», che è l'unica delle due che fa agire. Due serie sullo stesso asse
+  (sono entrambe dollari), scala che parte da zero, e il mese in corso **tratteggiato** — senza quel
+  tratteggio l'ultimo punto si legge come un crollo, quando è solo un mese incompleto. Una sola
+  chiamata a Cost Explorer copre tutti i mesi, e non dipende dal mese selezionato: cambiare mese non
+  la rifà. Colori scelti col validatore del design system (passano in chiaro e in scuro, incluse le
+  simulazioni di daltonismo) e mai unico segnale: legenda, valori scritti sull'ultimo punto, e la
+  tabella dei numeri sotto per chi non ha un puntatore.
+- **AI separata dall'infrastruttura** — Bedrock e AWS Marketplace (i modelli Claude, che NON passano da
+  Bedrock in fattura) hanno un riquadro proprio e un interruttore «senza AI» sul grafico. Con i modelli
+  che valgono la maggior parte del conto, un totale unico nasconde l'andamento dell'infrastruttura:
+  sale l'uso dei modelli e sembra che sia cresciuto tutto.
+- **Costi per componente** — dal tag di allocazione costi (`component`, sovrascrivibile con
+  `DADAGUARD_COMPONENT_TAG`): il servizio AWS dice *cosa* costa, il tag dice *di chi è*, ed è il secondo
+  a far decidere. Ogni voce si apre sul dettaglio per servizio. Il **non taggato** resta in elenco:
+  nasconderlo farebbe sembrare completa un'attribuzione che non lo è.
+- **Cache di un'ora sulle risposte di Cost Explorer** — si paga a chiamata (~$0.01) e il dato si
+  aggiorna poche volte al giorno: senza cache ogni apertura della pagina rifaceva una chiamata **per
+  account**. Le richieste concorrenti condividono la stessa promessa, e un errore non resta in cache
+  (altrimenti un `AccessDenied` momentaneo diventava un'ora di pagina rotta).
+
+### Fixed
+- **Le tasse finivano dentro il consumo per servizio** — nell'aggregazione ogni `RECORD_TYPE` che non
+  fosse credito o rimborso veniva sommato al servizio, tasse incluse: il consumo risultava gonfiato e
+  il netto sbagliato. Ora sono tre voci distinte — consumo a listino, tasse (addebitate **sopra**),
+  crediti (registrazioni **negative**) — e il totale è la loro somma. Con le tasse a zero non si
+  vedeva; restava un errore.
+
 ### Changed
 - **Log ed eventi non coprono più il servizio che stai guardando** — erano due drawer che si aprivano
   SOPRA il pannello del servizio: il contesto («di chi sono questi log?») finiva sotto, e chiudendone

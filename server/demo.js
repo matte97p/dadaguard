@@ -297,8 +297,9 @@ export function demoCosts() {
         { service: 'Amazon RDS', amount: 88.0 },
         { service: 'AWS Lambda', amount: 12.4 },
         { service: 'Amazon CloudFront', amount: 9.1 },
+        { service: 'Amazon Bedrock', amount: 402.0 },
       ],
-      gross: 251.8, credits: -40, total: 211.8, net: 211.8,
+      gross: 653.8, credits: -40, tax: 3.2, aiGross: 402, infraGross: 251.8, total: 617.0, net: 617.0,
       period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
     }),
     staging: withProjection({
@@ -585,5 +586,91 @@ export function demoEvents() {
       { ts: now - 900000, eventName: 'RegisterTaskDefinition', user: 'github-actions', source: 'ecs.amazonaws.com', errorCode: null },
       { ts: now - 3600000, eventName: 'PutScalingPolicy', user: 'matteo', source: 'application-autoscaling.amazonaws.com', errorCode: 'AccessDenied' },
     ],
+  }
+}
+
+// Trend demo: la spesa AWS nasce con la migrazione (mesi vuoti prima) e l'ultimo mese è PARZIALE —
+// così la demo mostra anche il tratteggio, che è la parte facile da sbagliare guardando un grafico.
+export function demoCostTrend() {
+  const mk = (month, usage, ai, credits, partial = false) => ({
+    month,
+    usage,
+    aiUsage: ai,
+    infraUsage: usage - ai,
+    tax: 0,
+    credits,
+    invoiced: usage + credits,
+    partial,
+  })
+  return {
+    prod: {
+      label: 'Production',
+      color: '#cf1322',
+      currency: 'USD',
+      months: [
+        mk('2025-07', 0, 0, 0), mk('2025-08', 0, 0, 0), mk('2025-09', 0, 0, 0),
+        mk('2025-10', 0, 0, 0), mk('2025-11', 0, 0, 0), mk('2025-12', 0, 0, 0),
+        mk('2026-01', 0, 0, 0), mk('2026-02', 12, 0, -12), mk('2026-03', 48, 4, -46),
+        mk('2026-04', 96, 22, -88), mk('2026-05', 410, 180, -370), mk('2026-06', 1180, 720, -1010),
+        mk('2026-07', 640, 402, -545, true),
+      ],
+    },
+    staging: {
+      label: 'Staging',
+      color: '#1677ff',
+      currency: 'USD',
+      months: [
+        mk('2025-07', 0, 0, 0), mk('2025-08', 0, 0, 0), mk('2025-09', 0, 0, 0),
+        mk('2025-10', 0, 0, 0), mk('2025-11', 0, 0, 0), mk('2025-12', 0, 0, 0),
+        mk('2026-01', 0, 0, 0), mk('2026-02', 3, 0, -3), mk('2026-03', 11, 0, -10),
+        mk('2026-04', 24, 2, -22), mk('2026-05', 78, 9, -70), mk('2026-06', 132, 14, -118),
+        mk('2026-07', 61, 6, -52, true),
+      ],
+    },
+  }
+}
+
+// Componenti demo: un `null` in mezzo (risorse non taggate) perché è il caso vero più comune — e
+// nascondere il non-taggato farebbe sembrare l'attribuzione completa quando non lo è.
+export function demoCostComponents() {
+  return {
+    prod: {
+      label: 'Production',
+      color: '#cf1322',
+      currency: 'USD',
+      tagKey: 'component',
+      period: { start: '2026-07-01', end: '2026-07-13' },
+      components: [
+        {
+          component: 'avvista-db',
+          amount: 148.2,
+          services: [
+            { service: 'Amazon Relational Database Service', amount: 141.0 },
+            { service: 'Amazon Simple Storage Service', amount: 7.2 },
+          ],
+        },
+        {
+          component: 'backend',
+          amount: 62.4,
+          services: [
+            { service: 'Amazon Elastic Container Service', amount: 58.1 },
+            { service: 'Amazon Elastic Load Balancing', amount: 4.3 },
+          ],
+        },
+        { component: null, amount: 31.1, services: [{ service: 'EC2 - Other', amount: 31.1 }] },
+        { component: 'teleport', amount: 10.1, services: [{ service: 'Amazon Elastic Load Balancing', amount: 10.1 }] },
+      ],
+    },
+    staging: {
+      label: 'Staging',
+      color: '#1677ff',
+      currency: 'USD',
+      tagKey: 'component',
+      period: { start: '2026-07-01', end: '2026-07-13' },
+      components: [
+        { component: 'backend', amount: 28.4, services: [{ service: 'Amazon Elastic Container Service', amount: 28.4 }] },
+        { component: 'redis', amount: 18.0, services: [{ service: 'Amazon ElastiCache', amount: 18.0 }] },
+      ],
+    },
   }
 }

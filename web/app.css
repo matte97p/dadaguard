@@ -201,3 +201,30 @@
   outline-offset: 2px;
   border-radius: 3px;
 }
+
+/* Riga apribile (costi per componente): il marcatore predefinito di <summary> impone
+   `display:list-item`, che manda a capo il contenuto in blocco — quindi lo togliamo e mettiamo una
+   freccetta nostra, che ruota all'apertura. Un dettaglio apribile che non lo dichiara non viene aperto. */
+.dg-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.dg-summary::-webkit-details-marker {
+  display: none;
+}
+.dg-chev {
+  font-size: 10px;
+  opacity: 0.55;
+  transition: transform 0.12s ease;
+}
+details[open] > .dg-summary .dg-chev {
+  transform: rotate(90deg);
+}
+.dg-summary:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
