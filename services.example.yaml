@@ -97,6 +97,22 @@ accounts:
 #   backend: /health
 #   production/frontend: https://app.example.com/
 
+# --- Scoperta degli ACCOUNT in cloud: il blocco `org` ---
+# In locale gli account si scoprono dai profili SSO di ~/.aws/config. In cloud quei profili non
+# esistono, quindi la scoperta passa da AWS Organizations: `org` fa elencare i membri (ListAccounts) e
+# ne sintetizza uno per ciascuno, col ruolo read-only assunto cross-account. Senza questo blocco
+# Dadaguard vede SOLO gli account elencati a mano qui sotto — che è il modo più facile di non
+# accorgersi che un account esiste.
+# L'account in cui Dadaguard gira viene riconosciuto da sé (sts:GetCallerIdentity) e marcato
+# `inAccount`: verso se stessi non c'è nessun ruolo da assumere.
+# Un membro DOVE IL RUOLO NON ESISTE compare con un errore: è voluto — "non riesco a leggerlo" è
+# un'informazione, "non esiste" è una bugia. Per toglierlo dalla vista: `exclude`.
+# org:
+#   externalId: la-stessa-stringa-della-trust-policy
+#   region: eu-central-1
+#   roleName: dadaguard-readonly   # default
+#   exclude: [Security]            # per Id o per Nome
+
 # --- Account in cui Dadaguard STESSO gira ---
 # `inAccount: true` = usa le credenziali dell'ambiente (in cloud il task role) invece di assumere un
 # ruolo. Serve per l'account che ospita Dadaguard: non c'è nessun ruolo da assumere, ma "nessuna
