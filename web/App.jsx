@@ -1,19 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import {
-  ConfigProvider,
-  theme,
-  Layout,
-  Typography,
-  Button,
-  Space,
-  Badge,
-  Segmented,
-  Modal,
-  Input,
-  Alert,
-  message,
-} from 'antd'
+import { ConfigProvider, theme, Layout, Typography, Button, Space, Badge, Segmented, Modal, Input, Alert, message, Skeleton } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
 import {
   ReloadOutlined,
@@ -529,7 +516,12 @@ export default function App() {
             />
           )}
 
-          {data && activeNav.fields.length > 0 && <FilterBar {...filterProps} />}
+          {/* La barra dei filtri ha bisogno dei dati (le opzioni vengono dagli account e dai servizi),
+              ma il suo SPAZIO no: senza riservarlo, quando lo stato della flotta arriva — e sulla flotta
+              vera sono secondi, perché esegue i controlli di tutti i servizi — la barra compare e spinge
+              giù l'intera pagina, facendo perdere il punto in cui si stava leggendo. */}
+          {activeNav.fields.length > 0 &&
+            (data ? <FilterBar {...filterProps} /> : <FilterBarPlaceholder fields={activeNav.fields} />)}
 
           <Routes>
             <Route
@@ -626,5 +618,18 @@ export default function App() {
         </Modal>
       </Layout>
     </ConfigProvider>
+  )
+}
+
+// Sagoma della barra dei filtri: stessa altezza e stesso numero di controlli, in grigio. Serve solo a
+// tenere il posto — i valori arrivano coi dati.
+function FilterBarPlaceholder({ fields = [] }) {
+  const widths = { name: 210, account: 150, type: 120, status: 120, region: 130, schedule: 170, managed: 140, problems: 40, presets: 96 }
+  return (
+    <Space style={{ marginBottom: 16 }} wrap size={8}>
+      {fields.map((f) => (
+        <Skeleton.Button key={f} active size="small" style={{ width: widths[f] ?? 120, height: 32 }} />
+      ))}
+    </Space>
   )
 }

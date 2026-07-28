@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **La pagina saltava all'arrivo dello stato della flotta** — la barra dei filtri ha bisogno dei dati
+  (le sue opzioni vengono da account e servizi), ma il suo **spazio** no: restava nascosta finché
+  `/api/status` non rispondeva — e con 48 servizi da controllare sono **secondi** — poi compariva e
+  spingeva giù l'intera pagina, facendo perdere il punto in cui si stava leggendo. Ora lo spazio è
+  riservato da una sagoma con lo stesso numero di controlli e la stessa altezza. Vale su tutte le
+  pagine, non solo sui Costi.
+- **Il primo fotogramma della pagina Costi era vuoto** — `loading` partiva da `false` mentre al mount
+  una richiesta parte **sempre**: si dipingeva un fotogramma senza né scheletro né dati prima che
+  l'effetto la facesse partire.
+
 ### Added
 - **`org.selfUsesRole`** — nell'account che ospita Dadaguard si può assumere il ruolo read-only come
   per tutti gli altri, invece di usare le credenziali del task. Serve quando lì il ruolo **esiste**:
