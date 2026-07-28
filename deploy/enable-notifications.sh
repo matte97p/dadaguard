@@ -28,7 +28,14 @@ EXEC_ROLE=dadaguard-execution
 P_CFG=/dadaguard/services-yaml
 P_MAIN=/dadaguard/slack-webhook
 P_CRON=/dadaguard/slack-webhook-cron
-SRC_MAIN=/cato/production/deploy/slack_webhook_url
+# Da DOVE arrivano le destinazioni: sono quelle che Cato usa già, quindi nessun canale nuovo da far
+# seguire e niente da creare in Slack.
+#   - principale → il webhook di audit del backend, che scrive in #tech-devops-alert (verificato: le
+#     impersonificazioni in quel canale le manda `emit_impersonation_started` con
+#     SLACK_AUDIT_WEBHOOK_URL, ed è dove vivono già gli allarmi PostHog 🔴/🟢). «Un servizio è giù» è
+#     un allarme, non un rilascio: in #aws-deploy annegherebbe nel registro dei deploy.
+#   - cron → il webhook dei cron di produzione, che scrive in #tech-devops-cron.
+SRC_MAIN=/cato/production/backend/SLACK_AUDIT_WEBHOOK_URL
 SRC_CRON=/cato/production/cron/ai-credit-monitor/SLACK_WEBHOOK_URL
 
 ARN_CFG="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_CFG"
@@ -44,12 +51,17 @@ step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 
 # --- 1. i due webhook nell'account di Dadaguard ------------------------------------------------
 step "webhook Slack in SSM"
-for pair in "$P_MAIN|$SRC_MAIN|#aws-deploy — destinazione principale delle notifiche Dadaguard" \
+REWIRED=0
+for pair in "$P_MAIN|$SRC_MAIN|#tech-devops-alert — destinazione principale delle notifiche Dadaguard" \
   "$P_CRON|$SRC_CRON|#tech-devops-cron — solo i cron mai partiti"; do
   IFS='|' read -r dst src_name desc <<<"$pair"
   if payer ssm get-parameter --region "$REGION" --name "$dst" >/dev/null 2>&1; then
-    echo "  $dst già presente, lo lascio stare"
-    continue
+    if [ "${FORCE:-0}" != "1" ]; then
+      echo "  $dst già presente, lo lascio stare (FORCE=1 per ri-puntarlo a un altro canale)"
+      continue
+    fi
+    echo "  $dst esiste: FORCE=1 → lo ri-punto a $src_name"
+    REWIRED=1
   fi
   value=$(src ssm get-parameter --region "$REGION" --name "$src_name" --with-decryption --query Parameter.Value --output text)
   [ -n "$value" ] || {
@@ -127,6 +139,15 @@ else
   NEW=$(payer ecs register-task-definition --region "$REGION" --cli-input-json "file://$TMP/new-td.json" --query taskDefinition.taskDefinitionArn --output text)
   payer ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$NEW" >/dev/null
   echo "  registrata ${NEW##*/}, servizio aggiornato — attendo che il task nuovo sia stabile…"
+  payer ecs wait services-stable --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE"
+  echo "  stabile"
+fi
+
+# Un `secret` viene risolto quando il task PARTE: se il valore di un parametro già iniettato è
+# cambiato (cambio di canale), il container in esecuzione tiene ancora il vecchio. Serve un riavvio.
+if [ "$REWIRED" = "1" ]; then
+  step "riavvio per rileggere le destinazioni"
+  payer ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment >/dev/null
   payer ecs wait services-stable --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE"
   echo "  stabile"
 fi
