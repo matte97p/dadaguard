@@ -98,6 +98,21 @@ export function computeOverall(checks) {
   return { overall, cause, causes }
 }
 
+// Scoperti + dichiarati: chi vince, campo per campo. I DICHIARATI vincono, perché sono intento
+// umano — label, colore, e soprattutto `terraform.stateBucket`, che è ciò che alimenta i segnali di
+// drift e di risorse non gestite. Prima la fusione era `{...dichiarati, ...scoperti}`, cioè l'account
+// scoperto SOSTITUIVA in blocco quello dichiarato: nel momento in cui si accendeva la scoperta org,
+// quei campi sparivano e i controlli di drift smettevano di funzionare senza dire niente — il tipo di
+// guasto che si scopre settimane dopo, quando serve.
+// Gli account scoperti che nessuno ha dichiarato entrano così come sono. Pura/testabile.
+export function mergeAccounts(discovered = {}, declared = {}) {
+  const out = { ...discovered }
+  for (const [key, dec] of Object.entries(declared ?? {})) {
+    out[key] = { ...(discovered?.[key] ?? {}), ...dec }
+  }
+  return out
+}
+
 // Risolve la lista EFFETTIVA di account + servizi: config (+ org) e auto-discovery/merge.
 // Condivisa tra getStatus e gli endpoint per-servizio (logs/events), così anche i servizi
 // SCOPERTI (non in services.yaml) sono risolvibili per nome — altrimenti darebbero 404.
@@ -122,7 +137,7 @@ export async function resolveServices() {
   // col ruolo read-only assunto cross-account. Se fallisce, logga e prosegue con quelli espliciti.
   if (org) {
     try {
-      accounts = { ...accounts, ...(await resolveOrgAccounts(org)) }
+      accounts = mergeAccounts(await resolveOrgAccounts(org), accounts)
     } catch (err) {
       log.error('org: ListAccounts fallita', { err: err.message })
     }

@@ -5,6 +5,16 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Accendere la scoperta degli account avrebbe spento i controlli di drift, in silenzio** — la fusione
+  era `{...dichiarati, ...scoperti}`: l'account trovato via AWS Organizations **sostituiva in blocco**
+  quello dichiarato a mano, e con lui sparivano `color` e soprattutto `terraform.stateBucket` — che è
+  ciò che alimenta i segnali di **drift** e di **risorse non gestite**. Quei due check avrebbero smesso
+  di funzionare senza un errore, nel momento esatto in cui si abilitava `org`: il tipo di guasto che si
+  scopre settimane dopo, quando serve. Ora la fusione è **campo per campo** e vince il dichiarato
+  (è intento umano); lo scoperto riempie solo ciò che manca, e gli account che nessuno ha dichiarato
+  entrano così come sono.
+
 ### Added
 - **Filtro «Livello» sui costi, come su Analytics** — la Cost Category (`Livello`: compute, database,
   llms, deploy…) filtra **tutta** la pagina: riquadri, andamento 13 mesi e le ripartizioni. È il
