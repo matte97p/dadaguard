@@ -46,3 +46,23 @@ export function fmtCount(n) {
   if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k'
   return String(n)
 }
+
+// La metrica di latenza dichiarata dal server (`kind: 'latency'`): dedurla dall'unità sarebbe
+// fragile, una latenza senza serie non ha `sparkUnit`.
+export function latencyMetric(runtime) {
+  return (runtime?.metrics ?? []).find((m) => m.kind === 'latency') ?? null
+}
+
+// Che latenza mostrare in colonna, e da DOVE viene. Due fonti che NON vanno confuse:
+//   - `metric`: quella che il servizio misura di suo (CloudWatch: p95 del target ALB, durata lambda);
+//   - `probe`:  il giro completo della sonda HTTP di Dadaguard (rete + Cloudflare + servizio),
+//               misurato da fuori — più grande della prima per costruzione.
+// La seconda esiste solo dove c'è un `healthUrl`, e va SEMPRE etichettata: una colonna che mescola
+// le due tacendolo fa confrontare mele con arance ("il backend è 10 volte più lento di ieri").
+// Prima la metrica: se il servizio sa dire la sua latenza, la sua parola vale più della nostra.
+export function latencyOf(service) {
+  const m = latencyMetric(service?.checks?.runtime)
+  if (m && Number.isFinite(m.ms)) return { ms: m.ms, source: 'metric', metric: m }
+  const ms = service?.checks?.liveness?.latencyMs
+  return Number.isFinite(ms) ? { ms, source: 'probe' } : null
+}

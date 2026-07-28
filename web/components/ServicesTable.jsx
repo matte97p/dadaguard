@@ -3,7 +3,7 @@ import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule } from '../format.js'
 import { prettyBedrock, splitFamily, familyPrefixes } from '../serviceName.js'
-import { StatusDot, StatusTag, Summary, MetricValue, TerraformIcon, latencyMetric, STAT_TONE } from './signals.jsx'
+import { StatusDot, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
 
@@ -170,7 +170,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       // bucket S3, un worker senza richieste) resta in fondo in entrambi i versi, non finge di essere 0.
       sortDirections: ['descend', 'ascend'],
       sorter: (a, b) => {
-        const ms = (x) => latencyMetric(x.checks?.runtime)?.ms
+        const ms = (x) => latencyOf(x)?.ms
         const va = ms(a)
         const vb = ms(b)
         if (va == null && vb == null) return 0
@@ -179,8 +179,19 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         return va - vb
       },
       render: (_, s) => {
-        const m = latencyMetric(s.checks?.runtime)
-        return m ? <MetricValue metric={m} window={s.checks?.runtime?.window} inline /> : <Text type="secondary">—</Text>
+        const l = latencyOf(s)
+        if (!l) return <Text type="secondary">—</Text>
+        if (l.source === 'metric') return <MetricValue metric={l.metric} window={s.checks?.runtime?.window} inline />
+        // Misura della sonda: etichettata, perché include rete e Cloudflare e non è la stessa cosa
+        // della latenza che il servizio misura di suo.
+        return (
+          <span className="dg-num" title={t('col.tip.latency.probe')}>
+            {fmtMs(l.ms)}{' '}
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {t('col.latency.probe')}
+            </Text>
+          </span>
+        )
       },
     },
     {
