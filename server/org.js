@@ -25,7 +25,13 @@ export function buildOrgAccounts(members, org = {}, selfAccountId = null) {
     if (m.Status && m.Status !== 'ACTIVE') continue
     if (exclude.has(String(m.Id)) || exclude.has(String(m.Name))) continue
     const key = slug(m.Name || m.Id)
-    const self = selfAccountId && String(m.Id) === String(selfAccountId)
+    // `selfUsesRole`: nel proprio account si assume il ruolo read-only come per tutti gli altri.
+    // Perché è una SCELTA e non un automatismo: dipende da come è stato deployato. Se in quell'account
+    // il ruolo esiste, assumerlo tiene minimo il task role (che così sa solo fare AssumeRole) e usa la
+    // stessa policy revisionata degli altri. Se NON esiste, il default (`inAccount`) usa le credenziali
+    // dell'ambiente — perché tentare un AssumeRole verso un ruolo assente fallisce con un AccessDenied
+    // che sembra un problema di permessi mentre è la ricetta sbagliata.
+    const self = selfAccountId && String(m.Id) === String(selfAccountId) && !org.selfUsesRole
     out[key] = {
       label: m.Name || m.Id,
       accountId: m.Id,

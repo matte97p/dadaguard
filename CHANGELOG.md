@@ -5,6 +5,15 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **`org.selfUsesRole`** — nell'account che ospita Dadaguard si può assumere il ruolo read-only come
+  per tutti gli altri, invece di usare le credenziali del task. Serve quando lì il ruolo **esiste**:
+  il task role resta minimo (sa solo fare `sts:AssumeRole`) e si riusa la stessa policy revisionata,
+  invece di duplicare in-account tutti i permessi di lettura — che poi divergono alla prima modifica.
+  Resta una **scelta** e non un automatismo: se il ruolo non c'è, il default continua a usare le
+  credenziali dell'ambiente, perché tentare un AssumeRole verso un ruolo assente fallisce con un
+  `AccessDenied` che sembra un problema di permessi mentre è la ricetta sbagliata.
+
 ### Fixed
 - **La scoperta inghiottiva gli errori: un account che non si riesce a leggere sembrava un account
   vuoto** — ogni collettore aveva il suo `.catch(() => [])` **muto**, quindi permessi mancanti, un ruolo

@@ -112,6 +112,7 @@ accounts:
 #   region: eu-central-1
 #   roleName: dadaguard-readonly   # default
 #   exclude: [Security]            # per Id o per Nome
+#   selfUsesRole: true             # assumi il ruolo anche nel TUO account (se lì il ruolo esiste)
 
 # --- Account in cui Dadaguard STESSO gira ---
 # `inAccount: true` = usa le credenziali dell'ambiente (in cloud il task role) invece di assumere un
