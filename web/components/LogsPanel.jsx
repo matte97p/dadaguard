@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
+import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
@@ -46,8 +46,12 @@ function lineKind(msg) {
 }
 
 // Pannello "Log recenti" di un servizio: snapshot on-demand (ultima finestra), niente tail live.
-// Read-only/zero storage. service = nome (apre quando truthy).
-export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrorsOnly = false, onClose, t = (k) => k, lang }) {
+// Read-only/zero storage.
+//
+// È un PANNELLO, non un drawer: vive in una scheda del pannello del servizio, così i log non coprono
+// più lo stato del servizio che stai guardando. Il fetch parte al mount e la scheda si monta solo
+// quando la apri: resta on-demand come prima.
+export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
   const [errorsOnly, setErrorsOnly] = useState(defaultErrorsOnly)
   const [minutes, setMinutes] = useState(defaultMinutes) // finestra log: 1h / 6h / 24h / 48h
   const [data, setData] = useState(null)
@@ -86,13 +90,7 @@ export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrors
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
   return (
-    <Drawer
-      title={`${t('logs.title')}${service ? ` · ${service}` : ''}`}
-      placement="right"
-      width={760}
-      open={Boolean(service)}
-      onClose={onClose}
-    >
+    <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
         <Space size={14} wrap>
           <Space size={6}>
@@ -196,6 +194,6 @@ export default function LogsDrawer({ service, defaultMinutes = 60, defaultErrors
           })()}
         </>
       ) : null}
-    </Drawer>
+    </>
   )
 }

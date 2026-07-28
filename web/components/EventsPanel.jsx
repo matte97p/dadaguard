@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Alert, Empty, Spin, Typography, Space, Button, Divider, Tag } from 'antd'
+import { Alert, Spin, Typography, Space, Button, Divider, Tag } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
 // Pannello "Eventi & modifiche" di un servizio: eventi operativi (ECS/RDS/ASG) + modifiche
 // CloudTrail (la "causa": chi/cosa/quando ha cambiato la risorsa). Snapshot on-demand.
-export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
+//
+// È un PANNELLO, non un drawer: vive in una scheda del pannello del servizio. Prima era un secondo
+// drawer che copriva il primo — si perdeva di vista il servizio che si stava guardando, e chiudendolo
+// riappariva l'altro. Il fetch parte al mount, e la scheda si monta solo quando la apri: resta
+// on-demand come prima.
+export default function EventsPanel({ service, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -36,13 +41,7 @@ export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
   const changes = data?.changes
 
   return (
-    <Drawer
-      title={`${t('events.title')}${service ? ` · ${service}` : ''}`}
-      placement="right"
-      width={680}
-      open={Boolean(service)}
-      onClose={onClose}
-    >
+    <>
       <Space style={{ width: '100%', justifyContent: 'flex-end', marginBottom: 8 }}>
         <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => setReloadKey((k) => k + 1)}>
           {t('events.refresh')}
@@ -69,7 +68,9 @@ export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               {events.map((e, i) => (
                 <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{fmt(e.ts)}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {fmt(e.ts)}
+                  </Text>
                   <div style={{ fontSize: 13 }}>{e.message}</div>
                 </div>
               ))}
@@ -77,7 +78,9 @@ export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
           )}
 
           {/* Modifiche CloudTrail (la causa) */}
-          <Divider orientation="left" orientationMargin={0}>{t('changes.section')}</Divider>
+          <Divider orientation="left" orientationMargin={0}>
+            {t('changes.section')}
+          </Divider>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
             {t('changes.desc')}
           </Text>
@@ -89,21 +92,29 @@ export default function EventsDrawer({ service, onClose, t = (k) => k, lang }) {
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               {changes.map((c, i) => (
                 <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{fmt(c.ts)}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {fmt(c.ts)}
+                  </Text>
                   <div style={{ fontSize: 13 }}>
                     <Text strong>{c.eventName}</Text>
                     {c.user && <Text type="secondary"> · {c.user}</Text>}
                     {c.errorCode && (
-                      <Tag color="error" style={{ marginLeft: 6 }}>{c.errorCode}</Tag>
+                      <Tag color="error" style={{ marginLeft: 6 }}>
+                        {c.errorCode}
+                      </Tag>
                     )}
                   </div>
-                  {c.source && <Text type="secondary" style={{ fontSize: 11 }}>{c.source}</Text>}
+                  {c.source && (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {c.source}
+                    </Text>
+                  )}
                 </div>
               ))}
             </Space>
           )}
         </>
       ) : null}
-    </Drawer>
+    </>
   )
 }

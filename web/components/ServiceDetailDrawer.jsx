@@ -1,5 +1,8 @@
-import { Drawer, Badge, Typography, Space, Button, Descriptions, Tag } from 'antd'
-import { FileTextOutlined, ClockCircleOutlined, RocketOutlined, DollarOutlined } from '@ant-design/icons'
+import { Drawer, Badge, Typography, Space, Button, Descriptions, Tag, Tabs } from 'antd'
+import { RocketOutlined } from '@ant-design/icons'
+import { detailTabs } from '../format.js'
+import LogsPanel from './LogsPanel.jsx'
+import EventsPanel from './EventsPanel.jsx'
 
 const { Text, Link } = Typography
 
@@ -16,47 +19,38 @@ const CHECKS = [
   ['backups', 'card.label.backups'],
 ]
 
-// Drawer unico per-servizio: raccoglie stato + tutti i check in un posto, con accesso rapido a
-// Log / Eventi / Deploy / Costi. Riusa i drawer esistenti (onLogs/onEvents) — niente duplicazione.
-export default function ServiceDetailDrawer({ service, onClose, onLogs, onEvents, onNavigate, t = (k) => k }) {
+// Pannello unico per-servizio: stato + tutti i segnali, e in SCHEDE i log e gli eventi.
+//
+// Prima log ed eventi erano due drawer separati che si aprivano SOPRA questo: il servizio che stavi
+// guardando finiva coperto, e chiudendone uno riappariva l'altro. Ora c'è una superficie sola per
+// servizio, larga come serve ai log (760px). Le schede si montano solo quando le apri, quindi la
+// chiamata resta on-demand: aprire un servizio non scarica i suoi log.
+//
+// Il bottone "Costi" è stato TOLTO: la pagina Costi ragiona per servizio AWS (EC2, S3, Bedrock), non
+// per servizio monitorato — da qui portava a numeri che non parlano di questo servizio, e per un
+// worker Cloudflare nemmeno del suo provider. Un bottone che promette e non mantiene è peggio di un
+// bottone che non c'è.
+export default function ServiceDetailDrawer({
+  service,
+  tab = 'overview',
+  onTab,
+  logsDefaultMinutes = 60,
+  logsDefaultErrorsOnly = false,
+  onClose,
+  onNavigate,
+  t = (k) => k,
+  lang,
+}) {
   const checks = service?.checks ?? {}
   const links = service?.links ?? {}
-  return (
-    <Drawer
-      open={!!service}
-      onClose={onClose}
-      width={520}
-      title={
-        service && (
-          <Space size={8} wrap>
-            <Badge status={STATUS[service.overall] ?? 'default'} />
-            <Text strong>{service.name}</Text>
-            {service.type && <Tag>{service.type}</Tag>}
-          </Space>
-        )
-      }
-    >
-      {service && (
+  const has = detailTabs(service)
+
+  const items = [
+    {
+      key: 'overview',
+      label: t('detail.tab.overview'),
+      children: (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {[service.account?.label, service.region].filter(Boolean).join(' · ')}
-          </Text>
-
-          <Space wrap>
-            <Button size="small" icon={<FileTextOutlined />} onClick={() => onLogs?.(service.name)}>
-              {t('logs.button')}
-            </Button>
-            <Button size="small" icon={<ClockCircleOutlined />} onClick={() => onEvents?.(service.name)}>
-              {t('events.button')}
-            </Button>
-            <Button size="small" icon={<RocketOutlined />} onClick={() => onNavigate?.('/deploy')}>
-              {t('btn.deploys')}
-            </Button>
-            <Button size="small" icon={<DollarOutlined />} onClick={() => onNavigate?.('/costi')}>
-              {t('btn.costs')}
-            </Button>
-          </Space>
-
           <Descriptions column={1} size="small" bordered labelStyle={{ width: 120 }}>
             {CHECKS.filter(([k]) => checks[k]).map(([k, labelKey]) => {
               const c = checks[k]
@@ -79,6 +73,76 @@ export default function ServiceDetailDrawer({ service, onClose, onLogs, onEvents
                 </Link>
               ))}
             </Space>
+          )}
+        </Space>
+      ),
+    },
+    has.logs && {
+      key: 'logs',
+      label: t('logs.button'),
+      // antd monta il pannello alla PRIMA apertura della scheda e poi lo tiene: la chiamata parte
+      // quando i log li chiedi, non quando apri il servizio.
+      children: (
+        <LogsPanel
+          service={service?.name}
+          defaultMinutes={logsDefaultMinutes}
+          defaultErrorsOnly={logsDefaultErrorsOnly}
+          t={t}
+          lang={lang}
+        />
+      ),
+    },
+    has.events && {
+      key: 'events',
+      label: t('events.button'),
+      children: <EventsPanel service={service?.name} t={t} lang={lang} />,
+    },
+  ].filter(Boolean)
+
+  // Se il servizio aperto non ha la scheda richiesta (es. "log" su un bucket S3) si torna alla
+  // panoramica, invece di mostrare una scheda vuota o nessuna scheda selezionata.
+  const active = items.some((i) => i.key === tab) ? tab : 'overview'
+
+  return (
+    <Drawer
+      open={!!service}
+      onClose={onClose}
+      width={760}
+      title={
+        service && (
+          <Space size={8} wrap>
+            <Badge status={STATUS[service.overall] ?? 'default'} />
+            <Text strong>{service.name}</Text>
+            {service.type && <Tag>{service.type}</Tag>}
+          </Space>
+        )
+      }
+      extra={
+        service &&
+        has.deploy && (
+          <Button
+            size="small"
+            icon={<RocketOutlined />}
+            // Con il servizio in query: la pagina Deploy si apre GIÀ filtrata su questo servizio,
+            // invece di scaricarti addosso i deploy di tutta la flotta da cercare a mano.
+            onClick={() => onNavigate?.(`/deploy?service=${encodeURIComponent(service.name)}`)}
+          >
+            {t('btn.deploys')}
+          </Button>
+        )
+      }
+    >
+      {service && (
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {[service.account?.label, service.region].filter(Boolean).join(' · ')}
+          </Text>
+          {/* Una scheda sola non è una scelta: la barra sarebbe decorazione (è il caso dei tipi senza
+              log né eventi, es. un worker Cloudflare). Si mostra il contenuto e basta. */}
+          {items.length === 1 ? (
+            items[0].children
+          ) : (
+            <Tabs size="small" activeKey={active} onChange={onTab} items={items} style={{ marginTop: -8 }} />
           )}
         </Space>
       )}

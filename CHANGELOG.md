@@ -6,6 +6,28 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Log ed eventi non coprono più il servizio che stai guardando** — erano due drawer che si aprivano
+  SOPRA il pannello del servizio: il contesto («di chi sono questi log?») finiva sotto, e chiudendone
+  uno riappariva l'altro. Ora c'è **una superficie sola per servizio**, larga come serve ai log
+  (760px), con le schede *Panoramica · Log · Eventi*. Le icone in tabella e nelle card aprono il
+  pannello direttamente sulla scheda giusta. Le schede si montano alla prima apertura, quindi la
+  chiamata resta on-demand: aprire un servizio non scarica i suoi log. Con una scheda sola la barra
+  non compare (non è una scelta: è decorazione).
+- **Le schede appaiono solo dove hanno qualcosa da dire** — «Log» solo dove esiste un log group da
+  leggere (lambda, ECS, ECS schedulato), «Eventi» solo dove AWS li racconta (non per un worker
+  Cloudflare, che non sta in CloudTrail). Una scheda che si apre su «questo tipo non ha log» la
+  clicchi una volta, poi non credi più al pannello.
+
+### Removed
+- **Il bottone «Costi» dal pannello del servizio** — portava alla pagina Costi **senza alcun filtro**,
+  e quella pagina ragiona per servizio **AWS** (EC2, S3, Bedrock), non per servizio monitorato: da lì
+  non esisteva modo di vedere quanto costa *quel* servizio. Per un worker Cloudflare portava perfino
+  nel provider sbagliato. Un bottone che promette e non mantiene è peggio di un bottone che non c'è.
+- **«Deploy» invece resta, ma ora mantiene**: apre la pagina Deploy **già filtrata** su quel servizio
+  (`?service=…`, che la pagina legge all'avvio) e appare **solo** dove esiste davvero una build da
+  mostrare — su un bucket o un cluster la pagina Deploy non avrebbe nulla da dire.
+
+### Changed
 - **Tutta la riga apre il servizio** — il bersaglio era il solo nome, alto 18px su una riga alta 32: su
   una tabella densa il bersaglio grande è metà del lavoro. Ora il clic vale su tutta la riga, senza
   rubare i gesti che vivono dentro di lei: link (endpoint, log, eventi, rimuovi), bottoni, freccia di
