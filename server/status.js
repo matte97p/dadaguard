@@ -10,6 +10,7 @@ import { makeT, fmtAgo } from './i18n.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
 import { managedResources } from './terraform/state.js'
+import { traceReset, traceReport } from './runtime/awsClient.js'
 import { loadSecretsIndex } from './secrets/ssmIndex.js'
 import * as liveness from './checks/liveness.js'
 import * as version from './checks/version.js'
@@ -246,6 +247,7 @@ export async function getStatus(lang) {
   // tutti i servizi, quindi maggiore del tempo di parete perché girano in parallelo). Serve a chi
   // ottimizza per non tirare a indovinare — e a un monitor si addice sapere quanto ci mette lui.
   const timings = new Map()
+  traceReset()
   const startedAt = performance.now()
   const resolvedAt0 = performance.now()
   const { accounts, services, discovered, discoveryProblems, urls } = await resolveServices()
@@ -400,8 +402,10 @@ export async function getStatus(lang) {
   }
 
   const totalMs = Math.round(performance.now() - startedAt)
+  const aws = traceReport()
   log.info('status', {
     ms: totalMs,
+    ...(aws ? { aws } : {}), // chiamate per servizio AWS, solo con DADAGUARD_TRACE=1
     resolveMs: Math.round(resolveMs),
     servizi: results.length + cfResults.length,
     // per tipo di check: somma su tutti i servizi, ordinata dal più costoso

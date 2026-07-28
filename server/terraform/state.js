@@ -1,4 +1,5 @@
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
+import { cached } from '../util/ttlcache.js'
 import { clientOpts } from '../runtime/awsClient.js'
 import { log } from '../log.js'
 
@@ -34,7 +35,23 @@ function lambdaNameFromArn(arn) {
   return arn.split(':function:')[1].split(':')[0] // togli eventuale suffisso :version
 }
 
-export async function managedResources({ profile, roleArn, externalId, region, stateBucket }) {
+// Lo state Terraform cambia solo quando qualcuno fa `apply`, e leggerlo costa CARO: si elenca il
+// bucket e si SCARICA ogni file .tfstate (uno per layer, decine per ambiente). Misurato sui bucket
+// veri: 69 chiamate S3 e 7,4 secondi per una singola risposta — più di tutte le chiamate ECS insieme,
+// e più delle metriche CloudWatch (che erano il sospetto sbagliato).
+//
+// Dieci minuti di cache non cambiano nulla di reale: un `apply` dura minuti, e il segnale di drift non
+// serve al secondo. Le richieste concorrenti condividono la stessa promessa e un errore non resta in
+// cache (vedi util/ttlcache.js), così un bucket momentaneamente illeggibile non si trascina.
+const STATE_TTL_MS = Number(process.env.DADAGUARD_TFSTATE_TTL_MS ?? 10 * 60 * 1000)
+
+export function managedResources(aws) {
+  const { profile, roleArn, externalId, region, stateBucket } = aws ?? {}
+  const key = `tfstate:${stateBucket}|${region ?? ''}|${profile ?? ''}|${roleArn ?? ''}`
+  return cached(key, STATE_TTL_MS, () => readState({ profile, roleArn, externalId, region, stateBucket }))
+}
+
+async function readState({ profile, roleArn, externalId, region, stateBucket }) {
   const s3 = new S3Client(clientOpts({ profile, roleArn, externalId, region }))
 
   const keys = []

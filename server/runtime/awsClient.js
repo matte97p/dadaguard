@@ -1,4 +1,5 @@
 import { fromIni, fromTemporaryCredentials } from '@aws-sdk/credential-providers'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 
 // Opzioni client AWS SDK dal contesto: { region, profile, roleArn, externalId }.
 //  - roleArn → AssumeRole: in cloud il task role assume un ruolo read-only cross-account
@@ -82,6 +83,45 @@ export function cleanAwsReason(err, t = (k) => k) {
   return tr === 'aws.' + k ? AWS_REASON_EN[k] : tr // t identità/assente → EN leggibile, non la chiave
 }
 
+// ─── Traccia delle chiamate AWS (DADAGUARD_TRACE=1) ─────────────────────────────────────────────
+// Contare quante chiamate partono e verso QUALE servizio AWS è l'unico modo di sapere dove va il
+// tempo: due volte oggi ho stimato a occhio e mi sono sbagliato (le metriche CloudWatch sono già
+// unite in batch da cw.js, il collo era altrove). Il conteggio si aggancia al livello più basso — il
+// gestore HTTP — così vede TUTTE le chiamate, comprese le AssumeRole e i retry, senza dover
+// strumentare un modulo alla volta.
+// Spenta per default: costa un wrapper per richiesta e in produzione non serve.
+const TRACE = process.env.DADAGUARD_TRACE === '1'
+const traced = new Map() // host → { n, ms }
+
+class TracingHandler extends NodeHttpHandler {
+  async handle(request, options) {
+    const host = String(request?.hostname ?? '?').split('.')[0] // "monitoring", "ecs", "cloudtrail"…
+    const t0 = performance.now()
+    try {
+      return await super.handle(request, options)
+    } finally {
+      const cur = traced.get(host) ?? { n: 0, ms: 0 }
+      cur.n += 1
+      cur.ms += performance.now() - t0
+      traced.set(host, cur)
+    }
+  }
+}
+
+export function traceReset() {
+  traced.clear()
+}
+
+// Riepilogo ordinato dal servizio che costa più tempo. `null` se la traccia è spenta.
+export function traceReport() {
+  if (!TRACE) return null
+  return Object.fromEntries(
+    [...traced.entries()]
+      .sort((a, b) => b[1].ms - a[1].ms)
+      .map(([host, v]) => [host, { chiamate: v.n, ms: Math.round(v.ms) }]),
+  )
+}
+
 export function clientOpts(aws = {}) {
   // Retry ADATTIVO: sotto throttling (429/TooManyRequests) l'SDK applica un rate-limit client-side e
   // ritenta con backoff, invece di far fallire subito. maxAttempts alzato (override: DADAGUARD_AWS_MAX_ATTEMPTS).
@@ -90,6 +130,7 @@ export function clientOpts(aws = {}) {
     maxAttempts: Number(process.env.DADAGUARD_AWS_MAX_ATTEMPTS) || 6,
   }
   if (aws.region) opts.region = aws.region
+  if (TRACE) opts.requestHandler = new TracingHandler()
   const creds = credentialsFor(aws)
   if (creds) opts.credentials = creds
   return opts
