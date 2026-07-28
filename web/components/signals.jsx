@@ -154,9 +154,6 @@ export function MetricValue({ metric, window, showLabel = false, color, inline =
   )
 }
 
-// La metrica di latenza, se c'è: la dichiara il server (`kind: 'latency'`) — dedurla dall'unità
-// sarebbe fragile, una latenza senza serie non ha `sparkUnit`. In tabella ha una colonna sua, così
-// il grafico eredita l'etichetta dall'intestazione.
-export function latencyMetric(runtime) {
-  return (runtime?.metrics ?? []).find((m) => m.kind === 'latency') ?? null
-}
+// Logica pura in ../format.js (testabile con node --test: questo file è JSX). Ri-esportata qui perché
+// in tabella la latenza ha una colonna sua, e il grafico eredita l'etichetta dall'intestazione.
+export { latencyMetric, latencyOf } from '../format.js'

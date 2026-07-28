@@ -6,6 +6,17 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Colonna «Latenza» vuota su servizi che una latenza ce l'avevano** — con le sonde accese il
+  pannello *aveva* il numero (`risponde · HTTP 200 · 179ms` nella riga espansa) e nella colonna
+  apposita mostrava `—`: dato raccolto e buttato via. Ora la colonna cade sulla misura della sonda
+  quando il servizio non pubblica una metrica sua, **etichettandola** `sonda`, con la spiegazione nel
+  tooltip: è il giro completo da fuori (rete + Cloudflare + servizio) e per costruzione è più grande
+  della latenza che il servizio misura di sé. Mescolare le due tacendolo farebbe confrontare mele con
+  arance («il backend è 10 volte più lento»). La metrica del servizio, quando c'è, vince: la sua
+  parola vale più della nostra. L'ordinamento usa entrambe (stesso numero confrontabile) e chi non ha
+  latenza resta in fondo in entrambi i versi, senza fingere uno zero.
+
+### Fixed
 - **«Risponde · HTTP 200» su un'app protetta da un login** — la sonda di liveness seguiva i redirect,
   quindi dietro Cloudflare Access leggeva `200` sulla **pagina di login** e dichiarava sano un servizio
   che poteva essere spento. Verificato sul vero: `GET dadaguard.get-cato.com` → `302` →
