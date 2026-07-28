@@ -1,4 +1,11 @@
 import { Badge, Tag, Tooltip, Typography } from 'antd'
+import {
+  CheckCircleFilled,
+  CloseCircleFilled,
+  ExclamationCircleFilled,
+  MinusCircleFilled,
+  QuestionCircleFilled,
+} from '@ant-design/icons'
 import { fmtMs, fmtCount } from '../format.js'
 import Sparkline from './Sparkline.jsx'
 
@@ -74,6 +81,41 @@ export function StatusDot({ status, t }) {
   return (
     <span role="img" aria-label={label} title={label} style={{ display: 'inline-flex' }}>
       <Badge status={(STATUS[status] ?? STATUS.unknown).status} />
+    </span>
+  )
+}
+
+// Il glifo di stato della tabella: una FORMA diversa per stato, non un pallino di colore diverso.
+// Serve perché in colonna lo stato "su" non ha testo accanto (un "OK" su 41 righe sane è rumore):
+// col solo colore, chi non distingue verde da rosso — o guarda uno schermo scadente, o stampa la
+// pagina — non ha alcun segnale. Il colore resta, come rinforzo, non come unico portatore.
+//   ✓ su · ! degradato · ✕ giù · ⊖ inattivo/disattivato · ? sconosciuto
+const GLYPH = {
+  up: { Icon: CheckCircleFilled, color: '#52c41a' },
+  degraded: { Icon: ExclamationCircleFilled, color: '#faad14' },
+  down: { Icon: CloseCircleFilled, color: '#ff4d4f' },
+  idle: { Icon: MinusCircleFilled, color: '#8c8c8c' },
+  disabled: { Icon: MinusCircleFilled, color: '#8c8c8c' },
+  unknown: { Icon: QuestionCircleFilled, color: '#8c8c8c' },
+}
+
+// `decorative`: quando l'etichetta di stato è già scritta accanto (i chip del riepilogo), il glifo è
+// decorazione — con un nome accessibile si farebbe annunciare due volte ("GIÙ 2 GIÙ"). In tabella
+// invece è l'UNICO portatore dello stato sulle righe sane, quindi lì parla.
+export function StatusGlyph({ status, t, size = 14, decorative = false }) {
+  const { Icon, color } = GLYPH[status] ?? GLYPH.unknown
+  const label = t ? t(`card.status.${status ?? 'unknown'}`) : (status ?? 'unknown')
+  const icon = <Icon style={{ color, fontSize: size }} aria-hidden="true" />
+  if (decorative) {
+    return (
+      <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+        {icon}
+      </span>
+    )
+  }
+  return (
+    <span role="img" aria-label={label} title={label} style={{ display: 'inline-flex' }}>
+      {icon}
     </span>
   )
 }
