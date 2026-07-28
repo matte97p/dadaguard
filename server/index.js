@@ -64,10 +64,28 @@ app.get('/metrics', async (_req, res) => {
   }
 })
 
+// Cache breve dello stato. Un giro completo costa ~4-5s (52 servizi × 8 check su 4 account: le
+// metriche CloudWatch e CloudTrail sono la parte grossa), e finora OGNI apertura di pagina lo rifaceva
+// da zero — anche due schede aperte, anche due persone insieme. I dati guardano finestre di 24h: 30
+// secondi di età non cambiano una diagnosi, e l'età è comunque scritta in pagina («ultimo fetch»).
+// Stesso mestiere che /metrics fa già da tempo.
+// `?fresh=1` la salta: il bottone «Aggiorna» deve poter dire la verità, altrimenti aggiorna niente.
+const STATUS_TTL_MS = Number(process.env.DADAGUARD_STATUS_TTL_MS ?? 30_000)
+const statusCache = new Map() // lingua → { at, payload }
+
 app.get('/api/status', async (req, res) => {
   try {
     if (isDemo) return res.json(demoStatus(req.query.lang))
-    res.json(await getStatus(req.query.lang))
+    const lang = req.query.lang ?? 'it'
+    const fresh = req.query.fresh === '1'
+    const hit = statusCache.get(lang)
+    if (!fresh && hit && Date.now() - hit.at < STATUS_TTL_MS) {
+      // `cached: true` è dichiarato: chi legge l'API sa che non è un giro nuovo.
+      return res.json({ ...hit.payload, cached: true })
+    }
+    const payload = await getStatus(lang)
+    statusCache.set(lang, { at: Date.now(), payload })
+    res.json(payload)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

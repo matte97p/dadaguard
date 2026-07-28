@@ -71,7 +71,11 @@ export function applyHealthUrls(services, health, urls) {
 
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
 // Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
-const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 8
+// 16 e non 8: il lavoro è attesa di rete (chiamate AWS), non calcolo. Misurato su 52 servizi e 4
+// account: 8 → 5.8s, 16 → 4.9s, 24 → 4.4s, 32 → 5.4s (peggiora). Si resta a 16 e non a 24 perché la
+// misura è su un portatile, mentre il task Fargate ha una frazione di vCPU: là il collo di bottiglia
+// si sposta sulla CPU prima. Alzabile con DADAGUARD_CONCURRENCY senza ricompilare.
+const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 16
 
 // A parità di gravità, quale segnale nominare per primo nel badge (dal più "urgente da guardare").
 const CAUSE_PRIORITY = ['liveness', 'runtime', 'alarms', 'security', 'secrets', 'drift', 'version', 'backups']
@@ -238,7 +242,14 @@ export function cfServiceResult(w, t) {
 
 export async function getStatus(lang) {
   const t = makeT(lang) // lingua dei summary: passata dal FE via /api/status?lang=
+  // Quanto ci mette Dadaguard a rispondere, e DOVE: la somma dei tempi per tipo di check (sommata su
+  // tutti i servizi, quindi maggiore del tempo di parete perché girano in parallelo). Serve a chi
+  // ottimizza per non tirare a indovinare — e a un monitor si addice sapere quanto ci mette lui.
+  const timings = new Map()
+  const startedAt = performance.now()
+  const resolvedAt0 = performance.now()
   const { accounts, services, discovered, discoveryProblems, urls } = await resolveServices()
+  const resolveMs = performance.now() - resolvedAt0
   if (discovered) log.info('auto-discovery', discovered)
 
   // Pre-carica lo state Terraform per ogni account usato (una sola volta per richiesta),
@@ -332,9 +343,18 @@ export async function getStatus(lang) {
         t, // traduttore dei summary (i check lo usano per parlare nella lingua scelta)
       }
 
-      const checkResults = (await Promise.all(CHECKS.map((c) => c.run(service, ctx)))).filter(
-        Boolean,
-      )
+      const checkResults = (
+        await Promise.all(
+          CHECKS.map(async (c) => {
+            const t0 = performance.now()
+            try {
+              return await c.run(service, ctx)
+            } finally {
+              timings.set(c.key, (timings.get(c.key) ?? 0) + (performance.now() - t0))
+            }
+          }),
+        )
+      ).filter(Boolean)
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
       const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
@@ -379,8 +399,20 @@ export async function getStatus(lang) {
     log.error('cloudflare: stato Worker non leggibile', { err: err.message })
   }
 
+  const totalMs = Math.round(performance.now() - startedAt)
+  log.info('status', {
+    ms: totalMs,
+    resolveMs: Math.round(resolveMs),
+    servizi: results.length + cfResults.length,
+    // per tipo di check: somma su tutti i servizi, ordinata dal più costoso
+    check: Object.fromEntries(
+      [...timings.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, Math.round(v)]),
+    ),
+  })
+
   return {
     generatedAt: new Date().toISOString(),
+    ms: totalMs, // quanto è costata QUESTA risposta: la UI può dirlo, e si nota se peggiora
     // mode + capabilities da ./mode.js (unica fonte): il frontend mostra/nasconde i pulsanti
     // in base a `capabilities`, non a un controllo dell'env duplicato lato client.
     mode: MODE,

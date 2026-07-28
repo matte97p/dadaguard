@@ -127,12 +127,14 @@ export default function App() {
     setLangPref(l)
   }, [])
 
+  // `fresh`: il bottone «Aggiorna» salta la cache breve del server. Un aggiornamento che restituisce
+  // la risposta di prima non è un aggiornamento.
   const load = useCallback(
-    async (signal) => {
+    async (signal, { fresh = false } = {}) => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/status?lang=${lang}`, { signal })
+        const res = await fetch(`/api/status?lang=${lang}${fresh ? '&fresh=1' : ''}`, { signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         setData(await res.json())
       } catch (err) {
@@ -501,7 +503,7 @@ export default function App() {
               icon={<ReloadOutlined />}
               loading={loading}
               onClick={() => {
-                load()
+                load(undefined, { fresh: true })
                 loadHealth()
                 setRefreshKey((k) => k + 1)
               }}
