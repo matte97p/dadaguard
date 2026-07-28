@@ -88,8 +88,10 @@ test('un rosso che RESTA rosso non si ripete a ogni giro', () => {
   }
 })
 
+// `alerted: true` = l'allarme è stato davvero mandato (lo scrive watch.js dopo l'invio). È la
+// precondizione del rientro: senza, il verde sarebbe orfano — vedi il test più sotto.
 test('il ritorno alla normalità si annuncia (recovery)', () => {
-  const prev = stato({ 'production/cron': { confirmed: 'down', pending: { overall: 'up', count: 1 } } })
+  const prev = stato({ 'production/cron': { confirmed: 'down', alerted: true, pending: { overall: 'up', count: 1 } } })
   const { transitions } = diffStates(prev, snapshot([svc('cron', 'Production', 'up')]), conferma)
   assert.equal(transitions.length, 1)
   assert.equal(transitions[0].kind, 'recovery')
@@ -117,9 +119,54 @@ test('unknown → down notifica comunque (il controllo torna a vedere, e vede un
 })
 
 test('cron spento di proposito: down → disabled è un rientro, non un allarme', () => {
-  const prev = stato({ 'staging/cron': { confirmed: 'down', pending: { overall: 'disabled', count: 1 } } })
+  const prev = stato({ 'staging/cron': { confirmed: 'down', alerted: true, pending: { overall: 'disabled', count: 1 } } })
   const { transitions } = diffStates(prev, snapshot([svc('cron', 'Staging', 'disabled')]), conferma)
   assert.equal(transitions[0].kind, 'recovery')
+})
+
+// --- il verde orfano: un rientro senza il rosso che lo precede ---
+// Visto in produzione su Bedrock: rosso su claude-haiku alle 10:19, verde su claude-opus-5 alle 11:01,
+// e per opus-5 nessun rosso era mai stato mandato. I modelli Bedrock sono AUTOSCOPERTI: compaiono nella
+// watchlist appena qualcuno li chiama, e se alla prima apparizione hanno già un errore vengono
+// registrati come rotti in silenzio (per design). Senza il gate, il loro rientro parla di un allarme
+// che nessuno ha visto.
+test('chiave nuova nata già rotta: quando rientra NON manda un verde orfano', () => {
+  // giro 1: il modello compare per la prima volta, già degraded → si prende nota, niente allarme
+  const primo = diffStates(stato({ 'production/api': { confirmed: 'up' } }), snapshot([svc('api', 'Production', 'up'), svc('claude-opus-5', 'Production', 'degraded', 'runtime')]), conferma)
+  assert.deepEqual(primo.transitions, [], 'la comparsa non si annuncia')
+  assert.equal(primo.next.services['production/claude-opus-5'].alerted, false)
+
+  // giro 2 e 3: l'errore esce dalla finestra, il modello torna up (2 letture = confermato)
+  let s = primo.next
+  for (const giro of [1, 2]) {
+    const r = diffStates(s, snapshot([svc('api', 'Production', 'up'), svc('claude-opus-5', 'Production', 'up')]), conferma)
+    assert.deepEqual(r.transitions, [], `giro ${giro}: nessun "tornato OK" per un allarme mai mandato`)
+    s = r.next
+  }
+  assert.equal(s.services['production/claude-opus-5'].confirmed, 'up', 'ma lo stato noto si aggiorna')
+})
+
+test('allarme taciuto dal routing: nemmeno il suo rientro parla', () => {
+  // `alerted` assente = nessun invio è mai avvenuto per questa chiave
+  const prev = stato({ 'production/cron': { confirmed: 'down', pending: { overall: 'up', count: 1 } } })
+  const { transitions } = diffStates(prev, snapshot([svc('cron', 'Production', 'up')]), conferma)
+  assert.deepEqual(transitions, [], 'simmetria: se non ho detto che si è rotto, non dico che è a posto')
+})
+
+test('il flag alerted sopravvive a un cambio dentro la stessa classe (down → degraded → up)', () => {
+  // Regressione: `down → degraded` non genera transizioni ma passa dal ramo che riscrive lo stato.
+  // Se lì si perdesse `alerted`, il rientro VERO verrebbe soppresso e resteremmo con un rosso appeso.
+  let s = stato({ 'production/api': { confirmed: 'down', alerted: true, route: 'main', pending: { overall: 'degraded', count: 1 } } })
+  const dentro = diffStates(s, snapshot([svc('api', 'Production', 'degraded', 'runtime')]), conferma)
+  assert.deepEqual(dentro.transitions, [], 'problem → problem non è una notizia')
+  assert.equal(dentro.next.services['production/api'].alerted, true, 'il flag resta')
+  assert.equal(dentro.next.services['production/api'].route, 'main', 'e anche la destinazione')
+
+  s = dentro.next
+  s.services['production/api'].pending = { overall: 'up', count: 1 }
+  const rientro = diffStates(s, snapshot([svc('api', 'Production', 'up')]), conferma)
+  assert.equal(rientro.transitions.length, 1, 'il rientro vero si annuncia')
+  assert.equal(rientro.transitions[0].kind, 'recovery')
 })
 
 test('servizio spartito: se non lo vedo più, non è un guasto', () => {

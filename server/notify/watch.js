@@ -107,11 +107,18 @@ export async function runOnce(cfg, deps = {}) {
       inviato: Boolean(hook) && inviato,
       servizi: lista.map((x) => `${x.key}:${x.from}→${x.to}`),
     })
-    // ricorda dove è stato aperto ogni allarme, per mandarci il rientro
+    // Ricorda DOVE è stato aperto ogni allarme (per mandarci il rientro) e CHE è stato aperto: senza il
+    // secondo, il rientro di un allarme mai annunciato diventa un verde orfano (vedi `rientroOrfano`).
+    // Si scrive qui e non nel differ perché è l'invio riuscito a rendere l'allarme "annunciato".
     for (const tr of lista) {
       if (!next.services[tr.key]) continue
-      if (tr.kind === 'alert') next.services[tr.key].route = nome
-      else delete next.services[tr.key].route
+      if (tr.kind === 'alert') {
+        next.services[tr.key].route = nome
+        next.services[tr.key].alerted = true
+      } else {
+        delete next.services[tr.key].route
+        next.services[tr.key].alerted = false
+      }
     }
   }
   if (gruppi.skipped.length) {
