@@ -35,8 +35,6 @@ import {
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
-import LogsDrawer from './components/LogsDrawer.jsx'
-import EventsDrawer from './components/EventsDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
@@ -90,10 +88,16 @@ export default function App() {
   const [driftOpen, setDriftOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const [health, setHealth] = useState(null) // #6 meta-salute (raggiungibilità account)
-  const [logsService, setLogsService] = useState(null) // nome del servizio di cui mostrare i log
-  const [eventsService, setEventsService] = useState(null) // ... e gli eventi recenti
+  // Una superficie sola per servizio: il nome + QUALE scheda mostrare (panoramica/log/eventi). Le
+  // icone in tabella e nelle card non aprono più un secondo drawer sopra il primo: aprono questo,
+  // già sulla scheda giusta.
+  const [detailTab, setDetailTab] = useState('overview')
   const [paletteOpen, setPaletteOpen] = useState(false) // ⌘K ricerca globale servizi
-  const [detailName, setDetailName] = useState(null) // servizio aperto nel drawer di dettaglio
+  const [detailName, setDetailName] = useState(null) // servizio aperto nel pannello di dettaglio
+  const openDetail = (name, tab = 'overview') => {
+    setDetailTab(tab)
+    setDetailName(name)
+  }
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
@@ -260,10 +264,9 @@ export default function App() {
 
   // Default del drawer log per il servizio selezionato: un cron gira di rado → apri con finestra
   // ampia (48h) e, se è rosso, già filtrato sugli errori → risponde subito a "perché è fallito?".
-  const logsSvc = useMemo(() => services.find((s) => s.name === logsService) ?? null, [services, logsService])
-  const isCronSvc = Boolean(logsSvc && (logsSvc.checks?.runtime?.schedule || logsSvc.type === 'ecs-scheduled'))
+  const isCronSvc = Boolean(detailService && (detailService.checks?.runtime?.schedule || detailService.type === 'ecs-scheduled'))
   const logsDefaultMinutes = isCronSvc ? 2880 : 60
-  const logsDefaultErrorsOnly = isCronSvc && logsSvc?.overall === 'down'
+  const logsDefaultErrorsOnly = isCronSvc && detailService?.overall === 'down'
 
   const groups = useMemo(() => {
     const q = nameQuery.trim().toLowerCase()
@@ -529,8 +532,8 @@ export default function App() {
                   loading={loading}
                   error={error}
                   onRemove={removeService}
-                  onLogs={setLogsService}
-                  onEvents={setEventsService}
+                  onLogs={(name) => openDetail(name, 'logs')}
+                  onEvents={(name) => openDetail(name, 'events')}
                   onOpen={setDetailName}
                   t={t}
                 />
@@ -567,15 +570,6 @@ export default function App() {
           t={t}
         />
         <DriftDrawer open={driftOpen} onClose={() => setDriftOpen(false)} t={t} />
-        <LogsDrawer
-          service={logsService}
-          defaultMinutes={logsDefaultMinutes}
-          defaultErrorsOnly={logsDefaultErrorsOnly}
-          onClose={() => setLogsService(null)}
-          t={t}
-          lang={lang}
-        />
-        <EventsDrawer service={eventsService} onClose={() => setEventsService(null)} t={t} lang={lang} />
         <MetaHealthDrawer
           open={healthOpen}
           onClose={() => setHealthOpen(false)}
@@ -587,16 +581,19 @@ export default function App() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           services={groups.flatMap((g) => g.services)}
-          onPick={(svc) => setDetailName(svc.name)}
+          onPick={(svc) => openDetail(svc.name)}
           t={t}
         />
         <ServiceDetailDrawer
           service={detailService}
+          tab={detailTab}
+          onTab={setDetailTab}
+          logsDefaultMinutes={logsDefaultMinutes}
+          logsDefaultErrorsOnly={logsDefaultErrorsOnly}
           onClose={() => setDetailName(null)}
-          onLogs={setLogsService}
-          onEvents={setEventsService}
           onNavigate={navigate}
           t={t}
+          lang={lang}
         />
 
         <Modal
