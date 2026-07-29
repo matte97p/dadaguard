@@ -109,6 +109,16 @@ const LOG_TYPES = ['lambda', 'ecs', 'ecs-scheduled']
 // Task id dal nome dello stream: su ECS lo stream è `<prefisso>/<container>/<taskId>`.
 export const taskOfStream = (stream) => String(stream ?? '').split('/').pop() || null
 
+// Voci del selettore di istanza nel pannello log. `allLabel` è la prima ("Tutte"), con valore vuoto.
+// Due invarianti che sembrano dettagli e non lo sono:
+//  · l'istanza ATTIVA è sempre presente, anche se non è ancora comparsa in una risposta — un Select col
+//    valore fuori dalle opzioni mostra la casella vuota, cioè "nessun filtro" mentre il filtro c'è;
+//  · «Tutte» c'è sempre, altrimenti chi arriva dalla scheda Istanze non ha modo di tornare indietro.
+export function instanceOptions(knownTasks = [], task = null, allLabel = 'Tutte', shorten = (s) => s) {
+  const ids = [...new Set([...knownTasks, task].filter(Boolean))].sort()
+  return [{ value: '', label: allLabel }, ...ids.map((id) => ({ value: id, label: shorten(id) }))]
+}
+
 export function detailTabs(service) {
   return {
     logs: LOG_TYPES.includes(service?.type),

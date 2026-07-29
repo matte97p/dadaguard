@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button, Select } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
-import { taskOfStream } from '../format.js'
+import { taskOfStream, instanceOptions } from '../format.js'
 
 const { Text } = Typography
 
@@ -57,7 +57,7 @@ const shortTask = (taskId) => String(taskId ?? '').slice(0, 8)
 export default function LogsPanel({
   service,
   account,
-  focusTask = null,
+  focus = null, // { task, tasks } dalla scheda Istanze: oggetto nuovo a ogni clic
   defaultMinutes = 60,
   defaultErrorsOnly = false,
   t = (k) => k,
@@ -75,11 +75,11 @@ export default function LogsPanel({
   const [reloadKey, setReloadKey] = useState(0) // bump dal bottone Aggiorna → refetch
   // Istanza selezionata (task ECS). Anche questo filtro è LATO SERVER: un task chiacchierone
   // riempirebbe il tetto di righe e degli altri non resterebbe niente.
-  const [task, setTask] = useState(focusTask)
+  const [task, setTask] = useState(focus?.task ?? null)
   // Le istanze viste finora. Tenute a parte perché con un filtro attivo la risposta contiene un solo
   // stream: leggendo le opzioni dall'ultima risposta, scegliere un task cancellerebbe gli altri dalla
   // tendina e non si potrebbe più tornare indietro.
-  const [knownTasks, setKnownTasks] = useState([])
+  const [knownTasks, setKnownTasks] = useState(focus?.tasks ?? [])
 
   // All'apertura di un servizio applica i default giusti per quel servizio (es. un cron rosso →
   // finestra ampia + solo errori, così il fallimento notturno è subito visibile senza toccare i filtri).
@@ -90,12 +90,28 @@ export default function LogsPanel({
     }
   }, [service, defaultMinutes, defaultErrorsOnly])
 
-  // Arrivo dal pannello Istanze ("i log DI QUESTO task"): il filtro parte già applicato. Il servizio
-  // sta nelle dipendenze perché cambiando servizio i task di prima non esistono più.
+  // Arrivo dal pannello Istanze: il filtro parte già applicato e il selettore è già popolato con tutte
+  // le istanze, così si può passare a un'altra o tornare a «Tutte» senza aspettare un'altra risposta.
+  // `focus` è un oggetto nuovo a ogni clic, quindi ricliccare lo stesso task riapplica il filtro.
   useEffect(() => {
-    setTask(focusTask)
-    setKnownTasks([])
-  }, [focusTask, service])
+    if (!focus) return
+    setTask(focus.task ?? null)
+    if (focus.tasks?.length) setKnownTasks((prev) => [...new Set([...prev, ...focus.tasks])].sort())
+  }, [focus])
+
+  // Cambio di servizio: le istanze di prima non esistono qui, e un filtro rimasto darebbe una lista
+  // vuota senza spiegazione. Si confronta col servizio precedente invece di azzerare a ogni giro: al
+  // PRIMO montaggio anche questo effetto parte, e cancellerebbe il filtro appena arrivato da Istanze —
+  // la scheda log si monta alla prima apertura, cioè proprio in risposta a quel clic.
+  const prevService = useRef(null)
+  useEffect(() => {
+    const key = `${account ?? ''}/${service ?? ''}`
+    if (prevService.current !== null && prevService.current !== key) {
+      setTask(null)
+      setKnownTasks([])
+    }
+    prevService.current = key
+  }, [service, account])
 
   useEffect(() => {
     if (!service) {
@@ -146,9 +162,10 @@ export default function LogsPanel({
             <Switch checked={showHealth} onChange={setShowHealth} />
             <Text>{t('logs.showHealth')}</Text>
           </Space>
-          {/* Il selettore compare solo se il servizio HA più di un'istanza: su una replica sola
-              sarebbe un controllo con una voce, che non filtra niente e occupa la barra. */}
-          {knownTasks.length > 1 && (
+          {/* Il selettore compare se ci sono più istanze — su una replica sola sarebbe un controllo con
+              una voce, che non filtra niente — MA anche quando un filtro è attivo: nascondendolo lì, chi
+              arriva da Istanze resta chiuso dentro un task senza modo di tornare a «Tutte». */}
+          {(knownTasks.length > 1 || task) && (
             <Space size={6}>
               <Text>{t('logs.instance')}</Text>
               <Select
@@ -156,10 +173,7 @@ export default function LogsPanel({
                 value={task ?? ''}
                 onChange={(v) => setTask(v || null)}
                 style={{ minWidth: 130 }}
-                options={[
-                  { value: '', label: t('logs.allInstances') },
-                  ...knownTasks.map((id) => ({ value: id, label: shortTask(id) })),
-                ]}
+                options={instanceOptions(knownTasks, task, t('logs.allInstances'), shortTask)}
               />
             </Space>
           )}
