@@ -23,6 +23,10 @@ import { gunzipSync } from 'node:zlib'
 import { clientOpts } from './runtime/awsClient.js'
 
 const MAX_OBJECTS = 12 // oggetti scaricati per finestra: tetto esplicito, non "tutti quelli che ci sono"
+// Pagine di elenco per prefisso-giorno. Serve perché si elenca il GIORNO e si filtra per finestra: su un
+// bucket vivo un giorno può contenere migliaia di oggetti, e paginarli tutti per tenerne dodici renderebbe
+// il pannello lento proprio sui servizi con più traffico — quelli per cui la latenza per replica serve.
+const MAX_LIST_PAGES = 8
 
 // Spezza una riga di access log ALB rispettando i campi tra virgolette. I campi quotati contengono
 // spazi (la request-line, lo user-agent), quindi uno `split(' ')` sposta tutti gli indici successivi e
@@ -162,6 +166,7 @@ export async function albLatencyByTarget(
     const keys = []
     for (const prefix of dayPrefixes(base, from, now)) {
       let token
+      let pages = 0
       do {
         const out = await s3.send(
           new ListObjectsV2Command({ Bucket: cfg.bucket, Prefix: prefix, ContinuationToken: token }),
@@ -171,18 +176,24 @@ export async function albLatencyByTarget(
           if (at >= from) keys.push({ key: o.Key, at })
         }
         token = out.NextContinuationToken
-      } while (token)
+        pages += 1
+      } while (token && pages < MAX_LIST_PAGES)
     }
     if (!keys.length) return { byIp: {}, objects: 0, window: minutes }
 
     // I più RECENTI, non i primi trovati: con un tetto sul numero di oggetti, prendere i primi
     // significherebbe descrivere l'inizio della finestra invece di adesso.
     const chosen = keys.sort((a, b) => b.at - a.at).slice(0, MAX_OBJECTS)
+    // In parallelo: dodici GET sequenziali sono un'attesa inutile su un pannello che si apre a mano.
+    const texts = await Promise.all(
+      chosen.map(async ({ key }) => {
+        const obj = await s3.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }))
+        const body = Buffer.from(await obj.Body.transformToByteArray())
+        return key.endsWith('.gz') ? gunzipSync(body).toString('utf8') : body.toString('utf8')
+      }),
+    )
     const rows = []
-    for (const { key } of chosen) {
-      const obj = await s3.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }))
-      const gz = Buffer.from(await obj.Body.transformToByteArray())
-      const text = key.endsWith('.gz') ? gunzipSync(gz).toString('utf8') : gz.toString('utf8')
+    for (const text of texts) {
       for (const line of text.split('\n')) {
         if (!line) continue
         const row = parseAlbLogLine(line)
