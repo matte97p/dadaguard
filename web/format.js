@@ -106,11 +106,17 @@ export function rowClickOpens(target, selection = '') {
 //   - deploy → dove c'è davvero una build da mostrare (il segnale versione), altrimenti la pagina
 //              Deploy non ha nulla su questo servizio.
 const LOG_TYPES = ['lambda', 'ecs', 'ecs-scheduled']
+// Task id dal nome dello stream: su ECS lo stream è `<prefisso>/<container>/<taskId>`.
+export const taskOfStream = (stream) => String(stream ?? '').split('/').pop() || null
+
 export function detailTabs(service) {
   return {
     logs: LOG_TYPES.includes(service?.type),
     events: Boolean(service?.type) && service.type !== 'cloudflare-worker',
     deploy: Boolean(service?.checks?.version),
+    // Istanze = un servizio ECS long-running, che ha replica da confrontare. Un cron su RunTask no: i
+    // suoi task nascono e muoiono a ogni esecuzione, e una foto delle risorse "adesso" non dice niente.
+    instances: service?.type === 'ecs',
   }
 }
 

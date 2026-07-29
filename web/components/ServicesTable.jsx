@@ -1,8 +1,8 @@
 import { Fragment } from 'react'
-import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
+import { Table, Typography, Space, Badge, Tooltip, Popconfirm, Tag } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule, rowClickOpens } from '../format.js'
-import { prettyBedrock, splitFamily, familyPrefixes, serviceKey } from '../serviceName.js'
+import { prettyBedrock, splitFamily, familyPrefixes, serviceKey, isNonEuInference } from '../serviceName.js'
 import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
@@ -58,6 +58,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         // Nome: testa comune del gruppo piccola e muta, coda in evidenza (niente troncature: il nome
         // intero è testa + coda). I Bedrock hanno il loro nome parlante.
         const bedrock = s.type === 'bedrock' ? prettyBedrock(s.name) : null
+        const nonEu = isNonEuInference(s)
         const { family, tail } = bedrock
           ? { family: null, tail: bedrock.name ?? s.name }
           : splitFamily(s.name, famByAccount.get(s.account?.key ?? '—'))
@@ -91,6 +92,18 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
             >
               {family && <span className="dg-fam" style={{ maxWidth: 150 }}>{family}</span>}
               <span style={{ fontWeight: 600, fontSize: 13 }}>{tail}</span>
+              {/* Profilo di inferenza (eu / global / us …): senza questo due modelli DIVERSI dello
+                  stesso ambiente hanno righe identiche, perché il nome accorciato coincide. In rosso
+                  quando l'inferenza può uscire dall'area UE — è un vincolo di contratto, non un dettaglio. */}
+              {bedrock?.scope && (
+                <Tag
+                  color={nonEu ? 'error' : undefined}
+                  style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px', paddingInline: 5 }}
+                  title={nonEu ? t('bedrock.nonEuHint') : s.name}
+                >
+                  {bedrock.scope}
+                </Tag>
+              )}
               <StatusTag service={s} t={t} />
               {cadence && (
                 <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>

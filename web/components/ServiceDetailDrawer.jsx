@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import { Drawer, Badge, Typography, Space, Button, Descriptions, Tag, Tabs } from 'antd'
 import { RocketOutlined } from '@ant-design/icons'
 import { detailTabs } from '../format.js'
 import LogsPanel from './LogsPanel.jsx'
 import EventsPanel from './EventsPanel.jsx'
+import InstancesPanel from './InstancesPanel.jsx'
 
 const { Text, Link } = Typography
 
@@ -44,6 +46,12 @@ export default function ServiceDetailDrawer({
   const checks = service?.checks ?? {}
   const links = service?.links ?? {}
   const has = detailTabs(service)
+  // Istanza su cui aprire i log, scelta dalla scheda Istanze. Si azzera cambiando servizio: i task del
+  // servizio precedente non esistono in questo, e il filtro rimasto darebbe una lista vuota.
+  const [focusTask, setFocusTask] = useState(null)
+  useEffect(() => {
+    setFocusTask(null)
+  }, [service?.name, service?.account?.key])
 
   const items = [
     {
@@ -77,6 +85,22 @@ export default function ServiceDetailDrawer({
         </Space>
       ),
     },
+    has.instances && {
+      key: 'instances',
+      label: t('instances.button'),
+      children: (
+        <InstancesPanel
+          service={service?.name}
+          account={service?.account?.key}
+          onTaskLogs={(taskId) => {
+            setFocusTask(taskId)
+            onTab?.('logs')
+          }}
+          t={t}
+          lang={lang}
+        />
+      ),
+    },
     has.logs && {
       key: 'logs',
       label: t('logs.button'),
@@ -86,6 +110,7 @@ export default function ServiceDetailDrawer({
         <LogsPanel
           service={service?.name}
           account={service?.account?.key}
+          focusTask={focusTask}
           defaultMinutes={logsDefaultMinutes}
           defaultErrorsOnly={logsDefaultErrorsOnly}
           t={t}

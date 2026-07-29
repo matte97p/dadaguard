@@ -25,30 +25,52 @@ const ERROR_PATTERN = '?ERROR ?Error ?error ?Exception ?exception ?FATAL ?CRITIC
 // filterPattern di sola negazione è terreno incerto, e se lo rifiuta il pannello non mostra più nulla.
 export const HEALTH_LINE = /\b(?:GET|HEAD)\s+\/(?:health|healthz|_health|healthcheck|livez|readyz)\b/i
 
+// Nome del log stream di UN task ECS. Il driver awslogs lo compone così — prefisso configurato,
+// nome del container, id del task — quindi conoscendo la task-def si costruisce senza cercarlo:
+// `logs:DescribeLogStreams` non è tra i permessi del ruolo read-only, e non serve.
+export function ecsStreamName({ streamPrefix, container }, taskId) {
+  if (!streamPrefix || !container || !taskId) return null
+  return `${streamPrefix}/${container}/${taskId}`
+}
+
+// Ritorna { logGroup, streamPrefix, container } — gli ultimi due solo per ECS, e servono a filtrare
+// per singola istanza. `logGroup` null = il tipo non ha log applicativi su CloudWatch.
 async function resolveLogGroup(service, aws) {
   const cfg = service.aws ?? {}
-  if (cfg.logGroup) return cfg.logGroup // override esplicito
-  if (cfg.type === 'lambda' && cfg.function) return `/aws/lambda/${cfg.function}`
+  if (cfg.logGroup) return { logGroup: cfg.logGroup } // override esplicito
+  if (cfg.type === 'lambda' && cfg.function) return { logGroup: `/aws/lambda/${cfg.function}` }
   if (cfg.type === 'ecs') {
     const ecs = new ECSClient(clientOpts(aws))
     const svc = (await ecs.send(new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }))).services?.[0]
-    if (!svc?.taskDefinition) return null
+    if (!svc?.taskDefinition) return { logGroup: null }
     const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: svc.taskDefinition }))).taskDefinition
     for (const c of td?.containerDefinitions ?? []) {
-      if (c.logConfiguration?.logDriver === 'awslogs') return c.logConfiguration.options?.['awslogs-group'] ?? null
+      if (c.logConfiguration?.logDriver === 'awslogs') {
+        return {
+          logGroup: c.logConfiguration.options?.['awslogs-group'] ?? null,
+          streamPrefix: c.logConfiguration.options?.['awslogs-stream-prefix'] ?? null,
+          container: c.name ?? null,
+        }
+      }
     }
-    return null
+    return { logGroup: null }
   }
   // cron su ECS RunTask: il log group sta nella task-def schedulata (nessun servizio da interrogare).
   if (cfg.type === 'ecs-scheduled' && cfg.taskDefinition) {
     const ecs = new ECSClient(clientOpts(aws))
     const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition
     for (const c of td?.containerDefinitions ?? []) {
-      if (c.logConfiguration?.logDriver === 'awslogs') return c.logConfiguration.options?.['awslogs-group'] ?? null
+      if (c.logConfiguration?.logDriver === 'awslogs') {
+        return {
+          logGroup: c.logConfiguration.options?.['awslogs-group'] ?? null,
+          streamPrefix: c.logConfiguration.options?.['awslogs-stream-prefix'] ?? null,
+          container: c.name ?? null,
+        }
+      }
     }
-    return null
+    return { logGroup: null }
   }
-  return null // tipo senza log applicativi su CloudWatch
+  return { logGroup: null } // tipo senza log applicativi su CloudWatch
 }
 
 // FETTE A RITROSO, dalla più recente alla più vecchia, in minuti-fa: `[fromAgo, toAgo]`.
@@ -92,7 +114,10 @@ export async function readSlice(cw, params, need, budget, { skipHealth = true } 
         skipped += 1
         continue
       }
-      events.push({ ts: e.timestamp, message })
+      // `stream` = il log stream di provenienza. Su ECS è `<prefisso>/<container>/<taskId>`, quindi
+      // identifica LA REPLICA che ha scritto la riga: senza di lui i flussi di 2-3 task arrivano
+      // mescolati e una sostituzione di task sembra un log che salta.
+      events.push({ ts: e.timestamp, message, stream: e.logStreamName ?? null })
     }
     // FilterLogEvents legge più stream in parallelo (un servizio ECS = un flusso per task) e l'ordine
     // che torna non è garantito per timestamp: senza riordinare, "i più recenti della fetta" sarebbero
@@ -109,12 +134,12 @@ export async function readSlice(cw, params, need, budget, { skipHealth = true } 
   return { events, more: dropped || Boolean(nextToken), skipped }
 }
 
-// Ritorna { logGroup, events:[{ts,message}], truncated, healthSkipped } | { notApplicable } |
-// { logGroup, error }.
+// Ritorna { logGroup, events:[{ts,message,stream}], truncated, healthSkipped, streams, task } |
+// { notApplicable } | { logGroup, error }. `task` = l'id del task a cui la lettura è stata ristretta.
 export async function recentLogs(
   service,
   accounts,
-  { errorsOnly = false, minutes = 60, limit = 100, skipHealth = true, t = (k) => k } = {},
+  { errorsOnly = false, minutes = 60, limit = 100, skipHealth = true, task = null, t = (k) => k } = {},
 ) {
   const acct = service.account ? accounts[service.account] : null
   const aws = {
@@ -124,13 +149,18 @@ export async function recentLogs(
     region: service.aws?.region ?? acct?.region,
   }
 
-  let logGroup
+  let resolved = { logGroup: null }
   try {
-    logGroup = await resolveLogGroup(service, aws)
+    resolved = await resolveLogGroup(service, aws)
   } catch {
-    logGroup = null
+    resolved = { logGroup: null }
   }
+  const { logGroup } = resolved
   if (!logGroup) return { notApplicable: true }
+  // Il task chiesto diventa un nome di stream ESATTO. Se non si riesce a comporlo (prefisso o container
+  // ignoti) si legge il servizio intero: meglio più righe del richiesto che una lista vuota senza
+  // spiegazione — e `task` nella risposta dice al pannello se il filtro ha davvero attecchito.
+  const stream = task ? ecsStreamName(resolved, task) : null
 
   const cw = new CloudWatchLogsClient(clientOpts(aws))
   const now = Date.now()
@@ -158,6 +188,9 @@ export async function recentLogs(
           logGroupName: logGroup,
           startTime: now - toAgo * 60 * 1000,
           endTime: now - fromAgo * 60 * 1000,
+          // Filtrare per istanza va chiesto a CloudWatch, non fatto a valle: un task chiacchierone
+          // riempirebbe il tetto di righe e degli altri non resterebbe niente da mostrare.
+          ...(stream ? { logStreamNames: [stream] } : {}),
           ...(errorsOnly ? { filterPattern: ERROR_PATTERN } : {}),
         },
         need,
@@ -168,7 +201,11 @@ export async function recentLogs(
       healthSkipped += slice.skipped
       if (slice.more) truncated = true
     }
-    return { logGroup, events, truncated, healthSkipped }
+    // Gli stream incontrati: è da qui che il pannello ricava le istanze da offrire nel filtro, quindi
+    // vengono elencati anche quando un filtro è già attivo (in quel caso è uno solo, e il pannello
+    // tiene le opzioni che aveva).
+    const streams = [...new Set(events.map((e) => e.stream).filter(Boolean))].sort()
+    return { logGroup, events, truncated, healthSkipped, streams, task: stream ? task : null }
   } catch (err) {
     return { logGroup, error: cleanAwsReason(err, t) } // es. group inesistente / permessi
   }
