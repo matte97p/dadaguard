@@ -2,7 +2,7 @@ import express from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { getStatus, resolveServices, invalidateServicesCache } from './status.js'
+import { getStatus, resolveServices, invalidateServicesCache, findService } from './status.js'
 import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
@@ -441,13 +441,18 @@ app.get('/api/logs', async (req, res) => {
   try {
     if (isDemo) return res.json(demoLogs())
     const { accounts, services } = await resolveServices()
-    const svc = services.find((s) => s.name === req.query.service)
+    const svc = findService(services, req.query)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
     res.json(
       await recentLogs(svc, accounts, {
         errorsOnly: req.query.errorsOnly === 'true',
-        minutes: req.query.minutes ? Number(req.query.minutes) : 60,
-        limit: req.query.limit ? Number(req.query.limit) : 100,
+        // Health-check scartati per default: su un servizio HTTP sano sono ~90% del log e da soli
+        // esaurirebbero il tetto di righe. Il pannello li rimette con un interruttore.
+        skipHealth: req.query.skipHealth !== 'false',
+        // Numeri non numerici (`?minutes=abc`) tornano al default: passandoli avanti la finestra
+        // diventa NaN e il pannello risponde "nessun evento", che è la bugia peggiore possibile qui.
+        minutes: Number.isFinite(Number(req.query.minutes)) ? Number(req.query.minutes) : 60,
+        limit: Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : 100,
         t: makeT(req.query.lang),
       }),
     )
@@ -471,7 +476,7 @@ app.get('/api/events', async (req, res) => {
   try {
     if (isDemo) return res.json(demoEvents())
     const { accounts, services } = await resolveServices()
-    const svc = services.find((s) => s.name === req.query.service)
+    const svc = findService(services, req.query)
     if (!svc) return res.status(404).json({ error: 'servizio non trovato' })
     // Eventi operativi (ECS/RDS/ASG) + modifiche CloudTrail (la "causa"), in parallelo.
     const t = makeT(req.query.lang)

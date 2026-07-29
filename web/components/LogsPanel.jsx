@@ -51,13 +51,16 @@ function lineKind(msg) {
 // È un PANNELLO, non un drawer: vive in una scheda del pannello del servizio, così i log non coprono
 // più lo stato del servizio che stai guardando. Il fetch parte al mount e la scheda si monta solo
 // quando la apri: resta on-demand come prima.
-export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
+export default function LogsPanel({ service, account, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
   const [errorsOnly, setErrorsOnly] = useState(defaultErrorsOnly)
   const [minutes, setMinutes] = useState(defaultMinutes) // finestra log: 1h / 6h / 24h / 48h
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showNoise, setShowNoise] = useState(false) // mostra le righe di piattaforma Lambda
+  // Health-check: si scartano LATO SERVER (vedi HEALTH_LINE in server/logs.js), quindi rimetterli
+  // rifà la chiamata. Su un servizio HTTP sano sono ~90% del log: tenerli spegne il pannello.
+  const [showHealth, setShowHealth] = useState(false)
   const [reloadKey, setReloadKey] = useState(0) // bump dal bottone Aggiorna → refetch
 
   // All'apertura di un servizio applica i default giusti per quel servizio (es. un cron rosso →
@@ -77,7 +80,12 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
     let stale = false
     setLoading(true)
     setError(null)
-    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}&minutes=${minutes}&lang=${lang}`)
+    // `account` insieme al nome: il nome da solo è ambiguo (staging e produzione hanno gli stessi
+    // servizi) e il server aprirebbe il log group dell'ambiente sbagliato.
+    const acct = account ? `&account=${encodeURIComponent(account)}` : ''
+    fetch(
+      `/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}&minutes=${minutes}&lang=${lang}`,
+    )
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -85,7 +93,7 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
     return () => {
       stale = true
     }
-  }, [service, errorsOnly, minutes, reloadKey, lang])
+  }, [service, account, errorsOnly, showHealth, minutes, reloadKey, lang])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
@@ -100,6 +108,10 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
           <Space size={6}>
             <Switch checked={showNoise} onChange={setShowNoise} />
             <Text>{t('logs.showNoise')}</Text>
+          </Space>
+          <Space size={6}>
+            <Switch checked={showHealth} onChange={setShowHealth} />
+            <Text>{t('logs.showHealth')}</Text>
           </Space>
           <Space size={6}>
             <Text>{t('logs.window')}</Text>
@@ -139,7 +151,15 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
           </Text>
           {(() => {
             const all = data.events ?? []
-            if (all.length === 0) return <Empty style={{ paddingTop: 60 }} description={t('logs.empty')} />
+            // "Nessun evento" quando gli eventi c'erano ed erano tutti health check è una bugia, e
+            // manda a cercare un problema dove non c'è: si dice cosa è stato scartato e come rivederlo.
+            if (all.length === 0)
+              return (
+                <Empty
+                  style={{ paddingTop: 60 }}
+                  description={data.healthSkipped > 0 ? t('logs.onlyHealth', { n: data.healthSkipped }) : t('logs.empty')}
+                />
+              )
             const rows = all.filter((e) => showNoise || !NOISE.test((e.message ?? '').trimStart()))
             const hidden = all.length - rows.length
             return (
@@ -147,6 +167,7 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
                 <div style={{ fontSize: 11, opacity: 0.6, margin: '4px 0' }}>
                   {rows.length}
                   {hidden > 0 ? ` · ${t('logs.hidden', { n: hidden })}` : ''}
+                  {data.healthSkipped > 0 ? ` · ${t('logs.healthHidden', { n: data.healthSkipped })}` : ''}
                 </div>
                 <div
                   style={{

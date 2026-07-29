@@ -25,7 +25,7 @@ import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
-import { displayName } from './serviceName.js'
+import { displayName, serviceKey } from './serviceName.js'
 import DashboardPage from './pages/DashboardPage.jsx'
 import CostsPage from './pages/CostsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -84,10 +84,12 @@ export default function App() {
   // già sulla scheda giusta.
   const [detailTab, setDetailTab] = useState('overview')
   const [paletteOpen, setPaletteOpen] = useState(false) // ⌘K ricerca globale servizi
-  const [detailName, setDetailName] = useState(null) // servizio aperto nel pannello di dettaglio
-  const openDetail = (name, tab = 'overview') => {
-    setDetailTab(tab)
-    setDetailName(name)
+  // Servizio aperto nel pannello: identificato da account+nome (serviceKey), non dal nome. `tab`
+  // omesso = lascia la scheda dov'era (aprire una riga non ti riporta in Panoramica).
+  const [detailKey, setDetailKey] = useState(null)
+  const openDetail = (service, tab) => {
+    if (tab) setDetailTab(tab)
+    setDetailKey(service ? serviceKey(service) : null)
   }
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
@@ -215,7 +217,7 @@ export default function App() {
   }, [location.pathname, load, loadHealth])
 
   const services = data?.services ?? []
-  const detailService = detailName ? services.find((s) => s.name === detailName) : null
+  const detailService = detailKey ? services.find((s) => serviceKey(s) === detailKey) : null
   const isCloud = data?.mode === 'cloud'
   const caps = data?.capabilities ?? { watchlist: !isCloud, discover: !isCloud, fullDrift: !isCloud }
 
@@ -548,9 +550,9 @@ export default function App() {
                   loading={loading}
                   error={error}
                   onRemove={removeService}
-                  onLogs={(name) => openDetail(name, 'logs')}
-                  onEvents={(name) => openDetail(name, 'events')}
-                  onOpen={setDetailName}
+                  onLogs={(s) => openDetail(s, 'logs')}
+                  onEvents={(s) => openDetail(s, 'events')}
+                  onOpen={(s) => openDetail(s)}
                   t={t}
                 />
               }
@@ -597,7 +599,7 @@ export default function App() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           services={groups.flatMap((g) => g.services)}
-          onPick={(svc) => openDetail(svc.name)}
+          onPick={(svc) => openDetail(svc, 'overview')}
           t={t}
         />
         <ServiceDetailDrawer
@@ -606,7 +608,7 @@ export default function App() {
           onTab={setDetailTab}
           logsDefaultMinutes={logsDefaultMinutes}
           logsDefaultErrorsOnly={logsDefaultErrorsOnly}
-          onClose={() => setDetailName(null)}
+          onClose={() => setDetailKey(null)}
           onNavigate={navigate}
           t={t}
           lang={lang}
