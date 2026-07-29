@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button } from 'antd'
+import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button, Select } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
+import { taskOfStream } from '../format.js'
 
 const { Text } = Typography
 
@@ -51,7 +52,17 @@ function lineKind(msg) {
 // È un PANNELLO, non un drawer: vive in una scheda del pannello del servizio, così i log non coprono
 // più lo stato del servizio che stai guardando. Il fetch parte al mount e la scheda si monta solo
 // quando la apri: resta on-demand come prima.
-export default function LogsPanel({ service, account, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
+const shortTask = (taskId) => String(taskId ?? '').slice(0, 8)
+
+export default function LogsPanel({
+  service,
+  account,
+  focusTask = null,
+  defaultMinutes = 60,
+  defaultErrorsOnly = false,
+  t = (k) => k,
+  lang,
+}) {
   const [errorsOnly, setErrorsOnly] = useState(defaultErrorsOnly)
   const [minutes, setMinutes] = useState(defaultMinutes) // finestra log: 1h / 6h / 24h / 48h
   const [data, setData] = useState(null)
@@ -62,6 +73,13 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
   // rifà la chiamata. Su un servizio HTTP sano sono ~90% del log: tenerli spegne il pannello.
   const [showHealth, setShowHealth] = useState(false)
   const [reloadKey, setReloadKey] = useState(0) // bump dal bottone Aggiorna → refetch
+  // Istanza selezionata (task ECS). Anche questo filtro è LATO SERVER: un task chiacchierone
+  // riempirebbe il tetto di righe e degli altri non resterebbe niente.
+  const [task, setTask] = useState(focusTask)
+  // Le istanze viste finora. Tenute a parte perché con un filtro attivo la risposta contiene un solo
+  // stream: leggendo le opzioni dall'ultima risposta, scegliere un task cancellerebbe gli altri dalla
+  // tendina e non si potrebbe più tornare indietro.
+  const [knownTasks, setKnownTasks] = useState([])
 
   // All'apertura di un servizio applica i default giusti per quel servizio (es. un cron rosso →
   // finestra ampia + solo errori, così il fallimento notturno è subito visibile senza toccare i filtri).
@@ -71,6 +89,13 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
       setErrorsOnly(defaultErrorsOnly)
     }
   }, [service, defaultMinutes, defaultErrorsOnly])
+
+  // Arrivo dal pannello Istanze ("i log DI QUESTO task"): il filtro parte già applicato. Il servizio
+  // sta nelle dipendenze perché cambiando servizio i task di prima non esistono più.
+  useEffect(() => {
+    setTask(focusTask)
+    setKnownTasks([])
+  }, [focusTask, service])
 
   useEffect(() => {
     if (!service) {
@@ -83,17 +108,25 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
     // `account` insieme al nome: il nome da solo è ambiguo (staging e produzione hanno gli stessi
     // servizi) e il server aprirebbe il log group dell'ambiente sbagliato.
     const acct = account ? `&account=${encodeURIComponent(account)}` : ''
+    const one = task ? `&task=${encodeURIComponent(task)}` : ''
     fetch(
-      `/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}&minutes=${minutes}&lang=${lang}`,
+      `/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}${one}&minutes=${minutes}&lang=${lang}`,
     )
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => !stale && setData(d))
+      .then((d) => {
+        if (stale) return
+        setData(d)
+        // Le istanze si accumulano invece di essere sostituite: la tendina deve restare popolata
+        // anche mentre un filtro è attivo.
+        const seen = (d.streams ?? []).map(taskOfStream).filter(Boolean)
+        if (seen.length) setKnownTasks((prev) => [...new Set([...prev, ...seen])].sort())
+      })
       .catch((e) => !stale && setError(e.message))
       .finally(() => !stale && setLoading(false))
     return () => {
       stale = true
     }
-  }, [service, account, errorsOnly, showHealth, minutes, reloadKey, lang])
+  }, [service, account, errorsOnly, showHealth, task, minutes, reloadKey, lang])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
@@ -113,6 +146,23 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
             <Switch checked={showHealth} onChange={setShowHealth} />
             <Text>{t('logs.showHealth')}</Text>
           </Space>
+          {/* Il selettore compare solo se il servizio HA più di un'istanza: su una replica sola
+              sarebbe un controllo con una voce, che non filtra niente e occupa la barra. */}
+          {knownTasks.length > 1 && (
+            <Space size={6}>
+              <Text>{t('logs.instance')}</Text>
+              <Select
+                size="small"
+                value={task ?? ''}
+                onChange={(v) => setTask(v || null)}
+                style={{ minWidth: 130 }}
+                options={[
+                  { value: '', label: t('logs.allInstances') },
+                  ...knownTasks.map((id) => ({ value: id, label: shortTask(id) })),
+                ]}
+              />
+            </Space>
+          )}
           <Space size={6}>
             <Text>{t('logs.window')}</Text>
             <Segmented
@@ -200,6 +250,11 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
                         }}
                       >
                         <span style={{ opacity: 0.5 }}>{fmtTs(e.ts)}</span>{' '}
+                        {/* Da quale istanza arriva la riga. Solo quando ne stai leggendo più di una:
+                            con un filtro attivo sarebbe lo stesso valore ripetuto su ogni riga. */}
+                        {!task && knownTasks.length > 1 && e.stream && (
+                          <span style={{ opacity: 0.4 }}>{shortTask(taskOfStream(e.stream))}</span>
+                        )}{' '}
                         {p.level && (
                           <span style={{ color: LEVEL_COLOR[p.level] ?? undefined, fontWeight: 700 }}>
                             {p.level.toUpperCase()}

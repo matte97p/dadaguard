@@ -21,9 +21,9 @@ test('gli eventi ci sono dove AWS li racconta: non per un worker Cloudflare', ()
 })
 
 test('senza tipo: nessuna scheda oltre la panoramica', () => {
-  assert.deepEqual(detailTabs({}), { logs: false, events: false, deploy: false })
-  assert.deepEqual(detailTabs(null), { logs: false, events: false, deploy: false })
-  assert.deepEqual(detailTabs(undefined), { logs: false, events: false, deploy: false })
+  assert.deepEqual(detailTabs({}), { logs: false, events: false, deploy: false, instances: false })
+  assert.deepEqual(detailTabs(null), { logs: false, events: false, deploy: false, instances: false })
+  assert.deepEqual(detailTabs(undefined), { logs: false, events: false, deploy: false, instances: false })
 })
 
 test('il bottone Deploy appare solo dove c’è davvero una build', () => {
@@ -39,5 +39,14 @@ test('un worker Cloudflare tiene il Deploy ma perde log ed eventi', () => {
     logs: false,
     events: false,
     deploy: true,
+    instances: false,
   })
+})
+
+test('istanze: solo un servizio ECS long-running, non un cron su RunTask', () => {
+  // I task di un cron nascono e muoiono a ogni esecuzione: una foto delle risorse "adesso" non dice
+  // niente, e una scheda vuota è peggio di una scheda assente.
+  assert.equal(detailTabs({ type: 'ecs' }).instances, true)
+  assert.equal(detailTabs({ type: 'ecs-scheduled' }).instances, false)
+  assert.equal(detailTabs({ type: 'lambda' }).instances, false)
 })
