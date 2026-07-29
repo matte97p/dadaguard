@@ -6,6 +6,13 @@
 // lunghi e quasi tutti uguali in testa (cato-staging-cron-…) — la card mostra la testa piccola e
 // muta e la coda in evidenza, senza nascondere nulla.
 
+// PROFILI DI INFERENZA riconosciuti come prefisso di un ID Bedrock. `global` è nell'elenco per un
+// motivo preciso: prima non lo era, quindi da `global.anthropic.claude-opus-5` non si ricavava nessuna
+// etichetta — e siccome il nome accorciato è identico a quello del gemello `eu.`, in tabella
+// comparivano due righe indistinguibili nello stesso ambiente. Il prefisso NON è un dettaglio
+// cosmetico: dice dove gira l'inferenza, e `global` può uscire dall'Unione Europea.
+const INFERENCE_SCOPES = /^(eu|us|apac|ap|ca|sa|global)$/i
+
 export function prettyBedrock(id) {
   const raw = String(id ?? '')
   const regionM = raw.match(/^([a-z0-9]+)\./i)
@@ -18,9 +25,18 @@ export function prettyBedrock(id) {
     .split('-')
     .map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ')
-  const region = /^(eu|us|apac|ap|ca|sa)$/i.test(regionM?.[1]) ? regionM[1].toLowerCase() : null
+  const scope = INFERENCE_SCOPES.test(regionM?.[1] ?? '') ? regionM[1].toLowerCase() : null
   const date = dateM ? `${dateM[1].slice(0, 4)}-${dateM[1].slice(4, 6)}-${dateM[1].slice(6, 8)}` : null
-  return { name, meta: [region, date].filter(Boolean).join(' · ') }
+  return { name, scope, meta: [scope, date].filter(Boolean).join(' · ') }
+}
+
+// Un profilo di inferenza fuori dall'area UE va detto, non lasciato dedurre da un prefisso: il
+// contratto ammette solo `eu.*`, e `global.*` può instradare l'inferenza fuori dall'Unione Europea.
+// Un ID senza prefisso riconosciuto non è "fuori area": è ignoto, e affermarlo sarebbe inventare.
+export function isNonEuInference(service) {
+  if (service?.type !== 'bedrock') return false
+  const { scope } = prettyBedrock(service.name)
+  return Boolean(scope) && scope !== 'eu'
 }
 
 // IDENTITÀ di un servizio nella UI: account + nome. Il nome da solo NON identifica niente — `backend`

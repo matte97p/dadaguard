@@ -391,6 +391,26 @@ const STRINGS = {
     'logs.hidden': '{n} {n#riga Lambda nascosta#righe Lambda nascoste}',
     'logs.healthHidden': '{n} {n#health check scartato#health check scartati}',
     'logs.onlyHealth': 'Solo health check nella finestra ({n} righe): accendi «Mostra health check» per vederli',
+    'bedrock.nonEuHint':
+      'Profilo di inferenza fuori dall’area UE: il contratto ammette solo i profili eu.*, e questo può instradare l’inferenza fuori dall’Unione Europea.',
+    'logs.instance': 'Istanza',
+    'logs.allInstances': 'Tutte',
+
+    'instances.button': 'Istanze',
+    'instances.window': 'Ultimi 15 minuti, una riga per task attivo',
+    'instances.col.task': 'Task',
+    'instances.col.revision': 'Revision',
+    'instances.col.cpu': 'CPU',
+    'instances.col.mem': 'Memoria',
+    'instances.col.net': 'Rete',
+    'instances.ofReserved': '{pct}% di quanto è riservato al task',
+    'instances.logsOfTask': 'Log di questo task',
+    'instances.empty': 'Nessun task attivo nella finestra',
+    'instances.notApplicable': 'Solo per i servizi ECS long-running (un task per replica)',
+    'instances.needsInsights': 'Le metriche per task arrivano da Container Insights: se è spento sul cluster, il log group non esiste.',
+    'instances.mixedRevisions': 'Task su revision diverse ({list}): è un rollout in corso, non un guasto.',
+    'instances.noLatency':
+      'La latenza non è disponibile per task: l’ALB la pubblica per target group e per zona, mai per singolo target. Quella in tabella è di servizio.',
 
     'events.title': 'Eventi e modifiche',
     'events.button': 'Eventi e modifiche',
@@ -834,6 +854,26 @@ const STRINGS = {
     'logs.hidden': '{n} Lambda {n#line hidden#lines hidden}',
     'logs.healthHidden': '{n} health {n#check dropped#checks dropped}',
     'logs.onlyHealth': 'Only health checks in the window ({n} lines): turn on "Show health checks" to see them',
+    'bedrock.nonEuHint':
+      'Inference profile outside the EU area: the contract allows eu.* profiles only, and this one can route inference outside the European Union.',
+    'logs.instance': 'Instance',
+    'logs.allInstances': 'All',
+
+    'instances.button': 'Instances',
+    'instances.window': 'Last 15 minutes, one row per running task',
+    'instances.col.task': 'Task',
+    'instances.col.revision': 'Revision',
+    'instances.col.cpu': 'CPU',
+    'instances.col.mem': 'Memory',
+    'instances.col.net': 'Network',
+    'instances.ofReserved': '{pct}% of what the task reserves',
+    'instances.logsOfTask': 'Logs for this task',
+    'instances.empty': 'No running task in the window',
+    'instances.notApplicable': 'Long-running ECS services only (one task per replica)',
+    'instances.needsInsights': 'Per-task metrics come from Container Insights: if it is off on the cluster, the log group does not exist.',
+    'instances.mixedRevisions': 'Tasks on different revisions ({list}): a rollout is in progress, not a fault.',
+    'instances.noLatency':
+      'Latency is not available per task: the ALB publishes it per target group and per zone, never per target. The one in the table is service-wide.',
 
     'events.title': 'Events & changes',
     'events.button': 'Events & changes',
