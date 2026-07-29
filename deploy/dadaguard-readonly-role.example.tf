@@ -44,6 +44,9 @@ data "aws_iam_policy_document" "readonly" {
     actions = [
       "ecs:ListClusters", "ecs:ListServices", "ecs:DescribeServices",
       "ecs:DescribeTaskDefinition", # #2 build: tag immagine del task in uso
+      # per-istanza: salute e IP del task attivo (join col target group) + motivo dei task fermati
+      # (OOM, kill da health-check, sostituzione da deploy)
+      "ecs:ListTasks", "ecs:DescribeTasks",
       "lambda:ListFunctions", "lambda:GetFunction", "lambda:GetFunctionConfiguration",
       "lambda:GetAlias", # #2 build: versione dietro l'alias Lambda
       "autoscaling:DescribeAutoScalingGroups",
