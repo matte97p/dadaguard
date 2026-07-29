@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { latestByTask, pctOf, shortTaskId } from '../server/taskMetrics.js'
 import { ecsStreamName } from '../server/logs.js'
 import { prettyBedrock, isNonEuInference } from '../web/serviceName.js'
-import { taskOfStream } from '../web/format.js'
+import { taskOfStream, instanceOptions } from '../web/format.js'
 
 // Le metriche di servizio sono medie sulla flotta, e una media su tre replica nasconde il caso che si
 // va a cercare: un task che macina CPU mentre gli altri stanno bene. Qui si fissa che il per-task
@@ -121,4 +121,29 @@ test('isNonEuInference: prefisso ignoto NON è "fuori area"', () => {
   assert.equal(isNonEuInference({ type: 'bedrock', name: 'anthropic.claude-opus-5' }), false)
   assert.equal(isNonEuInference({ type: 'ecs', name: 'backend' }), false)
   assert.equal(isNonEuInference(null), false)
+})
+
+// Il selettore di istanza nel pannello log. Sembrano dettagli e sono i due modi in cui un filtro si
+// trasforma in un vicolo cieco: nascosto il ritorno a «Tutte», o mostrato vuoto mentre filtra.
+test('instanceOptions: «Tutte» c’è sempre, ed è la prima', () => {
+  const o = instanceOptions([], null, 'Tutte', (s) => s)
+  assert.deepEqual(o, [{ value: '', label: 'Tutte' }])
+})
+
+test('instanceOptions: l’istanza attiva è tra le opzioni anche se non è ancora comparsa', () => {
+  // Un Select col valore fuori dalle opzioni mostra la casella vuota: leggerebbe "nessun filtro"
+  // mentre il filtro è attivo, che è la bugia peggiore su un pannello di diagnosi.
+  const o = instanceOptions(['aaaa1111'], 'bbbb2222', 'Tutte', (s) => s)
+  assert.deepEqual(o.map((x) => x.value), ['', 'aaaa1111', 'bbbb2222'])
+})
+
+test('instanceOptions: nessun duplicato se l’attiva è già nota', () => {
+  const o = instanceOptions(['aaaa1111', 'bbbb2222'], 'aaaa1111', 'Tutte', (s) => s)
+  assert.deepEqual(o.map((x) => x.value), ['', 'aaaa1111', 'bbbb2222'])
+})
+
+test('instanceOptions: le etichette passano dall’accorciatore', () => {
+  const o = instanceOptions(['68228e26661b4de1b7129e4beb6e44d8'], null, 'Tutte', (s) => s.slice(0, 8))
+  assert.equal(o[1].label, '68228e26')
+  assert.equal(o[1].value, '68228e26661b4de1b7129e4beb6e44d8') // il valore resta l'id intero
 })
