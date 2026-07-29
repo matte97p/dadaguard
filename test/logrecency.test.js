@@ -1,6 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { backwardSlices, HEALTH_LINE } from '../server/logs.js'
+import { backwardSlices, readSlice, HEALTH_LINE } from '../server/logs.js'
+
+// CloudWatch finto: restituisce le pagine dichiarate, una per chiamata.
+const fakeCw = (...pages) => {
+  let i = 0
+  return {
+    send: async () => {
+      const events = pages[i++] ?? []
+      return { events, nextToken: i < pages.length ? `t${i}` : undefined }
+    },
+  }
+}
+const ev = (ts, message) => ({ timestamp: ts, message })
 
 // "Log recenti" deve dire le righe PIÙ RECENTI. FilterLogEvents pagina dal più vecchio, quindi
 // chiedere 100 righe alla finestra intera dava le 100 più VECCHIE: su agentic-chat staging (3 nodi ALB
@@ -36,6 +48,50 @@ test('le fette crescono: 48h senza match si coprono in una ventina di chiamate, 
 
 test('finestra di un minuto: una fetta sola', () => {
   assert.deepEqual(backwardSlices(1), [[0, 1]])
+})
+
+test('readSlice tiene le righe più recenti PER TIMESTAMP, non le ultime arrivate', () => {
+  // Un servizio ECS con 3 task = 3 flussi letti in parallelo: l'ordine che CloudWatch restituisce non
+  // è quello degli orologi. Chi arriva per ultimo non è chi è successo per ultimo.
+  return readSlice(fakeCw([ev(300, 'terza'), ev(100, 'prima'), ev(200, 'seconda')]), {}, 2, { pages: 0 }).then((r) => {
+    assert.deepEqual(
+      r.events.map((e) => e.message),
+      ['seconda', 'terza'],
+    )
+    assert.equal(r.more, true) // 'prima' è stata scartata: la risposta è troncata
+  })
+})
+
+test('readSlice pagina fino in fondo alla fetta: i più recenti stanno nell ultima pagina', () => {
+  return readSlice(fakeCw([ev(100, 'vecchia')], [ev(200, 'nuova')]), {}, 1, { pages: 0 }).then((r) => {
+    assert.deepEqual(
+      r.events.map((e) => e.message),
+      ['nuova'],
+    )
+  })
+})
+
+test('readSlice scarta gli health check e li conta', () => {
+  const page = [
+    ev(100, 'INFO:     10.0.66.94:41352 - "GET /health HTTP/1.1" 200 OK'),
+    ev(200, '[turn] Task done'),
+    ev(300, 'INFO:     10.0.93.178:55304 - "GET /health HTTP/1.1" 200 OK'),
+  ]
+  return readSlice(fakeCw(page), {}, 100, { pages: 0 }).then((r) => {
+    assert.deepEqual(
+      r.events.map((e) => e.message),
+      ['[turn] Task done'],
+    )
+    assert.equal(r.skipped, 2)
+  })
+})
+
+test('readSlice con skipHealth disattivato restituisce tutto', () => {
+  const page = [ev(100, 'INFO: - "GET /health HTTP/1.1" 200 OK'), ev(200, '[turn] Task done')]
+  return readSlice(fakeCw(page), {}, 100, { pages: 0 }, { skipHealth: false }).then((r) => {
+    assert.equal(r.events.length, 2)
+    assert.equal(r.skipped, 0)
+  })
 })
 
 // L'altra metà del problema: le righe di health-check sono ~90% del log di un servizio HTTP sano e da

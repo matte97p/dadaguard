@@ -78,7 +78,7 @@ const MAX_PAGES_TOTAL = 40
 // Le `need` righe PIÙ RECENTI di una fetta, in ordine cronologico. `more` = nella fetta c'era altro
 // prima di queste (scartato di proposito, o pagine finite): serve a marcare la risposta troncata.
 // `skipped` = righe di health-check buttate via strada facendo, da dire al lettore.
-async function readSlice(cw, params, need, budget, { skipHealth = true } = {}) {
+export async function readSlice(cw, params, need, budget, { skipHealth = true } = {}) {
   const events = []
   let nextToken
   let pages = 0
@@ -94,8 +94,12 @@ async function readSlice(cw, params, need, budget, { skipHealth = true } = {}) {
       }
       events.push({ ts: e.timestamp, message })
     }
+    // FilterLogEvents legge più stream in parallelo (un servizio ECS = un flusso per task) e l'ordine
+    // che torna non è garantito per timestamp: senza riordinare, "i più recenti della fetta" sarebbero
+    // gli ultimi ARRIVATI, che è una cosa diversa. Si ordina prima di tagliare, non dopo.
+    events.sort((a, b) => a.ts - b.ts)
     if (events.length > need) {
-      events.splice(0, events.length - need) // teniamo la CODA: dentro la fetta i più recenti stanno in fondo
+      events.splice(0, events.length - need) // teniamo la CODA: ordinati, i più recenti stanno in fondo
       dropped = true
     }
     nextToken = out.nextToken
@@ -130,7 +134,11 @@ export async function recentLogs(
 
   const cw = new CloudWatchLogsClient(clientOpts(aws))
   const now = Date.now()
-  const cap = Math.min(Math.max(1, limit), 200)
+  // Finestra e tetto sono aritmetica: un NaN non alza un errore, si propaga e fa restituire "nessun
+  // evento" (o tutto quanto). Numeri non validi → default, non NaN.
+  const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
+  const windowMinutes = Math.max(1, num(minutes, 60))
+  const cap = Math.min(Math.max(1, num(limit, 100)), 200)
   try {
     // "Log recenti" vuol dire le righe più recenti: si raccoglie dal presente verso il passato e si
     // ferma appena il tetto è pieno. Le fette più vecchie non vengono nemmeno chieste.
@@ -138,7 +146,7 @@ export async function recentLogs(
     let truncated = false
     let healthSkipped = 0
     const budget = { pages: 0 }
-    for (const [fromAgo, toAgo] of backwardSlices(Math.max(1, minutes))) {
+    for (const [fromAgo, toAgo] of backwardSlices(windowMinutes)) {
       const need = cap - events.length
       if (need <= 0 || budget.pages >= MAX_PAGES_TOTAL) {
         truncated = true
