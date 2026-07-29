@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { Table, Typography, Space, Badge, Tooltip, Popconfirm } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule, rowClickOpens } from '../format.js'
-import { prettyBedrock, splitFamily, familyPrefixes } from '../serviceName.js'
+import { prettyBedrock, splitFamily, familyPrefixes, serviceKey } from '../serviceName.js'
 import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
@@ -12,8 +12,7 @@ const { Text, Link } = Typography
 // Colonne fisse e ordinabili, i segnali secondari nella riga espansa, il dettaglio nel drawer.
 //
 // Nomi DUPLICATI tra account (`backend` esiste in staging e in produzione, e i modelli Bedrock in
-// entrambi): la chiave di riga è account+nome, mai il nome.
-const rowKey = (s) => `${s.account?.key ?? '—'}/${s.name}`
+// entrambi): la chiave di riga è account+nome, mai il nome. Stessa identità che apre il pannello.
 
 // Severità: problemi in cima, poi i sani, in fondo ciò che non è un problema (inattivi e spenti di
 // proposito). Stesso ordine della vista a card.
@@ -73,7 +72,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
                 onOpen
                   ? (e) => {
                       e.stopPropagation() // la riga apre già: senza questo il gesto conta due volte
-                      onOpen(s.name)
+                      onOpen(s)
                     }
                   : undefined
               }
@@ -83,7 +82,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
                         e.stopPropagation()
-                        onOpen(s.name)
+                        onOpen(s)
                       }
                     }
                   : undefined
@@ -251,12 +250,12 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
               </Link>
             )}
             {onLogs && hasLogs && (
-              <Link type="secondary" onClick={() => onLogs(s.name)} title={t('logs.button')}>
+              <Link type="secondary" onClick={() => onLogs(s)} title={t('logs.button')}>
                 <FileTextOutlined />
               </Link>
             )}
             {onEvents && hasEvents && (
-              <Link type="secondary" onClick={() => onEvents(s.name)} title={t('events.button')}>
+              <Link type="secondary" onClick={() => onEvents(s)} title={t('events.button')}>
                 <HistoryOutlined />
               </Link>
             )}
@@ -297,7 +296,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
       size="small"
       tableLayout="fixed"
       rowClassName={(_, i) => (i % 2 ? 'dg-zebra' : '')}
-      rowKey={rowKey}
+      rowKey={serviceKey}
       dataSource={rows}
       columns={columns}
       pagination={false}
@@ -309,7 +308,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
         // (il nome da solo è alto 18px). I gesti interni restano loro — vedi `rowClickOpens`.
         onClick: onOpen
           ? (e) => {
-              if (rowClickOpens(e.target, window.getSelection?.()?.toString())) onOpen(s.name)
+              if (rowClickOpens(e.target, window.getSelection?.()?.toString())) onOpen(s)
             }
           : undefined,
         style: onOpen ? { cursor: 'pointer' } : undefined,

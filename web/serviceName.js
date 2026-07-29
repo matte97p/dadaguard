@@ -23,6 +23,14 @@ export function prettyBedrock(id) {
   return { name, meta: [region, date].filter(Boolean).join(' · ') }
 }
 
+// IDENTITÀ di un servizio nella UI: account + nome. Il nome da solo NON identifica niente — `backend`
+// esiste in staging e in produzione, e i modelli Bedrock in entrambi. Cercare per nome apre la card
+// dell'altro ambiente, e con essa i suoi numeri e i suoi log: la tabella dice "234 invocazioni, 1
+// errore 5xx" su produzione e il pannello risponde "nessuna invocazione" perché sta guardando staging.
+export function serviceKey(service) {
+  return `${service?.account?.key ?? '—'}/${service?.name ?? ''}`
+}
+
 // Nome leggibile per la UI. Ritorna sempre una stringa.
 export function displayName(service) {
   if (service?.type === 'bedrock') return prettyBedrock(service.name).name || service.name

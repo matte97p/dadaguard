@@ -51,7 +51,7 @@ function lineKind(msg) {
 // È un PANNELLO, non un drawer: vive in una scheda del pannello del servizio, così i log non coprono
 // più lo stato del servizio che stai guardando. Il fetch parte al mount e la scheda si monta solo
 // quando la apri: resta on-demand come prima.
-export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
+export default function LogsPanel({ service, account, defaultMinutes = 60, defaultErrorsOnly = false, t = (k) => k, lang }) {
   const [errorsOnly, setErrorsOnly] = useState(defaultErrorsOnly)
   const [minutes, setMinutes] = useState(defaultMinutes) // finestra log: 1h / 6h / 24h / 48h
   const [data, setData] = useState(null)
@@ -77,7 +77,10 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
     let stale = false
     setLoading(true)
     setError(null)
-    fetch(`/api/logs?service=${encodeURIComponent(service)}&errorsOnly=${errorsOnly}&minutes=${minutes}&lang=${lang}`)
+    // `account` insieme al nome: il nome da solo è ambiguo (staging e produzione hanno gli stessi
+    // servizi) e il server aprirebbe il log group dell'ambiente sbagliato.
+    const acct = account ? `&account=${encodeURIComponent(account)}` : ''
+    fetch(`/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&minutes=${minutes}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -85,7 +88,7 @@ export default function LogsPanel({ service, defaultMinutes = 60, defaultErrorsO
     return () => {
       stale = true
     }
-  }, [service, errorsOnly, minutes, reloadKey, lang])
+  }, [service, account, errorsOnly, minutes, reloadKey, lang])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
