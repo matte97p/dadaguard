@@ -590,6 +590,21 @@ export function demoLogs() {
   }
 }
 
+// Tre replica dello stesso servizio, di cui una che consuma il triplo di CPU delle altre: è il caso
+// che le medie di servizio nascondono, e la ragione per cui questa vista esiste.
+export function demoTaskMetrics() {
+  const now = Date.now()
+  return {
+    logGroup: '/aws/ecs/containerinsights/demo-cluster/performance',
+    revisions: ['57'],
+    tasks: [
+      { taskId: '3f7a91c2e5b84d16a0c9f2e7b1d48a35', shortId: '3f7a91c2', az: 'eu-central-1a', revision: '57', status: 'RUNNING', cpuPct: 61.4, memPct: 48.2, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_284_320, netTxBytes: 903_112, ts: now - 30_000, startedAt: now - 5_400_000 },
+      { taskId: 'b82d4e6f1a9c47b38e5d0f2a6c71b849', shortId: 'b82d4e6f', az: 'eu-central-1b', revision: '57', status: 'RUNNING', cpuPct: 19.8, memPct: 44.6, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_102_884, netTxBytes: 812_004, ts: now - 30_000, startedAt: now - 5_400_000 },
+      { taskId: 'c14f8a20d7e34b95af61c803e9b2d5f7', shortId: 'c14f8a20', az: 'eu-central-1c', revision: '57', status: 'RUNNING', cpuPct: 17.2, memPct: 43.1, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_057_260, netTxBytes: 798_431, ts: now - 30_000, startedAt: now - 5_400_000 },
+    ],
+  }
+}
+
 export function demoSelfcheck() {
   return {
     status: 'up', allOk: true, anyFail: false,
