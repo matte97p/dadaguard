@@ -237,3 +237,29 @@ test('familyOfTaskDef: la famiglia senza la revision', () => {
   )
   assert.equal(familyOfTaskDef(null), null)
 })
+
+// Trovato provando contro staging: i record EMF coprono una finestra di minuti, quindi contengono anche
+// task che nel frattempo si sono fermati. Senza marcarli, un servizio a UNA replica ne mostrava tre e
+// sembrava scalato — il pannello descriveva la finestra invece di adesso.
+test('gone: i task non più attivi sono marcati, non nascosti', () => {
+  const detail = { aaaa1111bbbb2222cccc3333dddd4444: { privateIp: '10.0.1.5' } }
+  const haveDetail = Object.keys(detail).length > 0
+  const tasks = latestByTask([
+    rec('aaaa1111bbbb2222cccc3333dddd4444', 2000),
+    rec('eeee5555ffff6666aaaa7777bbbb8888', 1000),
+  ]).map((task) => ({ ...task, ...(detail[task.taskId] ?? {}), gone: haveDetail && !detail[task.taskId] }))
+  assert.equal(tasks.find((x) => x.shortId === 'aaaa1111').gone, false)
+  assert.equal(tasks.find((x) => x.shortId === 'eeee5555').gone, true)
+})
+
+test('gone: senza il dettaglio dei task attivi NESSUNO è marcato', () => {
+  // Col permesso `ecs:DescribeTasks` assente il dettaglio è vuoto: marcare tutto come spento
+  // affermerebbe che il servizio è giù mentre sta benissimo.
+  const detail = {}
+  const haveDetail = Object.keys(detail).length > 0
+  const tasks = latestByTask([rec('aaaa1111bbbb2222cccc3333dddd4444', 1000)]).map((task) => ({
+    ...task,
+    gone: haveDetail && !detail[task.taskId],
+  }))
+  assert.equal(tasks[0].gone, false)
+})

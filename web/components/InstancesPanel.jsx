@@ -116,6 +116,9 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
             </Text>
           )}
           {r.status && r.status !== 'RUNNING' && <Tag color="warning">{r.status}</Tag>}
+          {/* Il task compariva nella finestra di metriche ma ora non è più attivo. Senza dirlo, un
+              servizio a una replica ne mostrerebbe tre e sembrerebbe scalato. */}
+          {r.gone && <Tag>{t('instances.gone')}</Tag>}
           {/* Pacchetti scartati o in errore: compaiono solo quando non sono zero. Spiegano timeout che
               dall'applicazione sembrano inspiegabili, e mostrarli sempre a zero sarebbe rumore. */}
           {(r.netDropped > 0 || r.netErrors > 0) && (
@@ -156,6 +159,30 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
     },
     { title: t('instances.col.cpu'), key: 'cpu', width: 118, render: (_, r) => <Usage pct={r.cpuPct} t={t} /> },
     { title: t('instances.col.mem'), key: 'mem', width: 118, render: (_, r) => <Usage pct={r.memPct} t={t} /> },
+    {
+      // Latenza della SINGOLA replica, dagli access log dell'ALB. p95 in colonna e il resto nel
+      // tooltip: il p50 dice com'è di solito, il p95 dice cosa sente chi sta peggio, e su tre replica
+      // è il confronto tra righe che indica il colpevole — non il numero assoluto.
+      title: t('instances.col.latency'),
+      key: 'lat',
+      width: 96,
+      render: (_, r) => {
+        if (!r.latency) return <Text type="secondary">—</Text>
+        return (
+          <Tooltip
+            title={t('instances.latencyDetail', {
+              p50: r.latency.p50,
+              p99: r.latency.p99,
+              max: r.latency.max,
+              n: r.latency.requests,
+              err: r.latency.errors,
+            })}
+          >
+            <Text style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{`${r.latency.p95}ms`}</Text>
+          </Tooltip>
+        )
+      },
+    },
     {
       // Su Fargate il disco effimero si riempie senza che nessuno lo guardi: un servizio che scrive
       // file (upload, conversioni, sandbox) muore lì prima che in memoria.
@@ -230,8 +257,13 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
             scroll={{ x: 'max-content' }}
           />
           <StoppedTasks stopped={data.stopped} t={t} />
+          {/* Da dove viene (o non viene) la latenza. Detta, non lasciata dedurre da una colonna di
+              trattini: senza access log ALB la latenza per replica non esiste, e un pannello che tace
+              lascia credere che il servizio non abbia traffico. */}
           <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-            {t('instances.noLatency')}
+            {data.latencySource?.available
+              ? t('instances.latencyFrom', { n: data.latencySource.objects, m: data.latencySource.window })
+              : t('instances.noLatency')}
           </Text>
         </>
       )}
