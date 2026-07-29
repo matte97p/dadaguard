@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { latestByTask, pctOf, shortTaskId } from '../server/taskMetrics.js'
+import { latestByTask, pctOf, shortTaskId, taskIdOfArn, pullMs, stopKind, mergeTargetHealth, familyOfTaskDef } from '../server/taskMetrics.js'
 import { ecsStreamName } from '../server/logs.js'
 import { prettyBedrock, isNonEuInference } from '../web/serviceName.js'
 import { taskOfStream, instanceOptions } from '../web/format.js'
@@ -146,4 +146,94 @@ test('instanceOptions: le etichette passano dall’accorciatore', () => {
   const o = instanceOptions(['68228e26661b4de1b7129e4beb6e44d8'], null, 'Tutte', (s) => s.slice(0, 8))
   assert.equal(o[1].label, '68228e26')
   assert.equal(o[1].value, '68228e26661b4de1b7129e4beb6e44d8') // il valore resta l'id intero
+})
+
+// I tre segnali che rendono il per-istanza azionabile invece che solo descrittivo.
+
+test('taskIdOfArn: l’id dalla coda dell’ARN', () => {
+  assert.equal(
+    taskIdOfArn('arn:aws:ecs:eu-central-1:521595303218:task/cato-staging/68228e26661b4de1b7129e4beb6e44d8'),
+    '68228e26661b4de1b7129e4beb6e44d8',
+  )
+  assert.equal(taskIdOfArn(null), null)
+})
+
+test('pullMs: durata del pull immagine, null se i timestamp non tornano', () => {
+  assert.equal(pullMs({ PullStartedAt: 1000, PullStoppedAt: 4200 }), 3200)
+  assert.equal(pullMs({ PullStartedAt: 4200, PullStoppedAt: 1000 }), null) // incoerenti
+  assert.equal(pullMs({ PullStartedAt: 1000 }), null)
+  assert.equal(pullMs({}), null)
+})
+
+test('stopKind: OOM riconosciuto sul container, non solo sul task', () => {
+  // ECS mette il motivo a volte sul task e a volte sul container: cercarlo in un posto solo significa
+  // classificare un OOM come "fermato", e mandare a cercare un bug applicativo dove serve più memoria.
+  assert.equal(
+    stopKind({ stoppedReason: 'Essential container in task exited', containerReasons: ['OutOfMemoryError: Container killed due to memory usage'] }),
+    'oom',
+  )
+  assert.equal(stopKind({ stoppedReason: 'OutOfMemory: container exceeded memory usage', containerReasons: [] }), 'oom')
+})
+
+test('stopKind: distingue health-check, sostituzione e stop a mano', () => {
+  assert.equal(stopKind({ stoppedReason: 'Task failed ELB health checks in target-group tg-x' }), 'health')
+  assert.equal(stopKind({ stoppedReason: 'Scaling activity initiated by deployment', stopCode: 'ServiceSchedulerInitiated' }), 'scheduler')
+  assert.equal(stopKind({ stoppedReason: 'Stopped by user', stopCode: 'UserInitiated' }), 'user')
+})
+
+test('stopKind: nessun motivo → null, non "other"', () => {
+  // "other" su un task senza motivo affermerebbe che qualcosa è andato storto: non lo sappiamo.
+  assert.equal(stopKind({}), null)
+  assert.equal(stopKind({ containerReasons: [] }), null)
+})
+
+test('mergeTargetHealth: lo stato del LB si attacca al task giusto per IP', () => {
+  const tasks = [
+    { taskId: 'a', privateIp: '10.0.1.5' },
+    { taskId: 'b', privateIp: '10.0.2.9' },
+  ]
+  const merged = mergeTargetHealth(tasks, {
+    '10.0.1.5': { state: 'unhealthy', reason: 'Target.ResponseCodeMismatch' },
+    '10.0.2.9': { state: 'healthy', reason: null },
+  })
+  assert.equal(merged.find((x) => x.taskId === 'a').target.state, 'unhealthy')
+  assert.equal(merged.find((x) => x.taskId === 'b').target.state, 'healthy')
+})
+
+test('mergeTargetHealth: senza load balancer i task restano intatti', () => {
+  // `null` = non si applica (nessun LB) o permesso assente. In entrambi i casi non si inventa uno stato.
+  const tasks = [{ taskId: 'a', privateIp: '10.0.1.5' }]
+  assert.deepEqual(mergeTargetHealth(tasks, null), tasks)
+})
+
+test('mergeTargetHealth: task senza IP o IP non nel target group → nessuno stato', () => {
+  const merged = mergeTargetHealth([{ taskId: 'a', privateIp: null }, { taskId: 'b', privateIp: '10.9.9.9' }], {
+    '10.0.1.5': { state: 'healthy' },
+  })
+  assert.equal(merged[0].target, undefined)
+  assert.equal(merged[1].target, undefined)
+})
+
+test('latestByTask: storage effimero e pacchetti persi arrivano dai record già scaricati', () => {
+  const [task] = latestByTask([
+    rec('aaaa1111bbbb2222cccc3333dddd4444', 1000, {
+      EphemeralStorageUtilized: 5.6,
+      EphemeralStorageReserved: 22.4,
+      NetworkRxDropped: 7,
+      NetworkTxDropped: 5,
+      NetworkRxErrors: 1,
+      NetworkTxErrors: 0,
+    }),
+  ])
+  assert.equal(task.diskPct, 25)
+  assert.equal(task.netDropped, 12)
+  assert.equal(task.netErrors, 1)
+})
+
+test('familyOfTaskDef: la famiglia senza la revision', () => {
+  assert.equal(
+    familyOfTaskDef('arn:aws:ecs:eu-central-1:521595303218:task-definition/cato-staging-agentic-chat:39'),
+    'cato-staging-agentic-chat',
+  )
+  assert.equal(familyOfTaskDef(null), null)
 })
