@@ -5,6 +5,31 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Pagina Deploy: i filtri filtrano davvero, e l'autore non è più scritto due volte.** Tre difetti
+  che insieme facevano concludere «i filtri non funzionano», che è la conclusione peggiore: chi legge
+  smette di fidarsi anche di quello che la pagina mostra bene.
+  1. Il filtro **Account** della barra in alto era dichiarato per questa pagina ma non le arrivava
+     mai: selezionavi *Production* e restavano tutti e cinque gli account. Ora la pagina filtra sulla
+     chiave dell'account, la stessa che usa `/api/deploys`.
+  2. La barra offriva anche **Regione**, che qui non filtra niente perché una build di deploy non ha
+     regione. Tolto — come già fatto sulla pagina Costi: un filtro inerte insegna a diffidare di
+     tutti gli altri.
+  3. I **numeroni in cima e le pillole per account** contavano sempre l'intera flotta: mettevi
+     *Falliti*, l'elenco si restringeva ma sopra restava `ok 109`. Ora contano le build visibili, e
+     l'elenco dei servizi selezionabili si limita agli account visibili (prima offriva servizi di
+     account nascosti, e sceglierli svuotava la pagina senza spiegare perché).
+
+  Sulle righe **Cloudflare** l'autore compariva due volte: una nell'intestazione come `da matteo` e
+  una nella riga sotto per email, perché quello spazio — dove per AWS c'è la durata — veniva riempito
+  con l'autore. Resta l'intestazione; l'email intera è nel dettaglio della build.
+
+  E chi committa con la noreply di GitHub non è più un numero di serie:
+  `81815192+matte97p@users.noreply.github.com` era mostrato come `81815192+matte97p`, ora è
+  `matte97p` (il valore grezzo nel tooltip). La regola è il gemello client di `shortActor`, con un
+  test che confronta i due: se divergono, la stessa persona comparirebbe con due nomi in due punti
+  della UI.
+
 ### Added
 - **Salute dei target dietro il load balancer, sui servizi ECS** — e con questo i microservizi
   **interni** hanno finalmente un segnale di liveness. La diagnosi precedente era sbagliata: non

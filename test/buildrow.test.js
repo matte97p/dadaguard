@@ -48,3 +48,20 @@ test('shortActor: input strani → niente invenzioni', () => {
   assert.equal(shortActor('   '), null)
   assert.equal(shortActor('@handle'), '@handle') // non è un'email: invariato
 })
+
+// Il gemello client (web/format.js) è quello che rende "da <nome>" sulla pagina Deploy: se divergesse
+// dal server, la stessa persona comparirebbe con due nomi diversi in due punti della UI.
+test('shortActor: il gemello client dà gli stessi nomi del server', async () => {
+  const { shortActor: webShortActor } = await import('../web/format.js')
+  for (const raw of [
+    '81815192+matte97p@users.noreply.github.com',
+    'ggiacometti@get-cato.com',
+    'giovanni1.giacometti@mail.polimi.it',
+    'MatteoPerino',
+    '@handle',
+    null,
+    '   ',
+  ]) {
+    assert.equal(webShortActor(raw), shortActor(raw), `divergenza su ${JSON.stringify(raw)}`)
+  }
+})

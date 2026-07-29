@@ -56,7 +56,9 @@ const NAV = [
   // Costi: solo Account. Non la Regione — Cost Explorer è globale e la nostra query non raggruppa
   // per regione, quindi quel filtro non filtrava i costi: faceva sparire l'account.
   { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: ['account'] },
-  { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: FILTER_FIELDS_ACCOUNT },
+  // Deploy: solo Account. Non la Regione — una build di deploy non ha regione (il filtro era lì
+  // senza filtrare niente, e una barra con filtri inerti fa pensare che siano rotti tutti).
+  { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: ['account'] },
   { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
   { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
   { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
@@ -554,7 +556,7 @@ export default function App() {
               }
             />
             <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} />} />
+            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
             <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
             <Route
               path="/topologia"

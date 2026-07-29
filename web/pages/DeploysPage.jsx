@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
+import { shortActor } from '../format.js'
 import { usePoll } from '../usePoll.js'
 
 const { Text } = Typography
@@ -125,11 +126,11 @@ function DeployTrend({ builds, onOpen, t }) {
 // commit·durata (o fase, se in corso), e — se fallita — la riga rossa "Fallita in FASE: motivo".
 function BuildInfo({ b, name, t }) {
   const isCf = b.provider === 'cloudflare'
-  // CF: niente durata (non c'è) → riempio con autore (+ branch per le Pages), così la riga non è mezza vuota.
+  // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
+  // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
   const sub = [
     b.commit,
     b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
-    isCf ? b.author : null,
     isCf && b.kind === 'pages' && b.branch ? b.branch : null,
   ]
     .filter(Boolean)
@@ -159,9 +160,11 @@ function BuildInfo({ b, name, t }) {
           </Tag>
         )}
         {b.author && (
-          <Text type="secondary" style={{ fontSize: 11, opacity: 0.85 }}>
-            {t('deploys.by', { who: b.author.split('@')[0] })}
-          </Text>
+          <Tooltip title={b.author}>
+            <Text type="secondary" style={{ fontSize: 11, opacity: 0.85 }}>
+              {t('deploys.by', { who: shortActor(b.author) })}
+            </Text>
+          </Tooltip>
         )}
       </Space>
       {sub && (
@@ -428,7 +431,8 @@ function AccountSection({ acc, all, filtered, anyFilter, expanded, onToggle, onO
           )}
         </Space>
         <Space size={12}>
-          <CountPills builds={all} />
+          {/* Conteggi delle build VISIBILI (come l'hero): con i totali fissi il filtro sembrava inerte. */}
+          <CountPills builds={filtered} />
           {filtered.length > 0 && (
             <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onToggle}>
               {expanded ? t('deploys.summary') : t('deploys.history', { n: filtered.length })}
@@ -508,7 +512,7 @@ function PollStatus({ lastUpdated, refreshing, t }) {
 // Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora e
 // com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
 // (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
-export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
+export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = 'all' }) {
   // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
   // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
   const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(`/api/deploys?lang=${lang}`, {
@@ -533,16 +537,19 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
   }, [refreshKey, refresh])
 
   // Tutti gli account risolti, ordinati: quelli con build (o in errore) prima, i "senza deploy" in coda;
-  // a parità, per label.
+  // a parità, per label. Il filtro Account della barra in alto vale ANCHE qui: la chiave di
+  // `/api/deploys` è la stessa dell'account (production/staging/…/cloudflare). Prima la pagina lo
+  // ignorava del tutto → selezionavi un account e non cambiava niente: il filtro sembrava rotto.
   const accounts = useMemo(() => {
-    const list = data ? Object.entries(data) : []
+    const all = data ? Object.entries(data) : []
+    const list = accountFilter === 'all' ? all : all.filter(([key]) => key === accountFilter)
     return list.sort(([, a], [, b]) => {
       const av = a.error || (a.builds?.length ?? 0) > 0 ? 0 : 1
       const bv = b.error || (b.builds?.length ?? 0) > 0 ? 0 : 1
       if (av !== bv) return av - bv
       return String(a.label ?? '').localeCompare(String(b.label ?? ''))
     })
-  }, [data])
+  }, [data, accountFilter])
 
   const statusOptions = useMemo(
     () => [
@@ -562,11 +569,13 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
     ],
     [t],
   )
+  // Servizi selezionabili = quelli degli account VISIBILI (se filtri per account, non ti offro
+  // servizi di un altro account: sceglierli svuotava la pagina senza motivo apparente).
   const serviceOptions = useMemo(() => {
     const set = new Set()
-    for (const acc of data ? Object.values(data) : []) for (const b of acc.builds ?? []) if (b.service) set.add(b.service)
+    for (const [, acc] of accounts) for (const b of acc.builds ?? []) if (b.service) set.add(b.service)
     return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
-  }, [data, t])
+  }, [accounts, t])
 
   const anyFilter = statusFilter !== 'all' || periodFilter !== 'all' || serviceFilter !== 'all'
   const toggleExpand = (key) =>
@@ -576,20 +585,25 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey }) {
       return n
     })
 
-  const filterBuilds = (list) =>
-    list
-      .filter((b) => matchStatus(b, statusFilter))
-      .filter((b) => matchPeriod(b, periodFilter))
-      .filter((b) => serviceFilter === 'all' || b.service === serviceFilter)
+  const filterBuilds = useCallback(
+    (list) =>
+      list
+        .filter((b) => matchStatus(b, statusFilter))
+        .filter((b) => matchPeriod(b, periodFilter))
+        .filter((b) => serviceFilter === 'all' || b.service === serviceFilter),
+    [statusFilter, periodFilter, serviceFilter],
+  )
 
+  // I numeroni in cima contano le build VISIBILI, filtri applicati. Prima erano sempre i totali della
+  // flotta: filtravi "Falliti" e restava "ok 109" → sembrava che i filtri non facessero nulla.
   const hero = useMemo(() => {
-    const all = accounts.flatMap(([, acc]) => acc.builds ?? [])
+    const all = accounts.flatMap(([, acc]) => filterBuilds(acc.builds ?? []))
     return {
       running: all.filter((b) => b.inProgress || b.status === 'IN_PROGRESS').length,
       ok: all.filter((b) => b.status === 'SUCCEEDED').length,
       failed: all.filter((b) => FAILED_STATUSES.includes(b.status)).length,
     }
-  }, [accounts])
+  }, [accounts, filterBuilds])
 
   return (
     <>
