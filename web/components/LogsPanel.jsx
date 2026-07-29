@@ -58,6 +58,9 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showNoise, setShowNoise] = useState(false) // mostra le righe di piattaforma Lambda
+  // Health-check: si scartano LATO SERVER (vedi HEALTH_LINE in server/logs.js), quindi rimetterli
+  // rifà la chiamata. Su un servizio HTTP sano sono ~90% del log: tenerli spegne il pannello.
+  const [showHealth, setShowHealth] = useState(false)
   const [reloadKey, setReloadKey] = useState(0) // bump dal bottone Aggiorna → refetch
 
   // All'apertura di un servizio applica i default giusti per quel servizio (es. un cron rosso →
@@ -80,7 +83,9 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
     // `account` insieme al nome: il nome da solo è ambiguo (staging e produzione hanno gli stessi
     // servizi) e il server aprirebbe il log group dell'ambiente sbagliato.
     const acct = account ? `&account=${encodeURIComponent(account)}` : ''
-    fetch(`/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&minutes=${minutes}&lang=${lang}`)
+    fetch(
+      `/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}&minutes=${minutes}&lang=${lang}`,
+    )
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -88,7 +93,7 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
     return () => {
       stale = true
     }
-  }, [service, account, errorsOnly, minutes, reloadKey, lang])
+  }, [service, account, errorsOnly, showHealth, minutes, reloadKey, lang])
 
   const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
 
@@ -103,6 +108,10 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
           <Space size={6}>
             <Switch checked={showNoise} onChange={setShowNoise} />
             <Text>{t('logs.showNoise')}</Text>
+          </Space>
+          <Space size={6}>
+            <Switch checked={showHealth} onChange={setShowHealth} />
+            <Text>{t('logs.showHealth')}</Text>
           </Space>
           <Space size={6}>
             <Text>{t('logs.window')}</Text>
@@ -142,7 +151,15 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
           </Text>
           {(() => {
             const all = data.events ?? []
-            if (all.length === 0) return <Empty style={{ paddingTop: 60 }} description={t('logs.empty')} />
+            // "Nessun evento" quando gli eventi c'erano ed erano tutti health check è una bugia, e
+            // manda a cercare un problema dove non c'è: si dice cosa è stato scartato e come rivederlo.
+            if (all.length === 0)
+              return (
+                <Empty
+                  style={{ paddingTop: 60 }}
+                  description={data.healthSkipped > 0 ? t('logs.onlyHealth', { n: data.healthSkipped }) : t('logs.empty')}
+                />
+              )
             const rows = all.filter((e) => showNoise || !NOISE.test((e.message ?? '').trimStart()))
             const hidden = all.length - rows.length
             return (
@@ -150,6 +167,7 @@ export default function LogsPanel({ service, account, defaultMinutes = 60, defau
                 <div style={{ fontSize: 11, opacity: 0.6, margin: '4px 0' }}>
                   {rows.length}
                   {hidden > 0 ? ` · ${t('logs.hidden', { n: hidden })}` : ''}
+                  {data.healthSkipped > 0 ? ` · ${t('logs.healthHidden', { n: data.healthSkipped })}` : ''}
                 </div>
                 <div
                   style={{

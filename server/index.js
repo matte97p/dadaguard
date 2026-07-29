@@ -446,6 +446,9 @@ app.get('/api/logs', async (req, res) => {
     res.json(
       await recentLogs(svc, accounts, {
         errorsOnly: req.query.errorsOnly === 'true',
+        // Health-check scartati per default: su un servizio HTTP sano sono ~90% del log e da soli
+        // esaurirebbero il tetto di righe. Il pannello li rimette con un interruttore.
+        skipHealth: req.query.skipHealth !== 'false',
         minutes: req.query.minutes ? Number(req.query.minutes) : 60,
         limit: req.query.limit ? Number(req.query.limit) : 100,
         t: makeT(req.query.lang),

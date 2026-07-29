@@ -387,7 +387,10 @@ const STRINGS = {
     'logs.group': 'Log group',
     'logs.empty': 'Nessun evento nella finestra',
     'logs.showNoise': 'Mostra START/END/REPORT',
+    'logs.showHealth': 'Mostra health check',
     'logs.hidden': '{n} {n#riga Lambda nascosta#righe Lambda nascoste}',
+    'logs.healthHidden': '{n} {n#health check scartato#health check scartati}',
+    'logs.onlyHealth': 'Solo health check nella finestra ({n} righe): accendi «Mostra health check» per vederli',
 
     'events.title': 'Eventi e modifiche',
     'events.button': 'Eventi e modifiche',
@@ -827,7 +830,10 @@ const STRINGS = {
     'logs.group': 'Log group',
     'logs.empty': 'No events in the window',
     'logs.showNoise': 'Show START/END/REPORT',
+    'logs.showHealth': 'Show health checks',
     'logs.hidden': '{n} Lambda {n#line hidden#lines hidden}',
+    'logs.healthHidden': '{n} health {n#check dropped#checks dropped}',
+    'logs.onlyHealth': 'Only health checks in the window ({n} lines): turn on "Show health checks" to see them',
 
     'events.title': 'Events & changes',
     'events.button': 'Events & changes',
