@@ -46,11 +46,14 @@ export default function ServiceDetailDrawer({
   const checks = service?.checks ?? {}
   const links = service?.links ?? {}
   const has = detailTabs(service)
-  // Istanza su cui aprire i log, scelta dalla scheda Istanze. Si azzera cambiando servizio: i task del
-  // servizio precedente non esistono in questo, e il filtro rimasto darebbe una lista vuota.
-  const [focusTask, setFocusTask] = useState(null)
+  // Richiesta "apri i log DI QUESTA istanza" dalla scheda Istanze. È un oggetto nuovo a ogni clic —
+  // non il solo id — perché altrimenti ricliccare lo STESSO task non cambierebbe niente per React e il
+  // pannello log, tornato su «Tutte» nel frattempo, non riapplicherebbe il filtro: il clic sembrerebbe
+  // ignorato. `tasks` viaggia con la richiesta così il selettore è popolato subito, incluso il ritorno
+  // a «Tutte». Si azzera cambiando servizio: i task di prima non esistono qui.
+  const [logFocus, setLogFocus] = useState(null)
   useEffect(() => {
-    setFocusTask(null)
+    setLogFocus(null)
   }, [service?.name, service?.account?.key])
 
   const items = [
@@ -92,8 +95,8 @@ export default function ServiceDetailDrawer({
         <InstancesPanel
           service={service?.name}
           account={service?.account?.key}
-          onTaskLogs={(taskId) => {
-            setFocusTask(taskId)
+          onTaskLogs={(taskId, allTasks) => {
+            setLogFocus({ task: taskId, tasks: allTasks ?? [] })
             onTab?.('logs')
           }}
           t={t}
@@ -110,7 +113,7 @@ export default function ServiceDetailDrawer({
         <LogsPanel
           service={service?.name}
           account={service?.account?.key}
-          focusTask={focusTask}
+          focus={logFocus}
           defaultMinutes={logsDefaultMinutes}
           defaultErrorsOnly={logsDefaultErrorsOnly}
           t={t}

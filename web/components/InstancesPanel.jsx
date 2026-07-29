@@ -54,6 +54,9 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
     }
   }, [service, account, reloadKey, lang])
 
+  const tasks = data?.tasks ?? []
+  const mixedRevisions = (data?.revisions?.length ?? 0) > 1
+
   const columns = [
     {
       title: t('instances.col.task'),
@@ -97,15 +100,19 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
       align: 'right',
       render: (_, r) =>
         onTaskLogs ? (
-          <Link type="secondary" onClick={() => onTaskLogs(r.taskId)} title={t('instances.logsOfTask')}>
+          // Si passa anche l'ELENCO delle istanze, non solo quella scelta: il pannello log deve poter
+          // offrire subito le altre e il ritorno a «Tutte». Ricavarle dalle risposte dei log non basta,
+          // perché con un filtro attivo ne torna una sola e si resterebbe chiusi dentro un task.
+          <Link
+            type="secondary"
+            onClick={() => onTaskLogs(r.taskId, tasks.map((x) => x.taskId))}
+            title={t('instances.logsOfTask')}
+          >
             <FileTextOutlined />
           </Link>
         ) : null,
     },
   ]
-
-  const tasks = data?.tasks ?? []
-  const mixedRevisions = (data?.revisions?.length ?? 0) > 1
 
   return (
     <>
