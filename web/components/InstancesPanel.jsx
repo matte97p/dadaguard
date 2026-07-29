@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Table, Typography, Alert, Empty, Spin, Space, Button, Tag, Progress } from 'antd'
+import { Table, Typography, Alert, Empty, Spin, Space, Button, Tag, Progress, Tooltip } from 'antd'
 import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
 
 const { Text, Link } = Typography
@@ -15,6 +15,38 @@ function Usage({ pct, t }) {
       <Progress percent={pct} showInfo={false} size={[54, 6]} status={status} strokeColor={stroke} />
       <Text style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{pct}%</Text>
     </Space>
+  )
+}
+
+// Come è morto un task, detto per quello che è. `oom` indica il sizing, `health` indica
+// l'applicazione, `scheduler` è una sostituzione da deploy o uno scale-in: sono tre storie diverse che
+// portano a interventi opposti, e chiamarle tutte "il task è ripartito" fa perdere il pomeriggio.
+const STOP_TONE = { oom: 'error', health: 'warning', scheduler: 'default', user: 'default', other: 'warning' }
+
+function StoppedTasks({ stopped = [], t }) {
+  if (!stopped.length) return null
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Text strong style={{ fontSize: 12 }}>
+        {t('instances.stopped')}
+      </Text>
+      <div style={{ marginTop: 6 }}>
+        {stopped.map((s) => (
+          <div key={s.taskId} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '3px 0', fontSize: 12 }}>
+            <Text type="secondary" style={{ opacity: 0.7, whiteSpace: 'nowrap' }}>
+              {s.stoppedAt ? new Date(s.stoppedAt).toLocaleTimeString() : '—'}
+            </Text>
+            <Text code style={{ fontSize: 11 }}>
+              {s.shortId}
+            </Text>
+            {s.kind && <Tag color={STOP_TONE[s.kind]}>{t(`instances.stop.${s.kind}`)}</Tag>}
+            <Text type="secondary" style={{ wordBreak: 'break-word' }}>
+              {[s.stoppedReason, ...(s.containerReasons ?? [])].filter(Boolean).join(' · ') || '—'}
+            </Text>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -63,35 +95,74 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
       key: 'task',
       render: (_, r) => (
         <Space size={6}>
-          <Text code style={{ fontSize: 12 }}>
-            {r.shortId}
-          </Text>
+          {/* Il tooltip porta ciò che non merita una colonna ma serve quando serve: id intero, rete, e
+              quanto è durato il pull dell'immagine (un pull lento è una causa vera di avvii lenti). */}
+          <Tooltip
+            title={
+              <>
+                <div>{r.taskId}</div>
+                <div>{`↓${fmtBytes(r.netRxBytes)} ↑${fmtBytes(r.netTxBytes)}`}</div>
+                {r.pullMs != null && <div>{t('instances.pull', { s: (r.pullMs / 1000).toFixed(1) })}</div>}
+              </>
+            }
+          >
+            <Text code style={{ fontSize: 12 }}>
+              {r.shortId}
+            </Text>
+          </Tooltip>
           {r.az && (
             <Text type="secondary" style={{ fontSize: 11 }}>
               {r.az}
             </Text>
           )}
           {r.status && r.status !== 'RUNNING' && <Tag color="warning">{r.status}</Tag>}
+          {/* Pacchetti scartati o in errore: compaiono solo quando non sono zero. Spiegano timeout che
+              dall'applicazione sembrano inspiegabili, e mostrarli sempre a zero sarebbe rumore. */}
+          {(r.netDropped > 0 || r.netErrors > 0) && (
+            <Tooltip title={t('instances.netTroubleHint')}>
+              <Tag color="warning">{t('instances.netTrouble', { n: r.netDropped + r.netErrors })}</Tag>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
     {
+      // Lo stato NEL TARGET GROUP, per task. È la risposta a "0/2 target sani → quale?": un task può
+      // essere su e verde per ECS e non ricevere traffico dal load balancer, e per chi usa il servizio
+      // quello è giù. Il motivo (`Target.ResponseCodeMismatch`, draining…) sta nel tooltip.
+      title: t('instances.col.state'),
+      key: 'stato',
+      width: 130,
+      render: (_, r) => {
+        if (r.target) {
+          const ok = r.target.state === 'healthy'
+          const draining = r.target.state === 'draining'
+          return (
+            <Tooltip title={[r.target.reason, r.target.description].filter(Boolean).join(' · ') || undefined}>
+              <Tag color={ok ? 'success' : draining ? 'default' : 'error'}>{r.target.state}</Tag>
+            </Tooltip>
+          )
+        }
+        // Nessun target group: resta la salute del container, se il task ne dichiara una.
+        if (r.health) return <Tag color={r.health === 'HEALTHY' ? 'success' : 'warning'}>{r.health.toLowerCase()}</Tag>
+        return <Text type="secondary">—</Text>
+      },
+    },
+    {
       title: t('instances.col.revision'),
       key: 'revision',
-      width: 90,
+      width: 84,
       render: (_, r) => (r.revision ? <Text style={{ fontSize: 12 }}>{`v${r.revision}`}</Text> : '—'),
     },
-    { title: t('instances.col.cpu'), key: 'cpu', width: 130, render: (_, r) => <Usage pct={r.cpuPct} t={t} /> },
-    { title: t('instances.col.mem'), key: 'mem', width: 130, render: (_, r) => <Usage pct={r.memPct} t={t} /> },
+    { title: t('instances.col.cpu'), key: 'cpu', width: 118, render: (_, r) => <Usage pct={r.cpuPct} t={t} /> },
+    { title: t('instances.col.mem'), key: 'mem', width: 118, render: (_, r) => <Usage pct={r.memPct} t={t} /> },
     {
-      title: t('instances.col.net'),
-      key: 'net',
-      width: 110,
-      render: (_, r) => (
-        <Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-          {`↓${fmtBytes(r.netRxBytes)} ↑${fmtBytes(r.netTxBytes)}`}
-        </Text>
-      ),
+      // Su Fargate il disco effimero si riempie senza che nessuno lo guardi: un servizio che scrive
+      // file (upload, conversioni, sandbox) muore lì prima che in memoria.
+      title: t('instances.col.disk'),
+      key: 'disk',
+      width: 118,
+      render: (_, r) => <Usage pct={r.diskPct} t={t} />,
     },
     {
       title: '',
@@ -158,6 +229,7 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
             pagination={false}
             scroll={{ x: 'max-content' }}
           />
+          <StoppedTasks stopped={data.stopped} t={t} />
           <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
             {t('instances.noLatency')}
           </Text>

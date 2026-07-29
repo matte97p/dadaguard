@@ -598,9 +598,15 @@ export function demoTaskMetrics() {
     logGroup: '/aws/ecs/containerinsights/demo-cluster/performance',
     revisions: ['57'],
     tasks: [
-      { taskId: '3f7a91c2e5b84d16a0c9f2e7b1d48a35', shortId: '3f7a91c2', az: 'eu-central-1a', revision: '57', status: 'RUNNING', cpuPct: 61.4, memPct: 48.2, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_284_320, netTxBytes: 903_112, ts: now - 30_000, startedAt: now - 5_400_000 },
-      { taskId: 'b82d4e6f1a9c47b38e5d0f2a6c71b849', shortId: 'b82d4e6f', az: 'eu-central-1b', revision: '57', status: 'RUNNING', cpuPct: 19.8, memPct: 44.6, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_102_884, netTxBytes: 812_004, ts: now - 30_000, startedAt: now - 5_400_000 },
-      { taskId: 'c14f8a20d7e34b95af61c803e9b2d5f7', shortId: 'c14f8a20', az: 'eu-central-1c', revision: '57', status: 'RUNNING', cpuPct: 17.2, memPct: 43.1, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_057_260, netTxBytes: 798_431, ts: now - 30_000, startedAt: now - 5_400_000 },
+      // Il primo consuma il triplo degli altri ED è fuori dal target group: è il caso in cui "task
+      // attivi 3/3" è verde e il servizio, per chi lo usa, sta perdendo un terzo delle richieste.
+      { taskId: '3f7a91c2e5b84d16a0c9f2e7b1d48a35', shortId: '3f7a91c2', az: 'eu-central-1a', revision: '57', status: 'RUNNING', health: 'UNHEALTHY', cpuPct: 61.4, memPct: 88.2, diskPct: 34.1, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_284_320, netTxBytes: 903_112, netDropped: 12, netErrors: 0, pullMs: 4200, ts: now - 30_000, startedAt: now - 5_400_000, target: { state: 'unhealthy', reason: 'Target.ResponseCodeMismatch', description: 'Health checks failed with these codes: [503]', port: 8080 } },
+      { taskId: 'b82d4e6f1a9c47b38e5d0f2a6c71b849', shortId: 'b82d4e6f', az: 'eu-central-1b', revision: '57', status: 'RUNNING', health: 'HEALTHY', cpuPct: 19.8, memPct: 44.6, diskPct: 21.7, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_102_884, netTxBytes: 812_004, netDropped: 0, netErrors: 0, pullMs: 3900, ts: now - 30_000, startedAt: now - 5_400_000, target: { state: 'healthy', reason: null, description: null, port: 8080 } },
+      { taskId: 'c14f8a20d7e34b95af61c803e9b2d5f7', shortId: 'c14f8a20', az: 'eu-central-1c', revision: '57', status: 'RUNNING', health: 'HEALTHY', cpuPct: 17.2, memPct: 43.1, diskPct: 20.4, cpuReserved: 512, memReserved: 1024, netRxBytes: 1_057_260, netTxBytes: 798_431, netDropped: 0, netErrors: 0, pullMs: 4050, ts: now - 30_000, startedAt: now - 5_400_000, target: { state: 'healthy', reason: null, description: null, port: 8080 } },
+    ],
+    stopped: [
+      { taskId: 'd9e0f1a2b3c44d5e6f708192a3b4c5d6', shortId: 'd9e0f1a2', stoppedAt: now - 1_800_000, stoppedReason: 'Essential container in task exited', stopCode: 'EssentialContainerExited', containerReasons: ['OutOfMemoryError: Container killed due to memory usage'], exitCodes: [137], kind: 'oom' },
+      { taskId: 'e1f2a3b4c5d6470819a2b3c4d5e6f708', shortId: 'e1f2a3b4', stoppedAt: now - 7_200_000, stoppedReason: 'Scaling activity initiated by deployment ecs-svc/123', stopCode: 'ServiceSchedulerInitiated', containerReasons: [], exitCodes: [], kind: 'scheduler' },
     ],
   }
 }
