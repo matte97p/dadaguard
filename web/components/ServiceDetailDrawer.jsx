@@ -85,6 +85,7 @@ export default function ServiceDetailDrawer({
       children: (
         <LogsPanel
           service={service?.name}
+          account={service?.account?.key}
           defaultMinutes={logsDefaultMinutes}
           defaultErrorsOnly={logsDefaultErrorsOnly}
           t={t}
@@ -95,7 +96,7 @@ export default function ServiceDetailDrawer({
     has.events && {
       key: 'events',
       label: t('events.button'),
-      children: <EventsPanel service={service?.name} t={t} lang={lang} />,
+      children: <EventsPanel service={service?.name} account={service?.account?.key} t={t} lang={lang} />,
     },
   ].filter(Boolean)
 

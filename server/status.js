@@ -132,6 +132,19 @@ export function invalidateServicesCache() {
   _resolveCache = null
 }
 
+// Un servizio dalla lista risolta, per NOME + ACCOUNT. Il nome da solo non identifica niente:
+// `backend` esiste in staging e in produzione, e i modelli Bedrock in entrambi — cercare per nome
+// restituisce il primo che combacia, e le sue risposte (log, eventi) sono di un altro ambiente.
+// Con l'account dichiarato e nessun servizio che combacia si torna null: un 404 è meglio dei log
+// dell'ambiente sbagliato, che sembrano una risposta valida. Senza account (chiamata vecchia, o un
+// nome unico) resta il primo che combacia: compatibilità con chi non passa il parametro.
+export function findService(services, { service, account } = {}) {
+  const sameName = services.filter((s) => s.name === service)
+  if (sameName.length === 0) return null
+  if (!account) return sameName[0]
+  return sameName.find((s) => (s.account ?? '—') === account) ?? null
+}
+
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
   const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, people } = loadConfig()

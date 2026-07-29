@@ -210,7 +210,7 @@ export default function ServiceCard({
             <Tooltip title={service.name}>
               <span
                 className="dg-name"
-                onClick={onOpen ? () => onOpen(service.name) : undefined}
+                onClick={onOpen ? () => onOpen(service) : undefined}
                 style={{ flex: 1, ...(onOpen ? { cursor: 'pointer' } : null) }}
               >
                 {tail}
@@ -271,12 +271,12 @@ export default function ServiceCard({
                 </Link>
               )}
               {onLogs && hasLogs && (
-                <Link type="secondary" onClick={() => onLogs(service.name)} title={t('logs.button')}>
+                <Link type="secondary" onClick={() => onLogs(service)} title={t('logs.button')}>
                   <FileTextOutlined />
                 </Link>
               )}
               {onEvents && hasEvents && (
-                <Link type="secondary" onClick={() => onEvents(service.name)} title={t('events.button')}>
+                <Link type="secondary" onClick={() => onEvents(service)} title={t('events.button')}>
                   <HistoryOutlined />
                 </Link>
               )}

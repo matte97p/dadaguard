@@ -15,6 +15,16 @@ import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 // pattern CloudWatch: eventi che contengono uno di questi termini (OR)
 const ERROR_PATTERN = '?ERROR ?Error ?error ?Exception ?exception ?FATAL ?CRITICAL ?Traceback'
 
+// Riga di access log di un health-check (ALB/target group verso l'endpoint di liveness). Su un
+// servizio HTTP sano sono la maggioranza schiacciante del log — 3 nodi ALB ogni 10s = ~1000 righe/h —
+// e riempiono il tetto di righe cacciando fuori tutto il resto: un turno di chat appena eseguito
+// finiva fuori dalle 100 righe restituite.
+//
+// Si scartano MENTRE si raccoglie, non nel pannello: filtrarle dopo lascerebbe una lista quasi vuota,
+// perché il tetto si è già speso su di loro. Non si delega nemmeno a CloudWatch (`-"/health"`): un
+// filterPattern di sola negazione è terreno incerto, e se lo rifiuta il pannello non mostra più nulla.
+export const HEALTH_LINE = /\b(?:GET|HEAD)\s+\/(?:health|healthz|_health|healthcheck|livez|readyz)\b/i
+
 async function resolveLogGroup(service, aws) {
   const cfg = service.aws ?? {}
   if (cfg.logGroup) return cfg.logGroup // override esplicito
@@ -41,8 +51,71 @@ async function resolveLogGroup(service, aws) {
   return null // tipo senza log applicativi su CloudWatch
 }
 
-// Ritorna { logGroup, events:[{ts,message}], truncated } | { notApplicable } | { logGroup, error }.
-export async function recentLogs(service, accounts, { errorsOnly = false, minutes = 60, limit = 100, t = (k) => k } = {}) {
+// FETTE A RITROSO, dalla più recente alla più vecchia, in minuti-fa: `[fromAgo, toAgo]`.
+// Servono perché FilterLogEvents restituisce gli eventi dal PIÙ VECCHIO: chiedere "le ultime 100
+// righe" alla finestra intera dà le 100 più VECCHIE. Su un servizio chiacchierone (3 nodi ALB che
+// fanno health-check ogni 10s = ~1000 righe/h) il tetto si esaurisce nei primi 90 secondi della
+// finestra, e l'attività di adesso — quella per cui hai aperto il pannello — non compare affatto.
+//
+// Le fette crescono (1, 2, 4, 8… minuti): sui casi densi la prima basta, e una finestra da 48h senza
+// nessun match si copre in una ventina di chiamate invece di seicento. Tetto per fetta a 4h: oltre,
+// una singola chiamata tornerebbe a spazzolare troppo per riempire il tetto di righe.
+export function backwardSlices(minutes) {
+  const out = []
+  let toAgo = 0
+  let size = 1
+  while (toAgo < minutes) {
+    out.push([toAgo, Math.min(minutes, toAgo + size)])
+    toAgo += size
+    size = Math.min(size * 2, 240)
+  }
+  return out
+}
+
+const MAX_PAGES_PER_SLICE = 10
+const MAX_PAGES_TOTAL = 40
+
+// Le `need` righe PIÙ RECENTI di una fetta, in ordine cronologico. `more` = nella fetta c'era altro
+// prima di queste (scartato di proposito, o pagine finite): serve a marcare la risposta troncata.
+// `skipped` = righe di health-check buttate via strada facendo, da dire al lettore.
+export async function readSlice(cw, params, need, budget, { skipHealth = true } = {}) {
+  const events = []
+  let nextToken
+  let pages = 0
+  let dropped = false
+  let skipped = 0
+  do {
+    const out = await cw.send(new FilterLogEventsCommand({ ...params, nextToken }))
+    for (const e of out.events ?? []) {
+      const message = (e.message ?? '').trimEnd()
+      if (skipHealth && HEALTH_LINE.test(message)) {
+        skipped += 1
+        continue
+      }
+      events.push({ ts: e.timestamp, message })
+    }
+    // FilterLogEvents legge più stream in parallelo (un servizio ECS = un flusso per task) e l'ordine
+    // che torna non è garantito per timestamp: senza riordinare, "i più recenti della fetta" sarebbero
+    // gli ultimi ARRIVATI, che è una cosa diversa. Si ordina prima di tagliare, non dopo.
+    events.sort((a, b) => a.ts - b.ts)
+    if (events.length > need) {
+      events.splice(0, events.length - need) // teniamo la CODA: ordinati, i più recenti stanno in fondo
+      dropped = true
+    }
+    nextToken = out.nextToken
+    pages += 1
+    budget.pages += 1
+  } while (nextToken && pages < MAX_PAGES_PER_SLICE && budget.pages < MAX_PAGES_TOTAL)
+  return { events, more: dropped || Boolean(nextToken), skipped }
+}
+
+// Ritorna { logGroup, events:[{ts,message}], truncated, healthSkipped } | { notApplicable } |
+// { logGroup, error }.
+export async function recentLogs(
+  service,
+  accounts,
+  { errorsOnly = false, minutes = 60, limit = 100, skipHealth = true, t = (k) => k } = {},
+) {
   const acct = service.account ? accounts[service.account] : null
   const aws = {
     profile: acct?.profile,
@@ -60,32 +133,42 @@ export async function recentLogs(service, accounts, { errorsOnly = false, minute
   if (!logGroup) return { notApplicable: true }
 
   const cw = new CloudWatchLogsClient(clientOpts(aws))
-  const startTime = Date.now() - Math.max(1, minutes) * 60 * 1000
-  const cap = Math.min(Math.max(1, limit), 200)
+  const now = Date.now()
+  // Finestra e tetto sono aritmetica: un NaN non alza un errore, si propaga e fa restituire "nessun
+  // evento" (o tutto quanto). Numeri non validi → default, non NaN.
+  const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
+  const windowMinutes = Math.max(1, num(minutes, 60))
+  const cap = Math.min(Math.max(1, num(limit, 100)), 200)
   try {
-    // FilterLogEvents restituisce gli eventi dal PIÙ VECCHIO e PAGINA: con finestre larghe + "solo
-    // errori" la prima pagina può coprire il tratto iniziale (senza match) e tornare VUOTA con un
-    // nextToken → una sola chiamata farebbe sembrare "48h" vuoto mentre "24h" ha dati. Seguiamo il
-    // token finché non riempiamo `cap` eventi, con un tetto di pagine per non spazzolare all'infinito.
-    const events = []
-    let nextToken
-    let pages = 0
-    const MAX_PAGES = 25
-    do {
-      const out = await cw.send(
-        new FilterLogEventsCommand({
+    // "Log recenti" vuol dire le righe più recenti: si raccoglie dal presente verso il passato e si
+    // ferma appena il tetto è pieno. Le fette più vecchie non vengono nemmeno chieste.
+    const events = [] // ordine finale: dal più vecchio al più recente (come li legge il pannello)
+    let truncated = false
+    let healthSkipped = 0
+    const budget = { pages: 0 }
+    for (const [fromAgo, toAgo] of backwardSlices(windowMinutes)) {
+      const need = cap - events.length
+      if (need <= 0 || budget.pages >= MAX_PAGES_TOTAL) {
+        truncated = true
+        break
+      }
+      const slice = await readSlice(
+        cw,
+        {
           logGroupName: logGroup,
-          startTime,
-          nextToken,
-          limit: cap,
+          startTime: now - toAgo * 60 * 1000,
+          endTime: now - fromAgo * 60 * 1000,
           ...(errorsOnly ? { filterPattern: ERROR_PATTERN } : {}),
-        }),
+        },
+        need,
+        budget,
+        { skipHealth },
       )
-      for (const e of out.events ?? []) events.push({ ts: e.timestamp, message: (e.message ?? '').trimEnd() })
-      nextToken = out.nextToken
-      pages += 1
-    } while (nextToken && events.length < cap && pages < MAX_PAGES)
-    return { logGroup, events: events.slice(0, cap), truncated: Boolean(nextToken) }
+      events.unshift(...slice.events) // la fetta appena letta è più vecchia di quelle già raccolte
+      healthSkipped += slice.skipped
+      if (slice.more) truncated = true
+    }
+    return { logGroup, events, truncated, healthSkipped }
   } catch (err) {
     return { logGroup, error: cleanAwsReason(err, t) } // es. group inesistente / permessi
   }
