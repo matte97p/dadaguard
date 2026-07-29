@@ -403,8 +403,12 @@ const STRINGS = {
     'instances.col.cpu': 'CPU',
     'instances.col.mem': 'Memoria',
     'instances.col.net': 'Rete',
+    'instances.gone': 'non più attivo',
     'instances.col.state': 'Nel LB',
     'instances.col.disk': 'Disco',
+    'instances.col.latency': 'Latenza',
+    'instances.latencyDetail': 'p50 {p50}ms · p99 {p99}ms · max {max}ms · {n} richieste, {err} errori 5xx del target',
+    'instances.latencyFrom': 'Latenza per replica dagli access log ALB: {n} oggetti letti, finestra {m} minuti.',
     'instances.pull': 'pull immagine {s}s',
     'instances.netTrouble': '{n} pacchetti persi',
     'instances.netTroubleHint':
@@ -422,7 +426,7 @@ const STRINGS = {
     'instances.needsInsights': 'Le metriche per task arrivano da Container Insights: se è spento sul cluster, il log group non esiste.',
     'instances.mixedRevisions': 'Task su revision diverse ({list}): è un rollout in corso, non un guasto.',
     'instances.noLatency':
-      'La latenza non è disponibile per task: l’ALB la pubblica per target group e per zona, mai per singolo target. Quella in tabella è di servizio.',
+      'Latenza per replica non disponibile: gli access log dell’ALB sono spenti. Le metriche CloudWatch la pubblicano per target group e per zona, mai per singolo target.',
 
     'events.title': 'Eventi e modifiche',
     'events.button': 'Eventi e modifiche',
@@ -878,8 +882,12 @@ const STRINGS = {
     'instances.col.cpu': 'CPU',
     'instances.col.mem': 'Memory',
     'instances.col.net': 'Network',
+    'instances.gone': 'no longer running',
     'instances.col.state': 'In LB',
     'instances.col.disk': 'Disk',
+    'instances.col.latency': 'Latency',
+    'instances.latencyDetail': 'p50 {p50}ms · p99 {p99}ms · max {max}ms · {n} requests, {err} target 5xx',
+    'instances.latencyFrom': 'Per-replica latency from ALB access logs: {n} objects read, {m} minute window.',
     'instances.pull': 'image pull {s}s',
     'instances.netTrouble': '{n} packets lost',
     'instances.netTroubleHint':
@@ -897,7 +905,7 @@ const STRINGS = {
     'instances.needsInsights': 'Per-task metrics come from Container Insights: if it is off on the cluster, the log group does not exist.',
     'instances.mixedRevisions': 'Tasks on different revisions ({list}): a rollout is in progress, not a fault.',
     'instances.noLatency':
-      'Latency is not available per task: the ALB publishes it per target group and per zone, never per target. The one in the table is service-wide.',
+      'Per-replica latency unavailable: ALB access logs are off. CloudWatch metrics publish it per target group and per zone, never per target.',
 
     'events.title': 'Events & changes',
     'events.button': 'Events & changes',

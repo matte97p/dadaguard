@@ -11,10 +11,11 @@
 // (solo ClusterName/ServiceName/TaskDefinitionFamily), quindi GetMetricData non può dare il per-task:
 // i log di performance sono l'unica strada.
 //
-// COSA NON C'È: la latenza per task. L'ALB pubblica `TargetResponseTime` per target group e per AZ, mai
-// per singolo target, e questi record non la contengono. Ricavarla richiederebbe gli access log ALB su
-// S3, che è un'altra sorgente e un altro permesso. La latenza resta un numero di servizio: se un
-// pannello la mostrasse per task sarebbe un numero inventato.
+// La LATENZA non è qui: questi record non la contengono, e `TargetResponseTime` di CloudWatch esiste per
+// target group e per zona, mai per singolo target. Arriva dagli access log dell'ALB — altra sorgente,
+// altro permesso — e la compone `albLatency.js`, che si aggancia qui sotto sullo stesso join per
+// indirizzo dello stato nel target group. Dove gli access log sono spenti la colonna resta vuota e il
+// pannello dice perché, invece di spacciare la media di servizio per un numero per-task.
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import {
   ECSClient,
@@ -24,6 +25,7 @@ import {
 } from '@aws-sdk/client-ecs'
 import { ElasticLoadBalancingV2Client, DescribeTargetHealthCommand } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
+import { albLatencyByTarget } from './albLatency.js'
 
 const MAX_PAGES = 5
 const STOPPED_LIMIT = 10 // gli ultimi task fermati: oltre, è archeologia
@@ -179,6 +181,23 @@ async function stoppedTaskDetail(ecs, cfg, family) {
     .sort((a, b) => (b.stoppedAt ?? 0) - (a.stoppedAt ?? 0))
 }
 
+// Region e account da un ARN: `arn:aws:<servizio>:<region>:<account>:…`. Servono a comporre il prefisso
+// degli oggetti di access log, che contiene entrambi.
+export function arnParts(arn) {
+  const p = String(arn ?? '').split(':')
+  return p.length >= 6 ? { region: p[3] || null, accountId: p[4] || null } : { region: null, accountId: null }
+}
+
+// Attacca a ogni task la sua latenza, per indirizzo. Stesso join dello stato nel target group: con
+// target type `ip` il load balancer conosce le replica per indirizzo, non per id.
+export function mergeLatency(tasks, byIp) {
+  if (!byIp) return tasks
+  return tasks.map((task) => {
+    const lat = task.privateIp ? byIp[task.privateIp] : null
+    return lat ? { ...task, latency: lat } : task
+  })
+}
+
 // La famiglia della task-def dall'ARN: `…:task-definition/<family>:<revision>`.
 export function familyOfTaskDef(arn) {
   const tail = String(arn ?? '').split('/').pop() || ''
@@ -265,20 +284,47 @@ export async function taskMetrics(service, accounts, { minutes = 15, t = (k) => 
         .then((r) => r.services?.[0] ?? null),
       null,
     )
-    const [detail, stopped, byIp] = await Promise.all([
+    // La latenza per replica esce dagli access log dell'ALB, non dalle metriche: `TargetResponseTime`
+    // esiste per target group e per zona, mai per target. Se gli access log sono spenti torna
+    // `notApplicable` e il pannello lo dice, invece di mostrare la media di servizio spacciata per
+    // per-task.
+    const tgArn = (svc?.loadBalancers ?? []).map((lb) => lb.targetGroupArn).filter(Boolean)[0] ?? null
+    const { region: tgRegion, accountId } = arnParts(tgArn)
+    const [detail, stopped, byIp, latency] = await Promise.all([
       soft(runningTaskDetail(ecs, cfg), {}),
       soft(stoppedTaskDetail(ecs, cfg, familyOfTaskDef(svc?.taskDefinition)), []),
       soft(targetsByIp(elb, svc), null),
+      soft(
+        albLatencyByTarget({ targetGroupArn: tgArn, region: tgRegion ?? aws.region, accountId }, aws, { minutes: 15 }),
+        { notApplicable: true },
+      ),
     ])
 
-    const tasks = mergeTargetHealth(
-      latestByTask(records).map((task) => ({ ...task, ...(detail[task.taskId] ?? {}) })),
-      byIp,
+    // I record coprono una finestra di minuti, quindi contengono anche task che nel frattempo si sono
+    // FERMATI: senza dirlo, un servizio a una replica ne mostrerebbe tre e sembrerebbe scalato.
+    // Si marcano `gone` solo se il dettaglio dei task attivi è arrivato davvero — altrimenti, con il
+    // permesso assente, li marcheremmo tutti come spenti mentre stanno benissimo.
+    const haveDetail = Object.keys(detail).length > 0
+    const tasks = mergeLatency(
+      mergeTargetHealth(
+        latestByTask(records).map((task) => ({
+          ...task,
+          ...(detail[task.taskId] ?? {}),
+          gone: haveDetail && !detail[task.taskId],
+        })),
+        byIp,
+      ),
+      latency?.byIp ?? null,
     )
     return {
       logGroup,
       tasks,
       stopped,
+      // Da quanti oggetti di access log poggia la latenza: un p95 su tre richieste e uno su tremila non
+      // valgono uguale, e il pannello deve poterlo dire.
+      latencySource: latency?.notApplicable
+        ? { available: false }
+        : { available: true, objects: latency?.objects ?? 0, window: latency?.window ?? null, error: latency?.error ?? null },
       revisions: [...new Set(tasks.map((x) => x.revision).filter(Boolean))].sort(),
     }
   } catch (err) {
