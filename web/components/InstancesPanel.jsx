@@ -116,6 +116,9 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
             </Text>
           )}
           {r.status && r.status !== 'RUNNING' && <Tag color="warning">{r.status}</Tag>}
+          {/* Il task compariva nella finestra di metriche ma ora non è più attivo. Senza dirlo, un
+              servizio a una replica ne mostrerebbe tre e sembrerebbe scalato. */}
+          {r.gone && <Tag>{t('instances.gone')}</Tag>}
           {/* Pacchetti scartati o in errore: compaiono solo quando non sono zero. Spiegano timeout che
               dall'applicazione sembrano inspiegabili, e mostrarli sempre a zero sarebbe rumore. */}
           {(r.netDropped > 0 || r.netErrors > 0) && (

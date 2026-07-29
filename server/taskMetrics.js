@@ -11,10 +11,11 @@
 // (solo ClusterName/ServiceName/TaskDefinitionFamily), quindi GetMetricData non può dare il per-task:
 // i log di performance sono l'unica strada.
 //
-// COSA NON C'È: la latenza per task. L'ALB pubblica `TargetResponseTime` per target group e per AZ, mai
-// per singolo target, e questi record non la contengono. Ricavarla richiederebbe gli access log ALB su
-// S3, che è un'altra sorgente e un altro permesso. La latenza resta un numero di servizio: se un
-// pannello la mostrasse per task sarebbe un numero inventato.
+// La LATENZA non è qui: questi record non la contengono, e `TargetResponseTime` di CloudWatch esiste per
+// target group e per zona, mai per singolo target. Arriva dagli access log dell'ALB — altra sorgente,
+// altro permesso — e la compone `albLatency.js`, che si aggancia qui sotto sullo stesso join per
+// indirizzo dello stato nel target group. Dove gli access log sono spenti la colonna resta vuota e il
+// pannello dice perché, invece di spacciare la media di servizio per un numero per-task.
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import {
   ECSClient,
@@ -299,9 +300,18 @@ export async function taskMetrics(service, accounts, { minutes = 15, t = (k) => 
       ),
     ])
 
+    // I record coprono una finestra di minuti, quindi contengono anche task che nel frattempo si sono
+    // FERMATI: senza dirlo, un servizio a una replica ne mostrerebbe tre e sembrerebbe scalato.
+    // Si marcano `gone` solo se il dettaglio dei task attivi è arrivato davvero — altrimenti, con il
+    // permesso assente, li marcheremmo tutti come spenti mentre stanno benissimo.
+    const haveDetail = Object.keys(detail).length > 0
     const tasks = mergeLatency(
       mergeTargetHealth(
-        latestByTask(records).map((task) => ({ ...task, ...(detail[task.taskId] ?? {}) })),
+        latestByTask(records).map((task) => ({
+          ...task,
+          ...(detail[task.taskId] ?? {}),
+          gone: haveDetail && !detail[task.taskId],
+        })),
         byIp,
       ),
       latency?.byIp ?? null,
