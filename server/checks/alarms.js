@@ -53,6 +53,27 @@ const resourceIds = (cfg) =>
     .filter(Boolean)
     .map(String)
 
+// Gli allarmi su un ALB (5xx, latenza, target malsani) NON portano il nome del servizio ECS: le loro
+// dimensioni sono `LoadBalancer` = `app/<alb>/<hash>` e `TargetGroup` = `targetgroup/<nome>/<hash>`.
+// Col solo confronto per valore restavano invisibili — venivano scaricati e poi scartati.
+//
+// Il ponte è la convenzione di nome dei target group, che è deterministica: `<cluster>-<servizio>`
+// (es. cluster `cato-production` + servizio `backend` → `cato-production-backend`). Confrontiamo il
+// SEGMENTO centrale, non la stringa intera, così `LoadBalancer` non entra mai in gioco: un ALB è
+// condiviso da più servizi e attaccare i suoi allarmi a tutti sarebbe la stessa falsa attribuzione
+// che il commento su `resourceIds` evita per il cluster.
+//
+// Prefisso e non uguaglianza perché lo stesso servizio può avere più gruppi (`cato-production-backend`
+// sull'ALB pubblico e `cato-production-backend-int` su quello interno). Il rovescio: un servizio il cui
+// nome è prefisso di un altro erediterebbe i suoi allarmi — oggi non accade, ma se un domani nascesse
+// un servizio `analisi` accanto ad `analisi-avanzata` andrebbe stretto a uguaglianza.
+const targetGroupMatches = (cfg, dimension) => {
+  if (cfg?.type !== 'ecs' || !cfg?.cluster || !cfg?.service) return false
+  if (dimension.Name !== 'TargetGroup') return false
+  const nome = String(dimension.Value).split('/')[1] // targetgroup/<nome>/<hash>
+  return Boolean(nome) && nome.startsWith(`${cfg.cluster}-${cfg.service}`)
+}
+
 export async function run(service, ctx) {
   const firing = ctx?.alarms // preload per account (undefined = non disponibile → salta)
   if (!firing) return null
@@ -60,7 +81,9 @@ export async function run(service, ctx) {
   if (!ids.size) return null
   const t = ctx?.t ?? ((k) => k)
 
-  const mine = firing.filter((a) => (a.Dimensions ?? []).some((d) => ids.has(String(d.Value))))
+  const mine = firing.filter((a) =>
+    (a.Dimensions ?? []).some((d) => ids.has(String(d.Value)) || targetGroupMatches(service.aws, d)),
+  )
   if (!mine.length) return null // nessun allarme attivo per questa risorsa → niente riga
 
   const names = mine.slice(0, 3).map((a) => a.AlarmName)
