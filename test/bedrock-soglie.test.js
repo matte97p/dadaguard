@@ -101,6 +101,9 @@ test('sopra soglia solo negli ultimi 15 minuti → degraded (appena cominciato, 
   const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 6 })
   assert.equal(r.status, 'degraded')
   assert.match(r.summary, /non è ancora una finestra da 60m/)
+  // I tile davanti mostrano l'ora (4 errori su 2000), lo sforamento viene dai 15 minuti (6 su 40):
+  // la riga deve dire di quale finestra parla, o i due conteggi si leggono come un errore di conto.
+  assert.match(r.summary, /oltre soglia err\. server \(5xx\) su 15m: 6 su 40/)
 })
 
 test('sopra soglia su entrambe → down, e il messaggio dice che è ancora in corso', async () => {
@@ -127,7 +130,7 @@ test('finestra acuta larga quanto quella di fondo: una lettura sola, nessuna chi
 test('il messaggio dice QUALE soglia è stata superata, con i numeri e la regola', async () => {
   const r = await leggi({ inv: 200, serr: 20 })
   assert.match(r.summary, /oltre soglia/, 'nomina lo sforamento')
-  assert.match(r.summary, /20 su 200 \(10%\)/, 'coi numeri che l hanno prodotto')
+  assert.match(r.summary, /su 60m: 20 su 200 \(10%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
   assert.match(r.summary, /≥5 o ≥10%/, 'e con la regola, così si tara leggendo la chat')
 })
 

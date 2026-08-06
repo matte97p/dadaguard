@@ -69,10 +69,13 @@ function sfori(m) {
 // soglia, e la taratura si discute a memoria: è già successo di proporre «alziamo la percentuale»
 // senza sapere che a far scattare l'allarme era stato il ramo assoluto — cioè che alzare la
 // percentuale non avrebbe cambiato niente.
-function perche(s, t) {
+// La finestra va NOMINATA: i tile davanti mostrano sempre l'ora, ma lo sforamento può venire dai
+// soli 15 minuti. Senza l'etichetta la stessa riga porterebbe due conteggi diversi senza dire di
+// cosa parla il secondo («4 err. server (60m) · oltre soglia: 6 su 40»), che si legge come un errore.
+function perche(s, finestra, t) {
   const rate = Math.round(s.rate * 100)
   const regola = s.or ? t('bedrock.regola.o', { min: s.min, rate }) : t('bedrock.regola.e', { min: s.min, rate })
-  return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), n: s.n, inv: s.inv, pct: s.pct, regola })
+  return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola })
 }
 
 export async function bedrockRuntime(cfg, aws, opts = {}) {
@@ -145,7 +148,7 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   // numeri, poi cosa dicono le due finestre messe insieme.
   const colpevole = nellOra[0] ?? adesso[0] ?? null
   const coda = []
-  if (colpevole) coda.push(perche(colpevole, t))
+  if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t))
   if (nellOra.length && adesso.length) coda.push(t('bedrock.ancora', { window: acuL }))
   else if (nellOra.length) coda.push(t('bedrock.rientro', { window: acuL, conferma: winL }))
   else if (adesso.length) coda.push(t('bedrock.appena', { window: acuL, conferma: winL }))
