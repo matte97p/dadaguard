@@ -110,14 +110,17 @@ export async function runOnce(cfg, deps = {}) {
     // Ricorda DOVE è stato aperto ogni allarme (per mandarci il rientro) e CHE è stato aperto: senza il
     // secondo, il rientro di un allarme mai annunciato diventa un verde orfano (vedi `rientroOrfano`).
     // Si scrive qui e non nel differ perché è l'invio riuscito a rendere l'allarme "annunciato".
+    // Solo il RIENTRO chiude l'allarme. Un alleggerimento (down → degraded) è ancora rosso: se
+    // azzerasse il flag, il verde vero che arriva dopo verrebbe scartato come orfano e resteremmo
+    // con un allarme aperto che nessuno chiude mai.
     for (const tr of lista) {
       if (!next.services[tr.key]) continue
-      if (tr.kind === 'alert') {
-        next.services[tr.key].route = nome
-        next.services[tr.key].alerted = true
-      } else {
+      if (tr.kind === 'recovery') {
         delete next.services[tr.key].route
         next.services[tr.key].alerted = false
+      } else {
+        next.services[tr.key].route = nome
+        next.services[tr.key].alerted = true
       }
     }
   }

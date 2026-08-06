@@ -22,6 +22,9 @@ const EMOJI = {
   down: ':red_circle:',
   degraded: ':warning:',
   recovery: ':white_check_mark:',
+  // Alleggerimento dentro al rosso (down → degraded): non è un verde, ma nemmeno un allarme nuovo.
+  // Un pallino giallo lo distingue a colpo d'occhio da entrambi nello scroll del canale.
+  improvement: ':large_yellow_circle:',
 }
 
 // Ambiente come lo scrivono i cron e i deploy: `[PROD]`, `[STAGING]`. Gli altri account prendono la
@@ -41,8 +44,10 @@ function mention(t) {
 
 export function slackMessage(transitions, { url = null, t = (k) => k } = {}) {
   const lines = transitions.map((tr) => {
-    const emoji = tr.kind === 'recovery' ? EMOJI.recovery : (EMOJI[tr.to] ?? EMOJI.down)
-    const stato = t(`notify.status.${tr.to}`)
+    const emoji = EMOJI[tr.kind] ?? EMOJI[tr.to] ?? EMOJI.down
+    // Un alleggerimento arriva sullo stesso stato di un allarme (`degraded`): senza un'etichetta sua
+    // si leggerebbe come un secondo rosso, cioè il contrario di quello che è successo.
+    const stato = tr.kind === 'improvement' ? t('notify.status.improving') : t(`notify.status.${tr.to}`)
     const causa = tr.kind === 'alert' && tr.cause ? ` · ${t(`notify.cause.${tr.cause}`)}` : ''
     const dettaglio = tr.detail ? ` — ${tr.detail}` : ''
     return `${mention(tr)}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}`

@@ -9,6 +9,7 @@
 //  2. Una transizione conta solo se REGGE (debounce): un throttle CloudWatch di trenta secondi non
 //     deve svegliare nessuno. Serve che lo stato nuovo si presenti N letture di fila.
 //  3. Un messaggio per TRANSIZIONE, non per stato: se resta rosso tre giorni, resta un messaggio.
+//  4. Dentro al rosso ci sono due gravità, e il salto fra le due È una notizia (regola 5, sotto).
 
 // Classi di stato: il confine che conta è problema / non-problema. `unknown` è a parte — non sappiamo,
 // e "non sappiamo" non è una notizia da mandare a nessuno (ma non cancella nemmeno un rosso noto).
@@ -17,6 +18,15 @@ export function stateClass(overall) {
   if (overall === 'unknown' || overall == null) return 'unknown'
   return 'quiet' // up, idle, disabled
 }
+
+// Regola 5: dentro la classe "problema" ci sono DUE gravità, e passare dall'una all'altra è una
+// notizia quanto entrarci. `degraded` = da guardare, `down` = conclamato.
+//  · peggiora (degraded → down) = un allarme vero, con la stessa sirena di un rosso nuovo;
+//  · migliora (down → degraded) = «sembra rientrato, non è confermato»: si annuncia, ma SENZA sirena
+//    (in slack.js il `<!channel>` è legato a kind === 'alert'). È il segnale intermedio che mancava:
+//    prima o eri rosso o eri verde, e un rientro parziale non aveva modo di dirsi.
+// Il verde definitivo resta l'unica cosa che chiude l'allarme: qui non si esce mai dal rosso.
+const GRAVITA = { degraded: 1, down: 2 }
 
 export const serviceKey = (s) => `${s.account?.key ?? '—'}/${s.name}`
 
@@ -72,8 +82,8 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     }
     // confermato: aggiorna lo stato noto e valuta se è una notizia
     // `route` (dove è stato aperto l'allarme) si conserva: serve a mandare il rientro nello stesso posto
-    // `alerted` va conservato come `route`: un cambio DENTRO la stessa classe (es. down → degraded) passa
-    // da qui senza generare transizioni, e se perdessimo il flag il rientro vero verrebbe poi soppresso.
+    // `alerted` va conservato come `route`: un cambio di gravità dentro la stessa classe non chiude
+    // l'allarme, e se perdessimo il flag il rientro vero verrebbe poi soppresso come orfano.
     next[key] = {
       confirmed: obs.overall,
       cause: obs.cause,
@@ -90,9 +100,14 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     // allarme che non c'è mai stato. Visto dal vivo sui modelli Bedrock, che sono autoscoperti e
     // compaiono nella watchlist appena qualcuno li chiama.
     const rientroOrfano = to !== 'problem' && !before.alerted
-    if (attraversa && !rientroOrfano) {
+    // Cambio di gravità restando nel rosso (regola 5). Il miglioramento segue la stessa regola del
+    // rientro: se l'allarme non è mai stato mandato, non si annuncia nemmeno il suo alleggerimento.
+    const dentro = from === 'problem' && to === 'problem' && GRAVITA[obs.overall] !== GRAVITA[confirmed]
+    const peggiora = dentro && GRAVITA[obs.overall] > GRAVITA[confirmed]
+    const migliora = dentro && !peggiora && before.alerted
+    if ((attraversa && !rientroOrfano) || peggiora || migliora) {
       transitions.push({
-        kind: to === 'problem' ? 'alert' : 'recovery',
+        kind: attraversa ? (to === 'problem' ? 'alert' : 'recovery') : peggiora ? 'alert' : 'improvement',
         key,
         name: obs.name,
         account: obs.account,

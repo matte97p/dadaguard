@@ -25,11 +25,12 @@ export function routeOf(transition, { notifyCronFailed = false } = {}) {
 
 // Divide le transizioni per destinazione. I RIENTRI tornano dove è stato aperto l'allarme (`route`
 // ricordato nello stato): un `<!channel>` che nessuno chiude lascia un canale pieno di rossi di cui
-// non sai quali sono ancora aperti.
+// non sai quali sono ancora aperti. Vale anche per gli alleggerimenti (`improvement`), che sono
+// aggiornamenti sullo stesso allarme: seguirlo altrove spezzerebbe il filo in due canali.
 export function splitByRoute(transitions, { routeMemory = {}, notifyCronFailed = false } = {}) {
   const out = { main: [], cron: [], skipped: [] }
   for (const tr of transitions) {
-    const dest = tr.kind === 'recovery' ? (routeMemory[tr.key] ?? routeOf(tr, { notifyCronFailed })) : routeOf(tr, { notifyCronFailed })
+    const dest = tr.kind === 'alert' ? routeOf(tr, { notifyCronFailed }) : (routeMemory[tr.key] ?? routeOf(tr, { notifyCronFailed }))
     if (!dest) {
       out.skipped.push(tr)
       continue
