@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/diff.js'
 import { slackMessage, envTag } from '../server/notify/slack.js'
 import { runOnce, watchConfig } from '../server/notify/watch.js'
+import { makeT } from '../server/i18n.js'
 
 // Il notificatore vive o muore su una cosa: mandare i messaggi GIUSTI. Un watchdog che grida per
 // ogni sfarfallio si silenzia dopo due giorni, e uno che tace su un guasto non serve a niente.
@@ -153,12 +154,14 @@ test('allarme taciuto dal routing: nemmeno il suo rientro parla', () => {
   assert.deepEqual(transitions, [], 'simmetria: se non ho detto che si è rotto, non dico che è a posto')
 })
 
-test('il flag alerted sopravvive a un cambio dentro la stessa classe (down → degraded → up)', () => {
-  // Regressione: `down → degraded` non genera transizioni ma passa dal ramo che riscrive lo stato.
+// --- le due gravità dentro al rosso (regola 5) --------------------------------------------------
+test('il flag alerted sopravvive a un alleggerimento (down → degraded → up)', () => {
+  // Regressione: `down → degraded` NON chiude l'allarme, passa solo dal ramo che riscrive lo stato.
   // Se lì si perdesse `alerted`, il rientro VERO verrebbe soppresso e resteremmo con un rosso appeso.
   let s = stato({ 'production/api': { confirmed: 'down', alerted: true, route: 'main', pending: { overall: 'degraded', count: 1 } } })
   const dentro = diffStates(s, snapshot([svc('api', 'Production', 'degraded', 'runtime')]), conferma)
-  assert.deepEqual(dentro.transitions, [], 'problem → problem non è una notizia')
+  assert.equal(dentro.transitions.length, 1, 'scendere di gravità è una notizia')
+  assert.equal(dentro.transitions[0].kind, 'improvement', 'ma non è un rientro: siamo ancora nel rosso')
   assert.equal(dentro.next.services['production/api'].alerted, true, 'il flag resta')
   assert.equal(dentro.next.services['production/api'].route, 'main', 'e anche la destinazione')
 
@@ -167,6 +170,27 @@ test('il flag alerted sopravvive a un cambio dentro la stessa classe (down → d
   const rientro = diffStates(s, snapshot([svc('api', 'Production', 'up')]), conferma)
   assert.equal(rientro.transitions.length, 1, 'il rientro vero si annuncia')
   assert.equal(rientro.transitions[0].kind, 'recovery')
+})
+
+test('peggiorare dentro al rosso (degraded → down) è un allarme, non un aggiornamento muto', () => {
+  // Prima passava in silenzio: chi aveva letto l'avviso non sapeva che nel frattempo era diventato
+  // un guasto conclamato, e la differenza fra "da guardare" e "sta succedendo adesso" si perdeva.
+  const s = stato({ 'production/api': { confirmed: 'degraded', alerted: true, route: 'main', pending: { overall: 'down', count: 1 } } })
+  const { transitions } = diffStates(s, snapshot([svc('api', 'Production', 'down', 'runtime')]), conferma)
+  assert.equal(transitions.length, 1)
+  assert.equal(transitions[0].kind, 'alert', 'stessa sirena di un rosso nuovo')
+})
+
+test('alleggerimento di un allarme mai annunciato: silenzio, come per il rientro orfano', () => {
+  const s = stato({ 'production/api': { confirmed: 'down', pending: { overall: 'degraded', count: 1 } } })
+  const { transitions } = diffStates(s, snapshot([svc('api', 'Production', 'degraded', 'runtime')]), conferma)
+  assert.deepEqual(transitions, [], 'non si alleggerisce in chat un allarme che in chat non c-è mai stato')
+})
+
+test('messaggio: un alleggerimento si legge come tale, e non chiama il canale', () => {
+  const msg = slackMessage([{ kind: 'improvement', name: 'claude-opus-5', account: 'Production', to: 'degraded', from: 'down', detail: 'probabile rientro' }], { t: makeT('it') })
+  assert.ok(!msg.text.includes('<!channel>'), 'non è un allarme nuovo: niente sirena')
+  assert.ok(msg.text.includes('IN RIENTRO'), 'e si distingue da un ATTENZIONE appena aperto')
 })
 
 test('servizio spartito: se non lo vedo più, non è un guasto', () => {
