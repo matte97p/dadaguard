@@ -11,7 +11,7 @@ const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(Number(v ?? 0)).toFixed(2
 // Barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso). Se `projected` è dato,
 // l'estensione di fine mese è un alone translucido dello STESSO colore del servizio, dietro la barra
 // piena (MTD), con il valore proiettato accanto → si vede a colpo d'occhio "dove arriverà" ogni voce.
-function Bar({ label, amount, max, credit, projected, t }) {
+function Bar({ label, amount, max, credit, projected, ai, t }) {
   const color = credit ? '#52c41a' : '#7c3aed'
   const base = Math.min(100, (Math.abs(amount) / max) * 100)
   const proj = projected != null ? Math.min(100, (Math.abs(projected) / max) * 100) : base
@@ -21,6 +21,8 @@ function Bar({ label, amount, max, credit, projected, t }) {
         <span>
           {label}
           {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>{t('costs.creditMark')}</span>}
+          {/* Stesso viola del numero AI in cima: è quello che rende il totale verificabile riga per riga. */}
+          {ai && <span style={{ marginLeft: 6, color: '#7c3aed' }}>{t('costs.aiMark')}</span>}
         </span>
         <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>
           {money(amount)}
@@ -479,6 +481,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
                       amount={it.amount}
                       projected={factor ? it.amount * factor : null}
                       max={max}
+                      ai={it.ai}
                       t={t}
                     />
                   ))}

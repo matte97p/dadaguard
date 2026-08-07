@@ -317,7 +317,7 @@ export function demoCosts() {
         { service: 'Amazon RDS', amount: 88.0 },
         { service: 'AWS Lambda', amount: 12.4 },
         { service: 'Amazon CloudFront', amount: 9.1 },
-        { service: 'Amazon Bedrock', amount: 402.0 },
+        { service: 'Amazon Bedrock', amount: 402.0, ai: true },
       ],
       gross: 653.8, credits: -40, tax: 3.2, aiGross: 402, infraGross: 251.8, total: 617.0, net: 617.0,
       period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
@@ -325,7 +325,7 @@ export function demoCosts() {
     management: withProjection({
       label: 'Management (payer)', color: '#722ed1',
       items: [
-        { service: 'AWS Marketplace (Claude Sonnet)', amount: 118.4 },
+        { service: 'AWS Marketplace (Claude Sonnet)', amount: 118.4, ai: true },
         { service: 'CodeBuild', amount: 14.2 },
       ],
       gross: 132.6, credits: 0, tax: 0, aiGross: 118.4, infraGross: 14.2, total: 132.6, net: 132.6,
