@@ -86,9 +86,12 @@ export function aggregateMonth(groups = []) {
     if (isAiService(service)) aiGross += amt
   }
 
-  // items = consumo per servizio (a listino, prima di crediti e tasse)
+  // items = consumo per servizio (a listino, prima di crediti e tasse). Ogni riga porta se è AI:
+  // il totale AI sta già in cima, ma senza il marcatore sulle righe non si vede DA COSA è fatto —
+  // e su Cost Explorer i modelli arrivano col loro nome ("Claude Opus 5 (Amazon Bedrock Edition)"),
+  // quindi la riga c'è già: manca solo dire che quella è la voce che alimenta il numero viola.
   const items = [...usageByService.entries()]
-    .map(([service, amount]) => ({ service, amount }))
+    .map(([service, amount]) => ({ service, amount, ai: isAiService(service) }))
     .filter((i) => Math.abs(i.amount) > 0.005)
     .sort((a, b) => b.amount - a.amount)
 

@@ -55,6 +55,21 @@ test('AI separata: Bedrock e Marketplace, non "un servizio come gli altri"', () 
   assert.equal(out.gross, 1000)
 })
 
+test('ogni riga dice se è AI, così il totale viola si verifica riga per riga', () => {
+  // Su Cost Explorer i modelli arrivano col loro nome, non come "Bedrock": la riga esisteva già,
+  // mancava solo dire quale alimenta il numero AI in cima.
+  const out = aggregateMonth([
+    g(['Claude Opus 5 (Amazon Bedrock Edition)', 'Usage'], 300),
+    g(['Amazon RDS', 'Usage'], 50),
+  ])
+  const byService = Object.fromEntries(out.items.map((i) => [i.service, i.ai]))
+  assert.equal(byService['Claude Opus 5 (Amazon Bedrock Edition)'], true)
+  assert.equal(byService['Amazon RDS'], false)
+  // Il marcatore non è una seconda regola: somma le stesse righe del totale.
+  const flagged = out.items.filter((i) => i.ai).reduce((s, i) => s + i.amount, 0)
+  assert.equal(flagged, out.aiGross)
+})
+
 test('gli importi sotto il mezzo centesimo non fanno righe', () => {
   const out = aggregateMonth([g(['Amazon RDS', 'Usage'], 10), g(['AWS KMS', 'Usage'], 0.001)])
   assert.equal(out.items.length, 1)
