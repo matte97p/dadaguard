@@ -8,6 +8,7 @@ import {
   BatchGetBuildsCommand,
 } from '@aws-sdk/client-codebuild'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
+import { manualActions } from './manualActions.js'
 
 const DEPLOY_SUFFIX = '-deploy'
 
@@ -27,6 +28,17 @@ export function shortSha(v) {
 // CodeConnections → "auto" (push); altrimenti (start-build a mano, ruolo SSO) → "manuale". Puro/testabile.
 export function triggerOf(initiator) {
   return /gha-deploy|github|hookshot|codeconnection|codestar/i.test(initiator || '') ? 'auto' : 'manuale'
+}
+
+// Etichetta finale dell'avvio, incrociando l'`initiator` con quello che CloudTrail sa della chiamata
+// `StartBuild` (chi, con quale ruolo). Serve perché `initiator` da solo non distingue un hotfix
+// forzato fuori dalla CI da una build riavviata da console: sono entrambi "manuale", e sono due
+// fatti molto diversi. L'`initiator` resta la fonte per l'"auto" (CloudTrail può non avere l'evento,
+// per ritardo di indicizzazione o perché fuori finestra). Puro/testabile.
+export function resolveTrigger(initiator, starter) {
+  const base = triggerOf(initiator)
+  if (base === 'auto') return 'auto'
+  return starter?.hotfix ? 'hotfix' : 'manuale'
 }
 
 // Chi ha lanciato il deploy: la variabile CodeBuild esportata `DEPLOYER` (autore del commit, scritta dal
@@ -66,13 +78,18 @@ export function failureOf(phases = []) {
 
 // Normalizza un build CodeBuild nella forma che serve alla UI (nessun segreto): stato/commit/trigger,
 // più le FASI (timeline), il MOTIVO del fallimento e il deep-link ai log CloudWatch (per il drawer).
-export function mapBuild(b = {}) {
+//
+// `starter` = quello che CloudTrail sa dello `StartBuild` di QUESTA build (chi ha premuto, con quale
+// ruolo). Assente su tutte le build "auto" e su quelle fuori dai 90 giorni di event history: in quel
+// caso il comportamento è quello di prima.
+export function mapBuild(b = {}, starter = null) {
   const started = b.startTime ?? null
   const ended = b.endTime ?? null
   const phases = (b.phases ?? []).map(mapPhase)
   const fail = failureOf(b.phases)
   return {
     id: b.id ?? null,
+    arn: b.arn ?? null, // chiave per attribuire la build al suo evento CloudTrail StartBuild
     service: serviceFromProject(b.projectName),
     project: b.projectName,
     number: b.buildNumber ?? null,
@@ -80,8 +97,12 @@ export function mapBuild(b = {}) {
     inProgress: b.buildStatus === 'IN_PROGRESS',
     commit: shortSha(b.resolvedSourceVersion || b.sourceVersion),
     phase: b.currentPhase ?? null,
-    trigger: triggerOf(b.initiator),
+    trigger: resolveTrigger(b.initiator, starter),
     author: deployerOf(b), // chi ha lanciato (autore commit), da exported-variable DEPLOYER
+    // Chi ha PREMUTO, che su un hotfix non è l'autore del commit. Solo per le build non-auto: sulle
+    // altre il "chi" è la pipeline, e stamparlo accanto a "auto" non aggiunge niente.
+    forcedBy: starter?.forcedBy ?? null,
+    viaTeleport: starter?.viaTeleport ?? false,
     startedAt: started,
     endedAt: ended,
     durationMs: started && ended ? new Date(ended).getTime() - new Date(started).getTime() : null,
@@ -92,9 +113,18 @@ export function mapBuild(b = {}) {
   }
 }
 
-// Elenca i deploy (ultimi `perProject` build per progetto di deploy) di un account, dal più recente.
+const byRecent = (a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0)
+
+// Elenca i deploy di un account, dal più recente: le build dei progetti `*-deploy` (ultime
+// `perProject` per progetto) PIÙ i riavvii forzati a mano, che non sono build e prima non si
+// vedevano da nessuna parte.
 export async function listDeploys({ profile, roleArn, externalId, region } = {}, { perProject = 15 } = {}) {
-  const cb = new CodeBuildClient(clientOpts({ profile, roleArn, externalId, region }))
+  const aws = { profile, roleArn, externalId, region }
+  const cb = new CodeBuildClient(clientOpts(aws))
+
+  // Le azioni a mano si leggono da CloudTrail, in parallelo alle build: sono una fonte diversa e
+  // indipendente, e non deve allungare la risposta di un giro sequenziale.
+  const manual = manualActions(aws)
 
   // 1. progetti di deploy dell'account (paginati)
   const projects = []
@@ -105,9 +135,14 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     nextToken = r.nextToken
   } while (nextToken)
   const deployProjects = projects.filter((n) => n.endsWith(DEPLOY_SUFFIX))
-  // Nessun progetto `*-deploy`: l'account non fa deploy CodeBuild (es. payer/security).
+
+  // Nessun progetto `*-deploy`: l'account non fa deploy CodeBuild (es. payer/security). I riavvii a
+  // mano però ci sono comunque — in management gira Dadaguard stessa — quindi si restituiscono.
   // `noProjects` lo distingue dal "ci sono progetti ma nessuna build" → la UI mostra il messaggio giusto.
-  if (deployProjects.length === 0) return { builds: [], noProjects: true }
+  if (deployProjects.length === 0) {
+    const { restarts } = await manual
+    return { builds: restarts.sort(byRecent), noProjects: true }
+  }
 
   // 2. ultimi N id build per progetto (in parallelo)
   const idLists = await Promise.all(
@@ -118,7 +153,6 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     ),
   )
   const ids = idLists.flat()
-  if (ids.length === 0) return { builds: [] }
 
   // 3. dettagli (BatchGetBuilds: max 100 id a chiamata)
   const raw = []
@@ -127,6 +161,7 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     raw.push(...(r.builds ?? []))
   }
 
-  const builds = raw.map(mapBuild).sort((a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0))
-  return { builds }
+  const { restarts, startedBy } = await manual
+  const builds = raw.map((b) => mapBuild(b, startedBy.get(b.arn) ?? startedBy.get(b.id)))
+  return { builds: [...builds, ...restarts].sort(byRecent) }
 }
