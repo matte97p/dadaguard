@@ -12,6 +12,8 @@ import { cached } from './util/ttlcache.js'
 import { isQueryable } from './accounts.js'
 import { listDeploys } from './deploys.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
+import { wafOverview } from './waf.js'
+import { budgetsOverview } from './budgets.js'
 import { getFreeTierUsage } from './freetier.js'
 import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
@@ -27,7 +29,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -150,7 +152,7 @@ app.get('/api/discover', requireLocal('Scopri servizi'), async (req, res) => {
 // #10 Sprechi: risorse orfane costose per ambiente (read-only EC2). On-demand.
 app.get('/api/waste', async (req, res) => {
   try {
-    if (isDemo) return res.json({})
+    if (isDemo) return res.json(demoWaste())
     const t = makeT(req.query.lang)
     const { accounts } = loadConfig()
     const out = {}
@@ -353,6 +355,24 @@ app.get('/api/freetier', async (req, res) => {
   }
 })
 
+// Budget AWS per account + anomalie di costo org-wide: se la spesa è dentro o fuori da quello che
+// avevamo deciso, e cosa è cambiato di colpo. On-demand, read-only, cachato (dati che AWS aggiorna
+// poche volte al giorno).
+app.get('/api/budgets', async (req, res) => {
+  if (isDemo) return res.json(demoBudgets())
+  const t = makeT(req.query.lang)
+  try {
+    const { accounts } = await resolveServices()
+    const { org } = loadConfig()
+    // Le anomalie sono org-wide e si chiedono dal payer, come il Free Tier: identità `org`, o la
+    // catena di default (in cloud = task role, che gira nel payer).
+    const orgCreds = org ? { profile: org.profile, roleArn: org.callerRoleArn, externalId: org.externalId } : {}
+    res.json(await budgetsOverview(accounts, { orgCreds, isQueryable, cleanReason: (err) => cleanAwsReason(err, t), lang: req.query.lang ?? '' }))
+  } catch (err) {
+    res.json({ accounts: {}, anomalies: [], error: cleanAwsReason(err, t) })
+  }
+})
+
 // Topologia: dipendenze DEDOTTE dai segnali AWS (env Lambda, event source, security group),
 // senza config. On-demand (apertura del drawer) → non rallenta la dashboard. Read-only; i valori
 // delle env var sono usati solo per il match e non escono mai dal server.
@@ -432,6 +452,21 @@ app.get('/api/security', async (_req, res) => {
     if (isDemo) return res.json(demoSecurity())
     const { accounts, services } = await resolveServices()
     res.json(await collectFindings(accounts, services))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// WAF Cloudflare: richieste FERMATE dal firewall nelle ultime ore, per zona e per regola. È traffico
+// che non arriva ai servizi e che quindi non compare in nessun log applicativo: senza questa vista
+// un blocco sbagliato si scopre solo quando qualcuno segnala a voce che "non funziona".
+app.get('/api/waf', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoWaf())
+    const hours = Math.min(Number(req.query.hours) || 24, 24 * 7)
+    const out = await wafOverview({ hours })
+    // Nessun token Cloudflare → integrazione spenta, non un errore: la UI non mostra la sezione.
+    res.json(out ?? { disabled: true, zones: [] })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

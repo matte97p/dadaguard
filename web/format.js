@@ -11,6 +11,21 @@ export function fmtMs(ms) {
   return s ? `${m}m ${s}s` : `${m}m`
 }
 
+// "Quanto fa", con le unità che cambiano scala: minuti → ore → giorni → settimane, così non si legge
+// mai "419h fa". Sta qui e non dentro una pagina perché la usano la vista Deploy e la vista Adesso, e
+// due implementazioni della stessa frase divergono al primo ritocco. Puro/testabile.
+export function fmtAgo(from, t = (k) => k, now = Date.now()) {
+  if (!from) return ''
+  const min = Math.max(0, Math.round((now - new Date(from).getTime()) / 60000))
+  if (min < 1) return t('ago.now')
+  if (min < 60) return t('ago.min', { m: min })
+  const h = Math.floor(min / 60)
+  if (h < 24) return t('ago.h', { h, m: min % 60 })
+  const d = Math.floor(h / 24)
+  if (d < 7) return t('ago.d', { d, h: h % 24 })
+  return t('ago.w', { w: Math.floor(d / 7), d: d % 7 })
+}
+
 // Cadenza di un cron in parole: "1440m" (come arriva da EventBridge) non dice niente a chi legge →
 // "ogni 1g". Stesse unità di server/runtime/*.js (fmtDur) così la cadenza nell'header e quella dentro
 // il testo del check coincidono. Input non riconosciuto → invariato (mai inventare).

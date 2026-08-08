@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Alert, Empty, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
 import CostTrend from '../components/CostTrend.jsx'
+import BudgetsPanel from '../components/BudgetsPanel.jsx'
 import { mergeTrend } from '../format.js'
 
 const { Text } = Typography
@@ -189,7 +190,7 @@ function BreakdownTable({ rows, headLabel, t, empty }) {
 
 // Pagina Costi: consumo per servizio (viola) + crediti/rimborsi (verde) = netto, per account.
 // Cost Explorer è a pagamento → fetch on-mount e al cambio mese.
-export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
+export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded = false }) {
   const [data, setData] = useState(null)
   // `true` da subito: al mount una richiesta parte SEMPRE, quindi partire da `false` dipingeva un
   // primo fotogramma vuoto (nessuno scheletro, nessun dato) prima che l'effetto la facesse partire.
@@ -283,7 +284,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
   return (
     <>
       <PageIntro
-        title={t('costs.title')}
+        title={embedded ? null : t('costs.title')}
         desc={t('costs.desc')}
         extra={
           <Space size={10} wrap>
@@ -302,6 +303,9 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang }) {
           </Space>
         }
       />
+      {/* I budget stanno PRIMA della spesa: "siamo dentro a quello che avevamo deciso?" viene prima
+          di "quanto abbiamo speso", e i budget non dipendono dal mese scelto qui sopra. */}
+      <BudgetsPanel t={t} lang={lang} />
       {loading && !data && <CostsSkeleton />}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
       {/* Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli

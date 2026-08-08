@@ -5,7 +5,7 @@ import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow } from './pageKit.
 const { Text } = Typography
 
 // Pagina Quote: Service Quotas vicine al limite, per account. On-demand (Service Quotas + CloudWatch).
-export default function QuotasPage({ accountLabels, t = (k) => k, lang }) {
+export default function QuotasPage({ accountLabels, t = (k) => k, lang, embedded = false }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -25,7 +25,7 @@ export default function QuotasPage({ accountLabels, t = (k) => k, lang }) {
 
   return (
     <>
-      <PageIntro title={t('quotas.title')} desc={t('quotas.desc')} />
+      <PageIntro title={embedded ? null : t('quotas.title')} desc={t('quotas.desc')} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
           <Spin tip={t('quotas.loading')} />
