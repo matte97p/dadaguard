@@ -57,7 +57,7 @@ function buildItems(v, t) {
 }
 
 // Pagina Sprechi: risorse a costo fisso che sembrano inutilizzate, per account. On-demand.
-export default function WastePage({ accountLabels, t = (k) => k, lang }) {
+export default function WastePage({ accountLabels, t = (k) => k, lang, embedded = false }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -82,7 +82,7 @@ export default function WastePage({ accountLabels, t = (k) => k, lang }) {
 
   return (
     <>
-      <PageIntro title={t('waste.title')} desc={data ? t('waste.desc', { total }) : undefined} />
+      <PageIntro title={embedded ? null : t('waste.title')} desc={data ? t('waste.desc', { total }) : undefined} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />

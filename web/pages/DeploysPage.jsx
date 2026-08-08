@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
-import { shortActor } from '../format.js'
+import { shortActor, fmtAgo } from '../format.js'
 import { usePoll } from '../usePoll.js'
 
 const { Text } = Typography
@@ -19,21 +19,15 @@ const STATUS = {
 }
 const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
 const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
+// Colore dell'etichetta di avvio. `hotfix` è rosso perché è l'unico valore che significa "in
+// produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
+const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
+// Un riavvio forzato non è una build: non ha fasi, durata, log né tasso di successo da calcolare.
+const isManualRestart = (b) => b?.kind === 'restart'
+// Azione fatta a mano = riavvio forzato o build lanciata fuori dalla CI.
+const isByHand = (b) => isManualRestart(b) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
-
-// "quanto fa": min → ore → giorni → settimane, così non si vedono mai "419h fa".
-function fmtAgo(from, t) {
-  if (!from) return ''
-  const min = Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 60000))
-  if (min < 1) return t('deploys.now')
-  if (min < 60) return t('deploys.minAgo', { m: min })
-  const h = Math.floor(min / 60)
-  if (h < 24) return t('deploys.hAgo', { h, m: min % 60 })
-  const d = Math.floor(h / 24)
-  if (d < 7) return t('deploys.dAgo', { d, h: h % 24 })
-  return t('deploys.wAgo', { w: Math.floor(d / 7), d: d % 7 })
-}
 
 function fmtDur(ms) {
   if (ms == null) return ''
@@ -52,6 +46,7 @@ function matchStatus(b, f) {
   if (f === 'running') return b.inProgress
   if (f === 'failed') return FAILED_STATUSES.includes(b.status)
   if (f === 'ok') return b.status === 'SUCCEEDED'
+  if (f === 'byhand') return isByHand(b)
   return true
 }
 
@@ -72,12 +67,17 @@ function groupByService(builds) {
   const groups = []
   for (const [service, arr] of map) {
     const sorted = [...arr].sort((a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0))
+    // Tasso di successo e trend contano solo le BUILD: un riavvio riuscito non dice niente
+    // sull'affidabilità dei rilasci, e mescolarlo gonfierebbe il rapporto proprio quando un
+    // servizio va male (ogni riavvio per rimetterlo in piedi lo farebbe sembrare più sano).
+    const onlyBuilds = sorted.filter((x) => !isManualRestart(x))
     groups.push({
       service,
       builds: sorted,
+      trend: onlyBuilds,
       latest: sorted[0],
-      ok: sorted.filter((x) => x.status === 'SUCCEEDED').length,
-      failed: sorted.filter((x) => FAILED_STATUSES.includes(x.status)).length,
+      ok: onlyBuilds.filter((x) => x.status === 'SUCCEEDED').length,
+      failed: onlyBuilds.filter((x) => FAILED_STATUSES.includes(x.status)).length,
     })
   }
   return groups.sort((a, b) => {
@@ -126,15 +126,19 @@ function DeployTrend({ builds, onOpen, t }) {
 // commit·durata (o fase, se in corso), e — se fallita — la riga rossa "Fallita in FASE: motivo".
 function BuildInfo({ b, name, t }) {
   const isCf = b.provider === 'cloudflare'
+  const restart = isManualRestart(b)
   // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
   // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
-  const sub = [
-    b.commit,
-    b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
-    isCf && b.kind === 'pages' && b.branch ? b.branch : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
+  const sub = restart
+    ? t('deploys.sameImage')
+    : [
+        b.commit,
+        b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
+        isCf && b.kind === 'pages' && b.branch ? b.branch : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
   const st = STATUS[b.status] ?? FALLBACK
   const failed = FAILED_STATUSES.includes(b.status)
   return (
@@ -155,11 +159,22 @@ function BuildInfo({ b, name, t }) {
           </Text>
         )}
         {b.trigger && (
-          <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
+          <Tag
+            color={TRIGGER_TAG[b.trigger]}
+            bordered={false}
+            style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: TRIGGER_TAG[b.trigger] ? 1 : 0.85 }}
+          >
             {t(`deploys.trigger.${b.trigger}`)}
           </Tag>
         )}
-        {b.author && (
+        {/* Chi ha PREMUTO. Su un hotfix o un riavvio è l'informazione principale della riga — e non
+            coincide con l'autore del commit, che è quello che la riga mostrava prima. */}
+        {b.forcedBy && (
+          <Tooltip title={b.viaTeleport ? `${b.forcedBy} · ${t('deploys.viaTeleport')}` : b.forcedBy}>
+            <Text style={{ fontSize: 11, fontWeight: 600 }}>{t('deploys.forcedBy', { who: shortActor(b.forcedBy) })}</Text>
+          </Tooltip>
+        )}
+        {b.author && !restart && (
           <Tooltip title={b.author}>
             <Text type="secondary" style={{ fontSize: 11, opacity: 0.85 }}>
               {t('deploys.by', { who: shortActor(b.author) })}
@@ -227,7 +242,7 @@ function ServiceRow({ g, onOpen, t }) {
     <ClickableRow b={b} onOpen={onOpen} t={t}>
       <BuildInfo b={b} name={g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-        {!isCf && <DeployTrend builds={g.builds} onOpen={onOpen} t={t} />}
+        {!isCf && <DeployTrend builds={g.trend ?? g.builds} onOpen={onOpen} t={t} />}
         {!isCf && decided > 0 && (
           <Tooltip title={t('deploys.rateTip', { ok: g.ok, total: decided })}>
             <Text style={{ fontSize: 13, fontWeight: 600, color: rateColor, fontVariantNumeric: 'tabular-nums' }}>
@@ -328,8 +343,15 @@ function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
               </MetaLine>
             )}
             {b.trigger && <MetaLine label={t('deploys.triggerLabel')}>{t(`deploys.trigger.${b.trigger}`)}</MetaLine>}
-            {b.author && <MetaLine label={t('deploys.authorLabel')}>{b.author}</MetaLine>}
-            {!(b.provider === 'cloudflare') && (
+            {b.forcedBy && (
+              <MetaLine label={t('deploys.forcedByLabel')}>
+                {b.forcedBy}
+                {b.viaTeleport ? ` · ${t('deploys.viaTeleport')}` : ''}
+              </MetaLine>
+            )}
+            {b.author && !isManualRestart(b) && <MetaLine label={t('deploys.authorLabel')}>{b.author}</MetaLine>}
+            {b.cluster && <MetaLine label={t('deploys.clusterLabel')}>{b.cluster}</MetaLine>}
+            {!(b.provider === 'cloudflare') && !isManualRestart(b) && (
               <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
             )}
             <MetaLine label={t('deploys.whenLabel')}>{fmtAgo(b.inProgress ? b.startedAt : b.endedAt, t) || '—'}</MetaLine>
@@ -345,6 +367,10 @@ function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
               </MetaLine>
             )}
           </Space>
+
+          {/* L'hotfix salta il gate della CI: il dettaglio è il posto dove dirlo per intero, perché
+              nella riga ci sta solo l'etichetta rossa. */}
+          {b.trigger === 'hotfix' && <Alert type="warning" showIcon message={t('deploys.hotfixWarn')} />}
 
           {failed && b.failReason && (
             <Alert
@@ -557,6 +583,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
       { value: 'running', label: t('deploys.filter.running') },
       { value: 'failed', label: t('deploys.filter.failed') },
       { value: 'ok', label: t('deploys.filter.ok') },
+      { value: 'byhand', label: t('deploys.filter.byhand') },
     ],
     [t],
   )
@@ -598,10 +625,15 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // flotta: filtravi "Falliti" e restava "ok 109" → sembrava che i filtri non facessero nulla.
   const hero = useMemo(() => {
     const all = accounts.flatMap(([, acc]) => filterBuilds(acc.builds ?? []))
+    const builds = all.filter((b) => !isManualRestart(b))
     return {
       running: all.filter((b) => b.inProgress || b.status === 'IN_PROGRESS').length,
-      ok: all.filter((b) => b.status === 'SUCCEEDED').length,
+      ok: builds.filter((b) => b.status === 'SUCCEEDED').length,
       failed: all.filter((b) => FAILED_STATUSES.includes(b.status)).length,
+      // Quante azioni sono passate fuori dalla CI. È il numero che prima non esisteva da nessuna
+      // parte: chi guardava la pagina vedeva solo i rilasci automatici e concludeva che nessuno
+      // avesse toccato la produzione a mano.
+      byHand: all.filter(isByHand).length,
     }
   }, [accounts, filterBuilds])
 
@@ -630,6 +662,13 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
             {hero.running > 0 && <HeroStat label={t('deploys.running')} value={hero.running} color="#1677ff" size={18} />}
             <HeroStat label={t('deploys.ok')} value={hero.ok} color={hero.ok ? '#52c41a' : undefined} size={18} />
             <HeroStat label={t('deploys.failed')} value={hero.failed} color={hero.failed ? '#ff4d4f' : undefined} size={18} />
+            {hero.byHand > 0 && (
+              <Tooltip title={t('deploys.manualTip')}>
+                <span>
+                  <HeroStat label={t('deploys.manual')} value={hero.byHand} color="#faad14" size={18} />
+                </span>
+              </Tooltip>
+            )}
           </HeroRow>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

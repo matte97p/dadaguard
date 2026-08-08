@@ -9,7 +9,7 @@ const color = (pct) => (pct >= 100 ? '#ff4d4f' : pct >= 85 ? '#faad14' : '#52c41
 
 // Pagina Free Tier: uso mensile vs limite gratuito per offerta AWS (es. CodeBuild 100 build-min).
 // Dato org-wide letto dal payer. On-demand.
-export default function FreeTierPage({ t = (k) => k, lang }) {
+export default function FreeTierPage({ t = (k) => k, lang, embedded = false }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -28,7 +28,7 @@ export default function FreeTierPage({ t = (k) => k, lang }) {
 
   return (
     <>
-      <PageIntro title={t('freetier.title')} desc={t('freetier.desc')} />
+      <PageIntro title={embedded ? null : t('freetier.title')} desc={t('freetier.desc')} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
           <Spin tip={t('freetier.loading')} />

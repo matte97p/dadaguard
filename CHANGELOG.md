@@ -5,6 +5,95 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Navigazione riorganizzata, e una pagina nuova che risponde alla domanda che si fa per prima.**
+  Le nove voci nell'header erano in ordine di arrivo e senza gerarchia — «Free Tier» pesava come
+  «Dashboard» — e la barra era satura: le due viste nuove (WAF e budget) hanno dovuto entrare dentro
+  pagine esistenti perché una decima voce non ci stava. Il problema non era lo spazio, era che non
+  c'era un posto **dove** metterle.
+
+  Ora c'è una **sidebar in quattro gruppi**, e i gruppi sono le domande che si fanno qui: *cosa gira ·
+  cosa è uscito · quanto costa · chi può fare cosa*. Due fusioni, entrambe di viste che rispondevano
+  alla stessa domanda in due posti:
+  - **Spesa** = Costi + Sprechi. La spesa vera di Cost Explorer e la stima a listino di quello che
+    stiamo buttando sono due misure della stessa cosa; come voci separate, chi cercava «quanto
+    buttiamo» apriva Costi.
+  - **Limiti** = Quote + Free Tier. Due muri diversi (le quote bloccano, il free tier fa pagare) con
+    lo stesso significato operativo: quanto manca prima che qualcosa si rompa o inizi a costare. Come
+    due voci separate non si guardava mai nessuna delle due.
+
+  I percorsi di prima continuano a funzionare: `/costi`, `/sprechi`, `/quote` e `/freetier`
+  reindirizzano alla scheda giusta, e la scheda sta nell'URL (un link a «Sprechi» porta sugli
+  sprechi). Una riorganizzazione che rompe i segnalibri fa sembrare rotta l'applicazione.
+
+  La flotta si è spostata su `/servizi` e la home è **«Adesso»**: raccoglie da tutte le fonti solo ciò
+  che è cambiato nella finestra (24h/72h/7g) o che morde in questo momento — servizi giù, build
+  fallite, hotfix fuori dalla CI, riavvii a mano, richieste fermate dal WAF, budget sforati, anomalie
+  di costo — e ogni riga porta alla pagina che ne sa di più. Prima quella domanda attraversava quattro
+  viste, da aprire a memoria.
+
+  Cosa **non** compare, di proposito: i rilasci automatici riusciti. Un elenco che contiene anche la
+  normalità non si legge — le tre righe che contano scorrerebbero via in mezzo a quelle verdi. E
+  «niente da segnalare» è un esito scritto per intero, con quante cose sono state guardate: una pagina
+  vuota si legge come rotta.
+
+  Sotto: i colori di stato stanno in un file di token (`web/theme.js`) invece di essere ripetuti a mano
+  in una dozzina di file. Il rischio non era la ripetizione, era che due pagine divergessero senza che
+  nessuno se ne accorgesse — e allora lo stesso stato si legge di due colori diversi in due punti,
+  cioè il colore smette di essere un segnale.
+
+### Added
+- **I deploy fatti A MANO si vedono, e si vede chi li ha fatti.** La pagina Deploy elencava le build
+  dei progetti `*-deploy`: va bene per il rilascio normale, ma lasciava fuori per costruzione l'azione
+  più intenzionale che esista — `ecs update-service --force-new-deployment` su un servizio incastrato.
+  Quella non costruisce niente, quindi non c'era nessuna build da elencare, e la pagina restava muta:
+  chi guardava concludeva che nessuno avesse toccato la produzione.
+
+  Ora i riavvii forzati sono righe come le altre (`stessa immagine, nessuna build`, con chi l'ha
+  forzato e da quale cluster), e ci sono anche quelli **respinti** — un riavvio negato per permessi
+  spiega perché il servizio è ancora fermo, ed era invisibile due volte.
+
+  Le build lanciate fuori dalla CI, poi, non sono più «manuale» come qualunque build partita da
+  console: un **hotfix** ha la sua etichetta rossa e, nel dettaglio, la riga che dice cosa significa
+  davvero — nessun test e nessun dependency-audit hanno visto quel codice. E **chi ha premuto** non è
+  chi la pagina mostrava: `author` viene dalla variabile `DEPLOYER`, che è l'autore del *commit*; su
+  un hotfix la persona che ha forzato il rilascio è un'altra, e adesso ci sono entrambe.
+
+  Fonte: CloudTrail `LookupEvents` (event history, ~90 giorni, nessun trail da creare) — il permesso
+  era già concesso al ruolo readonly. Un `UpdateService` che porta una `taskDefinition` **non** conta
+  come riavvio: è il passo finale di una build, e contarlo avrebbe fatto sembrare doppi tutti i
+  rilasci normali. I riavvii restano fuori dal tasso di successo e dal trend: un riavvio riuscito non
+  dice niente sull'affidabilità dei rilasci, e sommarlo avrebbe fatto sembrare più sano proprio il
+  servizio che si sta riavviando per tenerlo in piedi.
+
+- **WAF Cloudflare: quanto traffico il firewall ha fermato, per zona e per regola** (pagina Sicurezza).
+  È il buco più silenzioso che ci fosse: una richiesta bloccata dal WAF non compare in nessun log
+  applicativo, non muove nessuna metrica ECS e non produce nessun errore da guardare — il servizio è
+  verde e l'utente semplicemente non è mai arrivato.
+  Le richieste **fermate** e quelle **osservate** (`log`) sono due totali separati, e non si sommano:
+  mettere una regola in `log` non impedisce a un'altra di bloccare la stessa richiesta, e chi legge un
+  totale unico conclude di aver disinnescato il problema mentre il traffico continua a cadere.
+  Ogni regola dice **dove si aggiusta** (regola nostra in IaC · managed WAF di Cloudflare · rate limit:
+  tre posti diversi) e i **percorsi** colpiti, che sono ciò che distingue un blocco giusto da uno
+  sbagliato. L'ordine è per richieste fermate, non per volume: una regola con un milione di `log` non è
+  un problema, una che ferma dodici richieste su `/checkout` lo è.
+
+- **Budget AWS e anomalie di costo** (pagina Costi, in cima). La pagina diceva quanto stai spendendo,
+  non se quella cifra è dentro a quello che avevi deciso: quel numero viveva nei budget AWS, che
+  avvisano su Slack e poi non compaiono da nessuna parte.
+  Di ogni budget si mostrano **consumo e proiezione**, che sono due domande diverse — «sono già
+  fuori?» e «ci finirò fuori?». Un budget al 65% con la proiezione al 123% è il momento in cui c'è
+  ancora tempo per intervenire, ed è invisibile se mostri solo la prima cifra: per questo lo
+  sforamento *previsto* pesa come quello già avvenuto.
+  Le **anomalie** sono l'altra metà: gli scostamenti che AWS rileva rispetto al proprio modello di
+  spesa (un cron che gira cento volte invece di una si vede lì prima che si veda in bolletta), con
+  impatto in valuta e causa principale. Sotto un dollaro non si mostrano: sono centesimi su servizi
+  minuscoli, e allenare a ignorare una sezione è l'unico modo di renderla inutile.
+
+- **La demo mostra anche gli Sprechi.** Rispondevano `{}` e la pagina diceva «nessun account con
+  risorse»: come voce di menu a sé passava per una flotta pulita, ma da scheda accanto ai Costi chi
+  apre la demo ci clicca — e una scheda vuota nella vitrina si legge come rotta.
+
 ### Fixed
 - **Pagina Deploy: i filtri filtrano davvero, e l'autore non è più scritto due volte.** Tre difetti
   che insieme facevano concludere «i filtri non funzionano», che è la conclusione peggiore: chi legge

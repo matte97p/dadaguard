@@ -32,9 +32,14 @@ export function PageIntro({ title, desc, extra }) {
       }}
     >
       <div>
-        <Title level={4} style={{ margin: 0 }}>
-          {title}
-        </Title>
+        {/* Titolo assente = pagina dentro una scheda: il nome ce l'ha già la scheda, e ripeterlo due
+            righe sotto occupa la parte alta senza aggiungere niente. La descrizione resta: quella
+            dice cosa stai guardando, e la scheda non la sa dire. */}
+        {title && (
+          <Title level={4} style={{ margin: 0 }}>
+            {title}
+          </Title>
+        )}
         {desc && <Text type="secondary">{desc}</Text>}
       </div>
       {extra}

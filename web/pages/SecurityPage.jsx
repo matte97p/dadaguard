@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Segmented, Space } from 'antd'
 import { PageIntro } from './pageKit.jsx'
+import WafPanel from '../components/WafPanel.jsx'
 
 const { Text } = Typography
 
@@ -47,6 +48,9 @@ export default function SecurityPage({ t = (k) => k }) {
         desc={t('sec.desc')}
         extra={categories.length > 1 ? <Segmented options={options} value={cat} onChange={setCat} /> : null}
       />
+      {/* Il WAF sta in cima e non fra i finding: non è un'igiene da sistemare quando c'è tempo, è
+          traffico che in questo momento non arriva ai servizi. */}
+      <WafPanel t={t} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
           <Spin tip={t('sec.loading')} />

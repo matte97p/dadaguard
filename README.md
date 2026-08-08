@@ -46,6 +46,9 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Drift** vs Terraform: leggero (state ↔ AWS) e completo (`terragrunt plan`, on-demand)
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
+- **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
+- **Deploy fatti a mano**: riavvii forzati e hotfix lanciati fuori dalla CI, con chi ha premuto — azioni che non producono nessuna build e che nessuna vista mostrava
+- **WAF** (Cloudflare): richieste **fermate** per zona e per regola — traffico che non arriva ai servizi, quindi assente da ogni log applicativo
 - **Topologia** delle dipendenze tra servizi, **dedotta da AWS** (env Lambda · event source · security group) — niente da dichiarare a mano
 
 ## Principi

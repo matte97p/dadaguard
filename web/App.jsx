@@ -7,7 +7,6 @@ import {
   RadarChartOutlined,
   MoonOutlined,
   SunOutlined,
-  DollarOutlined,
   DiffOutlined,
   PieChartOutlined,
   PartitionOutlined,
@@ -16,10 +15,14 @@ import {
   ApiOutlined,
   SafetyOutlined,
   AlertOutlined,
-  GiftOutlined,
   RocketOutlined,
+  ThunderboltOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
+import SideNav from './components/SideNav.jsx'
+import { antdTheme } from './theme.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -27,17 +30,16 @@ import CommandPalette from './components/CommandPalette.jsx'
 import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
 import { displayName, serviceKey } from './serviceName.js'
 import DashboardPage from './pages/DashboardPage.jsx'
-import CostsPage from './pages/CostsPage.jsx'
+import NowPage from './pages/NowPage.jsx'
+import SpendPage from './pages/SpendPage.jsx'
+import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
-import WastePage from './pages/WastePage.jsx'
-import QuotasPage from './pages/QuotasPage.jsx'
-import FreeTierPage from './pages/FreeTierPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
 import logo from '../assets/logo.png'
 
-const { Header, Content } = Layout
+const { Header, Content, Sider } = Layout
 const { Title, Text } = Typography
 
 // Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
@@ -49,23 +51,74 @@ const QUICK_PRESETS = [
   { key: 'untracked', labelKey: 'filter.tf.unmanaged', filters: { managedFilter: 'unmanaged' } },
 ]
 
-// Pagine di navigazione: le viste "aggregate" (Costi/Sprechi/Quote) sono per-account → barra filtri
-// ridotta ad Account + Regione; Dashboard e Topologia filtrano singoli servizi → barra piena.
+// Navigazione, in GRUPPI. Ogni voce dichiara anche:
+//  · `fields`  → quali filtri hanno senso su quella pagina (valore, o funzione della query string
+//                quando dipende dalla scheda aperta: sui Costi la regione non filtra niente, sugli
+//                Sprechi sì, e una barra con filtri inerti insegna a diffidare di tutti gli altri);
+//  · `surfaces`→ le superfici lato server che servono per mostrarla. Vuoto = sempre visibile; più di
+//                una (le pagine fuse) = basta che UNA sia concessa, con le schede negate nascoste.
 const NAV = [
-  { to: '/', key: 'dashboard', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL },
-  // Costi: solo Account. Non la Regione — Cost Explorer è globale e la nostra query non raggruppa
-  // per regione, quindi quel filtro non filtrava i costi: faceva sparire l'account.
-  { to: '/costi', key: 'costs', icon: <PieChartOutlined />, fields: ['account'] },
-  // Deploy: solo Account. Non la Regione — una build di deploy non ha regione (il filtro era lì
-  // senza filtrare niente, e una barra con filtri inerti fa pensare che siano rotti tutti).
-  { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: ['account'] },
-  { to: '/sprechi', key: 'waste', icon: <DollarOutlined />, fields: FILTER_FIELDS_ACCOUNT },
-  { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL },
-  { to: '/quote', key: 'quotas', icon: <DashboardOutlined />, fields: FILTER_FIELDS_ACCOUNT },
-  { to: '/freetier', key: 'freetier', icon: <GiftOutlined />, fields: [] },
-  { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [] },
-  { to: '/sicurezza', key: 'security', icon: <AlertOutlined />, fields: [] },
+  // Fuori dai gruppi: non è un argomento, è la risposta alla domanda che viene prima di tutte.
+  { to: '/', key: 'now', icon: <ThunderboltOutlined />, fields: ['account'], surfaces: [] },
+  {
+    group: 'runtime',
+    items: [
+      { to: '/servizi', key: 'services', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['dashboard'] },
+      { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['topology'] },
+    ],
+  },
+  {
+    group: 'releases',
+    items: [
+      // Deploy: solo Account. Non la Regione — una build di deploy non ha regione (il filtro era lì
+      // senza filtrare niente, e una barra con filtri inerti fa pensare che siano rotti tutti).
+      { to: '/deploy', key: 'deploys', icon: <RocketOutlined />, fields: ['account'], surfaces: ['deploys'] },
+    ],
+  },
+  {
+    group: 'spend',
+    items: [
+      // Costi: solo Account. Non la Regione — Cost Explorer è globale e la nostra query non raggruppa
+      // per regione, quindi quel filtro non filtrava i costi: faceva sparire l'account. Sugli Sprechi
+      // (scheda `?tab=sprechi`) la regione filtra davvero: le risorse orfane sono regionali.
+      {
+        to: '/spesa',
+        key: 'spend',
+        icon: <PieChartOutlined />,
+        fields: (search) => (new URLSearchParams(search).get('tab') === 'sprechi' ? FILTER_FIELDS_ACCOUNT : ['account']),
+        surfaces: ['costs', 'waste'],
+        tabs: { costs: 'costs', waste: 'waste' },
+      },
+      {
+        to: '/limiti',
+        key: 'limits',
+        icon: <DashboardOutlined />,
+        fields: (search) => (new URLSearchParams(search).get('tab') === 'freetier' ? [] : FILTER_FIELDS_ACCOUNT),
+        surfaces: ['quotas', 'freetier'],
+        tabs: { quotas: 'quotas', freetier: 'freetier' },
+      },
+    ],
+  },
+  {
+    group: 'security',
+    items: [
+      { to: '/sicurezza', key: 'security', icon: <AlertOutlined />, fields: [], surfaces: ['security'] },
+      { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [], surfaces: ['iam'] },
+    ],
+  },
 ]
+
+// Tutte le voci, gruppi appiattiti: serve per risolvere il percorso corrente in una voce.
+const NAV_ITEMS = NAV.flatMap((g) => (g.group ? g.items : [g]))
+
+// I percorsi di prima continuano a funzionare: link salvati, segnalibri e i deep-link che le pagine
+// si scambiano. Una riorganizzazione che rompe gli URL fa sembrare rotta l'applicazione.
+const REDIRECTS = {
+  '/costi': '/spesa',
+  '/sprechi': '/spesa?tab=sprechi',
+  '/quote': '/limiti',
+  '/freetier': '/limiti?tab=freetier',
+}
 
 export default function App() {
   const location = useLocation()
@@ -92,6 +145,9 @@ export default function App() {
     setDetailKey(service ? serviceKey(service) : null)
   }
   const [dark, setDark] = useState(() => localStorage.getItem('opsdash-dark') === '1')
+  // Sidebar chiusa/aperta: è una preferenza di chi guarda (su un portatile lo spazio orizzontale è
+  // quello che manca), quindi persiste — riaprirla a ogni ricarica è una piccola offesa quotidiana.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('dadaguard-nav-collapsed') === '1')
   // preferenza lingua salvata (it|en|null); se null → default per modalità (vedi resolveLang)
   const [langPref, setLangPref] = useState(() => localStorage.getItem('dadaguard-lang'))
 
@@ -109,6 +165,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
   }, [dark])
+
+  useEffect(() => {
+    localStorage.setItem('dadaguard-nav-collapsed', collapsed ? '1' : '0')
+  }, [collapsed])
 
   // ⌘K / Ctrl+K → apre la palette di ricerca globale dei servizi.
   useEffect(() => {
@@ -196,7 +256,9 @@ export default function App() {
   // nascosto, fetch immediato al rientro/focus. Le altre viste hanno il proprio polling (Deploy, 15s) o
   // restano manuali (Costi/Quote: chiamate care, es. Cost Explorer a pagamento).
   useEffect(() => {
-    if (location.pathname !== '/') return undefined
+    // Le due viste che vivono dello stato della flotta: "Adesso" (che lo mostra insieme al resto) e
+    // "Servizi". Altrove le chiamate sono care o hanno un polling proprio (Deploy, 15s).
+    if (location.pathname !== '/' && location.pathname !== '/servizi') return undefined
     const tick = () => {
       if (!document.hidden) {
         load()
@@ -377,20 +439,29 @@ export default function App() {
   }
   const deletePreset = (name) => persistPresets(presets.filter((p) => p.name !== name))
 
-  const themeConfig = {
-    algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
-    token: { colorPrimary: '#7c3aed', borderRadius: 8 },
-  }
+  const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm)
 
-  const activeNav = NAV.find((n) => n.to === location.pathname) ?? NAV[0]
-  // L'header nasconde le superfici a cui il ruolo assunto non ha accesso (deciso lato server via
+  const activeNav = NAV_ITEMS.find((n) => n.to === location.pathname) ?? NAV_ITEMS[0]
+  // `fields` può dipendere dalla scheda aperta (Spesa: Costi vs Sprechi) → può essere una funzione.
+  const activeFields = typeof activeNav.fields === 'function' ? activeNav.fields(location.search) : activeNav.fields
+
+  // La navigazione nasconde le superfici a cui il ruolo assunto non ha accesso (deciso lato server via
   // SimulatePrincipalPolicy → health.surfaces): 'denied' = negato in tutti gli account → via.
-  // 'allowed'/'unknown'/assente (selfcheck non ancora arrivato) → mostra: default sicuro, mai un
-  // header vuoto. Le rotte restano montate: un deep-link a una pagina nascosta funziona comunque.
+  // 'allowed'/'unknown'/assente (selfcheck non ancora arrivato) → mostra: default sicuro, mai una
+  // sidebar vuota. Le rotte restano montate: un deep-link a una pagina nascosta funziona comunque.
   const surfaces = health?.surfaces
-  const visibleNav = NAV.filter((n) => surfaces?.[n.key] !== 'denied')
+  const allowed = useCallback((keys = []) => keys.length === 0 || keys.some((k) => surfaces?.[k] !== 'denied'), [surfaces])
+  // Una pagina fusa resta visibile se almeno una scheda è concessa; le schede negate non compaiono.
+  const tabsOf = useCallback((item) => Object.keys(item.tabs ?? {}).filter((k) => surfaces?.[item.tabs[k]] !== 'denied'), [surfaces])
+  const visibleNav = useMemo(
+    () =>
+      NAV.map((g) => (g.group ? { ...g, items: g.items.filter((i) => allowed(i.surfaces)) } : g))
+        .filter((g) => (g.group ? g.items.length > 0 : allowed(g.surfaces))),
+    [allowed],
+  )
+
   const filterProps = {
-    fields: activeNav.fields,
+    fields: activeFields,
     nameQuery,
     setNameQuery,
     accountFilter,
@@ -440,6 +511,12 @@ export default function App() {
           }}
         >
           <Space>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed((c) => !c)}
+              title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+            />
             <img src={logo} alt="Dadaguard" style={{ width: 32, height: 32, borderRadius: 8, display: 'block' }} />
             <div>
               <Title level={5} style={{ margin: 0, lineHeight: 1.2 }}>
@@ -449,24 +526,6 @@ export default function App() {
                 {t('app.subtitle')}
               </Text>
             </div>
-          </Space>
-
-          {/* Navigazione tra le pagine (senza le superfici non accessibili a questo ruolo) */}
-          <Space wrap>
-            {visibleNav.map((n) => {
-              const active = n.to === location.pathname
-              return (
-                <Button
-                  key={n.key}
-                  type={active ? 'primary' : 'text'}
-                  ghost={active}
-                  icon={n.icon}
-                  onClick={() => navigate(n.to)}
-                >
-                  {t(`btn.${n.key}`)}
-                </Button>
-              )
-            })}
           </Space>
 
           <Space wrap>
@@ -517,67 +576,105 @@ export default function App() {
           </Space>
         </Header>
 
-        <Content style={{ padding: 24 }}>
-          {data?.mode === 'demo' && (
-            <Alert
-              type="warning"
-              showIcon
-              banner
-              style={{ marginBottom: 16 }}
-              message={t('demo.title')}
-              description={t('demo.desc')}
-            />
-          )}
+        <Layout>
+          <Sider
+            width={216}
+            collapsed={collapsed}
+            collapsedWidth={56}
+            theme={dark ? 'dark' : 'light'}
+            // Sotto `lg` la sidebar si chiude da sola: su uno schermo stretto 216px di navigazione
+            // sono metà della pagina, e questa è una dashboard che si guarda, non un menu.
+            breakpoint="lg"
+            onBreakpoint={(broken) => setCollapsed(broken)}
+            style={{ background: dark ? '#1f1f1f' : '#fff', borderInlineEnd: `1px solid ${dark ? '#303030' : '#f0f0f0'}` }}
+          >
+            <SideNav groups={visibleNav} active={activeNav.to} onPick={(to) => navigate(to)} collapsed={collapsed} t={t} />
+          </Sider>
 
-          {/* La barra dei filtri ha bisogno dei dati (le opzioni vengono dagli account e dai servizi),
-              ma il suo SPAZIO no: senza riservarlo, quando lo stato della flotta arriva — e sulla flotta
-              vera sono secondi, perché esegue i controlli di tutti i servizi — la barra compare e spinge
-              giù l'intera pagina, facendo perdere il punto in cui si stava leggendo. */}
-          {activeNav.fields.length > 0 &&
-            (data ? <FilterBar {...filterProps} /> : <FilterBarPlaceholder fields={activeNav.fields} />)}
+          <Content style={{ padding: 24, minWidth: 0 }}>
+            {data?.mode === 'demo' && (
+              <Alert
+                type="warning"
+                showIcon
+                banner
+                style={{ marginBottom: 16 }}
+                message={t('demo.title')}
+                description={t('demo.desc')}
+              />
+            )}
 
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <DashboardPage
-                  data={data}
-                  groups={groups}
-                  allServices={services}
-                  statusFilter={statusFilter}
-                  onStatusFilter={setStatusFilter}
-                  caps={caps}
-                  loading={loading}
-                  error={error}
-                  onRemove={removeService}
-                  onLogs={(s) => openDetail(s, 'logs')}
-                  onEvents={(s) => openDetail(s, 'events')}
-                  onOpen={(s) => openDetail(s)}
-                  t={t}
-                />
-              }
-            />
-            <Route path="/costi" element={<CostsPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
-            <Route path="/sprechi" element={<WastePage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route
-              path="/topologia"
-              element={
-                <TopologyPage
-                  services={groups.flatMap((g) => g.services)}
-                  accountLabels={visibleLabels}
-                  dark={dark}
-                  t={t}
-                />
-              }
-            />
-            <Route path="/quote" element={<QuotasPage accountLabels={aggregateLabels} t={t} lang={lang} />} />
-            <Route path="/freetier" element={<FreeTierPage t={t} lang={lang} />} />
-            <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
-            <Route path="/sicurezza" element={<SecurityPage t={t} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Content>
+            {/* La barra dei filtri ha bisogno dei dati (le opzioni vengono dagli account e dai servizi),
+                ma il suo SPAZIO no: senza riservarlo, quando lo stato della flotta arriva — e sulla flotta
+                vera sono secondi, perché esegue i controlli di tutti i servizi — la barra compare e spinge
+                giù l'intera pagina, facendo perdere il punto in cui si stava leggendo. */}
+            {activeFields.length > 0 &&
+              (data ? <FilterBar {...filterProps} /> : <FilterBarPlaceholder fields={activeFields} />)}
+
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <NowPage
+                    services={services}
+                    statusLoading={loading}
+                    statusError={error}
+                    refreshKey={refreshKey}
+                    accountFilter={accountFilter}
+                    t={t}
+                    lang={lang}
+                  />
+                }
+              />
+              <Route
+                path="/servizi"
+                element={
+                  <DashboardPage
+                    data={data}
+                    groups={groups}
+                    allServices={services}
+                    statusFilter={statusFilter}
+                    onStatusFilter={setStatusFilter}
+                    caps={caps}
+                    loading={loading}
+                    error={error}
+                    onRemove={removeService}
+                    onLogs={(s) => openDetail(s, 'logs')}
+                    onEvents={(s) => openDetail(s, 'events')}
+                    onOpen={(s) => openDetail(s)}
+                    t={t}
+                  />
+                }
+              />
+              <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
+              <Route
+                path="/spesa"
+                element={<SpendPage accountLabels={aggregateLabels} tabs={tabsOf(NAV_ITEMS.find((n) => n.key === 'spend'))} t={t} lang={lang} />}
+              />
+              <Route
+                path="/limiti"
+                element={<LimitsPage accountLabels={aggregateLabels} tabs={tabsOf(NAV_ITEMS.find((n) => n.key === 'limits'))} t={t} lang={lang} />}
+              />
+              <Route
+                path="/topologia"
+                element={
+                  <TopologyPage
+                    services={groups.flatMap((g) => g.services)}
+                    accountLabels={visibleLabels}
+                    dark={dark}
+                    t={t}
+                  />
+                }
+              />
+              <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
+              <Route path="/sicurezza" element={<SecurityPage t={t} />} />
+              {/* I percorsi vecchi non muoiono: reindirizzano alla scheda giusta della pagina fusa. */}
+              {Object.entries(REDIRECTS).map(([from, to]) => (
+                <Route key={from} path={from} element={<Navigate to={to} replace />} />
+              ))}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Content>
+        </Layout>
 
         {/* Popup (azioni contestuali), montati una volta a livello app */}
         <DiscoverDrawer
