@@ -121,6 +121,9 @@ async function zoneFirewall(token, zoneTag, since) {
   }
 }
 
+// Il piano serve, non è un dettaglio anagrafico: `firewallEventsAdaptiveGroups` non è compreso nel
+// piano Free, e su quelle zone Cloudflare risponde «zone ... does not have access to the path». È una
+// condizione permanente, non un guasto — quindi la si riconosce PRIMA di interrogare.
 async function listZones(token) {
   const res = await fetch(`${API}/zones?per_page=50`, { headers: { authorization: `Bearer ${token}` } })
   const json = await res.json().catch(() => null)
@@ -128,8 +131,15 @@ async function listZones(token) {
     const msg = (json?.errors ?? []).map((e) => e.message).join('; ') || `HTTP ${res.status}`
     throw new Error(`${msg} — serve lo scope Zone:Read sul token Cloudflare`)
   }
-  return (json.result ?? []).map((z) => ({ id: z.id, name: z.name })).slice(0, MAX_ZONES)
+  return (json.result ?? [])
+    .map((z) => ({ id: z.id, name: z.name, plan: z.plan?.legacy_id ?? null }))
+    .slice(0, MAX_ZONES)
 }
+
+// Piani senza il dataset firewall analytics. Si elencano quelli ESCLUSI e non quelli ammessi: un piano
+// nuovo deve essere provato e fallire una volta, non essere zittito per sempre da una lista bianca.
+const NO_FIREWALL_ANALYTICS = new Set(['free'])
+const noDatasetError = (msg) => /does not have access to the path/i.test(String(msg ?? ''))
 
 // Riepilogo WAF di tutte le zone. Nessun token → null (integrazione spenta, come le altre viste
 // Cloudflare). Una zona che non risponde porta il suo errore, senza far cadere le altre: gli scope
@@ -146,10 +156,15 @@ export async function wafOverview({ hours = 24 } = {}) {
       return { hours, error: err.message, zones: [] }
     }
     const out = await mapLimit(zones, 4, async (z) => {
+      const base = { zone: z.name, zoneId: z.id, plan: z.plan }
+      // Domini parcheggiati su piano Free: niente dataset da chiedere. Saltare la chiamata non è solo
+      // cosmetico — erano 8 richieste per ogni refresh che potevano solo fallire.
+      if (NO_FIREWALL_ANALYTICS.has(z.plan)) return { ...base, noDataset: true }
       try {
-        return { zone: z.name, zoneId: z.id, ...(await zoneFirewall(cred.token, z.id, since)) }
+        return { ...base, ...(await zoneFirewall(cred.token, z.id, since)) }
       } catch (err) {
-        return { zone: z.name, zoneId: z.id, error: err.message }
+        if (noDatasetError(err.message)) return { ...base, noDataset: true }
+        return { ...base, error: err.message }
       }
     })
     // Prima le zone dove qualcosa è stato fermato: sono le uniche su cui c'è da decidere.
