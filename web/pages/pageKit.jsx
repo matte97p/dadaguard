@@ -2,13 +2,22 @@ import { Typography } from 'antd'
 
 const { Title, Text } = Typography
 
-// Griglia responsiva per le card-account dei pannelli aggregati (affiancate 340–480px).
+// Griglia responsiva per le card-account dei pannelli aggregati.
+//
+// Il minimo è 300px e non 340: su un portatile (finestra ~1200px, meno la sidebar) 340 ne faceva
+// stare DUE, e la terza andava a capo lasciando mezza riga vuota — con tre account, la vista
+// diventava alta il doppio per niente. A 300 i tre stanno in fila su quella larghezza, e le colonne
+// si allargano fino a 480 quando lo schermo lo permette: la card non diventa mai un lenzuolo, che è
+// il difetto opposto.
+// `1fr` come massimo, non `480px`: con un massimo FISSO il numero di colonne si calcola su quello —
+// 480 per colonna significa che sotto i ~1500px di contenuto ne sta UNA, e su un portatile si vedeva
+// una card per riga con mezzo schermo vuoto a destra. Con `1fr` il conto si fa sul minimo (300px), le
+// colonne diventano tre e poi si allargano a riempire la riga.
 export const PANEL_GRID = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 480px))',
-  gap: 20,
+  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+  gap: 16,
   alignItems: 'start',
-  justifyContent: 'start',
 }
 
 // Bordo leggero attorno a ogni card-account, per separarle nella griglia.

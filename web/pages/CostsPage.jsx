@@ -301,7 +301,9 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
     <>
       <PageIntro
         title={embedded ? null : t('costs.title')}
-        desc={t('costs.desc')}
+        // Ogni scheda dice cosa mostra LEI. Con una descrizione sola, quella della pagina intera,
+        // il Riepilogo prometteva la spesa «per servizio» — che dopo la divisione sta in Ripartizioni.
+        desc={section === 'all' ? t('costs.desc') : t(`costs.desc.${section}`)}
         extra={
           <Space size={10} wrap>
             <Space size={6}>
@@ -359,18 +361,41 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
               <span style={{ fontSize: size, fontWeight: 700, color }}>{value}</span>
             </span>
           )
+          // Sette cifre in fila, tutte della stessa importanza, lasciavano al lettore l'aritmetica:
+          // quale si somma a quale, e quale è quella che si paga davvero. Ora il numero grande è UNO
+          // — il netto, cioè la cassa — e sotto c'è la riga che lo spiega con i segni scritti:
+          // `lordo − crediti + tasse = netto`. La ripartizione AI/infrastruttura resta a fianco perché
+          // risponde a un'altra domanda: non "quanto", ma "di cosa".
+          const big = hasCred || hasTax ? net : gross
+          // Etichetta prima del numero, e nessun `= netto` in coda: il risultato è il numero grande
+          // qui sopra, che porta già la sua etichetta. Scriverlo due volte fa cercare una terza cifra.
+          const composizione = [
+            `${t('costs.h.gross')} ${money(gross)}`,
+            hasCred ? `− ${t('costs.h.credits')} ${money(Math.abs(credits))}` : null,
+            hasTax ? `+ ${t('costs.h.tax')} ${money(tax)}` : null,
+          ]
+            .filter(Boolean)
+            .join(' ')
           return (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 36px', alignItems: 'flex-end', margin: '4px 0 18px' }}>
-              <Hero label={t('costs.h.gross')} value={money(gross)} />
-              {hasCred && <Hero label={t('costs.h.credits')} value={money(credits)} size={18} color="#52c41a" />}
-              {hasCred && <Hero label={t('costs.h.net')} value={money(net)} size={18} />}
-              {hasTax && <Hero label={t('costs.h.tax')} value={money(tax)} size={18} />}
-              {/* L'AI a parte: con i modelli che valgono la maggior parte del conto, un totale unico
-                  nasconde l'andamento dell'infrastruttura — sale l'uso dei modelli e sembra che sia
-                  cresciuto tutto. Due numeri, due domande diverse. */}
-              {hasAi && <Hero label={t('costs.h.ai')} value={money(ai)} size={18} color="#7c3aed" />}
-              {hasAi && <Hero label={t('costs.h.infra')} value={money(gross - ai)} size={18} />}
-              <Hero label={t('costs.h.proj')} value={money(proj)} size={18} color="#8c8c8c" />
+            <div style={{ margin: '10px 0 20px' }}>
+              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                {t('costs.h.thisMonth')}
+              </Text>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 32px', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{money(big)}</span>
+                {(hasCred || hasTax) && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {composizione}
+                  </Text>
+                )}
+                <span style={{ flex: 1 }} />
+                {/* L'AI a parte: con i modelli che valgono la maggior parte del conto, un totale unico
+                    nasconde l'andamento dell'infrastruttura — sale l'uso dei modelli e sembra che sia
+                    cresciuto tutto. Due numeri, due domande diverse. */}
+                {hasAi && <Hero label={t('costs.h.ai')} value={money(ai)} size={17} color="#7c3aed" />}
+                {hasAi && <Hero label={t('costs.h.infra')} value={money(gross - ai)} size={17} />}
+                <Hero label={t('costs.h.proj')} value={money(proj)} size={17} color="#8c8c8c" />
+              </div>
             </div>
           )
         })()}
