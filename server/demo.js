@@ -2,6 +2,7 @@
 // Serve a (a) provare Dadaguard senza wiring AWS, (b) registrare la GIF di lancio,
 // (c) valutare la UI. Attivo con env DADAGUARD_DEMO=1 (vedi mode.js: isDemo).
 // Tutto statico e read-only: nessuna chiamata di rete.
+import { budgetLevel } from './budgets.js'
 import { monthEndProjection } from './costs.js'
 import { computeOverall } from './status.js'
 
@@ -9,6 +10,31 @@ const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
   staging: { key: 'staging', label: 'Staging', color: '#1677ff' },
 }
+
+// Le date della demo si calcolano da oggi, non si scrivono a mano. Con le date fisse il selettore
+// del mese diceva «agosto · corrente» mentre i costi sotto erano di luglio, le anomalie di agosto e
+// il trend finiva a luglio: tre mesi diversi nella stessa schermata, e sembra un bug dell'app.
+// End ESCLUSIVO come nel percorso reale. Cappato al 13 per restare lo snapshot "mese a metà" che
+// serve a far vedere la proiezione, e mai oltre domani: un MTD che copre giorni futuri non esiste.
+const ymd = (d) => d.toISOString().slice(0, 10)
+export function demoPeriod(now = new Date()) {
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
+  const endDay = Math.min(now.getUTCDate() + 1, 13)
+  return { start: ymd(new Date(Date.UTC(y, m, 1))), end: ymd(new Date(Date.UTC(y, m, endDay))) }
+}
+// Le 13 etichette YYYY-MM del trend, che FINISCONO col mese corrente (l'ultimo è parziale).
+export function demoMonths(count = 13, now = new Date()) {
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(Date.UTC(y, m - (count - 1 - i), 1))
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  })
+}
+const daysAgo = (n, now = new Date()) => new Date(now.getTime() - n * 86_400_000)
+const midnightDaysAgo = (n) => `${ymd(daysAgo(n))}T00:00:00Z`
+const inDays = (n) => ymd(daysAgo(-n))
 
 const pick = (L, it, en) => (L === 'en' ? en : it)
 
@@ -86,7 +112,7 @@ export function demoStatus(lang = 'it') {
     }),
 
     svc('cdn-cert', 'prod', 'acm', 'us-east-1', {
-      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, 'scade tra 12 giorni (2026-07-12)', 'expires in 12 days (2026-07-12)') },
+      runtime: { key: 'runtime', status: 'degraded', summary: pick(L, `scade tra 12 giorni (${inDays(12)})`, `expires in 12 days (${inDays(12)})`) },
     }),
 
     svc('sessions', 'staging', 'elasticache', 'eu-west-1', {
@@ -356,7 +382,7 @@ export function demoCosts() {
         { service: 'Amazon Bedrock', amount: 402.0, ai: true },
       ],
       gross: 653.8, credits: -40, tax: 3.2, aiGross: 402, infraGross: 251.8, total: 617.0, net: 617.0,
-      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+      period: demoPeriod(), currency: 'USD',
     }),
     management: withProjection({
       label: 'Management (payer)', color: '#722ed1',
@@ -365,7 +391,7 @@ export function demoCosts() {
         { service: 'CodeBuild', amount: 14.2 },
       ],
       gross: 132.6, credits: 0, tax: 0, aiGross: 118.4, infraGross: 14.2, total: 132.6, net: 132.6,
-      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+      period: demoPeriod(), currency: 'USD',
     }),
     staging: withProjection({
       label: 'Staging', color: '#1677ff',
@@ -374,7 +400,7 @@ export function demoCosts() {
         { service: 'Amazon ElastiCache', amount: 18.0 },
       ],
       gross: 51.2, credits: 0, total: 51.2, net: 51.2,
-      period: { start: '2026-07-01', end: '2026-07-13' }, currency: 'USD',
+      period: demoPeriod(), currency: 'USD',
     }),
   }
 }
@@ -650,36 +676,61 @@ export function demoWaf() {
 // ancora sotto — il caso che si vede solo se mostri entrambe le cifre), uno tranquillo. Più due
 // anomalie di costo, quella grossa in cima.
 export function demoBudgets() {
-  const b = (name, limit, actual, forecast, level, timeUnit = 'MONTHLY') => ({
-    name,
-    type: 'COST',
-    unit: 'USD',
-    timeUnit,
-    limit,
-    actual,
-    forecast,
-    actualPct: Math.round((actual / limit) * 100),
-    forecastPct: Math.round((forecast / limit) * 100),
-    level,
-  })
+  // Lo speso di ogni budget è una FETTA VERA dei costi demo, e la proiezione esce dallo stesso
+  // run-rate della pagina Spesa: prima i budget erano cifre a sé (4380 $ su un lordo di 837,60 $) e
+  // due riquadri della stessa schermata raccontavano bolletta diverse. Il livello lo decide la stessa
+  // budgetLevel() del percorso reale, cosi' un badge non puo' smentire la sua barra.
+  const period = demoPeriod()
+  const p = monthEndProjection({ gross: 1, total: 1, period })
+  const rate = p ? p.gross : 1 // fine mese / MTD
+  // forecastOverride serve ai budget NON mensili: il run-rate qui sopra è quello del mese, applicarlo
+  // a un trimestre proietterebbe un periodo che non è il suo.
+  const b = (name, limit, actual, timeUnit = 'MONTHLY', forecastOverride = null) => {
+    const forecast = forecastOverride ?? actual * rate
+    const actualPct = Math.round((actual / limit) * 100)
+    const forecastPct = Math.round((forecast / limit) * 100)
+    return {
+      name,
+      type: 'COST',
+      unit: 'USD',
+      timeUnit,
+      limit,
+      actual,
+      forecast,
+      actualPct,
+      forecastPct,
+      level: budgetLevel({ actualPct, forecastPct }),
+    }
+  }
   return {
     accounts: {
       management: {
         label: 'Management (payer)',
         color: '#722ed1',
         budgets: [
-          b('org-monthly', 4000, 4380, 5210, 'over'),
-          b('llms-monthly', 1500, 980, 1840, 'willOver'),
-          b('staging-monthly', 600, 210, 430, 'ok'),
+          // 520,40 = Bedrock (402, Production) + Claude via Marketplace (118,40): l'AI e' il 62% della
+          // spesa demo, ed era l'unica banda senza un budget addosso.
+          b('ai-monthly', 500, 520.4),
+          b('org-monthly', 2000, 837.6),
+          b('codebuild-monthly', 60, 14.2),
         ],
       },
-      prod: { label: 'Production', color: '#cf1322', budgets: [b('reporting-db-monthly', 900, 740, 880, 'warn')] },
-      staging: { label: 'Staging', color: '#1677ff', budgets: [] },
+      prod: {
+        label: 'Production',
+        color: '#cf1322',
+        budgets: [
+          b('rds-monthly', 240, 88.0),
+          // Trimestrale, e serve a mostrare il quarto stato: consumo oltre l'80% ma proiezione ancora
+          // dentro il limite — il caso che un badge sul solo speso, o sulla sola proiezione, non vede.
+          b('savings-plan-quarterly', 3000, 2520, 'QUARTERLY', 2880),
+        ],
+      },
+      staging: { label: 'Staging', color: '#1677ff', budgets: [b('staging-monthly', 200, 51.2)] },
     },
     anomalies: [
       {
         id: 'demo-anom-1',
-        start: '2026-08-06T00:00:00Z',
+        start: midnightDaysAgo(4),
         end: null,
         service: 'Amazon Bedrock',
         region: 'eu-central-1',
@@ -693,8 +744,8 @@ export function demoBudgets() {
       },
       {
         id: 'demo-anom-2',
-        start: '2026-08-03T00:00:00Z',
-        end: '2026-08-04T00:00:00Z',
+        start: midnightDaysAgo(7),
+        end: midnightDaysAgo(6),
         service: 'AWS Lambda',
         region: 'eu-central-1',
         account: 'Staging',
@@ -810,30 +861,30 @@ export function demoCostTrend() {
     invoiced: usage + credits,
     partial,
   })
+  // I mesi finiscono con quello CORRENTE (l'ultimo parziale): la curva è la stessa, ma le etichette
+  // seguono l'oggi invece di restare ferme al giorno in cui sono state scritte.
+  const M = demoMonths(13)
+  const series = (rows) => rows.map(([usage, ai, credits], i) => mk(M[i], usage, ai, credits, i === rows.length - 1))
   return {
     prod: {
       label: 'Production',
       color: '#cf1322',
       currency: 'USD',
-      months: [
-        mk('2025-07', 0, 0, 0), mk('2025-08', 0, 0, 0), mk('2025-09', 0, 0, 0),
-        mk('2025-10', 0, 0, 0), mk('2025-11', 0, 0, 0), mk('2025-12', 0, 0, 0),
-        mk('2026-01', 0, 0, 0), mk('2026-02', 12, 0, -12), mk('2026-03', 48, 4, -46),
-        mk('2026-04', 96, 22, -88), mk('2026-05', 410, 180, -370), mk('2026-06', 1180, 720, -1010),
-        mk('2026-07', 640, 402, -545, true),
-      ],
+      months: series([
+        [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+        [12, 0, -12], [48, 4, -46], [96, 22, -88], [410, 180, -370], [1180, 720, -1010],
+        [640, 402, -545],
+      ]),
     },
     staging: {
       label: 'Staging',
       color: '#1677ff',
       currency: 'USD',
-      months: [
-        mk('2025-07', 0, 0, 0), mk('2025-08', 0, 0, 0), mk('2025-09', 0, 0, 0),
-        mk('2025-10', 0, 0, 0), mk('2025-11', 0, 0, 0), mk('2025-12', 0, 0, 0),
-        mk('2026-01', 0, 0, 0), mk('2026-02', 3, 0, -3), mk('2026-03', 11, 0, -10),
-        mk('2026-04', 24, 2, -22), mk('2026-05', 78, 9, -70), mk('2026-06', 132, 14, -118),
-        mk('2026-07', 61, 6, -52, true),
-      ],
+      months: series([
+        [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+        [3, 0, -3], [11, 0, -10], [24, 2, -22], [78, 9, -70], [132, 14, -118],
+        [61, 6, -52],
+      ]),
     },
   }
 }
@@ -847,7 +898,7 @@ export function demoCostComponents() {
       color: '#cf1322',
       currency: 'USD',
       tagKey: 'component',
-      period: { start: '2026-07-01', end: '2026-07-13' },
+      period: demoPeriod(),
       components: [
         {
           component: 'reporting-db',
@@ -874,7 +925,7 @@ export function demoCostComponents() {
       color: '#1677ff',
       currency: 'USD',
       tagKey: 'component',
-      period: { start: '2026-07-01', end: '2026-07-13' },
+      period: demoPeriod(),
       components: [
         { component: 'backend', amount: 28.4, services: [{ service: 'Amazon Elastic Container Service', amount: 28.4 }] },
         { component: 'redis', amount: 18.0, services: [{ service: 'Amazon ElastiCache', amount: 18.0 }] },
@@ -894,7 +945,7 @@ export function demoCostCategories() {
       color: '#cf1322',
       currency: 'USD',
       categoryName: 'Livello',
-      period: { start: '2026-07-01', end: '2026-07-13' },
+      period: demoPeriod(),
       categories: [
         { category: 'llms', amount: 402.0, services: [svc('Amazon Bedrock', 402.0)] },
         {
@@ -911,7 +962,7 @@ export function demoCostCategories() {
       color: '#1677ff',
       currency: 'USD',
       categoryName: 'Livello',
-      period: { start: '2026-07-01', end: '2026-07-13' },
+      period: demoPeriod(),
       categories: [
         { category: 'compute', amount: 33.2, services: [svc('Amazon Elastic Container Service', 33.2)] },
         { category: 'database', amount: 18.0, services: [svc('Amazon ElastiCache', 18.0)] },
@@ -922,7 +973,7 @@ export function demoCostCategories() {
       color: '#722ed1',
       currency: 'USD',
       categoryName: 'Livello',
-      period: { start: '2026-07-01', end: '2026-07-13' },
+      period: demoPeriod(),
       categories: [
         { category: 'llms', amount: 118.4, services: [svc('AWS Marketplace (Claude Sonnet)', 118.4)] },
         { category: 'deploy', amount: 14.2, services: [svc('CodeBuild', 14.2)] },
