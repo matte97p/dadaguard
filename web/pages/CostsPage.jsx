@@ -18,14 +18,17 @@ function Bar({ label, amount, max, credit, projected, ai, t }) {
   const proj = projected != null ? Math.min(100, (Math.abs(projected) / max) * 100) : base
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-        <span>
+      {/* L'importo non va mai a capo dentro sé stesso: i nomi dei modelli Bedrock sono lunghi quanto
+          mezza card, e un `space-between` senza vincoli li fa crescere finché «$2139.99 → $6633.98» si
+          spezza in due righe e l'incolonnamento salta. La label è l'unica che può andare a capo. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', fontSize: 12, marginBottom: 2 }}>
+        <span style={{ minWidth: 0 }}>
           {label}
-          {credit && <span style={{ marginLeft: 6, color: '#52c41a' }}>{t('costs.creditMark')}</span>}
+          {credit && <span style={{ marginLeft: 6, color: '#52c41a', whiteSpace: 'nowrap' }}>{t('costs.creditMark')}</span>}
           {/* Stesso viola del numero AI in cima: è quello che rende il totale verificabile riga per riga. */}
-          {ai && <span style={{ marginLeft: 6, color: '#7c3aed' }}>{t('costs.aiMark')}</span>}
+          {ai && <span style={{ marginLeft: 6, color: '#7c3aed', whiteSpace: 'nowrap' }}>{t('costs.aiMark')}</span>}
         </span>
-        <span style={{ color: amount < 0 ? '#52c41a' : undefined }}>
+        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', textAlign: 'right', color: amount < 0 ? '#52c41a' : undefined }}>
           {money(amount)}
           {projected != null && (
             <span style={{ marginLeft: 6, color }} title={t('costs.projection')}>
