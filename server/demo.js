@@ -197,13 +197,13 @@ export function demoDeploys() {
       ]
     return [...head, ok('BUILD', 95), ok('POST_BUILD', 18), ok('UPLOAD_ARTIFACTS', 6), { type: 'COMPLETED', status: null, durationMs: null }]
   }
-  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3, author = 'mperino@get-cato.com') => {
+  const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3, author = 'dev@example.com') => {
     const phases = phasesFor(status)
     const fail = FAILED.has(status) ? phases.find((p) => p.status === 'FAILED') : null
     return {
-      id: `cato-${env}-${service}-deploy:demo-${number}`,
+      id: `demo-${env}-${service}-deploy:demo-${number}`,
       service,
-      project: `cato-${env}-${service}-deploy`,
+      project: `demo-${env}-${service}-deploy`,
       number,
       status,
       inProgress: status === 'IN_PROGRESS',
@@ -240,7 +240,7 @@ export function demoDeploys() {
     failReason,
   })
   // Build Cloudflare Worker: status sempre SUCCEEDED, con autore, versioni (rollout) + link dashboard.
-  const cfb = (service, agoMin, source, versionId, author = 'ci@get-cato.com', versions) => ({
+  const cfb = (service, agoMin, source, versionId, author = 'ci@example.com', versions) => ({
     id: `${service}:${versionId}`,
     service,
     project: service,
@@ -259,7 +259,7 @@ export function demoDeploys() {
     deployUrl: `https://dash.cloudflare.com/demo/workers/services/view/${service}/production/deployments`,
   })
   // Build Cloudflare Pages: hanno uno STATO reale (può fallire) + branch/env.
-  const cfp = (project, agoMin, status, commit, branch = 'main', author = 'matteo@get-cato.com') => ({
+  const cfp = (project, agoMin, status, commit, branch = 'main', author = 'sam@example.com') => ({
     id: `${project}:${commit}`,
     service: project,
     project,
@@ -290,9 +290,9 @@ export function demoDeploys() {
         b('backend', 'staging', 40, 'SUCCEEDED', 130, '3064fdb'),
         b('backend', 'staging', 39, 'FAILED', 210, 'f7de76e'),
         b('backend', 'staging', 38, 'SUCCEEDED', 280, 'e866622'),
-        b('agentic-chat', 'staging', 18, 'FAILED', 26, '3e1c9a0'),
-        b('agentic-chat', 'staging', 17, 'FAILED', 95, '2b1c0d4', 'auto', 1),
-        b('garanzia', 'staging', 7, 'SUCCEEDED', 180, 'a90f231', 'manuale', 2),
+        b('search-api', 'staging', 18, 'FAILED', 26, '3e1c9a0'),
+        b('search-api', 'staging', 17, 'FAILED', 95, '2b1c0d4', 'auto', 1),
+        b('billing-worker', 'staging', 7, 'SUCCEEDED', 180, 'a90f231', 'manuale', 2),
       ],
     },
     prod: {
@@ -300,12 +300,12 @@ export function demoDeploys() {
       color: '#cf1322',
       builds: [
         // Riavvio a mano recente: l'azione che la pagina prima non vedeva (nessuna build dietro).
-        rst('backend', 'cato-production', 12, 'matte97p'),
+        rst('backend', 'demo-production', 12, 'sam'),
         // Hotfix: build lanciata fuori dalla CI. Chi ha PREMUTO (forcedBy) non è l'autore del commit.
-        { ...b('backend', 'production', 56, 'SUCCEEDED', 45, 'c1a2b3d', 'hotfix', 4, 'ggiacometti@get-cato.com'), forcedBy: 'matte97p', viaTeleport: true },
+        { ...b('backend', 'production', 56, 'SUCCEEDED', 45, 'c1a2b3d', 'hotfix', 4, 'alex@example.com'), forcedBy: 'sam', viaTeleport: true },
         b('backend', 'production', 55, 'SUCCEEDED', 300, '7d4b8e1', 'manuale', 5),
         // Tentativo di riavvio RESPINTO: spiega perché il servizio è ancora incastrato.
-        rst('garanzia', 'cato-production', 620, 'mmatteo23', {
+        rst('billing-worker', 'demo-production', 620, 'alex', {
           status: 'FAILED',
           failReason: 'AccessDenied: not authorized to perform ecs:UpdateService',
         }),
@@ -315,7 +315,7 @@ export function demoDeploys() {
     management: {
       label: 'Management (payer)',
       color: '#722ed1',
-      builds: [rst('dadaguard', 'cato-management', 400, 'matteo@get-cato.com', { viaTeleport: false })],
+      builds: [rst('dadaguard', 'demo-management', 400, 'sam@example.com', { viaTeleport: false })],
       noProjects: true,
     },
     security: { label: 'Security', color: '#13c2c2', builds: [], noProjects: true },
@@ -326,7 +326,7 @@ export function demoDeploys() {
       provider: 'cloudflare',
       builds: [
         // Worker in rollout graduale (canary): due versioni con % di traffico
-        cfb('website', 8, 'wrangler', 'a1b2c3d4e5f6', 'ci@get-cato.com', [
+        cfb('website', 8, 'wrangler', 'a1b2c3d4e5f6', 'ci@example.com', [
           { id: 'a1b2c3d4e5f6', percentage: 90 },
           { id: 'f6e5d4c3b2a1', percentage: 10 },
         ]),
@@ -505,10 +505,10 @@ export function demoIamPolicy(arn) {
       statements: [
         {
           actions: ['lambda:InvokeFunction'],
-          resources: ['arn:aws:lambda:eu-west-1:444455556666:function:cato-staging-webhook'],
+          resources: ['arn:aws:lambda:eu-west-1:444455556666:function:demo-staging-webhook'],
         },
       ],
-      entities: { roles: ['cato-staging-webhook-role'], users: [], groups: [] },
+      entities: { roles: ['demo-staging-webhook-role'], users: [], groups: [] },
     },
   }
   return (
@@ -552,7 +552,7 @@ export function demoIamAccess(needle) {
     .map(({ on, ...m }) => m)
   const ssoAll = [
     {
-      permissionSet: 'avvista-db-operator',
+      permissionSet: 'reporting-db-operator',
       actions: ['rds-db:connect'],
       assignments: [{ account: 'Production', type: 'group', name: 'dba', members: ['db.admin'] }],
       on: ['user-db'],
@@ -634,7 +634,7 @@ export function demoWaf() {
             blocking: true,
             count: 1690,
             hosts: ['app.example.com'],
-            paths: ['/api/v1/tenders', '/api/v1/tenders/draft'],
+            paths: ['/api/v1/orders', '/api/v1/orders/draft'],
           },
           { ruleId: 'ratelimit-42', action: 'block', source: 'ratelimit', sourceKind: 'ratelimit', blocking: true, count: 53, hosts: ['app.example.com'], paths: ['/api/v1/search'] },
           { ruleId: 'ce-managed-1', action: 'log', source: 'waf', sourceKind: 'managed', blocking: false, count: 20488, hosts: ['app.example.com'], paths: [] },
@@ -673,7 +673,7 @@ export function demoBudgets() {
           b('staging-monthly', 600, 210, 430, 'ok'),
         ],
       },
-      prod: { label: 'Production', color: '#cf1322', budgets: [b('avvista-db-monthly', 900, 740, 880, 'warn')] },
+      prod: { label: 'Production', color: '#cf1322', budgets: [b('reporting-db-monthly', 900, 740, 880, 'warn')] },
       staging: { label: 'Staging', color: '#1677ff', budgets: [] },
     },
     anomalies: [
@@ -850,7 +850,7 @@ export function demoCostComponents() {
       period: { start: '2026-07-01', end: '2026-07-13' },
       components: [
         {
-          component: 'avvista-db',
+          component: 'reporting-db',
           amount: 148.2,
           services: [
             { service: 'Amazon Relational Database Service', amount: 141.0 },
@@ -866,7 +866,7 @@ export function demoCostComponents() {
           ],
         },
         { component: null, amount: 31.1, services: [{ service: 'EC2 - Other', amount: 31.1 }] },
-        { component: 'teleport', amount: 10.1, services: [{ service: 'Amazon Elastic Load Balancing', amount: 10.1 }] },
+        { component: 'bastion', amount: 10.1, services: [{ service: 'Amazon Elastic Load Balancing', amount: 10.1 }] },
       ],
     },
     staging: {
