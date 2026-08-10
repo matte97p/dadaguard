@@ -190,7 +190,12 @@ function BreakdownTable({ rows, headLabel, t, empty }) {
 
 // Pagina Costi: consumo per servizio (viola) + crediti/rimborsi (verde) = netto, per account.
 // Cost Explorer è a pagamento → fetch on-mount e al cambio mese.
-export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded = false }) {
+// `section` divide la pagina in viste separate invece di impilarle tutte: la Spesa era diventata
+// ~2900px di scroll, e sette sezioni in fila non si leggono — si scorrono cercando quella che serviva.
+// 'summary' (budget + totali + account) · 'trend' (13 mesi) · 'breakdown' (per livello, per componente).
+// 'all' resta il comportamento di prima, per chi monta la pagina intera.
+export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded = false, section = 'all' }) {
+  const show = (s) => section === 'all' || section === s
   const [data, setData] = useState(null)
   // `true` da subito: al mount una richiesta parte SEMPRE, quindi partire da `false` dipingeva un
   // primo fotogramma vuoto (nessuno scheletro, nessun dato) prima che l'effetto la facesse partire.
@@ -211,7 +216,10 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   const [catsLoading, setCatsLoading] = useState(true)
   const [type, setType] = useState('all') // filtro Livello (Cost Category), come il "TYPE" di analytics
 
+  // Ogni sezione chiede SOLO i suoi dati: Cost Explorer si paga a richiesta, e prima aprire la
+  // pagina ne faceva quattro gruppi anche se guardavi una cosa sola.
   useEffect(() => {
+    if (!show('summary') && !show('breakdown')) return
     setLoading(true)
     setError(null)
     fetch(`/api/costs?month=${month}&type=${type}&lang=${lang}`)
@@ -224,6 +232,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): si carica una volta, così
   // cambiare mese non rifà una chiamata a pagamento. I componenti invece sono del mese selezionato.
   useEffect(() => {
+    if (!show('trend')) return
     setTrendLoading(true)
     fetch(`/api/costs/trend?type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -233,6 +242,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   }, [type, lang])
 
   useEffect(() => {
+    if (!show('breakdown')) return
     setCompsLoading(true)
     fetch(`/api/costs/components?month=${month}&type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -242,7 +252,8 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   }, [month, type, lang])
 
   // I livelli NON si filtrano per livello: questa è la vista che li mostra, e dà anche i valori al
-  // menu — così sapere quali livelli esistono non costa una chiamata in più.
+  // menu — così sapere quali livelli esistono non costa una chiamata in più. Per questo è l'unica
+  // chiamata che si fa su OGNI scheda: il menu Livello c'è anche dove la ripartizione non si vede.
   useEffect(() => {
     setCatsLoading(true)
     fetch(`/api/costs/categories?month=${month}&lang=${lang}`)
@@ -294,30 +305,35 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
               </Text>
               <Select size="small" value={type} onChange={setType} options={typeOptions} style={{ minWidth: 150 }} />
             </Space>
-            <Space size={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('costs.month')}
-              </Text>
-              <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
-            </Space>
+            {/* Il Mese non compare sulla scheda Andamento: quel grafico sono SEMPRE gli ultimi 13
+                mesi, quindi lì il controllo non filtrerebbe niente — e un filtro inerte insegna a
+                diffidare anche di quelli che funzionano. */}
+            {section !== 'trend' && (
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('costs.month')}
+                </Text>
+                <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
+              </Space>
+            )}
           </Space>
         }
       />
       {/* I budget stanno PRIMA della spesa: "siamo dentro a quello che avevamo deciso?" viene prima
           di "quanto abbiamo speso", e i budget non dipendono dal mese scelto qui sopra. */}
-      <BudgetsPanel t={t} lang={lang} />
-      {loading && !data && <CostsSkeleton />}
-      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
+      {show('summary') && <BudgetsPanel t={t} lang={lang} />}
+      {(show('summary') || show('breakdown')) && loading && !data && <CostsSkeleton />}
+      {(show('summary') || show('breakdown')) && error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
       {/* Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli
           allo stesso modo manda a cercare un problema di configurazione che non esiste. */}
-      {data && accounts.length === 0 && (
+      {(show('summary') || show('breakdown')) && data && accounts.length === 0 && (
         <Empty
           description={Object.keys(data).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')}
           style={{ marginTop: 24 }}
         />
       )}
 
-      {accounts.length > 0 &&
+      {show('summary') && accounts.length > 0 &&
         (() => {
           // Totali aggregati su tutti gli account monitorati → il colpo d'occhio che mancava.
           const sum = (f) => accounts.reduce((s, [, a]) => s + (f(a) || 0), 0)
@@ -356,7 +372,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
 
       {/* Trend: la domanda "sta crescendo?", che un mese solo non può rispondere. Somma degli account
           visibili, così il grafico parla del conto e non di un pezzo per volta. */}
-      {(() => {
+      {show('trend') && (() => {
         const rows = trend
           ? mergeTrend(
               Object.values(trend).filter((a) => !a.error && (!accountLabels || accountLabels.has(a.label))),
@@ -403,6 +419,20 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
         )
       })()}
 
+      {/* Le card per account sono una ripartizione PER SERVIZIO: stanno con le altre due e non nel
+          riepilogo, che così resta una schermata — «come stiamo» (budget, anomalie, totali) senza
+          dover scorrere. Prima erano la parte più alta della pagina. */}
+      {show('breakdown') && (
+        <div style={{ margin: '4px 0 8px' }}>
+          <Text strong>{t('costs.svc.title')}</Text>
+          <div>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {t('costs.svc.desc')}
+            </Text>
+          </div>
+        </div>
+      )}
+      {show('breakdown') && (
       <div style={PANEL_GRID}>
         {accounts.map(([key, acc]) => {
           if (acc.error) {
@@ -498,6 +528,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
           )
         })}
       </div>
+      )}
 
       {/* Ripartizione per LIVELLO (Cost Category): il "type" della pagina di analytics.
           Il filtro Livello agisce ANCHE qui, ma non riducendo la lista a una riga (che sarebbe un
@@ -507,7 +538,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
           livello scelto sono un `find` su dati che abbiamo — e Cost Explorer si paga a richiesta.
           La chiamata resta NON filtrata anche per un secondo motivo: è lei a dare i valori al menu,
           e filtrarla lo svuoterebbe. */}
-      {(() => {
+      {show('breakdown') && (() => {
         const list = cats
           ? Object.entries(cats).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
@@ -567,7 +598,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
       {/* Attribuzione per COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è — ed è il
           secondo a far decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare
           l'attribuzione completa quando non lo è. */}
-      {(() => {
+      {show('breakdown') && (() => {
         const list = comps
           ? Object.entries(comps).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
@@ -643,12 +674,6 @@ function CostsSkeleton() {
         {[86, 70, 78, 54, 120, 92, 74].map((w, i) => (
           <Skeleton.Button key={i} active size="small" style={{ width: w, height: 38 }} />
         ))}
-      </div>
-      <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
-        <Skeleton active title={{ width: 180 }} paragraph={{ rows: 1, width: '55%' }} />
-        <Skeleton.Node active style={{ width: '100%', height: 210 }}>
-          <span />
-        </Skeleton.Node>
       </div>
       <div style={PANEL_GRID}>
         {[4, 2, 2].map((rows, i) => (
