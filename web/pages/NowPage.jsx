@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Typography, Space, Tag, Tooltip, Alert, Empty, Skeleton, Segmented } from 'antd'
 import {
   ClockCircleOutlined,
+  SyncOutlined,
   CloudServerOutlined,
   RocketOutlined,
   ReloadOutlined,
@@ -92,7 +93,12 @@ function SignalRow({ s, t, onOpen }) {
 // Pagina "Adesso": la prima che si apre. Raccoglie da tutte le fonti solo ciò che è cambiato nella
 // finestra o che morde in questo momento, e manda alla pagina che ne sa di più. Nessuna fonte nuova:
 // gli stessi endpoint delle altre viste.
-export default function NowPage({ services = [], statusLoading, statusError, refreshKey, accountFilter = 'all', t = (k) => k, lang }) {
+// `statusReady` = lo stato della flotta è ARRIVATO (non "non sto caricando"). Sono due cose diverse e
+// confonderle era il difetto: il flag di caricamento dell'app parte da `false`, quindi c'era una
+// finestra in cui la flotta era vuota e nessuno stava ancora caricando — e questa pagina scriveva
+// «niente da segnalare · controllati 0 servizi», che è un ESITO, mentre i servizi non li aveva
+// nemmeno guardati. Cinque secondi dopo comparivano, giù e degradati, in cima all'elenco.
+export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = 'all', t = (k) => k, lang }) {
   const navigate = useNavigate()
   const [hours, setHours] = useState(24)
   const [deploys, setDeploys] = useState(null)
@@ -140,7 +146,8 @@ export default function NowPage({ services = [], statusLoading, statusError, ref
   }, [services, deploys, waf, budgets, hours, accountFilter, t])
 
   const counts = useMemo(() => countByLevel(signals), [signals])
-  const waiting = loading || statusLoading
+  // Si aspetta finché le proprie fonti sono in volo O finché la flotta non è arrivata.
+  const waiting = loading || statusLoading || !statusReady
 
   return (
     <>
@@ -172,6 +179,17 @@ export default function NowPage({ services = [], statusLoading, statusError, ref
       )}
 
       {waiting && signals.length === 0 && <Skeleton active paragraph={{ rows: 4 }} />}
+
+      {/* Le fonti non arrivano insieme: deploy, WAF e budget rispondono in meno di un secondo, lo
+          stato della flotta fa ~8 controlli su decine di servizi e ne prende 4-5. Mostrare l'elenco
+          senza dire che manca un pezzo lo fa leggere come completo — e il pezzo che manca sono i
+          servizi giù, cioè le righe che stanno in cima. */}
+      {!statusReady && signals.length > 0 && (
+        <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+          <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
+          {t('now.checkingFleet')}
+        </Text>
+      )}
 
       {/* Niente da segnalare è un ESITO, non un vuoto: si dice cosa è stato guardato, altrimenti una
           pagina vuota si legge come "non funziona". */}
