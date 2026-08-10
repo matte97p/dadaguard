@@ -434,25 +434,37 @@ export function demoFreeTier() {
 // d'arco (env/event/net/flow/declared) e alcune dipendenze degradate (arco rosso), più una coda
 // esterna non tracciata (extraNode). Serve a far vedere la feature senza una connessione AWS.
 export function demoTopology() {
+  // Gli estremi sono CHIAVI `account::nome`, come nel percorso reale: il nome da solo fonderebbe due
+  // servizi omonimi di ambienti diversi in un nodo unico.
+  const P = (n) => `prod::${n}`
+  const S = (n) => `staging::${n}`
   return {
     edges: [
-      { source: 'checkout-api', target: 'payments-worker', vias: ['env'] }, // target degradato → rosso
-      { source: 'checkout-api', target: 'user-db', vias: ['net'] }, // target degradato → rosso
-      { source: 'checkout-api', target: 'sessions', vias: ['net'] }, // net su target sano → teal
-      { source: 'payments-worker', target: 'user-db', vias: ['env'] }, // rosso
-      { source: 'payments-worker', target: 'events-stream', vias: ['event'] }, // event → viola
-      { source: 'web', target: 'user-db', vias: ['net'] }, // rosso
-      { source: 'web', target: 'sessions', vias: ['env'] }, // env su target sano → blu
-      { source: 'image-resizer', target: 'public-assets', vias: ['env'] }, // rosso
-      { source: 'legacy-api', target: 'sessions', vias: ['declared'] }, // declared → grigio
-      { source: 'notifier', target: 'ext:sqs:email-queue', vias: ['event'] }, // coda esterna
-      { source: 'public-lb', target: 'checkout-api', vias: ['lb'] }, // lb su target sano → arancione
-      { source: 'public-lb', target: 'web', vias: ['lb'] }, // target degradato → rosso
-      { source: 'order-flow', target: 'checkout-api', vias: ['flow'] }, // flow su target sano → rosa
-      { source: 'order-flow', target: 'payments-worker', vias: ['flow'] }, // rosso
-      { source: 'nightly-report', target: 'events-stream', vias: ['iam'] }, // iam su target sano → teal scuro
+      { source: P('checkout-api'), target: P('payments-worker'), vias: ['env'] }, // target degradato → rosso
+      { source: P('checkout-api'), target: P('user-db'), vias: ['net'] }, // target degradato → rosso
+      { source: P('checkout-api'), target: S('sessions'), vias: ['net'] }, // net su target sano → teal
+      { source: P('payments-worker'), target: P('user-db'), vias: ['env'] }, // rosso
+      { source: P('payments-worker'), target: P('events-stream'), vias: ['event'] }, // event → viola
+      { source: P('web'), target: P('user-db'), vias: ['net'] }, // rosso
+      { source: P('web'), target: S('sessions'), vias: ['env'] }, // env su target sano → blu
+      { source: P('image-resizer'), target: P('public-assets'), vias: ['env'] }, // rosso
+      { source: S('legacy-api'), target: S('sessions'), vias: ['declared'] }, // declared → grigio
+      { source: S('notifier'), target: 'ext:sqs:email-queue', vias: ['event'] }, // coda esterna
+      { source: P('public-lb'), target: P('checkout-api'), vias: ['lb'] }, // lb su target sano → arancione
+      { source: P('public-lb'), target: P('web'), vias: ['lb'] }, // target degradato → rosso
+      { source: P('order-flow'), target: P('checkout-api'), vias: ['flow'] }, // flow su target sano → rosa
+      { source: P('order-flow'), target: P('payments-worker'), vias: ['flow'] }, // rosso
+      { source: S('nightly-report'), target: P('events-stream'), vias: ['iam'] }, // iam su target sano → teal scuro
     ],
     extraNodes: [{ id: 'ext:sqs:email-queue', type: 'sqs', label: 'email-queue' }],
+    // Come nel percorso reale: la flotta INTERA, non solo i nodi con archi. Serve alla UI per tenere
+    // disegnati i vicini che un filtro esclude, invece di svuotare il grafo.
+    nodes: demoStatus('en').services.map((s) => ({
+      id: `${s.account?.key ?? '__none__'}::${s.name}`,
+      name: s.name,
+      account: s.account?.key ?? null,
+      type: s.type ?? null,
+    })),
   }
 }
 
