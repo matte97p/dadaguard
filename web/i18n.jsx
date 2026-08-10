@@ -188,6 +188,8 @@ const STRINGS = {
     'waf.loggedHint': 'Le richieste in `log` sono passate: la regola le registra e non le blocca. Non si sommano alle fermate, e mettere una regola in `log` non impedisce a un’altra di bloccare la stessa richiesta.',
     'waf.noBlocks': 'Nessuna richiesta fermata dal WAF nella finestra.',
     'waf.zonesClean': '{n} {n#zona#zone} senza blocchi.',
+    'waf.zonesNoDataset':
+      '{n} {n#zona#zone} su piano Free: Cloudflare non espone le analytics del firewall, quindi qui non si sa cosa abbiano fermato —',
     'waf.source.custom': 'regola custom (nostra, in IaC)',
     'waf.source.managed': 'managed WAF (Cloudflare)',
     'waf.source.ratelimit': 'rate limit',
@@ -775,6 +777,8 @@ const STRINGS = {
     'waf.loggedHint': 'Requests in `log` went through: the rule records them and does not block them. They do not add up with the stopped ones, and putting one rule in `log` does not prevent another from blocking the same request.',
     'waf.noBlocks': 'No request stopped by the WAF in this window.',
     'waf.zonesClean': '{n} {n#zone#zones} with no blocks.',
+    'waf.zonesNoDataset':
+      '{n} {n#zone#zones} on the Free plan: Cloudflare does not expose firewall analytics there, so what they stopped is unknown here —',
     'waf.source.custom': 'custom rule (ours, in IaC)',
     'waf.source.managed': 'managed WAF (Cloudflare)',
     'waf.source.ratelimit': 'rate limit',
