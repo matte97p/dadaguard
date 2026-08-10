@@ -455,7 +455,10 @@ const STRINGS = {
     'waste.util': 'CPU {avg}% in media · {peak}% di picco',
 
     'topo.title': 'Topologia',
-    'topo.isolated': 'Servizi isolati · {n}',
+    'topo.orphans': 'Senza relazioni dedotte · {n}',
+    'topo.hubTargets': '{n} {n#servizio#servizi}',
+    'topo.ghosts':
+      '{n} {n#vicino#vicini} {n#è#sono} fuori dal filtro: {n#resta#restano} tratteggiati perché una dipendenza non si legge a metà.',
     'topo.tab.deps': 'Dipendenze',
     'topo.tab.net': 'Rete',
     'topo.desc':
@@ -1042,7 +1045,10 @@ const STRINGS = {
     'waste.util': 'CPU {avg}% avg · {peak}% peak',
 
     'topo.title': 'Topology',
-    'topo.isolated': 'Isolated services · {n}',
+    'topo.orphans': 'No inferred relation · {n}',
+    'topo.hubTargets': '{n} {n#service#services}',
+    'topo.ghosts':
+      '{n} {n#neighbour#neighbours} {n#is#are} outside the filter: {n#it stays#they stay} dashed, because half a dependency reads as none.',
     'topo.tab.deps': 'Dependencies',
     'topo.tab.net': 'Network',
     'topo.desc':

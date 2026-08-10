@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import dagre from '@dagrejs/dagre'
 import { PageIntro } from './pageKit.jsx'
 
 const { Text } = Typography
@@ -27,60 +26,195 @@ const VIA = {
   net: { color: '#13c2c2' },
 }
 
-// --- Vista "Dipendenze": grafo a livelli, nodi colorati per stato, archi per provenienza. ---
-function buildGraph(services, topo, dark, t) {
-  const statusByName = new Map(services.map((s) => [s.name, s.overall]))
+// Chiave di un servizio nel grafo, gemella di `serviceKey` in server/topology/deduce.js — dove gli
+// archi nascono già con questa forma. NON è il nome: `backend` esiste in staging e in produzione, e i
+// modelli Bedrock stanno in ogni account. Usare il nome fondeva due servizi in un nodo solo (con lo
+// stato di quello letto per ultimo) e duplicava le `key` React della lista laterale, che così
+// accumulava righe morte invece di sostituirle.
+export function svcKey(s) {
+  const acct = (typeof s.account === 'string' ? s.account : s.account?.key) ?? '__none__'
+  return `${acct}::${s.name}`
+}
+const acctLabel = (s) => (typeof s.account === 'string' ? s.account : s.account?.label) ?? null
 
-  const nodeList = [
-    ...services.map((s) => ({ id: s.name, label: `${s.name}${s.type ? ` · ${s.type}` : ''}`, status: s.overall })),
-    ...(topo.extraNodes ?? []).map((n) => ({ id: n.id, label: `${n.label} · ${n.type}`, status: null, external: true })),
-  ]
-  const idset = new Set(nodeList.map((n) => n.id))
-  const edges = (topo.edges ?? []).filter((e) => idset.has(e.source) && idset.has(e.target))
+// Corsia di un nodo: il disegno deve avere una spina dorsale (chi riceve la richiesta → chi la serve
+// → dove stanno i dati), altrimenti dagre appiattisce tutto su due livelli e ne esce una fila larga
+// 1700px che, dopo il fitView, ha le etichette a 6px.
+const LANE_OF_TYPE = {
+  alb: 'ingress',
+  'cloudflare-worker': 'ingress',
+  cloudfront: 'ingress',
+  apigateway: 'ingress',
+  ecs: 'app',
+  ec2: 'app',
+  lambda: 'app',
+  sfn: 'app',
+  'ecs-scheduled': 'ops',
+  rds: 'data',
+  elasticache: 'data',
+  kinesis: 'data',
+  sqs: 'data',
+  s3: 'data',
+  dynamodb: 'data',
+}
+const LANES = ['ingress', 'app', 'data', 'ops']
 
-  // Separa i nodi COLLEGATI (in almeno un arco) dagli ISOLATI: solo i collegati vanno nel grafo,
-  // gli isolati (es. le tante cron scollegate) finiscono in una lista a lato → canvas leggibile.
-  const connected = new Set()
+// Un hub è un nodo che punta a molti servizi SOLO perché li nomina nelle env var: i sincronizzatori
+// di configurazione citano tutta la flotta, quindi diventano i nodi più connessi del disegno pur non
+// servendo nessuna richiesta. Si riconosce dalla forma (molti archi in uscita, nessuno in entrata),
+// non dal nome, così un tool nuovo ci ricade dentro senza toccare una lista.
+const HUB_MIN_FANOUT = 4
+const WEAK_VIAS = new Set(['env', 'iam'])
+
+function classifyHubs(edges) {
+  const out = new Map()
+  const incoming = new Set(edges.map((e) => e.target))
   for (const e of edges) {
-    connected.add(e.source)
-    connected.add(e.target)
+    if (!out.has(e.source)) out.set(e.source, [])
+    out.get(e.source).push(e)
   }
-  const connectedList = nodeList.filter((n) => connected.has(n.id))
-  const isolated = services
-    .filter((s) => !connected.has(s.name))
-    .map((s) => ({ name: s.name, status: s.overall, type: s.type }))
+  const hubs = new Set()
+  for (const [source, list] of out) {
+    if (incoming.has(source)) continue
+    if (list.length < HUB_MIN_FANOUT) continue
+    if (!list.every((e) => (e.vias ?? []).every((v) => WEAK_VIAS.has(v)))) continue
+    hubs.add(source)
+  }
+  return hubs
+}
 
-  // Auto-layout con dagre: DAG dall'alto verso il basso, nodi allineati per livello e archi puliti.
-  const NODE_W = 200
-  const NODE_H = 44
-  const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 36, ranksep: 64, marginx: 12, marginy: 12 })
-  g.setDefaultEdgeLabel(() => ({}))
-  connectedList.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }))
-  edges.forEach((e) => g.setEdge(e.source, e.target))
-  dagre.layout(g)
+// --- Vista "Dipendenze": corsie per ruolo, nodi colorati per stato, archi per provenienza. ---
+// `services` arriva già filtrato; `topo.nodes` porta la flotta INTERA. Serve la differenza: filtrando
+// per un nome, il servizio all'altro capo dell'arco spariva e con esso ogni arco, così cercare un
+// servizio nella vista che ne mostra le dipendenze le cancellava. I vicini fuori dal filtro restano
+// disegnati, ma smorzati: sono contesto, non risultato.
+function buildGraph(services, topo, dark, t) {
+  const universe = new Map((topo.nodes ?? []).map((n) => [n.id, n]))
+  const selected = new Map(services.map((s) => [svcKey(s), s]))
+  const external = new Map((topo.extraNodes ?? []).map((n) => [n.id, n]))
+  const known = (id) => selected.has(id) || universe.has(id) || external.has(id)
 
-  const nodes = connectedList.map((n) => {
-    const p = g.node(n.id)
-    const color = n.external ? '#bfbfbf' : STATUS_COLOR[n.status] ?? '#8c8c8c'
-    return {
-      id: n.id,
-      position: { x: (p?.x ?? 0) - NODE_W / 2, y: (p?.y ?? 0) - NODE_H / 2 },
-      data: { label: n.label },
-      style: {
-        border: `2px ${n.external ? 'dashed' : 'solid'} ${color}`,
-        borderRadius: 8,
-        padding: '6px 10px',
-        fontSize: 12,
-        width: NODE_W,
-        background: dark ? '#1f1f1f' : '#fff',
-        color: dark ? '#e6e6e6' : '#000',
-      },
-    }
+  const allEdges = (topo.edges ?? []).filter((e) => known(e.source) && known(e.target))
+  // Un arco entra nel disegno se almeno un estremo è dentro al filtro: l'altro diventa un vicino.
+  const edges = allEdges.filter((e) => selected.has(e.source) || selected.has(e.target))
+  const hubs = classifyHubs(edges)
+
+  const nameOf = (id) => selected.get(id)?.name ?? universe.get(id)?.name ?? external.get(id)?.label ?? id
+  const typeOf = (id) => selected.get(id)?.type ?? universe.get(id)?.type ?? external.get(id)?.type ?? null
+  const statusOf = (id) => selected.get(id)?.overall ?? null
+
+  // Il nome si ripete tra ambienti: l'etichetta porta l'account solo quando serve a distinguerli.
+  const nameCount = new Map()
+  for (const id of new Set([...selected.keys(), ...allEdges.flatMap((e) => [e.source, e.target])])) {
+    const n = nameOf(id)
+    nameCount.set(n, (nameCount.get(n) ?? 0) + 1)
+  }
+
+  const inGraph = new Set()
+  for (const e of edges) {
+    inGraph.add(e.source)
+    inGraph.add(e.target)
+  }
+  // Gli archi degli hub collassano: una freccia sola con il conteggio, non sei che attraversano la tela.
+  const collapsed = []
+  const drawnEdges = []
+  for (const id of hubs) {
+    const list = edges.filter((e) => e.source === id)
+    collapsed.push({ source: id, targets: list.map((e) => e.target), vias: [...new Set(list.flatMap((e) => e.vias ?? []))] })
+    for (const e of list) inGraph.delete(e.target)
+  }
+  for (const e of edges) if (!hubs.has(e.source)) drawnEdges.push(e)
+  for (const e of drawnEdges) {
+    inGraph.add(e.source)
+    inGraph.add(e.target)
+  }
+
+  const laneOf = (id) => (hubs.has(id) ? 'ops' : external.has(id) ? 'data' : LANE_OF_TYPE[typeOf(id)] ?? 'app')
+  const byLane = new Map(LANES.map((l) => [l, []]))
+  for (const id of inGraph) byLane.get(laneOf(id))?.push(id)
+  for (const id of hubs) if (!byLane.get('ops').includes(id)) byLane.get('ops').push(id)
+  for (const list of byLane.values()) list.sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+
+  // Le corsie danno i livelli, ma dentro un livello l'ordine alfabetico fa attraversare la tela agli
+  // archi. Ordinamento a baricentro (Sugiyama): ogni nodo si sposta verso la media delle posizioni dei
+  // suoi vicini nella corsia adiacente, una passata in giù e una in su. È quello che faceva dagre e
+  // che si perde imponendo i livelli a mano.
+  const neighboursIn = (id, laneList, dir) =>
+    drawnEdges
+      .filter((e) => (dir === 'up' ? e.target === id : e.source === id))
+      .map((e) => laneList.indexOf(dir === 'up' ? e.source : e.target))
+      .filter((i) => i >= 0)
+  const sweep = (from, to, dir) => {
+    const anchor = byLane.get(from) ?? []
+    const list = byLane.get(to) ?? []
+    if (!anchor.length || list.length < 2) return
+    const bary = new Map(
+      list.map((id) => {
+        const idx = neighboursIn(id, anchor, dir)
+        return [id, idx.length ? idx.reduce((a, b) => a + b, 0) / idx.length : Number.POSITIVE_INFINITY]
+      }),
+    )
+    list.sort((a, b) => bary.get(a) - bary.get(b) || nameOf(a).localeCompare(nameOf(b)))
+  }
+  sweep('ingress', 'app', 'up')
+  sweep('app', 'data', 'up')
+  sweep('data', 'app', 'down')
+  sweep('app', 'ingress', 'down')
+
+  const NODE_W = 190
+  const NODE_H = 46
+  const GAP_X = 26
+  const LANE_H = 150
+  const nodes = []
+  LANES.forEach((lane) => {
+    const list = byLane.get(lane) ?? []
+    if (!list.length) return
+    const y = LANES.indexOf(lane) * LANE_H
+    list.forEach((id, i) => {
+      const ghost = !selected.has(id) && !external.has(id)
+      const color = external.has(id) ? '#bfbfbf' : STATUS_COLOR[statusOf(id)] ?? '#8c8c8c'
+      const label = nameCount.get(nameOf(id)) > 1 && acctLabel(selected.get(id) ?? universe.get(id) ?? {})
+        ? `${nameOf(id)} · ${acctLabel(selected.get(id) ?? universe.get(id))}`
+        : nameOf(id)
+      nodes.push({
+        id,
+        position: { x: i * (NODE_W + GAP_X), y },
+        data: { label: `${label}${typeOf(id) ? ` · ${typeOf(id)}` : ''}` },
+        style: {
+          border: `2px ${external.has(id) || ghost ? 'dashed' : 'solid'} ${color}`,
+          borderRadius: 8,
+          padding: '6px 10px',
+          fontSize: 12,
+          width: NODE_W,
+          opacity: ghost ? 0.45 : 1,
+          background: dark ? '#1f1f1f' : '#fff',
+          color: dark ? '#e6e6e6' : '#000',
+        },
+      })
+    })
   })
 
-  const rfEdges = edges.map((e) => {
-    const broken = ['down', 'degraded'].includes(statusByName.get(e.target))
+  // Nodo sintetico per ogni hub collassato: dice QUANTI servizi tocca, e quali nel tooltip.
+  collapsed.forEach((c, i) => {
+    const id = `agg:${c.source}`
+    nodes.push({
+      id,
+      position: { x: i * (NODE_W + GAP_X), y: LANES.indexOf('ops') * LANE_H + 60 },
+      data: { label: t('topo.hubTargets', { n: c.targets.length }) },
+      style: {
+        border: `1.5px dotted ${VIA.env.color}`,
+        borderRadius: 8,
+        padding: '4px 8px',
+        fontSize: 11,
+        width: NODE_W,
+        background: 'transparent',
+        color: dark ? '#a6a6a6' : '#595959',
+      },
+    })
+  })
+
+  const rfEdges = drawnEdges.map((e) => {
+    const broken = ['down', 'degraded'].includes(statusOf(e.target))
     const primary = e.vias?.[0] ?? 'declared'
     const color = broken ? '#ff4d4f' : VIA[primary]?.color ?? '#888'
     return {
@@ -98,9 +232,35 @@ function buildGraph(services, topo, dark, t) {
       label: broken ? `⚠ ${t('topo.edge.down')}` : undefined,
     }
   })
+  collapsed.forEach((c) => {
+    rfEdges.push({
+      id: `${c.source}->agg`,
+      source: c.source,
+      target: `agg:${c.source}`,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, color: VIA.env.color },
+      style: { stroke: VIA.env.color, strokeWidth: 1.5, strokeDasharray: '2 3' },
+      label: `×${c.targets.length}`,
+      labelStyle: { fontSize: 10 },
+    })
+  })
 
-  const usedVias = new Set(edges.flatMap((e) => e.vias ?? []))
-  return { nodes, edges: rfEdges, usedVias, isolated }
+  // Chi resta fuori dal grafo, raggruppato per tipo: 21 modelli e 8 worker non sono «servizi orfani»,
+  // e in un elenco piatto di 52 righe coprivano il disegno invece di completarlo.
+  const orphanByType = new Map()
+  for (const s of services) {
+    if (inGraph.has(svcKey(s))) continue
+    const type = s.type ?? '—'
+    if (!orphanByType.has(type)) orphanByType.set(type, [])
+    orphanByType.get(type).push({ key: svcKey(s), name: s.name, status: s.overall, account: acctLabel(s) })
+  }
+  const orphans = [...orphanByType.entries()]
+    .map(([type, items]) => ({ type, items: items.sort((a, b) => a.name.localeCompare(b.name)) }))
+    .sort((a, b) => b.items.length - a.items.length)
+
+  const usedVias = new Set(drawnEdges.flatMap((e) => e.vias ?? []).concat(collapsed.length ? ['env'] : []))
+  const ghosts = [...inGraph].filter((id) => !selected.has(id) && !external.has(id)).length
+  return { nodes, edges: rfEdges, usedVias, orphans, ghosts }
 }
 
 // --- Vista "Rete": box VPC che contengono i servizi, più un bucket "Senza VPC". ---
@@ -249,7 +409,7 @@ const CANVAS = {
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
 export default function TopologyPage({ services = [], accountLabels, dark, t = (k) => k }) {
   const [view, setView] = useState('deps')
-  const [topo, setTopo] = useState({ edges: [], extraNodes: [] })
+  const [topo, setTopo] = useState({ edges: [], extraNodes: [], nodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [net, setNet] = useState(null)
@@ -262,7 +422,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
     setError(null)
     fetch('/api/topology')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [] }))
+      .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [], nodes: d.nodes ?? [] }))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
@@ -284,11 +444,14 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
     [net, accountLabels],
   )
 
-  const { nodes, edges, usedVias, isolated } = useMemo(
+  const { nodes, edges, usedVias, orphans, ghosts } = useMemo(
     () => buildGraph(services, topo, dark, t),
     [services, topo, dark, t],
   )
-  const hasEdges = edges.length > 0
+  const hasEdges = nodes.length > 0
+  // `fitView` di ReactFlow inquadra solo al mount: cambiando filtro l'insieme dei nodi cambia e la
+  // vista restava dov'era, spesso fuori dal disegno. Rimontando su una firma dei nodi si reinquadra.
+  const graphSignature = useMemo(() => nodes.map((n) => n.id).join('|'), [nodes])
   const netGraph = useMemo(
     () => (shownNet ? buildNetworkGraph(shownNet, dark, t) : { nodes: [], hasData: false }),
     [shownNet, dark, t],
@@ -315,6 +478,11 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
         <>
           {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
           <Legend usedVias={usedVias} t={t} />
+          {ghosts > 0 && (
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
+              {t('topo.ghosts', { n: ghosts })}
+            </Text>
+          )}
           {loading ? (
             <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Spin tip={t('topo.loading')} />
@@ -328,6 +496,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
               <div style={{ flex: 1, position: 'relative' }}>
                 {hasEdges ? (
                   <ReactFlow
+                    key={graphSignature}
                     nodes={nodes}
                     edges={edges}
                     fitView
@@ -342,42 +511,56 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                   <Empty style={{ paddingTop: 80 }} description={t('topo.noRelations')} />
                 )}
               </div>
-              {isolated.length > 0 && (
+              {orphans.length > 0 && (
                 <div
                   style={{
-                    width: 230,
+                    width: 250,
+                    flexShrink: 0,
                     borderLeft: '1px solid rgba(128,128,128,0.2)',
                     overflowY: 'auto',
                     padding: '8px 4px 8px 12px',
                   }}
                 >
                   <Text type="secondary" style={{ fontSize: 11 }}>
-                    {t('topo.isolated', { n: isolated.length })}
+                    {t('topo.orphans', { n: orphans.reduce((a, g) => a + g.items.length, 0) })}
                   </Text>
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {isolated.map((s) => (
-                      <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 8,
-                            height: 8,
-                            borderRadius: 4,
-                            background: STATUS_COLOR[s.status] ?? '#8c8c8c',
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {s.name}
-                        </span>
-                        {s.type && (
-                          <Text type="secondary" style={{ fontSize: 10, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                            {s.type}
-                          </Text>
-                        )}
+                  {/* Raggruppati per tipo: la chiave è `account::nome`, non il nome — con i nomi
+                      duplicati tra ambienti React non sostituiva le righe, le impilava. */}
+                  {orphans.map((group) => (
+                    <div key={group.type} style={{ marginTop: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                        {group.type} · {group.items.length}
+                      </Text>
+                      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {group.items.map((s) => (
+                          <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12 }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                width: 8,
+                                height: 8,
+                                borderRadius: 4,
+                                marginTop: 4,
+                                background: STATUS_COLOR[s.status] ?? '#8c8c8c',
+                                flexShrink: 0,
+                              }}
+                            />
+                            {/* Il nome va a capo invece di essere troncato: i nomi dei cron si
+                                distinguono nella coda, che l'ellissi mangiava per prima. */}
+                            <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+                              {s.name}
+                              {s.account && (
+                                <Text type="secondary" style={{ fontSize: 10 }}>
+                                  {' '}
+                                  · {s.account}
+                                </Text>
+                              )}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
