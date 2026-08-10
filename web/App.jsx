@@ -616,6 +616,10 @@ export default function App() {
                 element={
                   <NowPage
                     services={services}
+                    // `data` presente = la flotta è stata letta almeno una volta. Il flag `loading`
+                    // non basta: parte da `false`, e in quella finestra "vuoto" e "non guardato"
+                    // sarebbero indistinguibili.
+                    statusReady={Boolean(data)}
                     statusLoading={loading}
                     statusError={error}
                     refreshKey={refreshKey}
