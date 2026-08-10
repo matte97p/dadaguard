@@ -215,11 +215,16 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   const [compsLoading, setCompsLoading] = useState(true)
   const [catsLoading, setCatsLoading] = useState(true)
   const [type, setType] = useState('all') // filtro Livello (Cost Category), come il "TYPE" di analytics
+  // Quale LENTE della ripartizione si guarda. Tre sezioni impilate mettevano lo stesso account tre
+  // volte in tre punti della pagina: per rispondere a "dove vanno i soldi di Production" si scorreva
+  // avanti e indietro fra griglie identiche. La domanda è una, la lente cambia — quindi un
+  // interruttore, non tre sezioni.
+  const [lens, setLens] = useState('service') // service | level | component
 
   // Ogni sezione chiede SOLO i suoi dati: Cost Explorer si paga a richiesta, e prima aprire la
   // pagina ne faceva quattro gruppi anche se guardavi una cosa sola.
   useEffect(() => {
-    if (!show('summary') && !show('breakdown')) return
+    if (!show('summary') && !(show('breakdown') && lens === 'service')) return
     setLoading(true)
     setError(null)
     fetch(`/api/costs?month=${month}&type=${type}&lang=${lang}`)
@@ -227,7 +232,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [month, type, lang])
+  }, [month, type, lang, lens])
 
   // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): si carica una volta, così
   // cambiare mese non rifà una chiamata a pagamento. I componenti invece sono del mese selezionato.
@@ -242,14 +247,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   }, [type, lang])
 
   useEffect(() => {
-    if (!show('breakdown')) return
+    if (!(show('breakdown') && lens === 'component')) return
     setCompsLoading(true)
     fetch(`/api/costs/components?month=${month}&type=${type}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setComps)
       .catch(() => setComps(null))
       .finally(() => setCompsLoading(false))
-  }, [month, type, lang])
+  }, [month, type, lang, lens])
 
   // I livelli NON si filtrano per livello: questa è la vista che li mostra, e dà anche i valori al
   // menu — così sapere quali livelli esistono non costa una chiamata in più. Per questo è l'unica
@@ -419,20 +424,27 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
         )
       })()}
 
-      {/* Le card per account sono una ripartizione PER SERVIZIO: stanno con le altre due e non nel
-          riepilogo, che così resta una schermata — «come stiamo» (budget, anomalie, totali) senza
-          dover scorrere. Prima erano la parte più alta della pagina. */}
+      {/* Una lente per volta. Le card per account sono la lente PER SERVIZIO — stanno qui e non nel
+          riepilogo, che così resta una schermata sola. */}
       {show('breakdown') && (
-        <div style={{ margin: '4px 0 8px' }}>
-          <Text strong>{t('costs.svc.title')}</Text>
-          <div>
+        <div style={{ margin: '4px 0 10px' }}>
+          <Segmented
+            value={lens}
+            onChange={setLens}
+            options={[
+              { value: 'service', label: t('costs.svc.title') },
+              { value: 'level', label: t('costs.cat.title') },
+              { value: 'component', label: t('costs.comp.title') },
+            ]}
+          />
+          <div style={{ marginTop: 6 }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('costs.svc.desc')}
+              {lens === 'service' ? t('costs.svc.desc') : lens === 'level' ? t('costs.cat.lensDesc') : t('costs.comp.lensDesc')}
             </Text>
           </div>
         </div>
       )}
-      {show('breakdown') && (
+      {show('breakdown') && lens === 'service' && (
       <div style={PANEL_GRID}>
         {accounts.map(([key, acc]) => {
           if (acc.error) {
@@ -538,7 +550,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
           livello scelto sono un `find` su dati che abbiamo — e Cost Explorer si paga a richiesta.
           La chiamata resta NON filtrata anche per un secondo motivo: è lei a dare i valori al menu,
           e filtrarla lo svuoterebbe. */}
-      {show('breakdown') && (() => {
+      {show('breakdown') && lens === 'level' && (() => {
         const list = cats
           ? Object.entries(cats).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
@@ -547,16 +559,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
         const drill = type !== 'all'
         return (
           <>
-            <div style={{ margin: '20px 0 8px' }}>
-              <Text strong>{drill ? t('costs.cat.inside', { level: type }) : t('costs.cat.title')}</Text>
-              <div>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {drill
-                    ? t('costs.cat.insideDesc', { level: type })
-                    : t('costs.cat.desc', { cat: list[0][1].categoryName ?? 'Livello' })}
-                </Text>
+            {/* Con un livello scelto dal menu la lente si APRE su di lui: le righe diventano i suoi
+                servizi. Vale la pena dirlo qui, perché è l'unico caso in cui il titolo della lente
+                non descrive più quello che si vede. */}
+            {drill && (
+              <div style={{ margin: '0 0 8px' }}>
+                <Text strong>{t('costs.cat.inside', { level: type })}</Text>
               </div>
-            </div>
+            )}
             <div style={PANEL_GRID}>
               {list.map(([key, acc]) => {
                 const cs = acc.categories ?? []
@@ -598,7 +608,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
       {/* Attribuzione per COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è — ed è il
           secondo a far decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare
           l'attribuzione completa quando non lo è. */}
-      {show('breakdown') && (() => {
+      {show('breakdown') && lens === 'component' && (() => {
         const list = comps
           ? Object.entries(comps).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
           : []
@@ -606,14 +616,6 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
         if (list.length === 0) return null
         return (
           <>
-            <div style={{ margin: '20px 0 8px' }}>
-              <Text strong>{t('costs.comp.title')}</Text>
-              <div>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {t('costs.comp.desc', { tag: list[0][1].tagKey ?? 'component' })}
-                </Text>
-              </div>
-            </div>
             <div style={PANEL_GRID}>
               {list.map(([key, acc]) => {
                 const rows = acc.components ?? []
