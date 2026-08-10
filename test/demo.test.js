@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { demoStatus, demoCosts, demoCostTrend, demoBudgets, demoQuotas, demoLogs, demoEvents, demoTopology } from '../server/demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoBudgets, demoPeriod, demoMonths, demoQuotas, demoLogs, demoEvents, demoTopology } from '../server/demo.js'
 import { budgetLevel } from '../server/budgets.js'
 
 const ymdOf = (d) => d.toISOString().slice(0, 10)
@@ -50,6 +50,14 @@ test('demo costi: periodo, trend e anomalie stanno nel mese che la pagina dichia
   for (const an of demoBudgets().anomalies) {
     assert.ok(an.start.slice(0, 10) <= ymdOf(now), `anomalia nel futuro: ${an.start}`)
   }
+})
+
+test('demoPeriod: il primo del mese non produce un MTD che copre giorni futuri', () => {
+  // È l'edge che romperebbe il fix: start e end coincidono col mese, ma end resta a domani.
+  assert.deepEqual(demoPeriod(new Date('2026-03-01T09:00:00Z')), { start: '2026-03-01', end: '2026-03-02' })
+  assert.deepEqual(demoPeriod(new Date('2026-03-28T09:00:00Z')), { start: '2026-03-01', end: '2026-03-13' })
+  // A cavallo d'anno le etichette del trend devono tornare indietro di anno, non di mese soltanto.
+  assert.deepEqual(demoMonths(3, new Date('2026-01-15T09:00:00Z')), ['2025-11', '2025-12', '2026-01'])
 })
 
 test('demo budget: proiezione e livello escono dallo stesso ritmo dei costi, non da cifre a mano', () => {

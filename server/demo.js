@@ -679,7 +679,7 @@ export function demoBudgets() {
   // Lo speso di ogni budget è una FETTA VERA dei costi demo, e la proiezione esce dallo stesso
   // run-rate della pagina Spesa: prima i budget erano cifre a sé (4380 $ su un lordo di 837,60 $) e
   // due riquadri della stessa schermata raccontavano bolletta diverse. Il livello lo decide la stessa
-  // budgetLevel() del percorso reale, cosi' un badge non puo' smentire la sua barra.
+  // budgetLevel() del percorso reale, così un badge non può smentire la sua barra.
   const period = demoPeriod()
   const p = monthEndProjection({ gross: 1, total: 1, period })
   const rate = p ? p.gross : 1 // fine mese / MTD
@@ -708,7 +708,7 @@ export function demoBudgets() {
         label: 'Management (payer)',
         color: '#722ed1',
         budgets: [
-          // 520,40 = Bedrock (402, Production) + Claude via Marketplace (118,40): l'AI e' il 62% della
+          // 520,40 = Bedrock (402, Production) + Claude via Marketplace (118,40): l'AI è il 62% della
           // spesa demo, ed era l'unica banda senza un budget addosso.
           b('ai-monthly', 500, 520.4),
           b('org-monthly', 2000, 837.6),
