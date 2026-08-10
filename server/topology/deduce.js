@@ -178,8 +178,20 @@ export function matchByArn(arn, idList, self) {
   const arnTokens = new Set(String(arn).toLowerCase().split(/[\s:/]+/).filter(Boolean))
   const cands = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => arnTokens.has(tok)))
   const same = cands.filter((t) => t.account === self.account)
-  return (same.length ? same : cands)[0]?.name ?? null
+  return (same.length ? same : cands)[0] ?? null
 }
+
+// Identificatore di un servizio nel grafo. NON è il nome: lo stesso nome esiste in più account
+// (`backend` sta in staging e in produzione, gli stessi modelli Bedrock stanno in ogni account).
+// Usare il nome fondeva due servizi in un nodo solo, con lo stato di quello letto per ultimo.
+// `account` arriva come stringa dal risolutore dei servizi e come oggetto `{key,label,color}` nel
+// payload della UI: si normalizza qui, perché una chiave costruita su un oggetto diventa
+// "[object Object]" per tutti gli account e le collisioni tornano tutte insieme.
+export function serviceKey(name, account) {
+  const acct = (typeof account === 'string' ? account : account?.key) ?? '__none__'
+  return `${acct}::${name}`
+}
+const keyOf = (s) => serviceKey(s.name, s.account)
 
 // Estrae gli ARN dalle Resource degli statement Allow di un policy document IAM. Puro e testabile.
 export function collectResourceArns(policyDoc) {
@@ -282,12 +294,12 @@ async function deduceBySecurityGroups(services, accounts, push) {
       const aws = awsFor(s, accounts)
       const sgs = await serviceSecurityGroups(s, aws)
       if (!sgs.length) return
-      const key = s.account ?? '__none__'
-      if (!perAccount.has(key)) perAccount.set(key, { sgToServices: new Map(), aws })
-      const m = perAccount.get(key).sgToServices
+      const acct = s.account ?? '__none__'
+      if (!perAccount.has(acct)) perAccount.set(acct, { sgToServices: new Map(), aws })
+      const m = perAccount.get(acct).sgToServices
       for (const sg of sgs) {
         if (!m.has(sg)) m.set(sg, new Set())
-        m.get(sg).add(s.name)
+        m.get(sg).add(keyOf(s))
       }
     }),
   )
@@ -325,16 +337,16 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
   const albs = services.filter((s) => s.aws?.type === 'alb' && (s.aws.arn || s.aws.name))
   if (!albs.length) return
 
-  const ecsByTg = new Map() // `${account}|${targetGroupArn}` -> nome servizio ECS
+  const ecsByTg = new Map() // `${account}|${targetGroupArn}` -> chiave servizio ECS
   for (const s of services) {
     if (s.aws?.type !== 'ecs') continue
-    for (const tg of ecsData.get(s.name)?.tgArns ?? [])
-      ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, s.name)
+    for (const tg of ecsData.get(keyOf(s))?.tgArns ?? [])
+      ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, keyOf(s))
   }
-  const ec2ByInstance = new Map() // `${account}|${instanceId}` -> nome servizio EC2
+  const ec2ByInstance = new Map() // `${account}|${instanceId}` -> chiave servizio EC2
   for (const s of services)
     if (s.aws?.type === 'ec2' && s.aws.instanceId)
-      ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, s.name)
+      ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, keyOf(s))
 
   await Promise.all(
     albs.map(async (alb) => {
@@ -349,10 +361,11 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
         }
         if (!lbArn) return
         const tgo = await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lbArn }))
+        const albKey = keyOf(alb)
         for (const tg of tgo.TargetGroups ?? []) {
-          const ecsName = ecsByTg.get(`${acct}|${tg.TargetGroupArn}`)
-          if (ecsName && ecsName !== alb.name) {
-            push(alb.name, ecsName, 'lb')
+          const ecsKey = ecsByTg.get(`${acct}|${tg.TargetGroupArn}`)
+          if (ecsKey && ecsKey !== albKey) {
+            push(albKey, ecsKey, 'lb')
             continue
           }
           if (tg.TargetType !== 'instance') continue
@@ -361,8 +374,8 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
               new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn }),
             )
             for (const d of th.TargetHealthDescriptions ?? []) {
-              const name = ec2ByInstance.get(`${acct}|${d.Target?.Id}`)
-              if (name && name !== alb.name) push(alb.name, name, 'lb')
+              const ec2Key = ec2ByInstance.get(`${acct}|${d.Target?.Id}`)
+              if (ec2Key && ec2Key !== albKey) push(albKey, ec2Key, 'lb')
             }
           } catch {
             /* DescribeTargetHealth non concesso → niente archi lb via istanza */
@@ -375,17 +388,25 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
   )
 }
 
-// Deduzione completa. Ritorna { edges:[{source,target,vias[]}], extraNodes:[{id,type,label}] }.
-// extraNodes = sorgenti evento non tracciate (code/stream) da disegnare come nodi esterni.
+// Deduzione completa. Ritorna { edges, extraNodes, nodes }:
+//   edges      [{ source, target, vias[] }] — source/target sono CHIAVI (`account::nome`), non nomi
+//   extraNodes [{ id, type, label }]        — sorgenti evento non tracciate (code/stream), id già unico
+//   nodes      [{ id, name, account, type }] — chiave → servizio, per etichettare senza indovinare
 export async function deduceTopology(services, accounts) {
   const idList = await Promise.all(
     services.map(async (s) => ({
       name: s.name,
       account: s.account ?? '__none__', // serve a disambiguare i match tra account diversi
+      key: keyOf(s),
       ids: await identifiers(s, awsFor(s, accounts)),
     })),
   )
-  const byName = new Set(services.map((s) => s.name))
+  // Un `dependsOn` dichiarato cita un NOME, non una chiave: si risolve preferendo lo stesso account,
+  // e resta ambiguo solo se quel nome esiste in più account e nessuno è il proprio.
+  const resolveDeclared = (name, self) =>
+    idList.find((t) => t.name === name && t.account === self.account)?.key ??
+    idList.find((t) => t.name === name)?.key ??
+    null
 
   const edges = []
   const extra = new Map()
@@ -401,14 +422,17 @@ export async function deduceTopology(services, accounts) {
 
   // relazioni dichiarate a mano (se presenti) — restano valide e marcate 'declared'.
   for (const s of services)
-    for (const d of s.dependsOn ?? []) if (byName.has(d)) push(s.name, d, 'declared')
+    for (const d of s.dependsOn ?? []) {
+      const target = resolveDeclared(d, { account: s.account ?? '__none__' })
+      if (target) push(keyOf(s), target, 'declared')
+    }
 
   // ECS: leggo env + target group una volta sola per servizio (riusati dai pass env e lb).
   const ecsData = new Map()
   await Promise.all(
     services
       .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service)
-      .map(async (s) => ecsData.set(s.name, await ecsInfo(s, awsFor(s, accounts)))),
+      .map(async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts)))),
   )
 
   // env (Lambda + ECS) + event source (Lambda).
@@ -419,16 +443,16 @@ export async function deduceTopology(services, accounts) {
 
       if (type === 'lambda' && s.aws.function) {
         const { env, sources, role } = await lambdaReferences(s, awsFor(s, accounts))
-        if (role) roleByService.set(s.name, role)
+        if (role) roleByService.set(keyOf(s), role)
         // Match a TOKEN ESATTO (non substring): le env sono già stringhe separate; tokenizzo su
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
-        for (const t of matchEnvTargets(env, self, idList)) push(s.name, t.name, 'env')
+        for (const t of matchEnvTargets(env, self, idList)) push(keyOf(s), t.key, 'env')
 
         for (const arn of sources) {
           const matched = matchByArn(arn, idList, self)
           if (matched) {
-            push(s.name, matched, 'event')
+            push(keyOf(s), matched.key, 'event')
             continue
           }
           // sorgente non tracciata → nodo esterno (arn:aws:<kind>:region:acct:<name>)
@@ -437,11 +461,11 @@ export async function deduceTopology(services, accounts) {
           const resName = parts.slice(5).join(':') || arn
           const id = `ext:${kind}:${resName}`
           if (!extra.has(id)) extra.set(id, { id, type: kind, label: resName })
-          push(s.name, id, 'event')
+          push(keyOf(s), id, 'event')
         }
       } else if (type === 'ecs') {
-        for (const t of matchEnvTargets(ecsData.get(s.name)?.env ?? '', self, idList))
-          push(s.name, t.name, 'env')
+        for (const t of matchEnvTargets(ecsData.get(keyOf(s))?.env ?? '', self, idList))
+          push(keyOf(s), t.key, 'env')
       }
     }),
   )
@@ -457,7 +481,7 @@ export async function deduceTopology(services, accounts) {
           const o = await sfn.send(new DescribeStateMachineCommand({ stateMachineArn: s.aws.arn }))
           for (const arn of extractArns(o.definition)) {
             const matched = matchByArn(arn, idList, self)
-            if (matched) push(s.name, matched, 'flow')
+            if (matched) push(keyOf(s), matched.key, 'flow')
           }
         } catch {
           /* states:DescribeStateMachine assente → niente archi 'flow' */
@@ -474,13 +498,13 @@ export async function deduceTopology(services, accounts) {
     services.map(async (s) => {
       const type = s.aws?.type
       const roleArn =
-        type === 'lambda' ? roleByService.get(s.name) : type === 'ecs' ? ecsData.get(s.name)?.roleArn : null
+        type === 'lambda' ? roleByService.get(keyOf(s)) : type === 'ecs' ? ecsData.get(keyOf(s))?.roleArn : null
       if (!roleArn) return
       const self = { name: s.name, account: s.account ?? '__none__' }
       const arns = await iamResourceArns(roleArn, awsFor(s, accounts), roleCache)
       for (const arn of arns) {
         const matched = matchByArn(arn, idList, self)
-        if (matched) push(s.name, matched, 'iam')
+        if (matched) push(keyOf(s), matched.key, 'iam')
       }
     }),
   ).catch(() => {})
@@ -488,5 +512,13 @@ export async function deduceTopology(services, accounts) {
   // rete (security group) — best effort, non blocca se manca il permesso.
   await deduceBySecurityGroups(services, accounts, push).catch(() => {})
 
-  return { edges, extraNodes: [...extra.values()] }
+  // `nodes` porta la corrispondenza chiave → servizio: la UI non deve ricostruirsi la convenzione
+  // della chiave, che è l'errore da cui nasceva la fusione di due servizi omonimi in un nodo solo.
+  const nodes = services.map((s) => ({
+    id: keyOf(s),
+    name: s.name,
+    account: s.account ?? null,
+    type: s.aws?.type ?? s.type ?? null,
+  }))
+  return { edges, extraNodes: [...extra.values()], nodes }
 }

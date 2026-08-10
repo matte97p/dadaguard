@@ -83,9 +83,11 @@ test('demo budget: proiezione e livello escono dallo stesso ritmo dei costi, non
 
 test('demoTopology: ogni arco punta a un servizio reale o a un extraNode', () => {
   const { edges, extraNodes } = demoTopology()
-  const names = new Set(demoStatus('en').services.map((s) => s.name))
+  // Gli estremi sono CHIAVI `account::nome`: confrontarle con i soli nomi lasciava passare un arco
+  // che punta al servizio omonimo dell'ambiente sbagliato, che è l'errore da intercettare qui.
+  const keys = new Set(demoStatus('en').services.map((s) => `${s.account?.key ?? '__none__'}::${s.name}`))
   const extraIds = new Set(extraNodes.map((n) => n.id))
-  const known = (id) => names.has(id) || extraIds.has(id)
+  const known = (id) => keys.has(id) || extraIds.has(id)
   for (const e of edges) {
     assert.ok(known(e.source), `arco da servizio inesistente: ${e.source}`)
     assert.ok(known(e.target), `arco verso nodo inesistente: ${e.target}`)

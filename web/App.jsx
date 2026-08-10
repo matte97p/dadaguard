@@ -356,6 +356,11 @@ export default function App() {
     return [...m.values()]
   }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly, t])
 
+  // La lista piatta dei servizi filtrati, con identità STABILE. Ricrearla inline a ogni render
+  // (`groups.flatMap(...)`) invalidava i `useMemo` di chi la riceve: la Topologia rifaceva il layout
+  // del grafo a ogni battuta nel campo di ricerca, perdendo zoom e trascinamenti.
+  const flatServices = useMemo(() => groups.flatMap((g) => g.services), [groups])
+
   // Account (per label) dopo il filtro servizi completo → per la Topologia (che filtra i servizi).
   const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
 
@@ -662,7 +667,7 @@ export default function App() {
                 path="/topologia"
                 element={
                   <TopologyPage
-                    services={groups.flatMap((g) => g.services)}
+                    services={flatServices}
                     accountLabels={visibleLabels}
                     dark={dark}
                     t={t}
@@ -699,7 +704,7 @@ export default function App() {
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
-          services={groups.flatMap((g) => g.services)}
+          services={flatServices}
           onPick={(svc) => openDetail(svc, 'overview')}
           t={t}
         />

@@ -53,7 +53,8 @@ test('extractArns: pesca gli ARN da una definizione Step Functions', () => {
 test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () => {
   // "acme-staging-webhook" esiste in staging e production: da uno step SFN staging vince lo staging.
   const arn = 'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook'
-  assert.equal(matchByArn(arn, idList, { name: 'orchestrator', account: 'staging' }), 'webhook-stg')
+  // Ritorna il CANDIDATO, non il nome: serve la sua chiave per non fondere due omonimi in un nodo.
+  assert.equal(matchByArn(arn, idList, { name: 'orchestrator', account: 'staging' })?.name, 'webhook-stg')
   // ARN che non punta a nulla di tracciato → null
   assert.equal(matchByArn('arn:aws:s3:::qualche-bucket', idList, { name: 'x', account: 'staging' }), null)
 })
