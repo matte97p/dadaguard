@@ -29,6 +29,7 @@
         "sqs:GetQueueAttributes",
         "dynamodb:DescribeTable",
         "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeReplicationGroups",
         "states:DescribeStateMachine",
         "states:ListExecutions"
       ],

@@ -184,14 +184,18 @@ export function matchByArn(arn, idList, self) {
 // Identificatore di un servizio nel grafo. NON è il nome: lo stesso nome esiste in più account
 // (`backend` sta in staging e in produzione, gli stessi modelli Bedrock stanno in ogni account).
 // Usare il nome fondeva due servizi in un nodo solo, con lo stato di quello letto per ultimo.
+// NB non è il `serviceKey` di autodiscover.js (identità della RISORSA aws, per il merge dichiarati/
+// scoperti) né quello di notify/diff.js: qui serve l'id di un NODO del grafo, e i tre non sono
+// interscambiabili — uno sbaglio di import passerebbe i test e fonderebbe i nodi come prima.
+//
 // `account` arriva come stringa dal risolutore dei servizi e come oggetto `{key,label,color}` nel
 // payload della UI: si normalizza qui, perché una chiave costruita su un oggetto diventa
 // "[object Object]" per tutti gli account e le collisioni tornano tutte insieme.
-export function serviceKey(name, account) {
+export function topologyNodeId(name, account) {
   const acct = (typeof account === 'string' ? account : account?.key) ?? '__none__'
   return `${acct}::${name}`
 }
-const keyOf = (s) => serviceKey(s.name, s.account)
+const keyOf = (s) => topologyNodeId(s.name, s.account)
 
 // Estrae gli ARN dalle Resource degli statement Allow di un policy document IAM. Puro e testabile.
 export function collectResourceArns(policyDoc) {
