@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchEnvTargets, matchByArn, extractArns, collectResourceArns } from '../server/topology/deduce.js'
+import {
+  matchEnvTargets,
+  matchByArn,
+  extractArns,
+  collectResourceArns,
+  topologyNodeId,
+} from '../server/topology/deduce.js'
 
 const idList = [
   { name: 'webhook-stg', account: 'staging', ids: ['acme-staging-webhook'] },
@@ -77,4 +83,20 @@ test('collectResourceArns: pesca gli ARN Resource dai soli statement Allow', () 
     collectResourceArns({ Statement: { Effect: 'Allow', Resource: 'arn:aws:sns:eu-west-1:111:topic' } }),
     ['arn:aws:sns:eu-west-1:111:topic'],
   )
+})
+
+test('topologyNodeId: lo stesso nome in due account dà due nodi distinti', () => {
+  assert.notEqual(topologyNodeId('backend', 'staging'), topologyNodeId('backend', 'production'))
+  assert.equal(topologyNodeId('backend', 'production'), topologyNodeId('backend', 'production'))
+})
+
+test('topologyNodeId: account come oggetto o come stringa danno la STESSA chiave', () => {
+  // Il server passa una stringa, il payload della UI un oggetto. Se le due forme divergessero, gli
+  // archi (chiave lato server) non troverebbero i nodi (chiave lato UI) e il grafo resterebbe vuoto.
+  assert.equal(topologyNodeId('backend', 'production'), topologyNodeId('backend', { key: 'production' }))
+})
+
+test('topologyNodeId: senza account non collassa su chiavi diverse per nomi diversi', () => {
+  assert.notEqual(topologyNodeId('a', null), topologyNodeId('b', null))
+  assert.equal(topologyNodeId('a', null), topologyNodeId('a', undefined))
 })

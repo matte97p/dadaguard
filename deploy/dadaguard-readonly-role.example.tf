@@ -66,6 +66,7 @@ data "aws_iam_policy_document" "readonly" {
       "sqs:GetQueueUrl", "sqs:GetQueueAttributes",   # #3 runtime SQS (profondità coda)
       "dynamodb:DescribeTable",                       # #3 runtime DynamoDB (stato tabella)
       "elasticache:DescribeCacheClusters",            # #3 runtime ElastiCache (stato cluster)
+      "elasticache:DescribeReplicationGroups",        # #3 runtime ElastiCache (stato del gruppo, non del nodo)
       "states:DescribeStateMachine", "states:ListExecutions", # Step Functions
       "eks:DescribeCluster",                                  # EKS
       "cloudfront:GetDistribution",                           # CloudFront (globale, us-east-1)

@@ -9,6 +9,15 @@ import {
   DescribeAutoScalingGroupsCommand,
 } from '@aws-sdk/client-auto-scaling'
 import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch'
+import {
+  ElasticLoadBalancingV2Client,
+  DescribeLoadBalancersCommand,
+} from '@aws-sdk/client-elastic-load-balancing-v2'
+import {
+  ElastiCacheClient,
+  DescribeCacheClustersCommand,
+  DescribeReplicationGroupsCommand,
+} from '@aws-sdk/client-elasticache'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { managedResources } from './terraform/state.js'
 import { discoverSchedules, minutesToSchedule } from './schedules.js'
@@ -161,6 +170,60 @@ async function listOpenSearchDomains(aws) {
   return out.sort((a, b) => a.domain.localeCompare(b.domain))
 }
 
+// Load balancer (elbv2: application e network). Senza questi la topologia non ha un INGRESSO: la
+// deduzione degli archi `lb` parte dai servizi con `aws.type === 'alb'` e, non trovandone, esce
+// subito — il grafo restava senza il nodo da cui entra il traffico.
+async function listLoadBalancers(aws) {
+  const client = new ElasticLoadBalancingV2Client(clientOpts(aws))
+  const out = []
+  let marker
+  do {
+    const r = await client.send(new DescribeLoadBalancersCommand({ Marker: marker }))
+    for (const lb of r.LoadBalancers ?? []) {
+      if (!lb.LoadBalancerName || !lb.LoadBalancerArn) continue
+      out.push({ name: lb.LoadBalancerName, arn: lb.LoadBalancerArn, lbType: lb.Type ?? null })
+    }
+    marker = r.NextMarker
+  } while (marker)
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Cache ElastiCache, UNA per cache logica. Un Redis a due nodi risponde con `<gruppo>-001` e
+// `<gruppo>-002`: elencare i nodi darebbe due voci di cui nessuna è «il Redis». Quindi si elencano i
+// replication group, e i cluster singoli solo se non appartengono a un gruppo.
+async function listCaches(aws) {
+  const client = new ElastiCacheClient(clientOpts(aws))
+  const out = []
+  const grouped = new Set()
+
+  let marker
+  do {
+    const r = await client.send(new DescribeReplicationGroupsCommand({ Marker: marker }))
+    for (const g of r.ReplicationGroups ?? []) {
+      if (!g.ReplicationGroupId) continue
+      for (const m of g.MemberClusters ?? []) grouped.add(m)
+      out.push({
+        name: g.ReplicationGroupId,
+        aws: { type: 'elasticache', replicationGroup: g.ReplicationGroupId },
+        description: g.Description || undefined,
+      })
+    }
+    marker = r.Marker
+  } while (marker)
+
+  marker = undefined
+  do {
+    const r = await client.send(new DescribeCacheClustersCommand({ Marker: marker, ShowCacheNodeInfo: false }))
+    for (const c of r.CacheClusters ?? []) {
+      if (!c.CacheClusterId || c.ReplicationGroupId || grouped.has(c.CacheClusterId)) continue
+      out.push({ name: c.CacheClusterId, aws: { type: 'elasticache', cluster: c.CacheClusterId } })
+    }
+    marker = r.Marker
+  } while (marker)
+
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 // SES è attivo nell'account? (esistono metriche di invio)
 async function sesActive(aws) {
   const cw = new CloudWatchClient(clientOpts(aws))
@@ -201,7 +264,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       return fallback
     })
 
-  let [lam, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses] = await Promise.all([
+  let [lam, ecs, asgs, schedules, bedrockModels, smEndpoints, osDomains, ses, lbs, caches] = await Promise.all([
     soft('lambda', listLambda(aws), { names: [], desc: {} }),
     soft('ecs', listEcs(aws), []),
     soft('asg', listAsg(aws), []),
@@ -210,6 +273,8 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     soft('sagemaker', listMetricDimension(aws, 'AWS/SageMaker', 'Invocations', 'EndpointName'), []),
     soft('opensearch', listOpenSearchDomains(aws), []),
     soft('ses', sesActive(aws), false),
+    soft('loadbalancer', listLoadBalancers(aws), []),
+    soft('elasticache', listCaches(aws), []),
   ])
   let lambdas = lam.names
   const lamDesc = lam.desc // FunctionName → Description (per la card, senza chiamate extra)
@@ -233,6 +298,8 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
     bedrockModels = bedrockModels.filter((m) => !ex.test(m))
     smEndpoints = smEndpoints.filter((n) => !ex.test(n))
     osDomains = osDomains.filter((d) => !ex.test(d.domain))
+    lbs = lbs.filter((l) => !ex.test(l.name))
+    caches = caches.filter((c) => !ex.test(c.name))
     schedules.ecs = schedules.ecs.filter((e) => !ex.test(ecsCron.exec(e.taskDefArn)?.[1] ?? e.name))
   }
 
@@ -279,6 +346,19 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       name: d.domain,
       kind: 'opensearch',
       aws: { type: 'opensearch', domain: d.domain, clientId: d.clientId, dimensions: d.dimensions },
+    })),
+    // L'ARN, non il nome: `DescribeLoadBalancers` per nome fa una lettura in più a ogni check, e un
+    // LB ricreato con lo stesso nome è un'altra risorsa.
+    ...lbs.map((l) => ({
+      name: l.name,
+      kind: 'alb',
+      aws: { type: 'alb', arn: l.arn, name: l.name, ...(l.lbType ? { lbType: l.lbType } : {}) },
+    })),
+    ...caches.map((c) => ({
+      name: c.name,
+      kind: 'elasticache',
+      aws: c.aws,
+      ...(c.description ? { description: c.description } : {}),
     })),
     ...(ses ? [{ name: 'ses', kind: 'ses', aws: { type: 'ses' } }] : []),
   ]

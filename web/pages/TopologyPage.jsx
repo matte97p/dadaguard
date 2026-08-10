@@ -26,12 +26,12 @@ const VIA = {
   net: { color: '#13c2c2' },
 }
 
-// Chiave di un servizio nel grafo, gemella di `serviceKey` in server/topology/deduce.js — dove gli
+// Chiave di un servizio nel grafo, gemella di `topologyNodeId` in server/topology/deduce.js — dove gli
 // archi nascono già con questa forma. NON è il nome: `backend` esiste in staging e in produzione, e i
 // modelli Bedrock stanno in ogni account. Usare il nome fondeva due servizi in un nodo solo (con lo
 // stato di quello letto per ultimo) e duplicava le `key` React della lista laterale, che così
 // accumulava righe morte invece di sostituirle.
-export function svcKey(s) {
+export function topologyNodeId(s) {
   const acct = (typeof s.account === 'string' ? s.account : s.account?.key) ?? '__none__'
   return `${acct}::${s.name}`
 }
@@ -90,7 +90,7 @@ function classifyHubs(edges) {
 // disegnati, ma smorzati: sono contesto, non risultato.
 function buildGraph(services, topo, dark, t) {
   const universe = new Map((topo.nodes ?? []).map((n) => [n.id, n]))
-  const selected = new Map(services.map((s) => [svcKey(s), s]))
+  const selected = new Map(services.map((s) => [topologyNodeId(s), s]))
   const external = new Map((topo.extraNodes ?? []).map((n) => [n.id, n]))
   const known = (id) => selected.has(id) || universe.has(id) || external.has(id)
 
@@ -105,7 +105,7 @@ function buildGraph(services, topo, dark, t) {
   // `topo.nodes` porta la CHIAVE dell'account ('production'), i servizi la sua etichetta
   // ('Production'): senza tradurla, un vicino fuori dal filtro finiva accanto a un servizio dentro al
   // filtro con lo stesso account scritto in due modi, che si legge come un errore.
-  const accountLabels = new Map(services.map((s) => [svcKey(s).split('::')[0], acctLabel(s)]).filter(([, l]) => l))
+  const accountLabels = new Map(services.map((s) => [topologyNodeId(s).split('::')[0], acctLabel(s)]).filter(([, l]) => l))
   const accountOf = (id) => {
     const s = selected.get(id)
     if (s) return acctLabel(s)
@@ -255,10 +255,10 @@ function buildGraph(services, topo, dark, t) {
   // e in un elenco piatto di 52 righe coprivano il disegno invece di completarlo.
   const orphanByType = new Map()
   for (const s of services) {
-    if (inGraph.has(svcKey(s))) continue
+    if (inGraph.has(topologyNodeId(s))) continue
     const type = s.type ?? '—'
     if (!orphanByType.has(type)) orphanByType.set(type, [])
-    orphanByType.get(type).push({ key: svcKey(s), name: s.name, status: s.overall, account: acctLabel(s) })
+    orphanByType.get(type).push({ key: topologyNodeId(s), name: s.name, status: s.overall, account: acctLabel(s) })
   }
   const orphans = [...orphanByType.entries()]
     .map(([type, items]) => ({ type, items: items.sort((a, b) => a.name.localeCompare(b.name)) }))
