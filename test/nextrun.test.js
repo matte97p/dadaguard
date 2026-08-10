@@ -93,7 +93,7 @@ test('missedWindow: espressione non calcolabile → null (il chiamante torna all
 })
 
 // --- Fuso dello schedule (ScheduleExpressionTimezone di EventBridge Scheduler) ---
-// Caso reale: i cron Cato hanno `ScheduleExpressionTimezone: Europe/Rome`. Letta in UTC, l'espressione
+// Caso reale: i nostri cron hanno `ScheduleExpressionTimezone: Europe/Rome`. Letta in UTC, l'espressione
 // `cron(0 17 ? * MON-FRI *)` punta 2 ore dopo l'esecuzione vera (in estate) — abbastanza per cercare
 // l'invocazione nella finestra sbagliata e dichiarare fermo un cron che ha girato regolarmente.
 

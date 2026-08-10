@@ -158,7 +158,7 @@ export default function ServiceCard({
   const account = service.account
 
   // Nome: i modelli Bedrock hanno il loro nome parlante; per tutto il resto testa muta (la famiglia
-  // condivisa nel gruppo, es. `cato-staging-cron-`) + coda in evidenza — su 25 card leggi subito la
+  // condivisa nel gruppo, es. `acme-staging-cron-`) + coda in evidenza — su 25 card leggi subito la
   // parte che le distingue, senza perdere il nome completo (testa + coda, in fila).
   const bedrock = service.type === 'bedrock' ? prettyBedrock(service.name) : null
   const { family, tail } = bedrock

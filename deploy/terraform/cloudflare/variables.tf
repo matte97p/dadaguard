@@ -38,7 +38,7 @@ variable "allowed_email_domains" {
 variable "allowed_emails" {
   type        = list(string)
   default     = []
-  description = "Singole email ammesse (oltre ai domini), es. [\"ops@altrove.com\"]."
+  description = "Singole email ammesse (oltre ai domini), es. [\"ops@example.com\"]."
 }
 
 variable "allowed_idps" {

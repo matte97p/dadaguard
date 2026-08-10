@@ -14,10 +14,10 @@
 set -euo pipefail
 
 REGION=eu-central-1
-CLUSTER=cato-management
+CLUSTER=${DADAGUARD_ECS_CLUSTER:-dadaguard}
 SERVICE=dadaguard
 P_CFG=/dadaguard/services-yaml
-IAC="$HOME/www/cato-infra/aws-management/live/management"
+IAC="$HOME/www/acme-infra/aws-management/live/management"
 
 TMP=$(mktemp -d)
 chmod 700 "$TMP"

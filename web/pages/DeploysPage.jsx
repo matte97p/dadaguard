@@ -535,7 +535,7 @@ function PollStatus({ lastUpdated, refreshing, t }) {
   )
 }
 
-// Pagina Deploy: build CodeBuild di deploy (`cato-*-*-deploy`) per account — cosa sta uscendo ora e
+// Pagina Deploy: build CodeBuild di deploy (`acme-*-*-deploy`) per account — cosa sta uscendo ora e
 // com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
 // (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
 export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = 'all' }) {

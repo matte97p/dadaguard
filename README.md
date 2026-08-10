@@ -115,7 +115,7 @@ DADAGUARD_PUBLIC_URL=https://dadaguard.example   # link in fondo al messaggio
 ```
 
 **Due destinazioni, perché non tutto va detto da Dadaguard.** Se i tuoi cron avvisano già da sé quando
-crashano (in Cato lo fa `catocron`, col messaggio di errore vero), ridirlo è duplicare — e due canali
+crashano (da noi lo fa `il pacchetto cron condiviso`, col messaggio di errore vero), ridirlo è duplicare — e due canali
 che dicono la stessa cosa insegnano a ignorarli entrambi. Quindi:
 
 | Cosa | Dove | Perché |

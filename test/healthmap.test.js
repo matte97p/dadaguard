@@ -17,14 +17,14 @@ test('byServiceName: `account/nome` batte il nome secco', () => {
 })
 
 test('URL intero: usato così com’è', () => {
-  const out = applyHealthUrls([svc('backend')], { backend: 'https://staging-endpoint.get-cato.com/health' }, null)
-  assert.equal(out[0].healthUrl, 'https://staging-endpoint.get-cato.com/health')
+  const out = applyHealthUrls([svc('backend')], { backend: 'https://staging-endpoint.example.com/health' }, null)
+  assert.equal(out[0].healthUrl, 'https://staging-endpoint.example.com/health')
 })
 
 test('path relativo: risolto sull’URL dichiarato in `urls`', () => {
-  const urls = { backend: 'https://staging-endpoint.get-cato.com' }
+  const urls = { backend: 'https://staging-endpoint.example.com' }
   const out = applyHealthUrls([svc('backend')], { backend: '/health' }, urls)
-  assert.equal(out[0].healthUrl, 'https://staging-endpoint.get-cato.com/health')
+  assert.equal(out[0].healthUrl, 'https://staging-endpoint.example.com/health')
 })
 
 test('path relativo senza URL di base: NESSUNA sonda', () => {
@@ -36,7 +36,7 @@ test('path relativo senza URL di base: NESSUNA sonda', () => {
 
 test('healthUrl dichiarato a mano: la mappa non lo tocca', () => {
   const declared = svc('backend', 'staging', { healthUrl: 'https://mio/health' })
-  const urls = { backend: 'https://staging-endpoint.get-cato.com' }
+  const urls = { backend: 'https://staging-endpoint.example.com' }
   const out = applyHealthUrls([declared], { backend: '/altro' }, urls)
   assert.equal(out[0].healthUrl, 'https://mio/health')
 })

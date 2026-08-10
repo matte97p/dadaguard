@@ -70,7 +70,7 @@ export function parseCron(expr) {
 }
 
 // Campi di calendario di un istante, nel FUSO dello schedule. EventBridge Scheduler accetta
-// `ScheduleExpressionTimezone` (i cron Cato sono su Europe/Rome): valutare l'espressione in UTC
+// `ScheduleExpressionTimezone` (i nostri cron sono su Europe/Rome): valutare l'espressione in UTC
 // sposta ogni calcolo di 1-2 ore — abbastanza per cercare l'esecuzione nella finestra sbagliata.
 // Niente aritmetica manuale sui fusi: si chiede a Intl i campi dell'orologio locale di quell'istante,
 // così l'ora legale è gestita per costruzione.

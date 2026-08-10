@@ -5,7 +5,7 @@ import { classifyProbe } from '../server/checks/liveness.js'
 // Una sonda anonima da fuori non può dire se un'app PROTETTA è sana. Prima la sonda seguiva i
 // redirect e leggeva 200 sulla pagina di login di Cloudflare Access: «risponde · HTTP 200» su
 // un'applicazione che poteva essere spenta. Verificato sul vero, oggi:
-//   GET https://dadaguard.get-cato.com/ → 302 → tech-cato.cloudflareaccess.com/cdn-cgi/access/login/… → 200
+//   GET https://dadaguard.example.com/ → 302 → example.cloudflareaccess.com/cdn-cgi/access/login/… → 200
 const t = (k, v) => (v?.host ? `${k}:${v.host}` : k)
 
 test('2xx risponde: è su', () => {
@@ -17,8 +17,8 @@ test('il login di Access NON è l’app: stato sconosciuto, non verde', () => {
   const r = classifyProbe(
     {
       httpStatus: 302,
-      location: 'https://tech-cato.cloudflareaccess.com/cdn-cgi/access/login/dadaguard.get-cato.com?kid=abc',
-      target: 'https://dadaguard.get-cato.com/',
+      location: 'https://example.cloudflareaccess.com/cdn-cgi/access/login/dadaguard.example.com?kid=abc',
+      target: 'https://dadaguard.example.com/',
     },
     t,
   )

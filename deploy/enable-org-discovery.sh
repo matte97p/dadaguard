@@ -15,10 +15,10 @@
 set -euo pipefail
 
 REGION=eu-central-1
-CLUSTER=cato-management
+CLUSTER=${DADAGUARD_ECS_CLUSTER:-dadaguard}
 SERVICE=dadaguard
 P_CFG=/dadaguard/services-yaml
-LAYER="$HOME/www/cato-infra/aws-management/live/security/dadaguard-readonly"
+LAYER="${DADAGUARD_IAC_DIR:-$HOME/iac}/live/security/dadaguard-readonly"
 
 TMP=$(mktemp -d)
 chmod 700 "$TMP"
@@ -103,11 +103,16 @@ else
   } >>"$TMP/cfg.yaml"
 
   # `freeTierAccount` punta a una CHIAVE di account: con la scoperta il payer prende la chiave del suo
-  # nome nell'organizzazione (AppaltiGPT → appaltigpt). Se puntava a `management`, la vista Free Tier
+  # nome nell'organizzazione (es. `Acme` → `acme`). Se puntava a `management`, la vista Free Tier
   # cercherebbe un account che non esiste più con quel nome.
   if grep -qE '^freeTierAccount:[[:space:]]*management[[:space:]]*$' "$TMP/cfg.yaml"; then
-    sed -i '' -E 's/^freeTierAccount:[[:space:]]*management[[:space:]]*$/freeTierAccount: appaltigpt/' "$TMP/cfg.yaml"
-    echo "  freeTierAccount: management → appaltigpt (la chiave cambia con la scoperta)"
+    # La chiave dell'account payer diventa il nome che l'organizzazione gli dà, minuscolo: si legge da
+    # AWS invece di scriverlo qui, così lo script vale per chiunque e non nomina nessuna azienda.
+    PAYER_ID=$(payer sts get-caller-identity --query Account --output text)
+    PAYER_KEY=$(payer organizations describe-account --account-id "$PAYER_ID" \
+      --query 'Account.Name' --output text | tr '[:upper:] ' '[:lower:]-')
+    sed -i '' -E "s/^freeTierAccount:[[:space:]]*management[[:space:]]*$/freeTierAccount: ${PAYER_KEY}/" "$TMP/cfg.yaml"
+    echo "  freeTierAccount: management → ${PAYER_KEY} (la chiave cambia con la scoperta)"
   fi
 
   payer ssm put-parameter --region "$REGION" --name "$P_CFG" --type SecureString \
@@ -133,7 +138,7 @@ payer logs filter-log-events --region "$REGION" --log-group-name /ecs/dadaguard 
 
 cat <<'NOTE'
 
-Atteso: quattro account (Staging, Production, AppaltiGPT/payer, Security).
+Atteso: i tuoi account (es. Staging, Production, payer, Security).
 Se Security compare con un errore di AssumeRole, il ruolo del passo 1 non è stato creato.
 Per tornare indietro: rimetti in SSM il file di backup stampato sopra e rilancia un force-new-deployment.
 NOTE

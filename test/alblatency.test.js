@@ -6,7 +6,7 @@ import { arnParts, mergeLatency } from '../server/taskMetrics.js'
 // Riga reale di access log ALB (formato v2): campi separati da spazi, con i campi testuali tra
 // virgolette. Il campo 5 è `target:port`, il 7 è `target_processing_time` in secondi.
 const LINE =
-  'https 2026-07-29T16:40:12.123456Z app/cato-staging-alb/abc123 10.0.1.10:54321 10.0.84.69:8000 0.001 0.243 0.000 200 200 512 1024 "GET https://endpoint.appaltigpt.com:443/api/tenders?q=lavori HTTP/1.1" "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:eu-central-1:521595303218:targetgroup/cato-staging-backend/aaa "Root=1-abc-def" "endpoint.appaltigpt.com" "arn:aws:acm:eu-central-1:521595303218:certificate/xyz" 0 2026-07-29T16:40:12.100000Z "forward" "-" "-" "10.0.84.69:8000" "200" "-" "-"'
+  'https 2026-07-29T16:40:12.123456Z app/acme-staging-alb/abc123 10.0.1.10:54321 10.0.84.69:8000 0.001 0.243 0.000 200 200 512 1024 "GET https://endpoint.example.com:443/api/tenders?q=lavori HTTP/1.1" "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:eu-central-1:222233334444:targetgroup/acme-staging-backend/aaa "Root=1-abc-def" "endpoint.example.com" "arn:aws:acm:eu-central-1:222233334444:certificate/xyz" 0 2026-07-29T16:40:12.100000Z "forward" "-" "-" "10.0.84.69:8000" "200" "-" "-"'
 
 test('splitLogLine: i campi quotati con spazi non spostano gli indici', () => {
   // Uno split(' ') ingenuo spezzerebbe la request-line e lo user-agent, e da lì in poi OGNI indice
@@ -14,7 +14,7 @@ test('splitLogLine: i campi quotati con spazi non spostano gli indici', () => {
   const f = splitLogLine(LINE)
   assert.equal(f[4], '10.0.84.69:8000')
   assert.equal(f[6], '0.243')
-  assert.equal(f[12], 'GET https://endpoint.appaltigpt.com:443/api/tenders?q=lavori HTTP/1.1')
+  assert.equal(f[12], 'GET https://endpoint.example.com:443/api/tenders?q=lavori HTTP/1.1')
 })
 
 test('parseAlbLogLine: indirizzo del target e latenza in millisecondi', () => {
@@ -75,7 +75,7 @@ test('aggregateByTarget: conta i 5xx del TARGET, non quelli dell’ALB', () => {
 test('dayPrefixes: una finestra a cavallo della mezzanotte UTC copre due giorni', () => {
   // Guardarne uno solo darebbe "nessun dato" per qualche minuto ogni notte: un buco che si scopre tardi
   // e si scambia per un guasto.
-  const base = 'AWSLogs/521595303218/elasticloadbalancing/eu-central-1/'
+  const base = 'AWSLogs/222233334444/elasticloadbalancing/eu-central-1/'
   const to = Date.parse('2026-07-30T00:05:00Z')
   const from = to - 15 * 60 * 1000
   assert.deepEqual(dayPrefixes(base, from, to), [`${base}2026/07/29/`, `${base}2026/07/30/`])
@@ -89,10 +89,10 @@ test('dayPrefixes: dentro lo stesso giorno, un prefisso solo', () => {
 
 test('arnParts: region e account dall’ARN del target group', () => {
   const { region, accountId } = arnParts(
-    'arn:aws:elasticloadbalancing:eu-central-1:521595303218:targetgroup/cato-staging-backend/aaa',
+    'arn:aws:elasticloadbalancing:eu-central-1:222233334444:targetgroup/acme-staging-backend/aaa',
   )
   assert.equal(region, 'eu-central-1')
-  assert.equal(accountId, '521595303218')
+  assert.equal(accountId, '222233334444')
   assert.deepEqual(arnParts(null), { region: null, accountId: null })
 })
 

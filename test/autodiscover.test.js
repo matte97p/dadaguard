@@ -44,11 +44,11 @@ test('candidatesToServices: region iniettata in aws.region (sweep #8)', () => {
 
 test('mergeServices: i dichiarati vincono, gli scoperti duplicati sono scartati', () => {
   const declared = [
-    { name: 'webhook', account: 'staging', aws: { type: 'lambda', function: 'cato-staging-webhook' }, expectedVersion: 'v2' },
+    { name: 'webhook', account: 'staging', aws: { type: 'lambda', function: 'acme-staging-webhook' }, expectedVersion: 'v2' },
   ]
   const discovered = [
     // stessa risorsa del dichiarato (nome diverso) → NON aggiunto
-    { name: 'cato-staging-webhook', account: 'staging', aws: { type: 'lambda', function: 'cato-staging-webhook' } },
+    { name: 'acme-staging-webhook', account: 'staging', aws: { type: 'lambda', function: 'acme-staging-webhook' } },
     // risorsa nuova → aggiunta
     { name: 'orders', account: 'staging', aws: { type: 'ecs', cluster: 'c', service: 'orders' } },
   ]

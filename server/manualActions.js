@@ -19,6 +19,7 @@ import { clientOpts } from './runtime/awsClient.js'
 import { cachedCall } from './util/cache.js'
 import { principalName } from './util/principal.js'
 import { log } from './log.js'
+import { stripOrgEnv } from './util/envToken.js'
 
 // Finestra di 7 giorni, non 30 come il filtro più ampio della pagina, e la ragione è che 30 non si
 // possono mantenere onestamente: `LookupEvents` non filtra per due attributi insieme, quindi per
@@ -41,7 +42,7 @@ const parse = (raw) => {
 }
 
 // Il ruolo assunto dice COME è stata fatta l'azione: i ruoli `teleport-{restart,hotfix}-<env>`
-// esistono solo per `cato-deploy`, quindi la loro presenza è la prova che l'azione è passata da
+// esistono solo per `acme-deploy`, quindi la loro presenza è la prova che l'azione è passata da
 // Teleport (sessione registrata) e non da una console con AdministratorAccess. Puro/testabile.
 export function viaTeleportRole(arn) {
   return /teleport-(restart|hotfix)-/i.test(String(arn ?? ''))
@@ -55,11 +56,11 @@ export function isHotfixRole(arn) {
   return /teleport-hotfix-/i.test(String(arn ?? ''))
 }
 
-// L'ultimo segmento del nome servizio ECS come lo chiama la pagina Deploy. I servizi Cato si
-// chiamano già `backend`/`frontend`/…, ma un eventuale prefisso d'ambiente va via, altrimenti lo
-// stesso servizio comparirebbe due volte: una per la build e una per il restart. Puro/testabile.
+// Il nome del servizio ECS come lo chiama la pagina Deploy. Un eventuale prefisso `<org>-<env>-` va
+// via, altrimenti lo stesso servizio comparirebbe due volte: una per la build e una per il riavvio.
+// Puro/testabile. L'ancora è l'ambiente, non l'organizzazione — vedi util/envToken.js.
 export function serviceFromEcs(name = '') {
-  return String(name).replace(/^cato-[^-]+-/, '') || String(name)
+  return stripOrgEnv(name) || String(name)
 }
 
 // Un `UpdateService` è un RIAVVIO a mano solo se forza un nuovo deployment SENZA cambiare task

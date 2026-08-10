@@ -8,56 +8,56 @@ import { fmtSchedule } from '../web/format.js'
 
 // Flotta tipica: tanti cron dello stesso ambiente + qualche servizio long-running + un outlier.
 const STAGING = [
-  'cato-staging-cron-scrape-volume-monitor',
-  'cato-staging-cron-scraped-documents-monitor',
-  'cato-staging-cron-scraped-tenders-public-sync',
-  'cato-staging-cron-clickhouse-esiti-cleanup',
-  'cato-staging-cron-avvista-leadgen-enrichment',
-  'cato-staging-cron-avvista-scraper-storage-sync',
-  'cato-staging-backend',
-  'cato-staging-frontend',
-  'cato-staging-agentic-chat',
-  'avvista-staging-db',
+  'acme-staging-cron-scrape-volume-monitor',
+  'acme-staging-cron-scraped-documents-monitor',
+  'acme-staging-cron-scraped-tenders-public-sync',
+  'acme-staging-cron-clickhouse-esiti-cleanup',
+  'acme-staging-cron-reporting-leadgen-enrichment',
+  'acme-staging-cron-reporting-scraper-storage-sync',
+  'acme-staging-backend',
+  'acme-staging-frontend',
+  'acme-staging-agentic-chat',
+  'reporting-staging-db',
 ]
 
 test('splitFamily: la coda è la parte che distingue, la testa è il prefisso condiviso', () => {
   const fam = familyPrefixes(STAGING)
-  assert.deepEqual(splitFamily('cato-staging-cron-scrape-volume-monitor', fam), {
-    family: 'cato-staging-cron-',
+  assert.deepEqual(splitFamily('acme-staging-cron-scrape-volume-monitor', fam), {
+    family: 'acme-staging-cron-',
     tail: 'scrape-volume-monitor',
   })
-  assert.deepEqual(splitFamily('cato-staging-backend', fam), { family: 'cato-staging-', tail: 'backend' })
+  assert.deepEqual(splitFamily('acme-staging-backend', fam), { family: 'acme-staging-', tail: 'backend' })
 })
 
 test('splitFamily: la testa è la STESSA su tutto il gruppo (due fratelli non fanno famiglia)', () => {
   const fam = familyPrefixes(STAGING)
-  // `…cron-scraped-` e `…cron-avvista-` sono condivisi da 2 nomi su 10: sotto la soglia (un terzo),
+  // `…cron-scraped-` e `…cron-reporting-` sono condivisi da 2 nomi su 10: sotto la soglia (un terzo),
   // altrimenti card vicine mostrerebbero teste diverse — e la testa muta non si "salterebbe" più.
-  for (const n of STAGING.filter((n) => n.startsWith('cato-staging-cron-'))) {
-    assert.equal(splitFamily(n, fam).family, 'cato-staging-cron-')
+  for (const n of STAGING.filter((n) => n.startsWith('acme-staging-cron-'))) {
+    assert.equal(splitFamily(n, fam).family, 'acme-staging-cron-')
   }
-  assert.ok(!fam.has('cato-staging-cron-scraped-'))
+  assert.ok(!fam.has('acme-staging-cron-scraped-'))
 })
 
 // Regressione dal campo: account Staging reale, 21 servizi (i Bedrock già esclusi dal chiamante).
-// `cato-staging-` copre 12/21 (57%) e `cato-staging-cron-` 9/21 (43%): con una soglia a metà gruppo
+// `acme-staging-` copre 12/21 (57%) e `acme-staging-cron-` 9/21 (43%): con una soglia a metà gruppo
 // NESSUNA delle due passava e in produzione non si compattava niente.
 test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" il 43% del gruppo', () => {
   const real = [
-    'cato-staging-cron-scrape-volume-monitor',
-    'cato-staging-cron-scraped-documents-monitor',
-    'cato-staging-cron-scraped-tenders-public-sync',
-    'cato-staging-cron-clickhouse-esiti-cleanup',
-    'cato-staging-cron-avvista-leadgen-enrichment',
-    'cato-staging-cron-avvista-scraper-storage-sync',
-    'cato-staging-cron-refresh-bi-materialized-views',
-    'cato-staging-cron-elasticsearch-reindex-tenders',
-    'cato-staging-cron-follow-competitor-notifier',
-    'cato-staging-backend',
-    'cato-staging-frontend',
-    'cato-staging-agentic-chat',
-    'avvista-staging-db',
-    'avvista-staging-reader',
+    'acme-staging-cron-scrape-volume-monitor',
+    'acme-staging-cron-scraped-documents-monitor',
+    'acme-staging-cron-scraped-tenders-public-sync',
+    'acme-staging-cron-clickhouse-esiti-cleanup',
+    'acme-staging-cron-reporting-leadgen-enrichment',
+    'acme-staging-cron-reporting-scraper-storage-sync',
+    'acme-staging-cron-refresh-bi-materialized-views',
+    'acme-staging-cron-elasticsearch-reindex-tenders',
+    'acme-staging-cron-follow-competitor-notifier',
+    'acme-staging-backend',
+    'acme-staging-frontend',
+    'acme-staging-agentic-chat',
+    'reporting-staging-db',
+    'reporting-staging-reader',
     'ws-redis-staging',
     'analytics-staging-worker',
     'admin-frontend-staging',
@@ -68,28 +68,28 @@ test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" i
   ]
   assert.equal(real.length, 21)
   const fam = familyPrefixes(real)
-  assert.ok(fam.has('cato-staging-cron-'), 'la testa dei cron deve passare')
-  assert.ok(fam.has('cato-staging-'), 'la testa dei servizi cato deve passare')
-  assert.equal(splitFamily('cato-staging-cron-scrape-volume-monitor', fam).tail, 'scrape-volume-monitor')
-  assert.equal(splitFamily('cato-staging-backend', fam).tail, 'backend')
+  assert.ok(fam.has('acme-staging-cron-'), 'la testa dei cron deve passare')
+  assert.ok(fam.has('acme-staging-'), 'la testa dei nostri servizi deve passare')
+  assert.equal(splitFamily('acme-staging-cron-scrape-volume-monitor', fam).tail, 'scrape-volume-monitor')
+  assert.equal(splitFamily('acme-staging-backend', fam).tail, 'backend')
   // e nessuna testa inventata sui nomi che non fanno famiglia
   assert.equal(splitFamily('ws-redis-staging', fam).family, null)
 })
 
 test('splitFamily: un outlier nel gruppo resta col nome intero (niente troncature inventate)', () => {
-  assert.deepEqual(splitFamily('avvista-staging-db', familyPrefixes(STAGING)), {
+  assert.deepEqual(splitFamily('reporting-staging-db', familyPrefixes(STAGING)), {
     family: null,
-    tail: 'avvista-staging-db',
+    tail: 'reporting-staging-db',
   })
 })
 
 test('splitFamily: la coda non è mai vuota (nome che È il prefisso di famiglia)', () => {
-  const names = ['cato-staging-cron', 'cato-staging-cron-uno', 'cato-staging-cron-due']
+  const names = ['acme-staging-cron', 'acme-staging-cron-uno', 'acme-staging-cron-due']
   const fam = familyPrefixes(names)
-  assert.ok(fam.has('cato-staging-cron-'))
+  assert.ok(fam.has('acme-staging-cron-'))
   // il nome coincide con la famiglia → si ferma alla testa più corta che gli lascia una coda
-  const { family, tail } = splitFamily('cato-staging-cron', fam)
-  assert.equal(`${family ?? ''}${tail}`, 'cato-staging-cron')
+  const { family, tail } = splitFamily('acme-staging-cron', fam)
+  assert.equal(`${family ?? ''}${tail}`, 'acme-staging-cron')
   assert.ok(tail.length > 0)
 })
 

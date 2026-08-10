@@ -53,7 +53,7 @@ export async function getCosts({ profile, roleArn, externalId, month, accountId,
 }
 
 // Le AI non sono "un servizio come gli altri": da sole possono valere la maggior parte del conto
-// (in Cato ~70%), e sommarle all'infrastruttura rende illeggibile l'andamento di QUEST'ULTIMA — sale
+// (da noi ~70%), e sommarle all'infrastruttura rende illeggibile l'andamento di QUEST'ULTIMA — sale
 // l'uso dei modelli e sembra che sia cresciuto tutto. Bedrock è AWS; i modelli Claude sono fatturati
 // via AWS Marketplace, non via Bedrock (vedi la trappola dei costi: non sono la stessa voce).
 export function isAiService(service) {
@@ -195,11 +195,11 @@ export async function getCostTrend({ profile, roleArn, externalId, accountId, mo
 }
 
 // ─── Attribuzione per COMPONENTE (tag di allocazione costi) ──────────────────────────────────────
-// Il servizio AWS dice COSA costa (RDS, S3), il tag dice DI CHI è (avvista-db, teleport): è il
+// Il servizio AWS dice COSA costa (RDS, S3), il tag dice DI CHI è (reporting-db, teleport): è il
 // secondo che fa decidere. Richiede che il tag sia attivato come "cost allocation tag" — se non lo è,
 // Cost Explorer risponde con tutto in `untagged` (e lo diciamo, invece di mostrare una lista vuota).
 // Il nome del tag è CASE-SENSITIVE in Cost Explorer, e sbagliare la maiuscola non dà errore: dà
-// tutto "non taggato". In Cato il tag attivo è `Component` (verificato con
+// tutto "non taggato". Da noi il tag attivo è `Component` (verificato con
 // `aws ce list-cost-allocation-tags --status Active`, che è anche il modo di controllarlo altrove).
 export const COMPONENT_TAG = process.env.DADAGUARD_COMPONENT_TAG || 'Component'
 
@@ -239,7 +239,7 @@ export function aggregateComponents(groups = [], tagKey = COMPONENT_TAG) {
 // componente né a un livello.
 const NOT_RECORDS = { Not: { Dimensions: { Key: 'RECORD_TYPE', Values: ['Credit', 'Refund', 'Tax'] } } }
 
-// Cost Category «Livello» (in Cato: compute, database, storage, llms, deploy…): è il filtro "TYPE"
+// Cost Category «Livello» (da noi: compute, database, storage, llms, deploy…): è il filtro "TYPE"
 // della pagina di analytics. Sovrascrivibile perché il NOME della category è una scelta di chi
 // l'ha creata, non una costante di AWS.
 export const COST_CATEGORY = process.env.DADAGUARD_COST_CATEGORY || 'Livello'

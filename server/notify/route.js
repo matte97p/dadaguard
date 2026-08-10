@@ -2,7 +2,7 @@
 // se il watchdog è utile o è rumore che si somma a rumore.
 //
 // Il punto di partenza è cosa parla GIÀ nel vostro stack:
-//   · un cron (catocron) che crasha lo scrive da sé, con la query e il privilegio — meglio di come
+//   · un cron (il pacchetto cron condiviso) che crasha lo scrive da sé, con la query e il privilegio — meglio di come
 //     potrebbe dirlo Dadaguard, che vede solo "traceback nei log";
 //   · i deploy li scrive CodeBuild.
 // Quindi ridirlo è duplicare, e due canali che dicono la stessa cosa insegnano a ignorarli entrambi.

@@ -21,8 +21,8 @@ const sev = (s) => SEV[s.overall] ?? 2
 
 export default function ServicesTable({ services, caps, onRemove, onLogs, onEvents, onOpen, t }) {
   // Famiglie calcolate PER ACCOUNT: mescolando gli account il prefisso condiviso si riduce al minimo
-  // comune ("cato-") e la testa non compatta più niente. Con l'account come contesto tornano le teste
-  // utili — `cato-staging-cron-` per i cron di staging, `cato-production-cron-` per quelli di prod.
+  // comune ("acme-") e la testa non compatta più niente. Con l'account come contesto tornano le teste
+  // utili — `acme-staging-cron-` per i cron di staging, `acme-production-cron-` per quelli di prod.
   const famByAccount = new Map()
   for (const s of services) {
     const k = s.account?.key ?? '—'

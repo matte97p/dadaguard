@@ -168,8 +168,8 @@ export function mergeTrend(accounts = []) {
 
 // Chi ha deployato, in forma leggibile — gemello di `shortActor` in server/util/principal.js.
 // Il valore grezzo è l'email dell'autore del commit, e le noreply di GitHub portano davanti l'id
-// numerico dell'utente: `81815192+matte97p@users.noreply.github.com` mostrato come
-// "81815192+matte97p" è un numero di serie, non una persona. L'email intera resta nel dettaglio.
+// numerico dell'utente: `12345678+dev@users.noreply.github.com` mostrato come
+// "12345678+dev" è un numero di serie, non una persona. L'email intera resta nel dettaglio.
 export function shortActor(who) {
   const s = String(who ?? '').trim()
   if (!s) return null

@@ -60,7 +60,7 @@ niente profili SSO, ma un **task role** che assume un ruolo read-only in ogni ac
    partiti**: un cron che *crasha* lo racconta già da sé, con più dettaglio). Senza webhook il
    notificatore è **inerte**: nessun messaggio, nessun errore.
    Scegli il canale degli **allarmi**, non quello dei rilasci: «un servizio è giù» in un registro di
-   deploy si legge come una riga di cronaca e si perde. In Cato: `#tech-devops-alert` (dove vivono
+   deploy si legge come una riga di cronaca e si perde. Da noi: `#tech-devops-alert` (dove vivono
    già gli allarmi PostHog) e `#tech-devops-cron`.
 6. **Sonde HTTP** (facoltative): la mappa `health:` in config accende il segnale #1 sui servizi
    scoperti. Vale un URL intero o un path risolto su `urls:`. Dichiara solo host che servono

@@ -3,19 +3,19 @@ import assert from 'node:assert/strict'
 import { matchEnvTargets, matchByArn, extractArns, collectResourceArns } from '../server/topology/deduce.js'
 
 const idList = [
-  { name: 'webhook-stg', account: 'staging', ids: ['cato-staging-webhook'] },
-  { name: 'webhook-prod', account: 'production', ids: ['cato-staging-webhook'] }, // stesso token, account diverso
-  { name: 'db-prod', account: 'production', ids: ['avvista-prod-db.cluster-x.rds.amazonaws.com'] },
+  { name: 'webhook-stg', account: 'staging', ids: ['acme-staging-webhook'] },
+  { name: 'webhook-prod', account: 'production', ids: ['acme-staging-webhook'] }, // stesso token, account diverso
+  { name: 'db-prod', account: 'production', ids: ['reporting-prod-db.cluster-x.rds.amazonaws.com'] },
   { name: 'queue-stg', account: 'staging', ids: ['prod-queue'] },
 ]
 
 test('collisione cross-account → resta solo lo stesso account', () => {
-  const out = matchEnvTargets('WEBHOOK_FN=cato-staging-webhook', { name: 'dispatch', account: 'staging' }, idList)
+  const out = matchEnvTargets('WEBHOOK_FN=acme-staging-webhook', { name: 'dispatch', account: 'staging' }, idList)
   assert.deepEqual(out.map((t) => t.name), ['webhook-stg']) // NON webhook-prod
 })
 
 test('token unico cross-account → dipendenza vera mantenuta', () => {
-  const env = 'DATABASE_URL=postgres://u:p@avvista-prod-db.cluster-x.rds.amazonaws.com:5432/db'
+  const env = 'DATABASE_URL=postgres://u:p@reporting-prod-db.cluster-x.rds.amazonaws.com:5432/db'
   const out = matchEnvTargets(env, { name: 'syncer', account: 'staging' }, idList)
   assert.deepEqual(out.map((t) => t.name), ['db-prod'])
 })
@@ -27,7 +27,7 @@ test('niente substring: "prod-queue" dentro "prod-queue-events" non matcha', () 
 
 test('non matcha se stesso (token posseduto solo dal self)', () => {
   const out = matchEnvTargets(
-    'SELF=avvista-prod-db.cluster-x.rds.amazonaws.com',
+    'SELF=reporting-prod-db.cluster-x.rds.amazonaws.com',
     { name: 'db-prod', account: 'production' },
     idList,
   )
@@ -37,13 +37,13 @@ test('non matcha se stesso (token posseduto solo dal self)', () => {
 test('extractArns: pesca gli ARN da una definizione Step Functions', () => {
   const def = JSON.stringify({
     States: {
-      Pay: { Resource: 'arn:aws:lambda:eu-west-1:111:function:cato-staging-webhook', Next: 'Q' },
+      Pay: { Resource: 'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook', Next: 'Q' },
       Q: { Resource: 'arn:aws:sqs:eu-west-1:111:prod-queue' },
     },
   })
   const arns = extractArns(def)
   assert.deepEqual(arns, [
-    'arn:aws:lambda:eu-west-1:111:function:cato-staging-webhook',
+    'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook',
     'arn:aws:sqs:eu-west-1:111:prod-queue',
   ])
   assert.deepEqual(extractArns(''), [])
@@ -51,8 +51,8 @@ test('extractArns: pesca gli ARN da una definizione Step Functions', () => {
 })
 
 test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () => {
-  // "cato-staging-webhook" esiste in staging e production: da uno step SFN staging vince lo staging.
-  const arn = 'arn:aws:lambda:eu-west-1:111:function:cato-staging-webhook'
+  // "acme-staging-webhook" esiste in staging e production: da uno step SFN staging vince lo staging.
+  const arn = 'arn:aws:lambda:eu-west-1:111:function:acme-staging-webhook'
   assert.equal(matchByArn(arn, idList, { name: 'orchestrator', account: 'staging' }), 'webhook-stg')
   // ARN che non punta a nulla di tracciato → null
   assert.equal(matchByArn('arn:aws:s3:::qualche-bucket', idList, { name: 'x', account: 'staging' }), null)
@@ -61,13 +61,13 @@ test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () 
 test('collectResourceArns: pesca gli ARN Resource dai soli statement Allow', () => {
   const doc = {
     Statement: [
-      { Effect: 'Allow', Action: 'rds-db:connect', Resource: 'arn:aws:rds:eu-west-1:111:cluster:avvista-prod-db' },
+      { Effect: 'Allow', Action: 'rds-db:connect', Resource: 'arn:aws:rds:eu-west-1:111:cluster:reporting-prod-db' },
       { Effect: 'Allow', Action: ['sqs:SendMessage'], Resource: ['arn:aws:sqs:eu-west-1:111:prod-queue', '*'] },
       { Effect: 'Deny', Action: '*', Resource: 'arn:aws:s3:::segreto' }, // Deny → ignorato
     ],
   }
   assert.deepEqual(collectResourceArns(doc), [
-    'arn:aws:rds:eu-west-1:111:cluster:avvista-prod-db',
+    'arn:aws:rds:eu-west-1:111:cluster:reporting-prod-db',
     'arn:aws:sqs:eu-west-1:111:prod-queue',
   ])
   assert.deepEqual(collectResourceArns({}), [])

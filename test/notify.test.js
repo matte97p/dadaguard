@@ -306,7 +306,7 @@ test('watchConfig: valori di default sensati e limiti minimi', () => {
 })
 
 // --- INSTRADAMENTO: cosa si manda, dove, e cosa NON si manda -------------------------------------
-// La regola parte da cosa parla già: un cron catocron che crasha lo scrive da sé (con la query e il
+// La regola parte da cosa parla già: un cron il pacchetto cron condiviso che crasha lo scrive da sé (con la query e il
 // privilegio, meglio di quanto potrebbe dirlo Dadaguard). Ridirlo è duplicare, e due canali che
 // dicono la stessa cosa insegnano a ignorarli entrambi. Resta il buco che nessuno può coprire
 // dall'interno: il job che NON è mai partito.

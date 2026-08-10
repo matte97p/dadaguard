@@ -8,14 +8,14 @@ import { shortActor } from '../server/util/principal.js'
 // (tag immagine, email dell'autore del commit): qui si fissa la forma con cui vanno in card.
 
 test('imageTag: tag nudo, senza ":" davanti', () => {
-  assert.equal(imageTag('123.dkr.ecr.eu-west-1.amazonaws.com/cato-backend:0e89c2198d28'), '0e89c2198d28')
-  assert.equal(imageTag('cato-backend:latest'), 'latest')
-  assert.equal(imageTag('cato-backend:v2.1.0'), 'v2.1.0')
+  assert.equal(imageTag('123.dkr.ecr.eu-west-1.amazonaws.com/acme-backend:0e89c2198d28'), '0e89c2198d28')
+  assert.equal(imageTag('acme-backend:latest'), 'latest')
+  assert.equal(imageTag('acme-backend:v2.1.0'), 'v2.1.0')
 })
 
 test('imageTag: digest → prime 12 cifre; porta del registry non è un tag', () => {
   assert.equal(imageTag('repo@sha256:9b14dc0eb5a97c0714349a16773f5de47ec7f33b'), '9b14dc0eb5a9')
-  assert.equal(imageTag('registry.local:5000/cato-backend'), null)
+  assert.equal(imageTag('registry.local:5000/acme-backend'), null)
   assert.equal(imageTag(null), null)
 })
 
@@ -23,7 +23,7 @@ test('imageTag: digest → prime 12 cifre; porta del registry non è un tag', ()
 // norm(':v2') !== norm('v2') → mismatch inventato. Il tag nudo lo rende confrontabile.
 test('imageTag: confrontabile con la versione attesa in config', () => {
   const norm = (v) => String(v).trim().replace(/^v/i, '')
-  assert.equal(norm(imageTag('cato-backend:v2.1.0')), norm('2.1.0'))
+  assert.equal(norm(imageTag('acme-backend:v2.1.0')), norm('2.1.0'))
 })
 
 test('displayTag: uno sha lungo si accorcia a 8 (i tag normali restano interi)', () => {
@@ -36,10 +36,10 @@ test('displayTag: uno sha lungo si accorcia a 8 (i tag normali restano interi)',
 })
 
 test('shortActor: chi ha deployato, senza il dominio email', () => {
-  assert.equal(shortActor('81815192+matte97p@users.noreply.github.com'), 'matte97p')
-  assert.equal(shortActor('ggiacometti@get-cato.com'), 'ggiacometti')
-  assert.equal(shortActor('giovanni1.giacometti@mail.polimi.it'), 'giovanni1.giacometti')
-  assert.equal(shortActor('MatteoPerino'), 'MatteoPerino') // già un nome
+  assert.equal(shortActor('12345678+dev@users.noreply.github.com'), 'dev')
+  assert.equal(shortActor('alex@example.com'), 'alex')
+  assert.equal(shortActor('alex.rossi@mail.example.org'), 'alex.rossi')
+  assert.equal(shortActor('Persona'), 'Persona') // già un nome
   assert.equal(shortActor('GitHub Actions'), 'GitHub Actions')
 })
 
@@ -54,10 +54,10 @@ test('shortActor: input strani → niente invenzioni', () => {
 test('shortActor: il gemello client dà gli stessi nomi del server', async () => {
   const { shortActor: webShortActor } = await import('../web/format.js')
   for (const raw of [
-    '81815192+matte97p@users.noreply.github.com',
-    'ggiacometti@get-cato.com',
-    'giovanni1.giacometti@mail.polimi.it',
-    'MatteoPerino',
+    '12345678+dev@users.noreply.github.com',
+    'alex@example.com',
+    'alex.rossi@mail.example.org',
+    'Persona',
     '@handle',
     null,
     '   ',

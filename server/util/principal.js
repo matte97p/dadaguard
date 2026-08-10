@@ -1,12 +1,13 @@
+import { stripOrgEnv, ENV_PREFIX } from './envToken.js'
 // Estrae un nome umano-leggibile da un ARN di principal IAM/STS (chi ha fatto una modifica).
 // Obiettivo: mostrare la PERSONA quando c'è; per le pipeline (CI/CodeBuild) mostrare un'etichetta
 // PULITA (il pipeline), mai una sessione-macchina grezza tipo `AWSCodeBuild-<uuid>`. Puro/testabile.
 //
 //   iam::123:user/matteo                                    → matteo
-//   assumed-role/AdminAccess/matteo@get-cato.com            → matteo@get-cato.com   (sessione SSO = persona)
-//   assumed-role/cato-prod-backend-deploy/AWSCodeBuild-uuid → backend-deploy         (pipeline CodeBuild)
-//   assumed-role/cato-staging-codebuild-iac/codebuild-iac-9 → codebuild-iac          (pipeline IaC)
-//   assumed-role/cato-prod-gha-cron-deploy/GitHubActions    → GitHub Actions         (CI, default session)
+//   assumed-role/AdminAccess/sam@example.com            → sam@example.com   (sessione SSO = persona)
+//   assumed-role/acme-prod-backend-deploy/AWSCodeBuild-uuid → backend-deploy         (pipeline CodeBuild)
+//   assumed-role/acme-staging-codebuild-iac/codebuild-iac-9 → codebuild-iac          (pipeline IaC)
+//   assumed-role/acme-prod-gha-cron-deploy/GitHubActions    → GitHub Actions         (CI, default session)
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -21,20 +22,17 @@ function isMachineSession(s) {
   )
 }
 
-// Ruolo → nome pipeline leggibile: via il prefisso ambiente (cato-<env>-).
+// Ruolo → nome pipeline leggibile: via il prefisso `<org>-<env>-`. L'organizzazione non è scritta
+// qui: si riconosce perché è seguita da un ambiente (vedi util/envToken.js).
 function prettifyRole(role) {
-  return (
-    String(role || '')
-      .replace(/^cato-/i, '')
-      .replace(/^(production|prod|staging|stg|prd|management|mgmt)-/i, '') || null
-  )
+  return stripOrgEnv(String(role || '')).replace(ENV_PREFIX, '') || null
 }
 
 // Chi ha deployato, in forma LEGGIBILE. Il valore grezzo è spesso un'email (tag `deployedBy` =
 // autore del commit) e in card mangiava tre righe:
-//   81815192+matte97p@users.noreply.github.com → matte97p     (noreply GitHub: via l'id numerico)
-//   ggiacometti@get-cato.com                   → ggiacometti
-//   MatteoPerino                               → MatteoPerino (già un nome: invariato)
+//   12345678+dev@users.noreply.github.com → matte97p     (noreply GitHub: via l'id numerico)
+//   alex@example.com                   → alex
+//   Persona                               → Persona (già un nome: invariato)
 // Il valore completo resta nel tooltip della riga Build: qui accorciamo solo la resa.
 export function shortActor(who) {
   const s = String(who ?? '').trim()
@@ -62,8 +60,8 @@ export function principalName(arn) {
 // Nome CANONICO di chi ha fatto una modifica, dato l'elenco degli alias in config.
 //
 // Perché serve: il tag `deployedBy` è l'email dell'autore del commit, e la stessa persona può
-// committare con più identità git (in Cato: `ggiacometti@get-cato.com` e
-// `giovanni1.giacometti@mail.polimi.it` sono la stessa persona). Il pannello mostrava due nomi diversi
+// committare con più identità git (da noi: `alex@example.com` e
+// `alex.rossi@mail.example.org` sono la stessa persona). Il pannello mostrava due nomi diversi
 // per la stessa persona, e chi guarda conclude che sono due colleghi.
 //
 // Perché una MAPPA e non un'euristica sui nomi somiglianti: fondere due identità perché "si assomigliano"
