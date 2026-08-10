@@ -1,30 +1,35 @@
 import { useEffect, useState } from 'react'
-import { Typography, Tag, Space, Tooltip, Alert } from 'antd'
-import { PANEL_CARD } from '../pages/pageKit.jsx'
+import { Typography, Tag, Tooltip, Alert } from 'antd'
+import { PANEL_CARD, PANEL_GRID } from '../pages/pageKit.jsx'
+import { LEVEL, MONO } from '../theme.js'
 
 const { Text } = Typography
-const MONO = 'ui-monospace, SFMono-Regular, monospace'
 
-// Riga di una regola: azione + dove si aggiusta + quante richieste ha preso, e — se la query
-// dettagliata è passata — i percorsi colpiti, che sono la cosa che dice se il blocco è sbagliato
-// (`/api/v1/tenders` non è traffico da bot).
+// Riga di una regola, su due livelli: azione + dove si aggiusta + quante richieste ha preso, e sotto
+// i percorsi colpiti — che sono la cosa che dice se il blocco è sbagliato (`/api/v1/tenders` non è
+// traffico da bot). I percorsi vanno a capo perché sono lunghi: comprimerli in coda alla prima riga
+// li troncava proprio nel punto che distingue una rotta dall'altra.
 function RuleRow({ r, t }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', padding: '5px 0' }}>
-      <Tag color={r.blocking ? 'error' : 'default'} bordered={false} style={{ marginInlineEnd: 0, fontSize: 11 }}>
-        {r.action}
-      </Tag>
-      <Text style={{ fontSize: 13 }}>{t(`waf.source.${r.sourceKind}`)}</Text>
-      {r.ruleId && (
-        <Text type="secondary" style={{ fontSize: 11, fontFamily: MONO }}>
-          {r.ruleId}
+    <div style={{ padding: '5px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <Tag color={r.blocking ? 'error' : 'default'} bordered={false} style={{ marginInlineEnd: 0, fontSize: 11 }}>
+          {r.action}
+        </Tag>
+        <Text style={{ fontSize: 13, flex: 1, minWidth: 0 }}>{t(`waf.source.${r.sourceKind}`)}</Text>
+        {r.ruleId && (
+          <Tooltip title={r.ruleId}>
+            <Text type="secondary" style={{ fontSize: 11, fontFamily: MONO }}>
+              {r.ruleId.length > 12 ? `${r.ruleId.slice(0, 12)}…` : r.ruleId}
+            </Text>
+          </Tooltip>
+        )}
+        <Text strong style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          {r.count.toLocaleString()}
         </Text>
-      )}
-      <Text strong style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-        {r.count.toLocaleString()}
-      </Text>
+      </div>
       {r.paths?.length > 0 && (
-        <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Text type="secondary" style={{ display: 'block', fontSize: 12, fontFamily: MONO, wordBreak: 'break-all' }}>
           {r.paths.join(' · ')}
         </Text>
       )}
@@ -43,32 +48,30 @@ function ZoneCard({ z, t }) {
   }
   return (
     <div style={PANEL_CARD}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <Text strong style={{ fontSize: 15 }}>
-          {z.zone}
-        </Text>
-        <Space size={18}>
+      <Text strong style={{ fontSize: 15 }}>
+        {z.zone}
+      </Text>
+      {/* Le due cifre stanno vicine e NON si sommano, ed è il punto: mettere una regola in `log` non
+          impedisce a un'altra di bloccare. Il tooltip lo dice per intero. */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'baseline', marginTop: 2 }}>
+        <span>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {t('waf.blocked')}{' '}
+          </Text>
+          <Text strong style={{ fontSize: 16, color: z.blocked ? LEVEL.bad.color : undefined, fontVariantNumeric: 'tabular-nums' }}>
+            {z.blocked.toLocaleString()}
+          </Text>
+        </span>
+        <Tooltip title={t('waf.loggedHint')}>
           <span>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('waf.blocked')}{' '}
+              {t('waf.logged')}{' '}
             </Text>
-            <Text strong style={{ fontSize: 16, color: z.blocked ? '#ff4d4f' : undefined, fontVariantNumeric: 'tabular-nums' }}>
-              {z.blocked.toLocaleString()}
+            <Text type="secondary" style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>
+              {z.logged.toLocaleString()}
             </Text>
           </span>
-          {/* Le due cifre NON si sommano, ed è il punto: mettere una regola in `log` non impedisce a
-              un'altra di bloccare. Il tooltip lo dice per intero. */}
-          <Tooltip title={t('waf.loggedHint')}>
-            <span>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {t('waf.logged')}{' '}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>
-                {z.logged.toLocaleString()}
-              </Text>
-            </span>
-          </Tooltip>
-        </Space>
+        </Tooltip>
       </div>
       {z.rules?.length > 0 && (
         <div style={{ marginTop: 6 }}>
@@ -81,9 +84,13 @@ function ZoneCard({ z, t }) {
   )
 }
 
-// Pannello WAF: quanto traffico il firewall ha FERMATO nelle ultime 24h, per zona e per regola.
+// Pannello WAF: quanto traffico il firewall ha FERMATO nella finestra, per zona e per regola.
 // Sta nella pagina Sicurezza perché è l'unico posto dove un blocco sbagliato si vede: quel traffico
 // non raggiunge i servizi, quindi non esiste in nessun log applicativo né in nessuna metrica ECS.
+//
+// Card nella griglia del resto delle viste per-account, non a piena larghezza: su uno schermo grande
+// il nome della zona e il suo conteggio finivano ai due estremi della riga, cioè a un metro l'uno
+// dall'altro, e due numeri che vanno letti INSIEME non si possono mettere così lontani.
 export default function WafPanel({ t = (k) => k }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -121,7 +128,7 @@ export default function WafPanel({ t = (k) => k }) {
       {data.error && <Alert type="warning" showIcon message={data.error} />}
       {hit.length === 0 && !data.error && <Text type="secondary">{t('waf.noBlocks')}</Text>}
       {hit.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={PANEL_GRID}>
           {hit.map((z) => (
             <ZoneCard key={z.zoneId ?? z.zone} z={z} t={t} />
           ))}
