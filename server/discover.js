@@ -254,7 +254,7 @@ export async function discover({ profile, roleArn, externalId, region, activeDay
       aws: { type: 'ecs', cluster: e.cluster, service: e.service },
     })),
     // Cron su ECS RunTask (EventBridge Scheduler → RunTask): niente servizio long-running, solo una
-    // task-def schedulata. Il nome = famiglia della task-def (es. cato-<env>-cron-refresh-bi-mvs).
+    // task-def schedulata. Il nome = famiglia della task-def (es. acme-<env>-cron-refresh-bi-mvs).
     ...schedules.ecs.map((e) => {
       const family = ecsCron.exec(e.taskDefArn)?.[1] ?? e.name
       const svcAws = {

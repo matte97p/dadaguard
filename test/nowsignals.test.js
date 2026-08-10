@@ -39,7 +39,7 @@ test('deploy: si tengono falliti, in corso e azioni a mano; i rilasci auto riusc
         { id: 'b2', service: 'backend', status: 'FAILED', trigger: 'auto', failPhase: 'BUILD', failReason: 'exit 1', startedAt: hoursAgo(2) },
         { id: 'b3', service: 'chat', status: 'IN_PROGRESS', inProgress: true, trigger: 'auto', startedAt: hoursAgo(0.1) },
         { id: 'b4', service: 'web', status: 'SUCCEEDED', trigger: 'hotfix', forcedBy: 'matte97p', startedAt: hoursAgo(3) },
-        { id: 'b5', service: 'api', status: 'SUCCEEDED', kind: 'restart', trigger: 'restart', forcedBy: 'mmatteo23', startedAt: hoursAgo(4) },
+        { id: 'b5', service: 'api', status: 'SUCCEEDED', kind: 'restart', trigger: 'restart', forcedBy: 'alex', startedAt: hoursAgo(4) },
       ],
     },
   }
@@ -58,7 +58,7 @@ test('un riavvio RESPINTO non si racconta come una build fallita', () => {
     prod: {
       label: 'Production',
       builds: [
-        { id: 'r1', service: 'garanzia', kind: 'restart', trigger: 'restart', status: 'FAILED', forcedBy: 'mmatteo23', failReason: 'AccessDenied', startedAt: hoursAgo(1) },
+        { id: 'r1', service: 'garanzia', kind: 'restart', trigger: 'restart', status: 'FAILED', forcedBy: 'alex', failReason: 'AccessDenied', startedAt: hoursAgo(1) },
       ],
     },
   }

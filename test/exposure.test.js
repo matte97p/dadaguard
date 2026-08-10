@@ -49,8 +49,8 @@ test('probeExposure: URL malformato → unknown, non lancia', async () => {
 
 test('publicUrlFromHeaders: ricava da x-forwarded-host + proto (zero-config)', () => {
   assert.equal(
-    publicUrlFromHeaders({ 'x-forwarded-host': 'dadaguard.get-cato.com', 'x-forwarded-proto': 'https' }),
-    'https://dadaguard.get-cato.com',
+    publicUrlFromHeaders({ 'x-forwarded-host': 'dadaguard.example.com', 'x-forwarded-proto': 'https' }),
+    'https://dadaguard.example.com',
   )
 })
 

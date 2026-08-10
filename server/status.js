@@ -317,9 +317,9 @@ export async function getStatus(lang) {
     }),
   )
 
-  // Pre-carica l'indice dei secret per account (una volta): elenca /cato/<env>/ e conta i parametri
-  // per componente → il check "secrets" mappa da sé ogni servizio scoperto sulla convenzione Cato
-  // /cato/<env>/<servizio>, SENZA dichiarare ssm.path a mano e senza una chiamata per servizio.
+  // Pre-carica l'indice dei secret per account (una volta): elenca /acme/<env>/ e conta i parametri
+  // per componente → il check "secrets" mappa da sé ogni servizio scoperto sulla convenzione
+  // /acme/<env>/<servizio>, SENZA dichiarare ssm.path a mano e senza una chiamata per servizio.
   // Solo NOMI (WithDecryption=false → niente kms:Decrypt).
   const secretsByAccount = {}
   await Promise.all(

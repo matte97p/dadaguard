@@ -43,7 +43,7 @@ accounts:
     # più vedere segnalate (es. un reader Aurora tenuto per HA, un NAT/EIP di riserva). Match per id
     # (per gli EIP anche l'IP). Restano attive e monitorate: le togli solo dagli "sprechi".
     # wasteIgnore:
-    #   - avvista-prod-db-reader-oltp   # reader HA voluto (idle by design)
+    #   - reporting-prod-db-reader-oltp   # reader HA voluto (idle by design)
     #   - eipalloc-0abc123               # oppure l'IP pubblico
     terraform: # opzionale → abilita #6 drift + #7 risorse non gestite
       stateBucket: my-tf-state-staging
@@ -92,8 +92,8 @@ accounts:
 # NON è dedotta dai nomi somiglianti di proposito: quando un'euristica del genere sbaglia, attribuisce
 # un deploy in produzione a qualcun altro.
 # people:
-#   giovanni1.giacometti@mail.polimi.it: ggiacometti
-#   81815192+matte97p@users.noreply.github.com: matte97p
+#   alex.rossi@mail.example.org: alex
+#   12345678+dev@users.noreply.github.com: matte97p
 
 # --- Sonda HTTP per NOME servizio ---
 # Accende il segnale #1 (liveness) sui servizi SCOPERTI, che non hanno un posto dove scrivere

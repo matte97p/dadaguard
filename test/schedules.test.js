@@ -35,25 +35,25 @@ test('minutesToSchedule: formato compatibile con runtime/lambda.js (parseSchedul
   assert.equal(minutesToSchedule(null), null)
 })
 
-// EventBridge Scheduler: distingue i target Lambda vs ECS RunTask (i cron Cato usano lo Scheduler,
+// EventBridge Scheduler: distingue i target Lambda vs ECS RunTask (i nostri cron usano lo Scheduler,
 // non le Rules → questa classificazione è ciò che li fa smettere di apparire "on-demand").
 test('classifyScheduleTarget: target Lambda → { kind: lambda, name }', () => {
   const r = classifyScheduleTarget({
-    Arn: 'arn:aws:lambda:eu-central-1:111:function:cato-staging-cron-release-recap',
+    Arn: 'arn:aws:lambda:eu-central-1:111:function:acme-staging-cron-release-recap',
   })
-  assert.deepEqual(r, { kind: 'lambda', name: 'cato-staging-cron-release-recap' })
+  assert.deepEqual(r, { kind: 'lambda', name: 'acme-staging-cron-release-recap' })
 })
 
 test('classifyScheduleTarget: target ECS RunTask → { kind: ecs, cluster, taskDefArn }', () => {
   const r = classifyScheduleTarget({
-    Arn: 'arn:aws:ecs:eu-central-1:111:cluster/cato-production',
+    Arn: 'arn:aws:ecs:eu-central-1:111:cluster/acme-production',
     EcsParameters: {
-      TaskDefinitionArn: 'arn:aws:ecs:eu-central-1:111:task-definition/cato-production-cron-refresh-bi-mvs:3',
+      TaskDefinitionArn: 'arn:aws:ecs:eu-central-1:111:task-definition/acme-production-cron-refresh-bi-mvs:3',
     },
   })
   assert.equal(r.kind, 'ecs')
-  assert.equal(r.cluster, 'arn:aws:ecs:eu-central-1:111:cluster/cato-production')
-  assert.equal(r.taskDefArn, 'arn:aws:ecs:eu-central-1:111:task-definition/cato-production-cron-refresh-bi-mvs:3')
+  assert.equal(r.cluster, 'arn:aws:ecs:eu-central-1:111:cluster/acme-production')
+  assert.equal(r.taskDefArn, 'arn:aws:ecs:eu-central-1:111:task-definition/acme-production-cron-refresh-bi-mvs:3')
 })
 
 test('classifyScheduleTarget: altro target (SQS) o vuoto → kind null', () => {

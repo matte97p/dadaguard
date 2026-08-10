@@ -136,7 +136,7 @@ export default function DashboardPage({ data, groups, allServices, statusFilter,
 
       {view === 'cards' &&
         groups.map((g) => {
-        // Prefissi di famiglia calcolati sul GRUPPO visibile (cato-staging-cron-…): la card li mostra
+        // Prefissi di famiglia calcolati sul GRUPPO visibile (acme-staging-cron-…): la card li mostra
         // piccoli e muti e tiene in evidenza la coda, la parte che distingue una card dall'altra.
         // Fuori i Bedrock: hanno il loro nome parlante (Claude Sonnet 4.5) e non usano la testa, ma
         // nel conteggio alzerebbero la soglia per tutti gli altri.

@@ -26,7 +26,7 @@ const hostOf = (u) => {
 // Classifica la risposta della sonda. PURA, quindi testabile senza rete — ed è dove stava il bug:
 // seguendo i redirect, un servizio dietro Cloudflare Access rispondeva `200` perché la sonda leggeva
 // la PAGINA DI LOGIN («risponde · HTTP 200» su un'app che poteva essere spenta). Verificato sul vero:
-//   GET https://dadaguard.get-cato.com/  →  302  →  tech-cato.cloudflareaccess.com/cdn-cgi/access/login/…  →  200
+//   GET https://dadaguard.example.com/  →  302  →  example.cloudflareaccess.com/cdn-cgi/access/login/…  →  200
 // Una sonda anonima da fuori NON PUÒ dire se un'app protetta è sana: dirlo è peggio che non saperlo.
 export function classifyProbe({ httpStatus, location = null, target = null }, t = (k) => k) {
   if (httpStatus >= 500) return { status: 'down' }

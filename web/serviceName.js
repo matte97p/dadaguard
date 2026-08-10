@@ -3,7 +3,7 @@
 // Condiviso tra card, ricerca (filtro nome), palette ⌘K → così cerchi ciò che VEDI.
 //
 // Qui vive anche lo SPLIT del nome in "famiglia + coda" (vedi splitFamily): i nomi AWS reali sono
-// lunghi e quasi tutti uguali in testa (cato-staging-cron-…) — la card mostra la testa piccola e
+// lunghi e quasi tutti uguali in testa (acme-staging-cron-…) — la card mostra la testa piccola e
 // muta e la coda in evidenza, senza nascondere nulla.
 
 // PROFILI DI INFERENZA riconosciuti come prefisso di un ID Bedrock. `global` è nell'elenco per un
@@ -53,19 +53,19 @@ export function displayName(service) {
   return service?.name ?? ''
 }
 
-// PREFISSI DI FAMIGLIA condivisi in un gruppo di nomi: `cato-staging-cron-…` ripetuto su 14 card è
+// PREFISSI DI FAMIGLIA condivisi in un gruppo di nomi: `acme-staging-cron-…` ripetuto su 14 card è
 // rumore che schiaccia la parte che DISTINGUE davvero. Qui contiamo, sui confini `-`, quali prefissi
 // tornano abbastanza spesso da essere una "famiglia" del gruppo.
 //
 // Soglia = UN TERZO del gruppo (minimo 2), non "tutti", non "almeno 2" e non "metà":
-//  · "tutti" → un solo outlier (avvista-staging-db tra i cato-*) fa perdere la compattazione a tutti;
+//  · "tutti" → un solo outlier (reporting-staging-db tra i acme-*) fa perdere la compattazione a tutti;
 //  · "almeno 2" → due soli fratelli diventano famiglia (…cron-scraped- accanto a …cron-) e ogni card
 //    mostra una testa diversa, mangiandosi anche una parola che serve a capire il nome. La testa muta
 //    funziona solo se è LA STESSA su tutto il gruppo: l'occhio la salta una volta e non ci torna;
-//  · "metà" → troppo severa sulle flotte vere: un account con 21 servizi di cui 12 `cato-staging-`
-//    (57%) e 9 `cato-staging-cron-` (43%) non compattava NIENTE. Un terzo tiene entrambe le teste.
+//  · "metà" → troppo severa sulle flotte vere: un account con 21 servizi di cui 12 `acme-staging-`
+//    (57%) e 9 `acme-staging-cron-` (43%) non compattava NIENTE. Un terzo tiene entrambe le teste.
 // Con un terzo possono convivere 2-3 famiglie sorelle in un gruppo, ma a quel peso sono famiglie vere.
-// I prefissi che sopravvivono sono innestati (cato-staging- ⊂ cato-staging-cron-): splitFamily prende
+// I prefissi che sopravvivono sono innestati (acme-staging- ⊂ acme-staging-cron-): splitFamily prende
 // il più lungo che combacia, quindi i cron hanno la testa lunga e gli altri servizi quella corta.
 // Il chiamante passa solo i nomi che una testa la possono usare (i Bedrock hanno il loro nome
 // parlante): dentro il conteggio gonfierebbero il denominatore e alzerebbero la soglia per tutti.

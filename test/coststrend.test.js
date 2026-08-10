@@ -113,8 +113,8 @@ test('trend: fatturato = consumo + tasse + crediti, mese per mese', () => {
 test('componenti: il tag si spoglia del prefisso, il non-taggato NON si nasconde', () => {
   const out = aggregateComponents(
     [
-      g(['component$avvista-db', 'Amazon RDS'], 141),
-      g(['component$avvista-db', 'Amazon S3'], 7),
+      g(['component$reporting-db', 'Amazon RDS'], 141),
+      g(['component$reporting-db', 'Amazon S3'], 7),
       g(['component$', 'EC2 - Other'], 31), // nessun tag sulla risorsa
       g(['component$teleport', 'Amazon Elastic Load Balancing'], 10),
     ],
@@ -122,7 +122,7 @@ test('componenti: il tag si spoglia del prefisso, il non-taggato NON si nasconde
   )
   assert.deepEqual(
     out.map((c) => c.component),
-    ['avvista-db', null, 'teleport'], // ordinati per spesa; `null` = non taggato, resta in lista
+    ['reporting-db', null, 'teleport'], // ordinati per spesa; `null` = non taggato, resta in lista
   )
   assert.ok(near(out[0].amount, 148))
   assert.deepEqual(out[0].services.map((s) => s.service), ['Amazon RDS', 'Amazon S3'])

@@ -42,7 +42,7 @@ export async function fetchFiringAlarms(aws) {
 
 // Identificativi del servizio da cercare nelle dimensioni degli allarmi.
 // ECS: l'identità è il ServiceName (`cfg.service`), NON il cluster. Un cluster è condiviso da più
-// servizi (es. cato-staging → backend, agentic-chat, …): se cercassimo anche per cluster, un
+// servizi (es. acme-staging → backend, agentic-chat, …): se cercassimo anche per cluster, un
 // allarme con dimensione `ClusterName` si attaccherebbe a TUTTI i servizi del cluster (falsa
 // attribuzione). Per gli altri tipi il "cluster" È la risorsa (EKS, ElastiCache…) → va tenuto.
 const resourceIds = (cfg) =>
@@ -58,13 +58,13 @@ const resourceIds = (cfg) =>
 // Col solo confronto per valore restavano invisibili — venivano scaricati e poi scartati.
 //
 // Il ponte è la convenzione di nome dei target group, che è deterministica: `<cluster>-<servizio>`
-// (es. cluster `cato-production` + servizio `backend` → `cato-production-backend`). Confrontiamo il
+// (es. cluster `acme-production` + servizio `backend` → `acme-production-backend`). Confrontiamo il
 // SEGMENTO centrale, non la stringa intera, così `LoadBalancer` non entra mai in gioco: un ALB è
 // condiviso da più servizi e attaccare i suoi allarmi a tutti sarebbe la stessa falsa attribuzione
 // che il commento su `resourceIds` evita per il cluster.
 //
-// Prefisso e non uguaglianza perché lo stesso servizio può avere più gruppi (`cato-production-backend`
-// sull'ALB pubblico e `cato-production-backend-int` su quello interno). Il rovescio: un servizio il cui
+// Prefisso e non uguaglianza perché lo stesso servizio può avere più gruppi (`acme-production-backend`
+// sull'ALB pubblico e `acme-production-backend-int` su quello interno). Il rovescio: un servizio il cui
 // nome è prefisso di un altro erediterebbe i suoi allarmi — oggi non accade, ma se un domani nascesse
 // un servizio `analisi` accanto ad `analisi-avanzata` andrebbe stretto a uguaglianza.
 const targetGroupMatches = (cfg, dimension) => {

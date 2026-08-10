@@ -288,7 +288,7 @@ All notable changes to Dadaguard are documented here. Format based on
 - **Ripartizione «Per livello»**, gemella di «Per componente»: ogni livello si apre sul dettaglio per
   servizio AWS. Doppio scopo — è anche la fonte dei valori del menu, così sapere quali livelli
   esistono non costa una chiamata in più (un elenco scritto a mano andrebbe stantio al primo livello
-  nuovo: la tassonomia di Cato è stata rivista di recente).
+  nuovo: la tassonomia di la nostra flotta è stata rivista di recente).
 - **Scheletri di caricamento** — la pagina mostrava uno spinner al centro e poi *saltava* di 600px
   quando i dati atterravano, e le tre sezioni nuove non avevano alcuno stato di attesa: comparivano di
   colpo spostando quello che stavi leggendo. Ora ogni sezione riserva la sua forma (compreso lo spazio
@@ -357,7 +357,7 @@ All notable changes to Dadaguard are documented here. Format based on
 ### Fixed
 - **Il nome del tag dei componenti era in minuscolo, e sarebbe stato muto** — in Cost Explorer le
   chiavi dei tag sono **case-sensitive** e sbagliare la maiuscola non dà errore: dà *tutto non
-  taggato*. Il tag attivo in Cato è `Component` (verificato con
+  taggato*. Il tag attivo da noi è `Component` (verificato con
   `aws ce list-cost-allocation-tags --status Active`). E se la risposta torna comunque tutta non
   taggata, ora la pagina lo **dice** — col nome del tag cercato e il comando per controllare — invece
   di mostrare una riga sola e far credere che quella sia l'attribuzione vera.
@@ -432,8 +432,8 @@ All notable changes to Dadaguard are documented here. Format based on
 ### Fixed
 - **«Risponde · HTTP 200» su un'app protetta da un login** — la sonda di liveness seguiva i redirect,
   quindi dietro Cloudflare Access leggeva `200` sulla **pagina di login** e dichiarava sano un servizio
-  che poteva essere spento. Verificato sul vero: `GET dadaguard.get-cato.com` → `302` →
-  `tech-cato.cloudflareaccess.com/cdn-cgi/access/login/…` → `200`. Ora i redirect si **leggono** invece
+  che poteva essere spento. Verificato sul vero: `GET dadaguard.example.com` → `302` →
+  `example.cloudflareaccess.com/cdn-cgi/access/login/…` → `200`. Ora i redirect si **leggono** invece
   di seguirli: se portano a una porta di autenticazione nota (Access, Okta, Auth0, Google, Microsoft) lo
   stato è **sconosciuto** con la spiegazione — da fuori, in anonimo, non si può dire se l'app è sana, e
   dirlo è peggio che non saperlo. Un redirect interno (http→https, dominio canonico) resta «su»; uno
@@ -449,8 +449,8 @@ All notable changes to Dadaguard are documented here. Format based on
   modo idempotente. Serve perché il workflow di deploy riusa la task definition **viva** cambiandone
   solo l'immagine: una revision registrata così sopravvive ai deploy successivi.
   Le sonde dichiarate coprono **solo** gli host verificati serviti da AWS — una richiesta marcata è
-  stata ritrovata in `/ecs/cato-staging/{backend,frontend}`. Restano fuori i tre microservizi di
-  staging (rispondono da Railway: `x-railway-*`) e `app.get-cato.com` (Vercel: `x-vercel-id`): là un
+  stata ritrovata in `/ecs/acme-staging/{backend,frontend}`. Restano fuori i tre microservizi di
+  staging (rispondono da Railway: `x-railway-*`) e `app.example.com` (Vercel: `x-vercel-id`): là un
   verde parlerebbe del vecchio hosting.
 - **La sonda di liveness ora si può accendere sui servizi scoperti** — il segnale #1 richiede un
   `healthUrl`, ma un servizio trovato dall'auto-discovery non ha un posto dove dichiararlo: era l'unico
@@ -461,7 +461,7 @@ All notable changes to Dadaguard are documented here. Format based on
   inventarci sopra un `/health` produrrebbe un rosso che non parla dell'applicazione. Un `healthUrl`
   scritto a mano vince sempre sulla mappa.
 - **Notifiche Slack: due destinazioni, e una cosa che non si manda affatto** — se i cron avvisano già
-  da sé quando crashano (in Cato lo fa `catocron`, col messaggio d'errore vero), ridirlo è duplicare, e
+  da sé quando crashano (da noi lo fa `catocron`, col messaggio d'errore vero), ridirlo è duplicare, e
   due canali che dicono la stessa cosa insegnano a ignorarli entrambi. Ora i check dei cron espongono
   un **esito strutturato** (`missed` / `failed` / `ok`, non dedotto dal testo) e il notificatore lo usa
   per instradare: **«mai partito»** va nel canale dei cron (è il buco che nessuno può coprire
@@ -583,7 +583,7 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ### Fixed
 - **Fuso dello schedule ignorato** — gli schedule di EventBridge Scheduler possono dichiarare un
-  `ScheduleExpressionTimezone` (i cron Cato usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
+  `ScheduleExpressionTimezone` (i cron la nostra flotta usano `Europe/Rome`) e Dadaguard lo scartava, leggendo
   `cron(0 17 ? * MON-FRI *)` come 17:00 **UTC** invece che locali: due ore di scarto in estate, una in
   inverno. Abbastanza per cercare l'esecuzione nella finestra sbagliata e dare per fermo un cron che
   aveva girato regolarmente — ed è il motivo per cui i due `scrape-volume-monitor` restavano rossi
@@ -648,8 +648,8 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ### Fixed
 - **La testa comune del nome non compattava sui nomi veri** — la soglia perché un prefisso diventi
-  «famiglia» era metà del gruppo: sull'account Staging reale (21 servizi non Bedrock) `cato-staging-`
-  copre 12 nomi e `cato-staging-cron-` 9, entrambi sotto 13 → nessuna compattazione. Ora la soglia è
+  «famiglia» era metà del gruppo: sull'account Staging reale (21 servizi non Bedrock) `acme-staging-`
+  copre 12 nomi e `acme-staging-cron-` 9, entrambi sotto 13 → nessuna compattazione. Ora la soglia è
   un terzo del gruppo e i Bedrock, che hanno il loro nome parlante, escono dal conteggio invece di
   alzare l'asticella per tutti.
 
@@ -659,7 +659,7 @@ All notable changes to Dadaguard are documented here. Format based on
 - **Card dei servizi ridisegnate** — con 25 servizi a schermo (flotte di cron) la card andava in
   crisi: nomi lunghi a capo su 4 righe perché il titolo era strozzato dai badge, un segnale sparso su
   3-4 righe, etichette disallineate da card a card e buchi a zig-zag tra le colonne. Ora: il nome sta
-  su una riga (testa comune del gruppo — `cato-staging-cron-` — piccola e muta, coda in evidenza,
+  su una riga (testa comune del gruppo — `acme-staging-cron-` — piccola e muta, coda in evidenza,
   niente troncature), **un segnale = una riga** con le etichette incolonnate a larghezza fissa,
   cadenza dei cron in parole nell'header (`ogni 1g` invece di `1440m`), tag di stato solo quando c'è
   qualcosa da dire (via l'«OK» verde su ogni card sana), azioni discrete che si accendono sull'hover,

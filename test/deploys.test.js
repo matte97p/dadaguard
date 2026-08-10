@@ -31,8 +31,8 @@ test('failureOf: prima fase fallita + motivo; null se tutto ok', () => {
 
 test('mapBuild: espone fasi, motivo fallimento e logsUrl', () => {
   const out = mapBuild({
-    id: 'cato-staging-backend-deploy:abc',
-    projectName: 'cato-staging-backend-deploy',
+    id: 'acme-staging-backend-deploy:abc',
+    projectName: 'acme-staging-backend-deploy',
     buildNumber: 39,
     buildStatus: 'FAILED',
     resolvedSourceVersion: 'f7de76ecafe',
@@ -53,8 +53,8 @@ test('mapBuild: espone fasi, motivo fallimento e logsUrl', () => {
 
 test('deployerOf: legge la exported-variable DEPLOYER; null se assente', () => {
   assert.equal(
-    deployerOf({ exportedEnvironmentVariables: [{ name: 'FOO', value: 'x' }, { name: 'DEPLOYER', value: 'mperino@get-cato.com' }] }),
-    'mperino@get-cato.com',
+    deployerOf({ exportedEnvironmentVariables: [{ name: 'FOO', value: 'x' }, { name: 'DEPLOYER', value: 'dev@example.com' }] }),
+    'dev@example.com',
   )
   assert.equal(deployerOf({ exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: '' }] }), null)
   assert.equal(deployerOf({ exportedEnvironmentVariables: [] }), null)
@@ -63,12 +63,12 @@ test('deployerOf: legge la exported-variable DEPLOYER; null se assente', () => {
 
 test('mapBuild: espone author da DEPLOYER (chi ha lanciato)', () => {
   const out = mapBuild({
-    id: 'cato-staging-backend-deploy:abc',
-    projectName: 'cato-staging-backend-deploy',
+    id: 'acme-staging-backend-deploy:abc',
+    projectName: 'acme-staging-backend-deploy',
     buildStatus: 'SUCCEEDED',
-    exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'mperino@get-cato.com' }],
+    exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'dev@example.com' }],
   })
-  assert.equal(out.author, 'mperino@get-cato.com')
+  assert.equal(out.author, 'dev@example.com')
   // build senza la variabile → author null (build vecchi / progetti che non la esportano)
-  assert.equal(mapBuild({ projectName: 'cato-staging-backend-deploy', buildStatus: 'SUCCEEDED' }).author, null)
+  assert.equal(mapBuild({ projectName: 'acme-staging-backend-deploy', buildStatus: 'SUCCEEDED' }).author, null)
 })

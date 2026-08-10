@@ -42,7 +42,7 @@ const parse = (raw) => {
 }
 
 // Il ruolo assunto dice COME è stata fatta l'azione: i ruoli `teleport-{restart,hotfix}-<env>`
-// esistono solo per `cato-deploy`, quindi la loro presenza è la prova che l'azione è passata da
+// esistono solo per `acme-deploy`, quindi la loro presenza è la prova che l'azione è passata da
 // Teleport (sessione registrata) e non da una console con AdministratorAccess. Puro/testabile.
 export function viaTeleportRole(arn) {
   return /teleport-(restart|hotfix)-/i.test(String(arn ?? ''))

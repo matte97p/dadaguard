@@ -42,16 +42,16 @@ test('l’account che OSPITA Dadaguard non si assume da sé: inAccount, non role
   // sbagliata — e quell'account è il payer, cioè proprio dove vive la spesa di Bedrock e Marketplace.
   const out = buildOrgAccounts(
     [
-      { Id: '708895069864', Name: 'AppaltiGPT', Status: 'ACTIVE' },
-      { Id: '051986612631', Name: 'Production', Status: 'ACTIVE' },
+      { Id: '333344445555', Name: 'Acme', Status: 'ACTIVE' },
+      { Id: '111122223333', Name: 'Production', Status: 'ACTIVE' },
     ],
     { externalId: 'x' },
-    '708895069864',
+    '333344445555',
   )
-  assert.equal(out.appaltigpt.inAccount, true)
-  assert.equal(out.appaltigpt.roleArn, undefined)
-  assert.equal(out.appaltigpt.externalId, undefined) // niente ExternalId: non c'è nessun ruolo da assumere
-  assert.equal(out.production.roleArn, 'arn:aws:iam::051986612631:role/dadaguard-readonly')
+  assert.equal(out.acme.inAccount, true)
+  assert.equal(out.acme.roleArn, undefined)
+  assert.equal(out.acme.externalId, undefined) // niente ExternalId: non c'è nessun ruolo da assumere
+  assert.equal(out.production.roleArn, 'arn:aws:iam::111122223333:role/dadaguard-readonly')
   assert.equal(out.production.inAccount, undefined)
 })
 
@@ -64,11 +64,11 @@ test('selfUsesRole: nel proprio account si assume il ruolo come per gli altri', 
   // Serve quando in quell'account il ruolo read-only ESISTE: il task role resta minimo (sa solo fare
   // AssumeRole) e si riusa la stessa policy revisionata, invece di duplicare i permessi di lettura.
   const out = buildOrgAccounts(
-    [{ Id: '708895069864', Name: 'AppaltiGPT', Status: 'ACTIVE' }],
+    [{ Id: '333344445555', Name: 'Acme', Status: 'ACTIVE' }],
     { externalId: 'x', selfUsesRole: true },
-    '708895069864',
+    '333344445555',
   )
-  assert.equal(out.appaltigpt.roleArn, 'arn:aws:iam::708895069864:role/dadaguard-readonly')
-  assert.equal(out.appaltigpt.inAccount, undefined)
-  assert.equal(out.appaltigpt.externalId, 'x')
+  assert.equal(out.acme.roleArn, 'arn:aws:iam::333344445555:role/dadaguard-readonly')
+  assert.equal(out.acme.inAccount, undefined)
+  assert.equal(out.acme.externalId, 'x')
 })

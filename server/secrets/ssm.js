@@ -3,7 +3,7 @@ import { clientOpts } from '../runtime/awsClient.js'
 
 // #4 secret via SSM Parameter Store (runtime-truth, cloud-ready via AWS role).
 // Legge SOLO i NOMI sotto un path (WithDecryption=false → niente valori, niente kms:Decrypt).
-// Convenzione Cato: /cato/<env>/<componente>[/<job>]/<KEY>.
+// Convenzione l'organizzazione: /acme/<env>/<componente>[/<job>]/<KEY>.
 export async function ssmSecrets({ profile, roleArn, externalId, region, path }) {
   // Validazione leggera: un path malformato darebbe errori AWS oscuri a valle.
   if (typeof path !== 'string' || !path.startsWith('/')) {

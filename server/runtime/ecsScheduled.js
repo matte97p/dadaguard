@@ -29,7 +29,7 @@ function fmtDur(min, t = identityT) {
 }
 
 // Marcatori di FALLIMENTO nei log (filter pattern CloudWatch, case-sensitive, OR di termini). I cron
-// Cato usano catocron: su eccezione fa crash-alert e RILANCIA → l'eccezione non catturata stampa
+// usiamo il pacchetto cron condiviso: su eccezione fa crash-alert e RILANCIA → l'eccezione non catturata stampa
 // `Traceback (most recent call last):` su stderr → CloudWatch. `ERROR:`/`CRITICAL:` coprono i log di
 // livello error (formato logging `LEVEL:logger:msg`). Il successo logga `Done: ...`, nessuno di questi.
 const FAILURE_PATTERN = '?Traceback ?"ERROR:" ?"CRITICAL:"'

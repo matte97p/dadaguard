@@ -1,5 +1,5 @@
 // Deploy in corso/recenti da AWS CodeBuild, per account. On-demand (read-only): mostra i build dei
-// progetti di deploy `cato-<env>-<service>-deploy` — stato (in corso/ok/fallito), servizio, commit, ora.
+// progetti di deploy `acme-<env>-<service>-deploy` — stato (in corso/ok/fallito), servizio, commit, ora.
 // Permessi: codebuild:ListProjects, ListBuildsForProject, BatchGetBuilds. Zero storage.
 import {
   CodeBuildClient,

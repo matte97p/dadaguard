@@ -8,7 +8,7 @@
 # OSS (demowright/pentest-framework/…): main → pubblica, deciso confrontando col registry + il diff.
 # "File spediti" = ciò che il Dockerfile mette nell'immagine (server + sorgenti frontend + package*),
 # non doc/test/.github/deploy (esclusi via .dockerignore).
-# Distinto da deploy.yml (che deploya l'istanza Cato interna su ECS a ogni push su main).
+# Distinto da deploy.yml (che deploya l'istanza l'organizzazione interna su ECS a ogni push su main).
 # Nota: l'immagine eredita la visibilità del package GHCR — rendila "public" dopo il primo push.
 name: release
 

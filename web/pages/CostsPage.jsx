@@ -273,7 +273,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   )
   // Opzioni del filtro: i livelli che ESISTONO in questo mese, sommati su tutti gli account. Un
   // elenco scritto a mano andrebbe stantio al primo livello nuovo (e la Cost Category cambia: la
-  // tassonomia di Cato è stata rivista di recente).
+  // tassonomia nostri è stata rivista di recente).
   const typeOptions = (() => {
     const seen = new Map()
     for (const acc of cats ? Object.values(cats) : []) {

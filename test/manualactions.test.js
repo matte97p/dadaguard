@@ -19,7 +19,7 @@ const updateService = (req, extra = {}) =>
   })
 
 test('isForcedRestart: solo forceNewDeployment SENZA taskDefinition', () => {
-  assert.equal(isForcedRestart({ cluster: 'cato-production', service: 'backend', forceNewDeployment: true }), true)
+  assert.equal(isForcedRestart({ cluster: 'acme-production', service: 'backend', forceNewDeployment: true }), true)
   // il passo finale di una build: registra la revision e aggiorna → NON è un riavvio a mano
   assert.equal(isForcedRestart({ service: 'backend', forceNewDeployment: true, taskDefinition: 'backend:412' }), false)
   assert.equal(isForcedRestart({ service: 'backend', desiredCount: 3 }), false)
@@ -27,11 +27,11 @@ test('isForcedRestart: solo forceNewDeployment SENZA taskDefinition', () => {
 })
 
 test('restartRow: riga con chi ha premuto, cluster e "stessa immagine"', () => {
-  const row = restartRow(updateService({ cluster: 'cato-production', service: 'backend', forceNewDeployment: true }))
+  const row = restartRow(updateService({ cluster: 'acme-production', service: 'backend', forceNewDeployment: true }))
   assert.equal(row.kind, 'restart')
   assert.equal(row.provider, 'ecs')
   assert.equal(row.service, 'backend')
-  assert.equal(row.cluster, 'cato-production')
+  assert.equal(row.cluster, 'acme-production')
   assert.equal(row.status, 'SUCCEEDED')
   assert.equal(row.trigger, 'restart')
   assert.equal(row.forcedBy, 'matte97p')
@@ -49,7 +49,7 @@ test('restartRow: null se non è un riavvio forzato (niente doppioni dei rilasci
 test('restartRow: un tentativo RESPINTO si vede, con il motivo', () => {
   const row = restartRow(
     updateService(
-      { cluster: 'cato-production', service: 'backend', forceNewDeployment: true },
+      { cluster: 'acme-production', service: 'backend', forceNewDeployment: true },
       { errorCode: 'AccessDenied', errorMessage: 'not authorized to perform ecs:UpdateService' },
     ),
   )
@@ -60,7 +60,7 @@ test('restartRow: un tentativo RESPINTO si vede, con il motivo', () => {
 test('startEntry: chiave = ARN della build, e riconosce l’hotfix dal ruolo', () => {
   const e = ctEvent({
     eventName: 'StartBuild',
-    requestParameters: { projectName: 'cato-production-backend-deploy' },
+    requestParameters: { projectName: 'acme-production-backend-deploy' },
     responseElements: { build: { arn: 'arn:aws:codebuild:eu-central-1:521:build/x:1', id: 'x:1' } },
     userIdentity: { arn: 'arn:aws:sts::521:assumed-role/teleport-hotfix-production/matte97p' },
   })
@@ -77,7 +77,7 @@ test('startEntry: tentativo respinto o senza build → nessuna attribuzione', ()
 test('viaTeleportRole / isHotfixRole: distinguono i due ruoli, e ignorano il resto', () => {
   const hotfix = 'arn:aws:sts::521:assumed-role/teleport-hotfix-production/matte97p'
   const restart = 'arn:aws:sts::521:assumed-role/teleport-restart-staging/matte97p'
-  const sso = 'arn:aws:sts::521:assumed-role/AWSReservedSSO_AdministratorAccess_x/matteo@get-cato.com'
+  const sso = 'arn:aws:sts::521:assumed-role/AWSReservedSSO_Ruolo_0000/sam@example.com'
   assert.equal(isHotfixRole(hotfix), true)
   assert.equal(isHotfixRole(restart), false)
   assert.equal(isHotfixRole(sso), false)
@@ -88,14 +88,14 @@ test('viaTeleportRole / isHotfixRole: distinguono i due ruoli, e ignorano il res
 
 test('serviceFromEcs: toglie il prefisso ambiente, così build e riavvio finiscono nello stesso gruppo', () => {
   assert.equal(serviceFromEcs('backend'), 'backend')
-  assert.equal(serviceFromEcs('cato-production-backend'), 'backend')
+  assert.equal(serviceFromEcs('acme-production-backend'), 'backend')
   assert.equal(serviceFromEcs(''), '')
 })
 
 test('resolveTrigger: auto vince sempre; senza CloudTrail resta manuale', () => {
-  assert.equal(resolveTrigger('cato-production-gha-deploy/GitHubActions', null), 'auto')
+  assert.equal(resolveTrigger('acme-production-gha-deploy/GitHubActions', null), 'auto')
   // anche se per assurdo CloudTrail dicesse hotfix, un initiator della CI resta auto
-  assert.equal(resolveTrigger('cato-production-gha-deploy/GitHubActions', { hotfix: true }), 'auto')
+  assert.equal(resolveTrigger('acme-production-gha-deploy/GitHubActions', { hotfix: true }), 'auto')
   assert.equal(resolveTrigger('matte97p', null), 'manuale')
   assert.equal(resolveTrigger('matte97p', { hotfix: false }), 'manuale')
   assert.equal(resolveTrigger('matte97p', { hotfix: true }), 'hotfix')
@@ -104,21 +104,21 @@ test('resolveTrigger: auto vince sempre; senza CloudTrail resta manuale', () => 
 test('mapBuild: lo starter porta chi ha premuto, che NON è l’autore del commit', () => {
   const out = mapBuild(
     {
-      id: 'cato-production-backend-deploy:abc',
+      id: 'acme-production-backend-deploy:abc',
       arn: 'arn:aws:codebuild:eu-central-1:521:build/x:1',
-      projectName: 'cato-production-backend-deploy',
+      projectName: 'acme-production-backend-deploy',
       buildStatus: 'SUCCEEDED',
       initiator: 'matte97p',
-      exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'ggiacometti@get-cato.com' }],
+      exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'alex@example.com' }],
     },
     { forcedBy: 'matte97p', viaTeleport: true, hotfix: true },
   )
   assert.equal(out.trigger, 'hotfix')
   assert.equal(out.forcedBy, 'matte97p')
   assert.equal(out.viaTeleport, true)
-  assert.equal(out.author, 'ggiacometti@get-cato.com')
+  assert.equal(out.author, 'alex@example.com')
   // senza starter il comportamento è quello di prima
-  const plain = mapBuild({ projectName: 'cato-production-backend-deploy', buildStatus: 'SUCCEEDED', initiator: 'matte97p' })
+  const plain = mapBuild({ projectName: 'acme-production-backend-deploy', buildStatus: 'SUCCEEDED', initiator: 'matte97p' })
   assert.equal(plain.trigger, 'manuale')
   assert.equal(plain.forcedBy, null)
 })

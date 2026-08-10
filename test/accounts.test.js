@@ -15,7 +15,7 @@ test('interrogabile con profilo, ruolo, o credenziali dell’ambiente', () => {
 test('un account senza credenziali NON è interrogabile: è solo un’etichetta', () => {
   // Interrogarlo userebbe le credenziali dell'ambiente per sbaglio, cioè leggerebbe l'account
   // sbagliato riportandone i dati sotto un altro nome.
-  assert.equal(isQueryable({ label: 'Security', accountId: '973584726014' }), false)
+  assert.equal(isQueryable({ label: 'Security', accountId: '444455556666' }), false)
   assert.equal(isQueryable({}), false)
   assert.equal(isQueryable(null), false)
 })

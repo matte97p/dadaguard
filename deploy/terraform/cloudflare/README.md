@@ -41,5 +41,5 @@ sonda quell'hostname in continuo, segnando la dashboard **ROSSA** se Access non 
   dell'application è calcolato da `destinations` (non dichiarare entrambi).
 - **Guardrail**: se `allowed_email_domains` e `allowed_emails` sono entrambi vuoti, `terraform plan`
   fallisce di proposito (una policy che non ammette nessuno non protegge nulla di utile).
-- **Cato**: le istanze reali di Cato vivono in `aws-management` (account privati, apply via CodeBuild).
+- **l'organizzazione**: le istanze reali nostri vivono in `aws-management` (account privati, apply via CodeBuild).
   Questo modulo è il **template riusabile**; aws-management può consumarlo o rispecchiarlo.

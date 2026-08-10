@@ -15,10 +15,10 @@
 // classico o col proxy Teleport — chi le esporta decide come sono ottenute:
 //   eval "$(aws configure export-credentials --profile production-ro --format env)"
 //   node scripts/record-aws-fixtures.mjs --region eu-central-1 \
-//        --log-group /ecs/cato-production/cron-refresh-bi-mvs \
-//        --task-def cato-production-cron-refresh-bi-mvs \
-//        --schedule-group cato-production-cron --schedule cato-production-scrape-volume-monitor \
-//        --function cato-production-cron-scrape-volume-monitor
+//        --log-group /ecs/acme-production/cron-refresh-bi-mvs \
+//        --task-def acme-production-cron-refresh-bi-mvs \
+//        --schedule-group acme-production-cron --schedule acme-production-scrape-volume-monitor \
+//        --function acme-production-cron-scrape-volume-monitor
 //
 // ATTENZIONE, RI-REGISTRANDO: una fixture può restare valida e perdere il suo SENSO. La pagina vuota
 // di FilterLogEvents dipende da come AWS alloca lo scan in quel momento: con la stessa finestra, a
@@ -51,11 +51,11 @@ const opts = { region }
 // --- sanificazione: la forma resta, l'identita' va via ---------------------------------------------
 const RE = [
   [/\b\d{12}\b/g, '111122223333'], // account id
-  [/\/cato\//g, '/acme/'], // path SSM/param: /cato/<env>/...
+  [/\/cato\//g, '/acme/'], // path SSM/param: /acme/<env>/...
   [/AWSReservedSSO_[^/"\s]+\/[^/"\s]+/g, 'AWSReservedSSO_Ruolo_0000/persona'], // sessione SSO = una PERSONA
   [/\/ecs\/[^"\s]+/g, '/ecs/acme-production/cron-example'], // log group
   [/[0-9a-f]{32}/g, 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf'], // task id / uuid compatti
-  [/cato-production/g, 'acme-production'],
+  [/acme-production/g, 'acme-production'],
   [/cato-staging/g, 'acme-staging'],
   [/cato-/g, 'acme-'],
   [/get-cato\.com/g, 'example.com'],

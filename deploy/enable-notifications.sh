@@ -17,10 +17,10 @@
 set -euo pipefail
 
 REGION=eu-central-1
-PROFILE_PAYER=management   # dove gira Dadaguard (payer 708895069864)
+PROFILE_PAYER=${DADAGUARD_PAYER_PROFILE:-management}   # profilo AWS dove gira Dadaguard (il payer)
 PROFILE_SRC=production     # dove vivono già i webhook Slack
-ACCOUNT=708895069864
-CLUSTER=cato-management
+ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE_PAYER" --query Account --output text)
+CLUSTER=${DADAGUARD_ECS_CLUSTER:-dadaguard}
 SERVICE=dadaguard
 CONTAINER=dadaguard
 EXEC_ROLE=dadaguard-execution
@@ -28,15 +28,15 @@ EXEC_ROLE=dadaguard-execution
 P_CFG=/dadaguard/services-yaml
 P_MAIN=/dadaguard/slack-webhook
 P_CRON=/dadaguard/slack-webhook-cron
-# Da DOVE arrivano le destinazioni: sono quelle che Cato usa già, quindi nessun canale nuovo da far
+# Da DOVE arrivano le destinazioni: sono quelle che la tua organizzazione usa già, quindi nessun canale nuovo da far
 # seguire e niente da creare in Slack.
 #   - principale → il webhook di audit del backend, che scrive in #tech-devops-alert (verificato: le
 #     impersonificazioni in quel canale le manda `emit_impersonation_started` con
 #     SLACK_AUDIT_WEBHOOK_URL, ed è dove vivono già gli allarmi PostHog 🔴/🟢). «Un servizio è giù» è
 #     un allarme, non un rilascio: in #aws-deploy annegherebbe nel registro dei deploy.
 #   - cron → il webhook dei cron di produzione, che scrive in #tech-devops-cron.
-SRC_MAIN=/cato/production/backend/SLACK_AUDIT_WEBHOOK_URL
-SRC_CRON=/cato/production/cron/ai-credit-monitor/SLACK_WEBHOOK_URL
+SRC_MAIN=/acme/production/backend/SLACK_AUDIT_WEBHOOK_URL
+SRC_CRON=/acme/production/cron/ai-credit-monitor/SLACK_WEBHOOK_URL
 
 ARN_CFG="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_CFG"
 ARN_MAIN="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_MAIN"
@@ -98,9 +98,9 @@ echo "  secrets-read aggiornata (5 parametri)"
 
 # --- 3. la mappa `health:` nella config --------------------------------------------------------
 # Sondiamo SOLO host verificati come serviti da AWS: una richiesta marcata su staging-endpoint e
-# staging-app è stata ritrovata nei log /ecs/cato-staging/{backend,frontend}. NON sondiamo
+# staging-app è stata ritrovata nei log /ecs/acme-staging/{backend,frontend}. NON sondiamo
 # staging-agentic-chat / -analisi-avanzata / -guarantee-agent (rispondono da Railway: header
-# x-railway-*) né app.get-cato.com (Vercel: x-vercel-id): un verde là parlerebbe del vecchio
+# x-railway-*) né app.get-acme.com (Vercel: x-vercel-id): un verde là parlerebbe del vecchio
 # hosting, non del servizio AWS — e un pannello che mente una volta non lo si guarda più.
 step "mappa health: nella config"
 payer ssm get-parameter --region "$REGION" --name "$P_CFG" --with-decryption --query Parameter.Value --output text >"$TMP/cfg.yaml"
@@ -111,11 +111,11 @@ else
   cat >>"$TMP/cfg.yaml" <<'YAML'
 
 # --- Sonde HTTP (segnale #1) ---
-# Solo host VERIFICATI serviti da AWS (richiesta marcata ritrovata in /ecs/cato-staging/*). Gli altri
+# Solo host VERIFICATI serviti da AWS (richiesta marcata ritrovata in /ecs/acme-staging/*). Gli altri
 # rispondono ancora da Railway/Vercel: sondarli darebbe un verde sul vecchio hosting.
 health:
-  staging/backend: https://staging-endpoint.get-cato.com/health
-  staging/frontend: https://staging-app.get-cato.com/
+  staging/backend: https://staging-endpoint.get-acme.com/health
+  staging/frontend: https://staging-app.get-acme.com/
 YAML
   payer ssm put-parameter --region "$REGION" --name "$P_CFG" --type SecureString \
     --value "file://$TMP/cfg.yaml" --overwrite >/dev/null

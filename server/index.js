@@ -298,7 +298,7 @@ app.get('/api/costs/categories', async (req, res) => {
   }
 })
 
-// Deploy: build CodeBuild dei progetti `cato-*-*-deploy` per account — cosa sta uscendo ORA + gli
+// Deploy: build CodeBuild dei progetti `acme-*-*-deploy` per account — cosa sta uscendo ORA + gli
 // ultimi. On-demand, read-only. Stessa forma per-account di /api/costs (label/color + payload).
 app.get('/api/deploys', async (req, res) => {
   try {

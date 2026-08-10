@@ -11,13 +11,13 @@ const discovered = {
   security: { label: 'Security', accountId: '9', roleArn: 'arn:9', externalId: 'x', region: 'eu-central-1' },
 }
 const declared = {
-  staging: { label: 'Staging', color: '#1677ff', terraform: { stateBucket: 'cato-ai-tf-state-staging', env: 'staging' } },
+  staging: { label: 'Staging', color: '#1677ff', terraform: { stateBucket: 'acme-tf-state-staging', env: 'staging' } },
 }
 
 test('il dichiarato vince campo per campo, e non perde niente', () => {
   const out = mergeAccounts(discovered, declared)
   assert.equal(out.staging.color, '#1677ff') // c'era solo nel dichiarato
-  assert.equal(out.staging.terraform.stateBucket, 'cato-ai-tf-state-staging') // il pezzo che fa i drift
+  assert.equal(out.staging.terraform.stateBucket, 'acme-tf-state-staging') // il pezzo che fa i drift
   assert.equal(out.staging.roleArn, 'arn:1') // e prende dal scoperto ciò che non aveva
   assert.equal(out.staging.accountId, '1')
 })

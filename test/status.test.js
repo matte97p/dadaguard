@@ -71,11 +71,11 @@ test('computeOverall: più check allo stesso livello → causa primaria per prio
 
 test('isAutoscalingAlarm: TargetTracking AlarmLow/High = rumore di autoscaling', () => {
   assert.equal(
-    isAutoscalingAlarm({ AlarmName: 'TargetTracking-service/cato-staging/backend-AlarmLow-abc' }),
+    isAutoscalingAlarm({ AlarmName: 'TargetTracking-service/acme-staging/backend-AlarmLow-abc' }),
     true,
   )
   assert.equal(
-    isAutoscalingAlarm({ AlarmName: 'TargetTracking-service/cato-staging/backend-AlarmHigh-xyz' }),
+    isAutoscalingAlarm({ AlarmName: 'TargetTracking-service/acme-staging/backend-AlarmHigh-xyz' }),
     true,
   )
 })
@@ -110,19 +110,19 @@ const dim = (cluster, service) => [
 ]
 
 test('alarms.run: ECS — allarme di un ALTRO servizio dello stesso cluster NON si attacca', async () => {
-  const service = { aws: { type: 'ecs', cluster: 'cato-staging', service: 'backend' } }
+  const service = { aws: { type: 'ecs', cluster: 'acme-staging', service: 'backend' } }
   const ctx = {
     t: (k) => k,
-    alarms: [{ AlarmName: 'agentic-chat-5xx', Dimensions: dim('cato-staging', 'agentic-chat') }],
+    alarms: [{ AlarmName: 'agentic-chat-5xx', Dimensions: dim('acme-staging', 'agentic-chat') }],
   }
   assert.equal(await alarms.run(service, ctx), null) // nessun allarme PER backend
 })
 
 test('alarms.run: ECS — il proprio allarme (ServiceName) si attacca', async () => {
-  const service = { aws: { type: 'ecs', cluster: 'cato-staging', service: 'backend' } }
+  const service = { aws: { type: 'ecs', cluster: 'acme-staging', service: 'backend' } }
   const ctx = {
     t: (k) => k,
-    alarms: [{ AlarmName: 'backend-5xx', Dimensions: dim('cato-staging', 'backend') }],
+    alarms: [{ AlarmName: 'backend-5xx', Dimensions: dim('acme-staging', 'backend') }],
   }
   const r = await alarms.run(service, ctx)
   assert.equal(r.status, 'degraded')

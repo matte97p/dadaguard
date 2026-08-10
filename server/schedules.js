@@ -80,7 +80,7 @@ export async function scheduleForLambdas(aws) {
 }
 
 // Target di uno schedule → { kind, ... }. Pura/testabile. Distingue i due bersagli usati dai cron
-// Cato: Lambda (ARN `:function:NAME`) ed ECS RunTask (target = ARN cluster + EcsParameters con la
+// due tipi: Lambda (ARN `:function:NAME`) ed ECS RunTask (target = ARN cluster + EcsParameters con la
 // task-def). Qualsiasi altro target → kind null (ignorato).
 export function classifyScheduleTarget(target) {
   const arn = String(target?.Arn ?? '')
@@ -93,7 +93,7 @@ export function classifyScheduleTarget(target) {
 }
 
 // Schedule da EventBridge SCHEDULER (`aws_scheduler_schedule`) — il servizio "moderno", DIVERSO dalle
-// vecchie Rules. È ciò che usano i cron Cato: Lambda (gruppo `cato-<env>-cron`) ed ECS RunTask. La
+// vecchie Rules. È ciò che usano i nostri cron: Lambda (gruppo `acme-<env>-cron`) ed ECS RunTask. La
 // summary di ListSchedules non porta l'espressione → serve GetSchedule per cadenza/stato/target.
 // Best-effort. Permessi: scheduler:ListSchedules, scheduler:GetSchedule.
 // Ritorna { lambdas: Map(name→{expr,minutes,state}), ecs: [{name,cluster,taskDefArn,expr,minutes,state}] }.
@@ -115,7 +115,7 @@ export async function schedulesFromScheduler(aws) {
         const expr = d.ScheduleExpression
         const state = d.State === 'DISABLED' ? 'DISABLED' : 'ENABLED'
         const minutes = scheduleExpressionToMinutes(expr)
-        // Fuso dell'espressione (i cron Cato sono su Europe/Rome): senza, `cron(0 17 …)` viene letto
+        // Fuso dell'espressione (i nostri cron sono su Europe/Rome): senza, `cron(0 17 …)` viene letto
         // come 17:00 UTC e ogni calcolo — prossima run, finestra del dead-man — sbaglia di 1-2 ore.
         const tz = d.ScheduleExpressionTimezone ?? null
         const tgt = classifyScheduleTarget(d.Target)
@@ -135,7 +135,7 @@ export async function schedulesFromScheduler(aws) {
 }
 
 // Unione delle DUE fonti di schedule: EventBridge Rules (classiche) + EventBridge Scheduler (moderno).
-// I cron Cato stanno tutti sullo Scheduler; le Rules restano supportate per altri account/legacy.
+// I nostri cron stanno tutti sullo Scheduler; le Rules restano supportate per altri account/legacy.
 // Ritorna { lambdas: Map(name→{expr,minutes,state}), ecs: [...] }.
 export async function discoverSchedules(aws) {
   const [rules, sched] = await Promise.all([
