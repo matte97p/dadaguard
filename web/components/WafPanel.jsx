@@ -112,8 +112,13 @@ export default function WafPanel({ t = (k) => k }) {
   if (!data || data.disabled) return error ? <Alert type="warning" showIcon message={error} style={{ marginBottom: 16 }} /> : null
 
   const zones = data.zones ?? []
-  const hit = zones.filter((z) => z.error || (z.blocked ?? 0) > 0)
-  const clean = zones.length - hit.length
+  // Le zone senza dataset (domini parcheggiati su piano Free) NON sono un guasto e non diventano card:
+  // erano otto riquadri d'allarme con lo stesso errore Cloudflare per intero, e coprivano le due zone
+  // dove il traffico viene davvero fermato. Restano una riga, perché "non lo so" ≠ "non è successo".
+  const noDataset = zones.filter((z) => z.noDataset)
+  const queryable = zones.filter((z) => !z.noDataset)
+  const hit = queryable.filter((z) => z.error || (z.blocked ?? 0) > 0)
+  const clean = queryable.length - hit.length
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -137,6 +142,14 @@ export default function WafPanel({ t = (k) => k }) {
       {clean > 0 && hit.length > 0 && (
         <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
           {t('waf.zonesClean', { n: clean })}
+        </Text>
+      )}
+      {noDataset.length > 0 && (
+        <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+          {t('waf.zonesNoDataset', { n: noDataset.length })}{' '}
+          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
+            {noDataset.map((z) => z.zone).join(' · ')}
+          </Text>
         </Text>
       )}
     </div>
