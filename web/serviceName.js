@@ -58,7 +58,7 @@ export function displayName(service) {
 // tornano abbastanza spesso da essere una "famiglia" del gruppo.
 //
 // Soglia = UN TERZO del gruppo (minimo 2), non "tutti", non "almeno 2" e non "metà":
-//  · "tutti" → un solo outlier (widget-staging-db tra i acme-*) fa perdere la compattazione a tutti;
+//  · "tutti" → un solo outlier (reporting-staging-db tra i acme-*) fa perdere la compattazione a tutti;
 //  · "almeno 2" → due soli fratelli diventano famiglia (…cron-scraped- accanto a …cron-) e ogni card
 //    mostra una testa diversa, mangiandosi anche una parola che serve a capire il nome. La testa muta
 //    funziona solo se è LA STESSA su tutto il gruppo: l'occhio la salta una volta e non ci torna;

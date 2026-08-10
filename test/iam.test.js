@@ -3,21 +3,21 @@ import assert from 'node:assert/strict'
 import { parseStatements, resourceCovers, matchStatements } from '../server/iam.js'
 
 test('resourceCovers: "*" → hit ampio (broad)', () => {
-  assert.deepEqual(resourceCovers('*', 'widget'), { hit: true, broad: true })
+  assert.deepEqual(resourceCovers('*', 'reporting'), { hit: true, broad: true })
 })
 
 test('resourceCovers: ARN che nomina la risorsa → hit puntuale', () => {
-  assert.deepEqual(resourceCovers('arn:aws:rds:eu-central-1:1:db:widget', 'widget'), { hit: true, broad: false })
+  assert.deepEqual(resourceCovers('arn:aws:rds:eu-central-1:1:db:reporting', 'reporting'), { hit: true, broad: false })
 })
 
 test('resourceCovers: ARN non correlato → nessun hit', () => {
-  assert.deepEqual(resourceCovers('arn:aws:s3:::altro-bucket', 'widget'), { hit: false, broad: false })
+  assert.deepEqual(resourceCovers('arn:aws:s3:::altro-bucket', 'reporting'), { hit: false, broad: false })
   assert.deepEqual(resourceCovers('*', ''), { hit: false, broad: false }) // needle vuoto
 })
 
 test('matchStatements: policy con Resource:"*" (es. AdministratorAccess) → hit broad', () => {
   const stmts = parseStatements({ Statement: [{ Effect: 'Allow', Action: '*', Resource: '*' }] })
-  const m = matchStatements(stmts, 'widget')
+  const m = matchStatements(stmts, 'reporting')
   assert.equal(m.hit, true)
   assert.equal(m.broad, true) // il match passa solo da "*" → accesso ampio
   assert.deepEqual(m.actions, ['*'])
@@ -25,9 +25,9 @@ test('matchStatements: policy con Resource:"*" (es. AdministratorAccess) → hit
 
 test('matchStatements: match puntuale (ARN nominato) → non broad', () => {
   const stmts = parseStatements({
-    Statement: [{ Effect: 'Allow', Action: ['rds-db:connect'], Resource: ['arn:aws:rds-db:eu-central-1:1:dbuser:widget/app'] }],
+    Statement: [{ Effect: 'Allow', Action: ['rds-db:connect'], Resource: ['arn:aws:rds-db:eu-central-1:1:dbuser:reporting/app'] }],
   })
-  const m = matchStatements(stmts, 'widget')
+  const m = matchStatements(stmts, 'reporting')
   assert.equal(m.hit, true)
   assert.equal(m.broad, false)
   assert.deepEqual(m.actions, ['rds-db:connect'])
@@ -37,20 +37,20 @@ test('matchStatements: mix puntuale + wildcard → non broad (almeno uno nomina 
   const stmts = parseStatements({
     Statement: [
       { Effect: 'Allow', Action: 's3:*', Resource: '*' },
-      { Effect: 'Allow', Action: 's3:GetObject', Resource: 'arn:aws:s3:::widget-dumps/*' },
+      { Effect: 'Allow', Action: 's3:GetObject', Resource: 'arn:aws:s3:::reporting-dumps/*' },
     ],
   })
-  const m = matchStatements(stmts, 'widget')
+  const m = matchStatements(stmts, 'reporting')
   assert.equal(m.hit, true)
   assert.equal(m.broad, false)
 })
 
 test('matchStatements: nessuno statement tocca la risorsa → no hit', () => {
   const stmts = parseStatements({ Statement: [{ Effect: 'Allow', Action: 's3:*', Resource: 'arn:aws:s3:::altro/*' }] })
-  assert.equal(matchStatements(stmts, 'widget').hit, false)
+  assert.equal(matchStatements(stmts, 'reporting').hit, false)
 })
 
 test('matchStatements: gli statement Deny non contano (parseStatements filtra Allow)', () => {
   const stmts = parseStatements({ Statement: [{ Effect: 'Deny', Action: '*', Resource: '*' }] })
-  assert.equal(matchStatements(stmts, 'widget').hit, false)
+  assert.equal(matchStatements(stmts, 'reporting').hit, false)
 })

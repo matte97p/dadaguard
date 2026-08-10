@@ -5,7 +5,7 @@ import { matchEnvTargets, matchByArn, extractArns, collectResourceArns } from '.
 const idList = [
   { name: 'webhook-stg', account: 'staging', ids: ['acme-staging-webhook'] },
   { name: 'webhook-prod', account: 'production', ids: ['acme-staging-webhook'] }, // stesso token, account diverso
-  { name: 'db-prod', account: 'production', ids: ['widget-prod-db.cluster-x.rds.amazonaws.com'] },
+  { name: 'db-prod', account: 'production', ids: ['reporting-prod-db.cluster-x.rds.amazonaws.com'] },
   { name: 'queue-stg', account: 'staging', ids: ['prod-queue'] },
 ]
 
@@ -15,7 +15,7 @@ test('collisione cross-account → resta solo lo stesso account', () => {
 })
 
 test('token unico cross-account → dipendenza vera mantenuta', () => {
-  const env = 'DATABASE_URL=postgres://u:p@widget-prod-db.cluster-x.rds.amazonaws.com:5432/db'
+  const env = 'DATABASE_URL=postgres://u:p@reporting-prod-db.cluster-x.rds.amazonaws.com:5432/db'
   const out = matchEnvTargets(env, { name: 'syncer', account: 'staging' }, idList)
   assert.deepEqual(out.map((t) => t.name), ['db-prod'])
 })
@@ -27,7 +27,7 @@ test('niente substring: "prod-queue" dentro "prod-queue-events" non matcha', () 
 
 test('non matcha se stesso (token posseduto solo dal self)', () => {
   const out = matchEnvTargets(
-    'SELF=widget-prod-db.cluster-x.rds.amazonaws.com',
+    'SELF=reporting-prod-db.cluster-x.rds.amazonaws.com',
     { name: 'db-prod', account: 'production' },
     idList,
   )
@@ -61,13 +61,13 @@ test('matchByArn: risolve un ARN al servizio, preferendo lo stesso account', () 
 test('collectResourceArns: pesca gli ARN Resource dai soli statement Allow', () => {
   const doc = {
     Statement: [
-      { Effect: 'Allow', Action: 'rds-db:connect', Resource: 'arn:aws:rds:eu-west-1:111:cluster:widget-prod-db' },
+      { Effect: 'Allow', Action: 'rds-db:connect', Resource: 'arn:aws:rds:eu-west-1:111:cluster:reporting-prod-db' },
       { Effect: 'Allow', Action: ['sqs:SendMessage'], Resource: ['arn:aws:sqs:eu-west-1:111:prod-queue', '*'] },
       { Effect: 'Deny', Action: '*', Resource: 'arn:aws:s3:::segreto' }, // Deny → ignorato
     ],
   }
   assert.deepEqual(collectResourceArns(doc), [
-    'arn:aws:rds:eu-west-1:111:cluster:widget-prod-db',
+    'arn:aws:rds:eu-west-1:111:cluster:reporting-prod-db',
     'arn:aws:sqs:eu-west-1:111:prod-queue',
   ])
   assert.deepEqual(collectResourceArns({}), [])

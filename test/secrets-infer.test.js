@@ -3,14 +3,14 @@ import assert from 'node:assert/strict'
 import { serviceSecretSlugs, indexComponents } from '../server/secrets/ssmIndex.js'
 
 test('serviceSecretSlugs: spoglia il prefisso d’ambiente, più spogliato prima', () => {
-  assert.deepEqual(serviceSecretSlugs({ name: 'prod-follow-competitor' }, 'production'), [
+  assert.deepEqual(serviceSecretSlugs({ name: 'prod-follow-competitor' }, 'production', '/acme/production'), [
     'follow-competitor',
     'prod-follow-competitor',
   ])
 })
 
 test('serviceSecretSlugs: spoglia fino a due segmenti (acme-<env>-<svc>)', () => {
-  assert.deepEqual(serviceSecretSlugs({ name: 'acme-staging-backend' }, 'staging'), [
+  assert.deepEqual(serviceSecretSlugs({ name: 'acme-staging-backend' }, 'staging', '/acme/staging'), [
     'backend',
     'staging-backend',
     'acme-staging-backend',
@@ -18,20 +18,20 @@ test('serviceSecretSlugs: spoglia fino a due segmenti (acme-<env>-<svc>)', () =>
 })
 
 test('serviceSecretSlugs: nessun prefisso d’ambiente → solo il nome', () => {
-  assert.deepEqual(serviceSecretSlugs({ name: 'agentic-chat' }, 'production'), ['agentic-chat'])
+  assert.deepEqual(serviceSecretSlugs({ name: 'agentic-chat' }, 'production', '/acme/production'), ['agentic-chat'])
 })
 
 test('serviceSecretSlugs: ripiega su aws.function/service e gestisce vuoto', () => {
-  assert.deepEqual(serviceSecretSlugs({ aws: { function: 'prod-syncer' } }, 'production'), ['syncer', 'prod-syncer'])
-  assert.deepEqual(serviceSecretSlugs({}, 'production'), [])
+  assert.deepEqual(serviceSecretSlugs({ aws: { function: 'prod-syncer' } }, 'production', '/acme/production'), ['syncer', 'prod-syncer'])
+  assert.deepEqual(serviceSecretSlugs({}, 'production', '/acme/production'), [])
 })
 
 test('serviceSecretSlugs: non spoglia un token che NON è d’ambiente', () => {
   // 'billing' non è un token d'ambiente → resta parte dello slug
-  assert.deepEqual(serviceSecretSlugs({ name: 'billing-worker' }, 'production'), ['billing-worker'])
+  assert.deepEqual(serviceSecretSlugs({ name: 'billing-worker' }, 'production', '/acme/production'), ['billing-worker'])
 })
 
-test('indexComponents: app-service top-level + cron annidato (struttura Acme reale)', () => {
+test('indexComponents: app-service top-level + cron annidato (struttura reale)', () => {
   // Nomi come li ritorna ssmSecrets (relativi a /acme/<env>), presi dalla struttura di produzione:
   const names = [
     'backend/ARIZE_API_KEY',
@@ -57,8 +57,8 @@ test('indexComponents: input vuoto/nullo → oggetto vuoto', () => {
 })
 
 test('serviceSecretSlugs: spoglia anche il gruppo cron nel nome risorsa (acme-<env>-cron-<job>)', () => {
-  // Nome risorsa REALE dei cron Acme: il gruppo `cron` è DENTRO il nome, ma in SSM è un path segment.
-  assert.deepEqual(serviceSecretSlugs({ name: 'acme-production-cron-ai-credit-monitor' }, 'production'), [
+  // Nome risorsa REALE dei nostri cron: il gruppo `cron` è DENTRO il nome, ma in SSM è un path segment.
+  assert.deepEqual(serviceSecretSlugs({ name: 'acme-production-cron-ai-credit-monitor' }, 'production', '/acme/production'), [
     'ai-credit-monitor',
     'cron-ai-credit-monitor',
     'production-cron-ai-credit-monitor',
@@ -75,7 +75,7 @@ test('end-to-end: i cron discoverati come acme-<env>-cron-<job> matchano il job 
     'backend/K1',
   ])
   const match = (name) => {
-    const hit = serviceSecretSlugs({ name }, 'production').find((s) => idx[s] > 0)
+    const hit = serviceSecretSlugs({ name }, 'production', '/acme/production').find((s) => idx[s] > 0)
     return hit ? `${hit}:${idx[hit]}` : null
   }
   assert.equal(match('prod-follow-competitor'), 'follow-competitor:2') // naming legacy

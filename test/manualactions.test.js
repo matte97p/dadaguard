@@ -77,7 +77,7 @@ test('startEntry: tentativo respinto o senza build → nessuna attribuzione', ()
 test('viaTeleportRole / isHotfixRole: distinguono i due ruoli, e ignorano il resto', () => {
   const hotfix = 'arn:aws:sts::521:assumed-role/teleport-hotfix-production/matte97p'
   const restart = 'arn:aws:sts::521:assumed-role/teleport-restart-staging/matte97p'
-  const sso = 'arn:aws:sts::521:assumed-role/AWSReservedSSO_AdministratorAccess_x/matteo@example.com'
+  const sso = 'arn:aws:sts::521:assumed-role/AWSReservedSSO_Ruolo_0000/sam@example.com'
   assert.equal(isHotfixRole(hotfix), true)
   assert.equal(isHotfixRole(restart), false)
   assert.equal(isHotfixRole(sso), false)
@@ -109,14 +109,14 @@ test('mapBuild: lo starter porta chi ha premuto, che NON è l’autore del commi
       projectName: 'acme-production-backend-deploy',
       buildStatus: 'SUCCEEDED',
       initiator: 'matte97p',
-      exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'mrossi@example.com' }],
+      exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'alex@example.com' }],
     },
     { forcedBy: 'matte97p', viaTeleport: true, hotfix: true },
   )
   assert.equal(out.trigger, 'hotfix')
   assert.equal(out.forcedBy, 'matte97p')
   assert.equal(out.viaTeleport, true)
-  assert.equal(out.author, 'mrossi@example.com')
+  assert.equal(out.author, 'alex@example.com')
   // senza starter il comportamento è quello di prima
   const plain = mapBuild({ projectName: 'acme-production-backend-deploy', buildStatus: 'SUCCEEDED', initiator: 'matte97p' })
   assert.equal(plain.trigger, 'manuale')

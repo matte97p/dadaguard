@@ -36,10 +36,10 @@ test('displayTag: uno sha lungo si accorcia a 8 (i tag normali restano interi)',
 })
 
 test('shortActor: chi ha deployato, senza il dominio email', () => {
-  assert.equal(shortActor('81815192+matte97p@users.noreply.github.com'), 'matte97p')
-  assert.equal(shortActor('mrossi@example.com'), 'mrossi')
-  assert.equal(shortActor('mario1.rossi@mail.polimi.it'), 'mario1.rossi')
-  assert.equal(shortActor('MatteoPerino'), 'MatteoPerino') // già un nome
+  assert.equal(shortActor('12345678+dev@users.noreply.github.com'), 'dev')
+  assert.equal(shortActor('alex@example.com'), 'alex')
+  assert.equal(shortActor('alex.rossi@mail.example.org'), 'alex.rossi')
+  assert.equal(shortActor('Persona'), 'Persona') // già un nome
   assert.equal(shortActor('GitHub Actions'), 'GitHub Actions')
 })
 
@@ -54,10 +54,10 @@ test('shortActor: input strani → niente invenzioni', () => {
 test('shortActor: il gemello client dà gli stessi nomi del server', async () => {
   const { shortActor: webShortActor } = await import('../web/format.js')
   for (const raw of [
-    '81815192+matte97p@users.noreply.github.com',
-    'mrossi@example.com',
-    'mario1.rossi@mail.polimi.it',
-    'MatteoPerino',
+    '12345678+dev@users.noreply.github.com',
+    'alex@example.com',
+    'alex.rossi@mail.example.org',
+    'Persona',
     '@handle',
     null,
     '   ',

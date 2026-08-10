@@ -152,7 +152,7 @@ test('instanceOptions: le etichette passano dall’accorciatore', () => {
 
 test('taskIdOfArn: l’id dalla coda dell’ARN', () => {
   assert.equal(
-    taskIdOfArn('arn:aws:ecs:eu-central-1:444455556666:task/acme-staging/68228e26661b4de1b7129e4beb6e44d8'),
+    taskIdOfArn('arn:aws:ecs:eu-central-1:222233334444:task/acme-staging/68228e26661b4de1b7129e4beb6e44d8'),
     '68228e26661b4de1b7129e4beb6e44d8',
   )
   assert.equal(taskIdOfArn(null), null)
@@ -232,7 +232,7 @@ test('latestByTask: storage effimero e pacchetti persi arrivano dai record già 
 
 test('familyOfTaskDef: la famiglia senza la revision', () => {
   assert.equal(
-    familyOfTaskDef('arn:aws:ecs:eu-central-1:444455556666:task-definition/acme-staging-agentic-chat:39'),
+    familyOfTaskDef('arn:aws:ecs:eu-central-1:222233334444:task-definition/acme-staging-agentic-chat:39'),
     'acme-staging-agentic-chat',
   )
   assert.equal(familyOfTaskDef(null), null)

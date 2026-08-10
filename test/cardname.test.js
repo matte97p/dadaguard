@@ -12,12 +12,12 @@ const STAGING = [
   'acme-staging-cron-scraped-documents-monitor',
   'acme-staging-cron-scraped-tenders-public-sync',
   'acme-staging-cron-clickhouse-esiti-cleanup',
-  'acme-staging-cron-widget-leadgen-enrichment',
-  'acme-staging-cron-widget-scraper-storage-sync',
+  'acme-staging-cron-reporting-leadgen-enrichment',
+  'acme-staging-cron-reporting-scraper-storage-sync',
   'acme-staging-backend',
   'acme-staging-frontend',
   'acme-staging-agentic-chat',
-  'widget-staging-db',
+  'reporting-staging-db',
 ]
 
 test('splitFamily: la coda è la parte che distingue, la testa è il prefisso condiviso', () => {
@@ -31,7 +31,7 @@ test('splitFamily: la coda è la parte che distingue, la testa è il prefisso co
 
 test('splitFamily: la testa è la STESSA su tutto il gruppo (due fratelli non fanno famiglia)', () => {
   const fam = familyPrefixes(STAGING)
-  // `…cron-scraped-` e `…cron-widget-` sono condivisi da 2 nomi su 10: sotto la soglia (un terzo),
+  // `…cron-scraped-` e `…cron-reporting-` sono condivisi da 2 nomi su 10: sotto la soglia (un terzo),
   // altrimenti card vicine mostrerebbero teste diverse — e la testa muta non si "salterebbe" più.
   for (const n of STAGING.filter((n) => n.startsWith('acme-staging-cron-'))) {
     assert.equal(splitFamily(n, fam).family, 'acme-staging-cron-')
@@ -48,16 +48,16 @@ test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" i
     'acme-staging-cron-scraped-documents-monitor',
     'acme-staging-cron-scraped-tenders-public-sync',
     'acme-staging-cron-clickhouse-esiti-cleanup',
-    'acme-staging-cron-widget-leadgen-enrichment',
-    'acme-staging-cron-widget-scraper-storage-sync',
+    'acme-staging-cron-reporting-leadgen-enrichment',
+    'acme-staging-cron-reporting-scraper-storage-sync',
     'acme-staging-cron-refresh-bi-materialized-views',
     'acme-staging-cron-elasticsearch-reindex-tenders',
     'acme-staging-cron-follow-competitor-notifier',
     'acme-staging-backend',
     'acme-staging-frontend',
     'acme-staging-agentic-chat',
-    'widget-staging-db',
-    'widget-staging-reader',
+    'reporting-staging-db',
+    'reporting-staging-reader',
     'ws-redis-staging',
     'analytics-staging-worker',
     'admin-frontend-staging',
@@ -69,7 +69,7 @@ test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" i
   assert.equal(real.length, 21)
   const fam = familyPrefixes(real)
   assert.ok(fam.has('acme-staging-cron-'), 'la testa dei cron deve passare')
-  assert.ok(fam.has('acme-staging-'), 'la testa dei servizi acme deve passare')
+  assert.ok(fam.has('acme-staging-'), 'la testa dei nostri servizi deve passare')
   assert.equal(splitFamily('acme-staging-cron-scrape-volume-monitor', fam).tail, 'scrape-volume-monitor')
   assert.equal(splitFamily('acme-staging-backend', fam).tail, 'backend')
   // e nessuna testa inventata sui nomi che non fanno famiglia
@@ -77,9 +77,9 @@ test('familyPrefixes: flotta reale — la famiglia passa anche se copre "solo" i
 })
 
 test('splitFamily: un outlier nel gruppo resta col nome intero (niente troncature inventate)', () => {
-  assert.deepEqual(splitFamily('widget-staging-db', familyPrefixes(STAGING)), {
+  assert.deepEqual(splitFamily('reporting-staging-db', familyPrefixes(STAGING)), {
     family: null,
-    tail: 'widget-staging-db',
+    tail: 'reporting-staging-db',
   })
 })
 

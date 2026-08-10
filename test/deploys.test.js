@@ -53,8 +53,8 @@ test('mapBuild: espone fasi, motivo fallimento e logsUrl', () => {
 
 test('deployerOf: legge la exported-variable DEPLOYER; null se assente', () => {
   assert.equal(
-    deployerOf({ exportedEnvironmentVariables: [{ name: 'FOO', value: 'x' }, { name: 'DEPLOYER', value: 'mperino@example.com' }] }),
-    'mperino@example.com',
+    deployerOf({ exportedEnvironmentVariables: [{ name: 'FOO', value: 'x' }, { name: 'DEPLOYER', value: 'dev@example.com' }] }),
+    'dev@example.com',
   )
   assert.equal(deployerOf({ exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: '' }] }), null)
   assert.equal(deployerOf({ exportedEnvironmentVariables: [] }), null)
@@ -66,9 +66,9 @@ test('mapBuild: espone author da DEPLOYER (chi ha lanciato)', () => {
     id: 'acme-staging-backend-deploy:abc',
     projectName: 'acme-staging-backend-deploy',
     buildStatus: 'SUCCEEDED',
-    exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'mperino@example.com' }],
+    exportedEnvironmentVariables: [{ name: 'DEPLOYER', value: 'dev@example.com' }],
   })
-  assert.equal(out.author, 'mperino@example.com')
+  assert.equal(out.author, 'dev@example.com')
   // build senza la variabile → author null (build vecchi / progetti che non la esportano)
   assert.equal(mapBuild({ projectName: 'acme-staging-backend-deploy', buildStatus: 'SUCCEEDED' }).author, null)
 })

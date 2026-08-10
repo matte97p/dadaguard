@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REGION=eu-central-1
-CLUSTER=acme-management
+CLUSTER=${DADAGUARD_ECS_CLUSTER:-dadaguard}
 SERVICE=dadaguard
 P_CFG=/dadaguard/services-yaml
 IAC="$HOME/www/acme-infra/aws-management/live/management"

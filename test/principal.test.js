@@ -8,8 +8,8 @@ test('principalName: IAM user → nome', () => {
 
 test('principalName: assumed-role SSO → sessione (la persona)', () => {
   assert.equal(
-    principalName('arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_Admin_abc/matteo@example.com'),
-    'matteo@example.com',
+    principalName('arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_Ruolo_0000/sam@example.com'),
+    'sam@example.com',
   )
 })
 
@@ -47,21 +47,21 @@ test('principalName: null/vuoto → null', () => {
 })
 
 test('canonicalActor: la mappa alias unisce due identità git della stessa persona', () => {
-  // In Acme la stessa persona committa come `mrossi@example.com` e
-  // `mario1.rossi@mail.polimi.it`: il pannello mostrava due nomi e sembravano due colleghi.
-  const people = { 'mario1.rossi@mail.polimi.it': 'mrossi' }
-  assert.equal(canonicalActor('mario1.rossi@mail.polimi.it', people), 'mrossi')
-  assert.equal(canonicalActor('mrossi@example.com', people), 'mrossi') // già canonico
+  // Da noi la stessa persona committa come `alex@example.com` e
+  // `alex.rossi@mail.example.org`: il pannello mostrava due nomi e sembravano due colleghi.
+  const people = { 'alex.rossi@mail.example.org': 'alex' }
+  assert.equal(canonicalActor('alex.rossi@mail.example.org', people), 'alex')
+  assert.equal(canonicalActor('alex@example.com', people), 'alex') // già canonico
 })
 
 test('canonicalActor: la chiave vale anche sulla forma accorciata, senza maiuscole', () => {
-  assert.equal(canonicalActor('Mario1.Rossi@mail.polimi.it', { 'mario1.rossi@mail.polimi.it': 'gg' }), 'gg')
-  assert.equal(canonicalActor('mario.rossi@x.it', { 'mario.rossi': 'mrossi' }), 'mrossi')
+  assert.equal(canonicalActor('Alex.Rossi@mail.example.org', { 'alex.rossi@mail.example.org': 'ar' }), 'ar')
+  assert.equal(canonicalActor('mario.rossi@example.com', { 'mario.rossi': 'mrossi' }), 'mrossi')
 })
 
 test('canonicalActor: senza alias si comporta come prima, e regge il vuoto', () => {
-  assert.equal(canonicalActor('81815192+matte97p@users.noreply.github.com'), 'matte97p')
-  assert.equal(canonicalActor('mrossi@example.com', null), 'mrossi')
+  assert.equal(canonicalActor('12345678+dev@users.noreply.github.com'), 'dev')
+  assert.equal(canonicalActor('alex@example.com', null), 'alex')
   assert.equal(canonicalActor(''), null)
   assert.equal(canonicalActor(undefined, { a: 'b' }), null)
 })

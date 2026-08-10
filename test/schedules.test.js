@@ -35,7 +35,7 @@ test('minutesToSchedule: formato compatibile con runtime/lambda.js (parseSchedul
   assert.equal(minutesToSchedule(null), null)
 })
 
-// EventBridge Scheduler: distingue i target Lambda vs ECS RunTask (i cron Acme usano lo Scheduler,
+// EventBridge Scheduler: distingue i target Lambda vs ECS RunTask (i nostri cron usano lo Scheduler,
 // non le Rules → questa classificazione è ciò che li fa smettere di apparire "on-demand").
 test('classifyScheduleTarget: target Lambda → { kind: lambda, name }', () => {
   const r = classifyScheduleTarget({
