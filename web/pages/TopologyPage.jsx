@@ -102,6 +102,16 @@ function buildGraph(services, topo, dark, t) {
   const nameOf = (id) => selected.get(id)?.name ?? universe.get(id)?.name ?? external.get(id)?.label ?? id
   const typeOf = (id) => selected.get(id)?.type ?? universe.get(id)?.type ?? external.get(id)?.type ?? null
   const statusOf = (id) => selected.get(id)?.overall ?? null
+  // `topo.nodes` porta la CHIAVE dell'account ('production'), i servizi la sua etichetta
+  // ('Production'): senza tradurla, un vicino fuori dal filtro finiva accanto a un servizio dentro al
+  // filtro con lo stesso account scritto in due modi, che si legge come un errore.
+  const accountLabels = new Map(services.map((s) => [svcKey(s).split('::')[0], acctLabel(s)]).filter(([, l]) => l))
+  const accountOf = (id) => {
+    const s = selected.get(id)
+    if (s) return acctLabel(s)
+    const raw = universe.get(id)?.account ?? null
+    return raw ? accountLabels.get(raw) ?? raw : null
+  }
 
   // Il nome si ripete tra ambienti: l'etichetta porta l'account solo quando serve a distinguerli.
   const nameCount = new Map()
@@ -110,24 +120,21 @@ function buildGraph(services, topo, dark, t) {
     nameCount.set(n, (nameCount.get(n) ?? 0) + 1)
   }
 
+  // Ogni estremo di un arco resta nel disegno, hub compresi: il collasso toglie le LINEE, non i nodi.
+  // Togliere anche i bersagli farebbe finire un servizio vero fra quelli «senza relazioni dedotte»,
+  // cioè direbbe «nessuna relazione» per dire «relazione collassata» — la confusione che questa
+  // pagina esiste per evitare.
   const inGraph = new Set()
   for (const e of edges) {
     inGraph.add(e.source)
     inGraph.add(e.target)
   }
-  // Gli archi degli hub collassano: una freccia sola con il conteggio, non sei che attraversano la tela.
   const collapsed = []
-  const drawnEdges = []
   for (const id of hubs) {
     const list = edges.filter((e) => e.source === id)
     collapsed.push({ source: id, targets: list.map((e) => e.target), vias: [...new Set(list.flatMap((e) => e.vias ?? []))] })
-    for (const e of list) inGraph.delete(e.target)
   }
-  for (const e of edges) if (!hubs.has(e.source)) drawnEdges.push(e)
-  for (const e of drawnEdges) {
-    inGraph.add(e.source)
-    inGraph.add(e.target)
-  }
+  const drawnEdges = edges.filter((e) => !hubs.has(e.source))
 
   const laneOf = (id) => (hubs.has(id) ? 'ops' : external.has(id) ? 'data' : LANE_OF_TYPE[typeOf(id)] ?? 'app')
   const byLane = new Map(LANES.map((l) => [l, []]))
@@ -173,9 +180,8 @@ function buildGraph(services, topo, dark, t) {
     list.forEach((id, i) => {
       const ghost = !selected.has(id) && !external.has(id)
       const color = external.has(id) ? '#bfbfbf' : STATUS_COLOR[statusOf(id)] ?? '#8c8c8c'
-      const label = nameCount.get(nameOf(id)) > 1 && acctLabel(selected.get(id) ?? universe.get(id) ?? {})
-        ? `${nameOf(id)} · ${acctLabel(selected.get(id) ?? universe.get(id))}`
-        : nameOf(id)
+      const label =
+        nameCount.get(nameOf(id)) > 1 && accountOf(id) ? `${nameOf(id)} · ${accountOf(id)}` : nameOf(id)
       nodes.push({
         id,
         position: { x: i * (NODE_W + GAP_X), y },
