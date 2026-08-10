@@ -1,3 +1,4 @@
+import { stripOrgEnv, ENV_PREFIX } from './envToken.js'
 // Estrae un nome umano-leggibile da un ARN di principal IAM/STS (chi ha fatto una modifica).
 // Obiettivo: mostrare la PERSONA quando c'è; per le pipeline (CI/CodeBuild) mostrare un'etichetta
 // PULITA (il pipeline), mai una sessione-macchina grezza tipo `AWSCodeBuild-<uuid>`. Puro/testabile.
@@ -21,13 +22,10 @@ function isMachineSession(s) {
   )
 }
 
-// Ruolo → nome pipeline leggibile: via il prefisso ambiente (cato-<env>-).
+// Ruolo → nome pipeline leggibile: via il prefisso `<org>-<env>-`. L'organizzazione non è scritta
+// qui: si riconosce perché è seguita da un ambiente (vedi util/envToken.js).
 function prettifyRole(role) {
-  return (
-    String(role || '')
-      .replace(/^cato-/i, '')
-      .replace(/^(production|prod|staging|stg|prd|management|mgmt)-/i, '') || null
-  )
+  return stripOrgEnv(String(role || '')).replace(ENV_PREFIX, '') || null
 }
 
 // Chi ha deployato, in forma LEGGIBILE. Il valore grezzo è spesso un'email (tag `deployedBy` =

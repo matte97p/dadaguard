@@ -9,13 +9,15 @@ import {
 } from '@aws-sdk/client-codebuild'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { manualActions } from './manualActions.js'
+import { stripOrgEnv } from './util/envToken.js'
 
 const DEPLOY_SUFFIX = '-deploy'
 
-// Ricava il nome-servizio dal progetto CodeBuild: `cato-<env>-<service>-deploy` → `<service>`.
-// Toglie il prefisso `cato-<env>-` (env = un token) e il suffisso `-deploy`. Puro/testabile.
+// Ricava il nome-servizio dal progetto CodeBuild: `<org>-<env>-<service>-deploy` → `<service>`.
+// L'ancora è l'AMBIENTE, non il nome dell'organizzazione: quello cambia da chi usa lo strumento (e
+// scriverlo qui, in un repo pubblico, diceva di chi è l'infrastruttura). Puro/testabile.
 export function serviceFromProject(name = '') {
-  return name.replace(/^cato-[^-]+-/, '').replace(/-deploy$/, '') || name
+  return stripOrgEnv(name).replace(/-deploy$/, '') || name
 }
 
 // SHA corto per i commit; un ref simbolico (branch, es. "staging") resta com'è. Puro/testabile.
