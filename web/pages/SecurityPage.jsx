@@ -10,7 +10,7 @@ const SEV_COLOR = { high: 'red', medium: 'orange', low: 'gold', info: 'blue' }
 
 // Pagina Sicurezza: findings di sicurezza/governance aggregati (superficie pubblica, scadenze,
 // secret stantii, igiene IAM…), filtrabili per categoria e ordinati per severità. Sola lettura.
-export default function SecurityPage({ t = (k) => k }) {
+export default function SecurityPage({ t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -26,15 +26,17 @@ export default function SecurityPage({ t = (k) => k }) {
     navigate(`/iam?${p.toString()}`)
   }
 
+  // `lang` nella query e nelle dipendenze: i `detail` dei finding sono frasi costruite dal server,
+  // quindi cambiando lingua vanno richiesti di nuovo — non si traducono nel browser.
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch('/api/security')
+    fetch(`/api/security?lang=${lang ?? ''}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [lang])
 
   const findings = data?.findings ?? []
   const categories = useMemo(() => [...new Set(findings.map((f) => f.category))], [findings])
@@ -64,6 +66,8 @@ export default function SecurityPage({ t = (k) => k }) {
           {shown.map((f, i) => (
             <div
               key={i}
+              // data-finding: ancora per il video demo, vedi pageKit.jsx.
+              data-finding={f.category}
               onClick={f.link ? () => openLink(f.link) : undefined}
               style={{
                 border: '1px solid rgba(128,128,128,0.18)',

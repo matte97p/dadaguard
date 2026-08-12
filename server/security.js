@@ -16,6 +16,7 @@ import {
 } from '@aws-sdk/client-iam'
 import { SecretsManagerClient, ListSecretsCommand } from '@aws-sdk/client-secrets-manager'
 import { clientOpts } from './runtime/awsClient.js'
+import { identityT, makeT } from './i18n.js'
 import { parseStatements } from './iam.js'
 
 const DAY = 86400000
@@ -38,7 +39,7 @@ function hitsSensitivePort(from, to) {
 }
 
 // Superficie pubblica: cosa è raggiungibile da internet.
-export async function publicSurface(accounts, services) {
+export async function publicSurface(accounts, services, t = identityT) {
   const findings = []
 
   // 1) Security group con ingress da 0.0.0.0/0 su porte sensibili (o "tutte") — un pass per account.
@@ -63,7 +64,7 @@ export async function publicSurface(accounts, services) {
                 account: key,
                 accountLabel: acc.label ?? key,
                 resource: `${g.GroupId}${g.GroupName ? ` (${g.GroupName})` : ''}`,
-                detail: `security group aperto a 0.0.0.0/0 · ${proto} ${ports}`,
+                detail: t('sec.sgOpen', { proto, ports }),
               })
             }
           }
@@ -84,7 +85,7 @@ export async function publicSurface(accounts, services) {
           const rds = new RDSClient(clientOpts(awsFor(s, accounts)))
           const o = await rds.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: s.aws.instance }))
           if (o.DBInstances?.[0]?.PubliclyAccessible)
-            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'RDS publicly accessible', link: { view: 'resource', account: s.account?.key, needle: s.name } })
+            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: t('sec.rdsPublic'), link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -102,7 +103,7 @@ export async function publicSurface(accounts, services) {
             new DescribeLoadBalancersCommand(s.aws.arn ? { LoadBalancerArns: [s.aws.arn] } : { Names: [s.aws.name] }),
           )
           if (o.LoadBalancers?.[0]?.Scheme === 'internet-facing')
-            findings.push({ category: 'public', severity: 'info', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'ALB internet-facing', link: { view: 'resource', account: s.account?.key, needle: s.name } })
+            findings.push({ category: 'public', severity: 'info', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: t('sec.albPublic'), link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -134,7 +135,7 @@ export async function publicSurface(accounts, services) {
             }
           }
           if (pub)
-            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: 'bucket S3 senza Public Access Block completo', link: { view: 'resource', account: s.account?.key, needle: s.name } })
+            findings.push({ category: 'public', severity: 'high', account: s.account?.key, accountLabel: s.account?.label, resource: s.name, detail: t('sec.s3NoPab'), link: { view: 'resource', account: s.account?.key, needle: s.name } })
         } catch {
           /* best effort */
         }
@@ -145,7 +146,7 @@ export async function publicSurface(accounts, services) {
 }
 
 // Scadenze: certificati ACM entro 30 giorni (o già scaduti). Un pass per account.
-export async function expiring(accounts) {
+export async function expiring(accounts, t = identityT) {
   const findings = []
   const now = Date.now()
   await Promise.all(
@@ -173,7 +174,7 @@ export async function expiring(accounts) {
               account: key,
               accountLabel: acc.label ?? key,
               resource: c.DomainName || c.CertificateArn,
-              detail: days < 0 ? `certificato ACM scaduto da ${-days}g` : `certificato ACM scade tra ${days}g`,
+              detail: days < 0 ? t('sec.certExpired', { n: -days }) : t('sec.certExpiring', { n: days }),
             })
           }
           token = o.NextToken
@@ -187,7 +188,7 @@ export async function expiring(accounts) {
 }
 
 // Igiene IAM: policy troppo larghe (wildcard), utenti senza MFA, access key non ruotate.
-export async function iamHygiene(accounts) {
+export async function iamHygiene(accounts, t = identityT) {
   const findings = []
   const now = Date.now()
   await Promise.all(
@@ -207,9 +208,9 @@ export async function iamHygiene(accounts) {
               const wildAction = stmts.some((s) => s.actions.includes('*'))
               const wildBoth = stmts.some((s) => s.actions.includes('*') && s.resources.includes('*'))
               if (wildBoth)
-                findings.push({ category: 'iam', severity: 'high', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*" e Resource:"*" (admin)', link: { view: 'policy', account: key, arn: p.Arn } })
+                findings.push({ category: 'iam', severity: 'high', account: key, accountLabel: label, resource: p.PolicyName, detail: t('sec.policyAdmin'), link: { view: 'policy', account: key, arn: p.Arn } })
               else if (wildAction)
-                findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: p.PolicyName, detail: 'policy con Action:"*"', link: { view: 'policy', account: key, arn: p.Arn } })
+                findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: p.PolicyName, detail: t('sec.policyWildAction'), link: { view: 'policy', account: key, arn: p.Arn } })
             } catch {
               /* documento non parsabile */
             }
@@ -229,7 +230,7 @@ export async function iamHygiene(accounts) {
               try {
                 const mfa = await iam.send(new ListMFADevicesCommand({ UserName: u.UserName }))
                 if ((mfa.MFADevices ?? []).length === 0)
-                  findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: u.UserName, detail: 'utente IAM senza MFA' })
+                  findings.push({ category: 'iam', severity: 'medium', account: key, accountLabel: label, resource: u.UserName, detail: t('sec.userNoMfa') })
               } catch {
                 /* non leggibile */
               }
@@ -239,7 +240,7 @@ export async function iamHygiene(accounts) {
                   if (k.Status !== 'Active' || !k.CreateDate) continue
                   const days = Math.round((now - new Date(k.CreateDate).getTime()) / DAY)
                   if (days >= 90)
-                    findings.push({ category: 'iam', severity: days >= 180 ? 'high' : 'medium', account: key, accountLabel: label, resource: u.UserName, detail: `access key attiva da ${days}g (non ruotata)` })
+                    findings.push({ category: 'iam', severity: days >= 180 ? 'high' : 'medium', account: key, accountLabel: label, resource: u.UserName, detail: t('sec.keyOld', { n: days }) })
                 }
               } catch {
                 /* non leggibile */
@@ -257,7 +258,7 @@ export async function iamHygiene(accounts) {
 }
 
 // Secret stantii: Secrets Manager non ruotati da ≥90 giorni. Solo metadati (data), mai il valore.
-export async function staleSecrets(accounts) {
+export async function staleSecrets(accounts, t = identityT) {
   const findings = []
   const now = Date.now()
   await Promise.all(
@@ -278,7 +279,7 @@ export async function staleSecrets(accounts) {
               account: key,
               accountLabel: acc.label ?? key,
               resource: s.Name,
-              detail: s.RotationEnabled ? `secret non ruotato da ${days}g` : `secret non ruotato da ${days}g (rotazione off)`,
+              detail: s.RotationEnabled ? t('sec.secretStale', { n: days }) : t('sec.secretStaleNoRotation', { n: days }),
               link: { view: 'resource', account: key, needle: s.Name },
             })
           }
@@ -295,12 +296,15 @@ export async function staleSecrets(accounts) {
 const SEVERITY_RANK = { high: 0, medium: 1, low: 2, info: 3 }
 
 // Aggrega tutti i collector di findings, ordinati per severità.
-export async function collectFindings(accounts, services) {
+export async function collectFindings(accounts, services, lang) {
+  // La lingua arriva dalla richiesta (`/api/security?lang=`): i `detail` sono frasi, non etichette,
+  // e finché stavano scritte a mano qui la pagina restava italiana anche con la UI in inglese.
+  const t = makeT(lang)
   const groups = await Promise.all([
-    publicSurface(accounts, services).catch(() => []),
-    expiring(accounts).catch(() => []),
-    iamHygiene(accounts).catch(() => []),
-    staleSecrets(accounts).catch(() => []),
+    publicSurface(accounts, services, t).catch(() => []),
+    expiring(accounts, t).catch(() => []),
+    iamHygiene(accounts, t).catch(() => []),
+    staleSecrets(accounts, t).catch(() => []),
   ])
   const findings = groups
     .flat()
