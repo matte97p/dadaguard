@@ -47,7 +47,8 @@ function ZoneCard({ z, t }) {
     )
   }
   return (
-    <div style={PANEL_CARD}>
+    // data-view: ancora per il video demo, vedi pageKit.jsx.
+    <div data-view="waf" style={PANEL_CARD}>
       <Text strong style={{ fontSize: 15 }}>
         {z.zone}
       </Text>

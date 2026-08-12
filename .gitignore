@@ -10,6 +10,11 @@ dist/
 # Config reale (la TUA infra) — nel repo va solo services.example.yaml
 services.yaml
 
+# Render di demowright che NON sono asset del README (le versioni italiane, il verticale per i
+# social): si rigenerano con un comando dallo script, e un mp4 da 10 MB per lingua in cronologia
+# git è peso che non torna più indietro. Nel repo sta solo `assets/demo.mp4` + la GIF.
+output/
+
 # Planning: fuori dal repo OSS (vivono qui solo per la revisione locale)
 REQUIREMENTS.md
 HANDOFF.md
