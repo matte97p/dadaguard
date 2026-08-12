@@ -16,7 +16,7 @@ import {
 } from '@aws-sdk/client-iam'
 import { SecretsManagerClient, ListSecretsCommand } from '@aws-sdk/client-secrets-manager'
 import { clientOpts } from './runtime/awsClient.js'
-import { identityT, makeT } from './i18n.js'
+import { makeT } from './i18n.js'
 import { parseStatements } from './iam.js'
 
 const DAY = 86400000
@@ -39,7 +39,10 @@ function hitsSensitivePort(from, to) {
 }
 
 // Superficie pubblica: cosa è raggiungibile da internet.
-export async function publicSurface(accounts, services, t = identityT) {
+// `t` di default in italiano e non `identityT`: quello interpola la CHIAVE, quindi un chiamante che
+// dimenticasse la lingua stamperebbe `sec.sgOpen` dentro un finding. Il fallback italiano è ciò che
+// queste frasi erano prima di passare dal dizionario.
+export async function publicSurface(accounts, services, t = makeT()) {
   const findings = []
 
   // 1) Security group con ingress da 0.0.0.0/0 su porte sensibili (o "tutte") — un pass per account.
@@ -146,7 +149,7 @@ export async function publicSurface(accounts, services, t = identityT) {
 }
 
 // Scadenze: certificati ACM entro 30 giorni (o già scaduti). Un pass per account.
-export async function expiring(accounts, t = identityT) {
+export async function expiring(accounts, t = makeT()) {
   const findings = []
   const now = Date.now()
   await Promise.all(
@@ -188,7 +191,7 @@ export async function expiring(accounts, t = identityT) {
 }
 
 // Igiene IAM: policy troppo larghe (wildcard), utenti senza MFA, access key non ruotate.
-export async function iamHygiene(accounts, t = identityT) {
+export async function iamHygiene(accounts, t = makeT()) {
   const findings = []
   const now = Date.now()
   await Promise.all(
@@ -258,7 +261,7 @@ export async function iamHygiene(accounts, t = identityT) {
 }
 
 // Secret stantii: Secrets Manager non ruotati da ≥90 giorni. Solo metadati (data), mai il valore.
-export async function staleSecrets(accounts, t = identityT) {
+export async function staleSecrets(accounts, t = makeT()) {
   const findings = []
   const now = Date.now()
   await Promise.all(
