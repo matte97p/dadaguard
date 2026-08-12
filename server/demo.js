@@ -5,6 +5,7 @@
 import { budgetLevel } from './budgets.js'
 import { monthEndProjection } from './costs.js'
 import { computeOverall } from './status.js'
+import { makeT } from './i18n.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -636,17 +637,19 @@ export function demoSsoAccess() {
   }
 }
 
-export function demoSecurity() {
+export function demoSecurity(lang = 'it') {
+  const L = lang === 'en' ? 'en' : 'it'
+  const t = makeT(L)
   return {
     findings: [
-      { category: 'public', severity: 'high', account: 'staging', accountLabel: 'Staging', resource: 'legacy-api', detail: 'security group aperto a 0.0.0.0/0 · tcp 22 (SSH)' },
-      { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: 'bucket S3 senza Public Access Block completo', link: { view: 'resource', account: 'prod', needle: 'public-assets' } },
-      { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: 'ALB internet-facing', link: { view: 'resource', account: 'prod', needle: 'public-lb' } },
-      { category: 'expiring', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'shop.example.com', detail: 'certificato ACM scade tra 12g' },
-      { category: 'iam', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'legacy-admin', detail: 'policy con Action:"*" e Resource:"*" (admin)', link: { view: 'policy', account: 'prod', arn: 'arn:aws:iam::111122223333:policy/legacy-admin' } },
-      { category: 'iam', severity: 'medium', account: 'staging', accountLabel: 'Staging', resource: 'ci-deployer', detail: 'utente IAM senza MFA' },
-      { category: 'iam', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'legacy-bot', detail: 'access key attiva da 240g (non ruotata)' },
-      { category: 'secret', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'prod/user-db', detail: 'secret non ruotato da 210g', link: { view: 'resource', account: 'prod', needle: 'prod/user-db' } },
+      { category: 'public', severity: 'high', account: 'staging', accountLabel: 'Staging', resource: 'legacy-api', detail: t('sec.sgOpen', { proto: 'tcp', ports: '22 (SSH)' }) },
+      { category: 'public', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'public-assets', detail: t('sec.s3NoPab'), link: { view: 'resource', account: 'prod', needle: 'public-assets' } },
+      { category: 'public', severity: 'info', account: 'prod', accountLabel: 'Production', resource: 'public-lb', detail: t('sec.albPublic'), link: { view: 'resource', account: 'prod', needle: 'public-lb' } },
+      { category: 'expiring', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'shop.example.com', detail: t('sec.certExpiring', { n: 12 }) },
+      { category: 'iam', severity: 'high', account: 'prod', accountLabel: 'Production', resource: 'legacy-admin', detail: t('sec.policyAdmin'), link: { view: 'policy', account: 'prod', arn: 'arn:aws:iam::111122223333:policy/legacy-admin' } },
+      { category: 'iam', severity: 'medium', account: 'staging', accountLabel: 'Staging', resource: 'ci-deployer', detail: t('sec.userNoMfa') },
+      { category: 'iam', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'legacy-bot', detail: t('sec.keyOld', { n: 240 }) },
+      { category: 'secret', severity: 'medium', account: 'prod', accountLabel: 'Production', resource: 'prod/user-db', detail: t('sec.secretStale', { n: 210 }), link: { view: 'resource', account: 'prod', needle: 'prod/user-db' } },
     ],
   }
 }

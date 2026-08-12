@@ -69,9 +69,18 @@ export function HeroStat({ label, value, color, size = 20 }) {
 }
 
 // Banda hero: fila di HeroStat che va a capo pulita.
+//
+// `data-view`: ancora per il video demo (`demowright.story.js`). Zoom e highlight risolvono il
+// selettore con `document.querySelector` DENTRO la pagina, quindi possono agganciarsi solo a CSS —
+// non al testo, che è tradotto, né alla posizione, che cambia al primo riordino. Senza un'ancora
+// stabile il video si registra su `nth-child` e si rompe in silenzio: continua a girare, inquadrando
+// il riquadro sbagliato. Stessa ragione del `data-service` sulle righe della tabella.
 export function HeroRow({ children }) {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 32px', alignItems: 'flex-end', margin: '2px 0 18px' }}>
+    <div
+      data-view="hero"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 32px', alignItems: 'flex-end', margin: '2px 0 18px' }}
+    >
       {children}
     </div>
   )

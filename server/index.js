@@ -447,11 +447,11 @@ app.get('/api/iam/sso', async (_req, res) => {
 })
 
 // Findings di sicurezza/governance aggregati (superficie pubblica, scadenze, secret, igiene IAM…).
-app.get('/api/security', async (_req, res) => {
+app.get('/api/security', async (req, res) => {
   try {
-    if (isDemo) return res.json(demoSecurity())
+    if (isDemo) return res.json(demoSecurity(req.query.lang))
     const { accounts, services } = await resolveServices()
-    res.json(await collectFindings(accounts, services))
+    res.json(await collectFindings(accounts, services, req.query.lang))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -675,7 +675,7 @@ export default function App() {
                 }
               />
               <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
-              <Route path="/sicurezza" element={<SecurityPage t={t} />} />
+              <Route path="/sicurezza" element={<SecurityPage t={t} lang={lang} />} />
               {/* I percorsi vecchi non muoiono: reindirizzano alla scheda giusta della pagina fusa. */}
               {Object.entries(REDIRECTS).map(([from, to]) => (
                 <Route key={from} path={from} element={<Navigate to={to} replace />} />

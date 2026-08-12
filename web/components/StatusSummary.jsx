@@ -28,7 +28,8 @@ export default function StatusSummary({ services = [], all = null, statusFilter 
   const pick = (k) => onStatusFilter?.(attivo(k) && statusFilter.length === 1 ? [] : [k])
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 14px' }}>
+    // data-view: ancora per il video demo, vedi pageKit.jsx.
+    <div data-view="summary" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 14px' }}>
       <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1 }} className="dg-num">
           {filtrato ? `${shown}/${total}` : total}

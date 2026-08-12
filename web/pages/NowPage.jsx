@@ -39,6 +39,8 @@ function SignalRow({ s, t, onOpen }) {
       role="button"
       tabIndex={0}
       title={t('now.open')}
+      // data-signal: ancora per il video demo, vedi pageKit.jsx.
+      data-signal={s.kind}
       onClick={() => onOpen(s)}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s))}
       style={{

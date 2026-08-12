@@ -18,8 +18,8 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Dadaguard in azione" width="760"><br>
-  <sub><a href="assets/demo.mp4">▶ video completo</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a></sub>
+  <img src="assets/demo.gif" alt="Dadaguard in azione: cosa morde adesso, e un servizio su ma non coerente" width="700"><br>
+  <sub>I primi 29 secondi · <a href="assets/demo.mp4">▶ tour completo (80s)</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a> da <a href="demowright.story.js">uno script che vive qui</a>: cambia la UI, si ri-registra</sub>
 </p>
 
 **Provalo in 10 secondi, senza AWS** — immagine pubblica, dati finti, zero config:

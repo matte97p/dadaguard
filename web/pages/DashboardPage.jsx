@@ -41,15 +41,20 @@ export default function DashboardPage({ data, groups, allServices, statusFilter,
         )}
         <Space size={12} wrap>
           {data && (
-            <Segmented
-              size="small"
-              value={view}
-              onChange={pickView}
-              options={[
-                { value: 'table', icon: <TableOutlined />, title: t('view.table') },
-                { value: 'cards', icon: <AppstoreOutlined />, title: t('view.cards') },
-              ]}
-            />
+            // L'involucro con `data-view` è l'ancora per il video demo (vedi pageKit.jsx): le opzioni
+            // di Segmented non portano attributi propri, e il loro unico appiglio — il `title` — è
+            // tradotto, quindi un selettore su quello funzionerebbe in una lingua sola.
+            <span data-view="view-switch">
+              <Segmented
+                size="small"
+                value={view}
+                onChange={pickView}
+                options={[
+                  { value: 'table', icon: <TableOutlined />, title: t('view.table') },
+                  { value: 'cards', icon: <AppstoreOutlined />, title: t('view.cards') },
+                ]}
+              />
+            </span>
           )}
           {data?.generatedAt && (
             <Text type="secondary">
