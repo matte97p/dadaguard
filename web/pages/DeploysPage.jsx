@@ -211,6 +211,8 @@ function ClickableRow({ b, onOpen, t, children }) {
       role="button"
       tabIndex={0}
       title={t('deploys.openDetail')}
+      // data-build: ancora per il video demo, vedi pageKit.jsx.
+      data-build={b.service}
       onClick={() => onOpen(b)}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(b))}
       style={{

@@ -238,6 +238,22 @@ const S = {
     'security.notapplicable': 'non applicabile a questo tipo',
     'security.port': 'porta {p}',
     'security.allports': 'tutte le porte',
+
+    // Findings della pagina Sicurezza. Stavano scritti a mano in italiano dentro `security.js`:
+    // la pagina si traduceva nelle etichette (severità, categorie) e restava italiana nella riga
+    // che dice cosa è il problema — cioè nell'unica parte che si legge davvero.
+    'sec.sgOpen': 'security group aperto a 0.0.0.0/0 · {proto} {ports}',
+    'sec.rdsPublic': 'RDS raggiungibile da internet',
+    'sec.albPublic': 'ALB esposto su internet',
+    'sec.s3NoPab': 'bucket S3 senza Public Access Block completo',
+    'sec.certExpiring': 'certificato ACM scade tra {n}g',
+    'sec.certExpired': 'certificato ACM scaduto da {n}g',
+    'sec.policyAdmin': 'policy con Action:"*" e Resource:"*" (admin)',
+    'sec.policyWildAction': 'policy con Action:"*"',
+    'sec.userNoMfa': 'utente IAM senza MFA',
+    'sec.keyOld': 'access key attiva da {n}g (non ruotata)',
+    'sec.secretStale': 'secret non ruotato da {n}g',
+    'sec.secretStaleNoRotation': 'secret non ruotato da {n}g (rotazione off)',
   },
   en: {
     'version.mismatch': 'running {actual}, expected {expected}',
@@ -470,6 +486,19 @@ const S = {
     'security.notapplicable': 'not applicable to this type',
     'security.port': 'port {p}',
     'security.allports': 'all ports',
+
+    'sec.sgOpen': 'security group open to 0.0.0.0/0 · {proto} {ports}',
+    'sec.rdsPublic': 'RDS publicly accessible',
+    'sec.albPublic': 'ALB internet-facing',
+    'sec.s3NoPab': 'S3 bucket without full Public Access Block',
+    'sec.certExpiring': 'ACM certificate expires in {n}d',
+    'sec.certExpired': 'ACM certificate expired {n}d ago',
+    'sec.policyAdmin': 'policy with Action:"*" and Resource:"*" (admin)',
+    'sec.policyWildAction': 'policy with Action:"*"',
+    'sec.userNoMfa': 'IAM user without MFA',
+    'sec.keyOld': 'access key active for {n}d (never rotated)',
+    'sec.secretStale': 'secret not rotated in {n}d',
+    'sec.secretStaleNoRotation': 'secret not rotated in {n}d (rotation off)',
   },
 }
 

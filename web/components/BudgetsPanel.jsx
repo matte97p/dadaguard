@@ -152,8 +152,9 @@ export default function BudgetsPanel({ t = (k) => k, lang }) {
     <div style={{ marginBottom: 24 }}>
       {data.error && <Alert type="warning" showIcon message={data.error} style={{ marginBottom: 10 }} />}
       <div style={PANEL_GRID}>
+        {/* data-view/data-account: ancore per il video demo, vedi pageKit.jsx. */}
         {accounts.map(([key, a]) => (
-          <div key={key} style={PANEL_CARD}>
+          <div key={key} data-view="budget" data-account={key} style={PANEL_CARD}>
             <Space>
               {a.color && <Badge color={a.color} />}
               <Text strong style={{ fontSize: 15 }}>
@@ -176,7 +177,7 @@ export default function BudgetsPanel({ t = (k) => k, lang }) {
         ))}
 
         {(anomalies.length > 0 || data.anomaliesError) && (
-          <div style={PANEL_CARD}>
+          <div data-view="anomalies" style={PANEL_CARD}>
             <Text strong style={{ fontSize: 15 }}>
               {t('budget.anomalies')}
             </Text>
