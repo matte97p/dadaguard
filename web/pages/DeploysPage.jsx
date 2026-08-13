@@ -22,9 +22,18 @@ const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
 // Colore dell'etichetta di avvio. `hotfix` è rosso perché è l'unico valore che significa "in
 // produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
 const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
-// Un riavvio forzato non è una build: non ha fasi, durata, log né tasso di successo da calcolare.
-const isManualRestart = (b) => b?.kind === 'restart'
-// Azione fatta a mano = riavvio forzato o build lanciata fuori dalla CI.
+// Le azioni che NON sono build: un riavvio forzato, l'apertura o la chiusura a mano di una porta su un
+// security group (break-glass), una shell aperta dentro a un container. Nessuna ha fasi, durata, log né
+// tasso di successo da calcolare, e ognuna ha una frase sua: senza, cadevano tutte nel ramo del riavvio
+// e la pagina diceva «stessa immagine, nessuna build» sopra un break-glass.
+const AZIONI_A_MANO = {
+  restart: { tag: 'blue', frase: 'deploys.sameImage' },
+  'sg-open': { tag: 'error', frase: 'deploys.sgOpen' },
+  'sg-close': { tag: 'success', frase: 'deploys.sgClose' },
+  exec: { tag: 'warning', frase: 'deploys.exec' },
+}
+const isManualRestart = (b) => Boolean(AZIONI_A_MANO[b?.kind])
+// Azione fatta a mano = una di quelle sopra, o una build lanciata fuori dalla CI.
 const isByHand = (b) => isManualRestart(b) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
@@ -131,7 +140,7 @@ function BuildInfo({ b, name, t }) {
   // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
   // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
   const sub = restart
-    ? t('deploys.sameImage')
+    ? t(AZIONI_A_MANO[b.kind].frase, { porte: (b.porte ?? []).join(', ') || '?' })
     : [
         b.commit,
         b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
@@ -160,7 +169,7 @@ function BuildInfo({ b, name, t }) {
         )}
         {b.trigger && (
           <Tag
-            color={TRIGGER_TAG[b.trigger]}
+            color={AZIONI_A_MANO[b.kind]?.tag ?? TRIGGER_TAG[b.trigger]}
             bordered={false}
             style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: TRIGGER_TAG[b.trigger] ? 1 : 0.85 }}
           >
