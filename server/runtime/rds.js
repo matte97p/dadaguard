@@ -10,7 +10,6 @@ import { truncateList } from '../util/format.js'
 // RuntimeProvider per RDS/Aurora: status del cluster + istanze available.
 // Permessi: rds:DescribeDBClusters, rds:DescribeDBInstances.
 // Config: aws: { type: rds, cluster: <id> }  oppure  { type: rds, instance: <id> }
-const MAX_NOMI = 2 // quante istanze si nominano prima di «+N»
 const statusFor = (s) => (s === 'available' ? 'up' : s === 'failed' || s === 'stopped' ? 'down' : 'degraded')
 
 export async function rdsRuntime(cfg, aws, opts = {}) {
@@ -66,7 +65,7 @@ export async function rdsRuntime(cfg, aws, opts = {}) {
     // la coda (vedi `cleanDetail`), e fra «le scritture sono a rischio» e «meno capacità di lettura» la
     // frase da salvare è la prima.
     const pezzi = [
-      altri.length ? t('rds.readerdown', { list: truncateList(altri.map(nome), MAX_NOMI, t) }) : null,
+      altri.length ? t('rds.readerdown', { list: truncateList(altri.map(nome)) }) : null,
       writer ? t('rds.writerdown', { list: nome(writer) }) : null,
     ].filter(Boolean)
     return {

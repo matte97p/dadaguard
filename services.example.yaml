@@ -190,6 +190,11 @@ services:
 #   aws: { type: sfn, arn: arn:aws:states:...:stateMachine:my-sm } # Step Functions (esecuzioni fallite 24h)
 #   aws: { type: eks, cluster: my-cluster }          # EKS (stato cluster + versione)
 #   aws: { type: cloudfront, id: E123ABC }           # CloudFront (distribuzione, globale)
+#   aws: { type: cloudfront, id: E123ABC, disabled: true } # ...spenta di proposito: NON è un allarme
+#     `disabled: true` è l'unico modo di dire «lo so, l'ho spenta io»: da AWS una distribuzione con
+#     Enabled=false ha la stessa faccia se l'hai spenta tu o se l'ha spenta un apply per sbaglio, e
+#     senza questa riga resta un allarme (un CDN che si spegne da solo è la cosa per cui esiste un
+#     watchdog). Stessa idea dello schedule EventBridge DISABLED che i cron leggono da Terraform.
 #   aws: { type: sns, arn: arn:aws:sns:...:my-topic } # SNS (esiste + sottoscrizioni)
 #   aws: { type: s3, bucket: my-bucket }             # S3 (esistenza + esposizione pubblica)
 #   aws: { type: kinesis, stream: my-stream }        # Kinesis (stato stream + shard)

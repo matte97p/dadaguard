@@ -8,19 +8,12 @@ import { clientOpts } from './awsClient.js'
 import { awsState } from '../i18n.js'
 import { truncateList } from '../util/format.js'
 
-// Quanti target si nominano per nome prima di passare a "+N": due bastano a capire se è un nodo solo o
-// tutto il gruppo, e la riga in chat ha un tetto.
-const MAX_NOMI = 2
 
 // I target NON sani, con il motivo che dà AWS (`Target.FailedHealthChecks`, `Target.Timeout`,
 // `Elb.RegistrationInProgress`…): è la differenza tra «uno è fuori» e «sapere perché». Arriva dalla
 // stessa `DescribeTargetHealth` che serviva per contarli — zero chiamate in più. Pura/testabile.
-export function unhealthyList(bad, t) {
-  return truncateList(
-    bad.map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id)),
-    MAX_NOMI,
-    t,
-  )
+export function unhealthyList(bad) {
+  return truncateList(bad.map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id)))
 }
 
 // Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile
@@ -88,7 +81,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
     ? t(healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
         n: bad.length,
         total,
-        list: unhealthyList(bad, t),
+        list: unhealthyList(bad),
       })
     : undefined
   return {

@@ -53,12 +53,10 @@ export async function run(service, ctx) {
     const r = await dopplerSecrets(cfg)
 
     if (r.missing && r.missing.length) {
-      const shown = r.missing.slice(0, 3).join(', ')
-      const more = r.missing.length > 3 ? `, +${r.missing.length - 3}` : ''
       return {
         key,
         status: 'degraded',
-        summary: t('secrets.missing', { n: r.missing.length, env: r.compareWith, list: `${shown}${more}` }),
+        summary: t('secrets.missing', { n: r.missing.length, env: r.compareWith, list: truncateList(r.missing, 3) }),
         count: r.count,
         missing: r.missing.length,
       }

@@ -6,8 +6,11 @@
 // Permesso: cloudwatch:DescribeAlarms.
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from '../runtime/awsClient.js'
+import { truncateList } from '../util/format.js'
 
 export const key = 'alarms'
+
+const MAX_NOMI = 3 // quanti allarmi si nominano prima di «+N»
 
 // Allarmi di autoscaling (target tracking): AWS li crea da solo, in coppia, per ogni policy —
 // `AlarmHigh` = "scala su", `AlarmLow` = "scala giù". NON sono segnali di salute: l'AlarmLow sta
@@ -86,7 +89,12 @@ export async function run(service, ctx) {
   )
   if (!mine.length) return null // nessun allarme attivo per questa risorsa → niente riga
 
-  const names = mine.slice(0, 3).map((a) => a.AlarmName)
-  const more = mine.length > 3 ? `, +${mine.length - 3}` : ''
-  return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list: names.join(', ') + more }) }
+  // `truncateList` e non un `, +N` scritto a mano: la regola sta in un posto solo (`util/format.js`),
+  // che è l'unico modo di cambiarla senza dimenticarne una copia. Tetto 3 e non 2: un allarme arriva
+  // spesso in gruppo (5xx + latenza + target), e vederne tre dice se è un sintomo o un incendio.
+  const list = truncateList(
+    mine.map((a) => a.AlarmName),
+    MAX_NOMI,
+  )
+  return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list }) }
 }

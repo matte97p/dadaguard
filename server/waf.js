@@ -14,6 +14,7 @@
 // Read-only. Nessun dato personale: si aggrega per regola/host/percorso, mai per IP o user agent.
 import { cloudflareToken } from './cfToken.js'
 import { mapLimit } from './util/pool.js'
+import { truncateItems } from './util/format.js'
 import { cachedCall } from './util/cache.js'
 
 const API = 'https://api.cloudflare.com/client/v4'
@@ -79,7 +80,9 @@ export function summarizeFirewall(nodes = []) {
     if (blocking && d.clientRequestHTTPHost) byHost.set(d.clientRequestHTTPHost, (byHost.get(d.clientRequestHTTPHost) ?? 0) + count)
   }
   const rules = [...byRule.values()]
-    .map((r) => ({ ...r, hosts: [...r.hosts].slice(0, 3), paths: [...r.paths].slice(0, 3) }))
+    // Tagliare host e percorsi a tre SENZA dirlo fa concludere che la regola scatti solo su quelli: il
+    // «+N» è la differenza tra una lista corta e una lista sbagliata. Stessa regola delle altre liste.
+    .map((r) => ({ ...r, hosts: truncateItems([...r.hosts], 3), paths: truncateItems([...r.paths], 3) }))
     .sort((a, b) => Number(b.blocking) - Number(a.blocking) || b.count - a.count)
   return {
     blocked,

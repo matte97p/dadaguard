@@ -22,7 +22,14 @@ permissions:
   packages: write # pushare su ghcr.io
 
 jobs:
+  # La suite PRIMA di toccare qualcosa: senza questo `needs`, un push su main con i test rossi
+  # arrivava in ECS comunque (i tre workflow partono in parallelo e non si guardano). Il check su PR
+  # rende visibile il rosso; questo lo rende BLOCCANTE, che è la parte che conta.
+  test:
+    uses: ./.github/workflows/test.yml
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
