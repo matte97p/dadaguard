@@ -318,7 +318,6 @@ const S = {
 
     // #11 security quick-win
     'security.sgopen': '{n} regola/e aperta/e a internet ({list})',
-    'security.sgopenmore': '{list}, +{n}',
     'security.iamwildcard': '{n} policy con wildcard ampia ({list})',
     'security.clean': 'nessuna apertura nota',
     'security.nosg': 'nessun security group correlabile',
@@ -629,7 +628,6 @@ const S = {
 
     // #11 security quick-win
     'security.sgopen': '{n} rule(s) open to the internet ({list})',
-    'security.sgopenmore': '{list}, +{n}',
     'security.iamwildcard': '{n} policy/ies with broad wildcard ({list})',
     'security.clean': 'no known exposure',
     'security.nosg': 'no correlatable security group',

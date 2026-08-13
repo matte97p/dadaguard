@@ -6,8 +6,11 @@
 // Permesso: cloudwatch:DescribeAlarms.
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from '../runtime/awsClient.js'
+import { truncateList } from '../util/format.js'
 
 export const key = 'alarms'
+
+const MAX_NOMI = 3 // quanti allarmi si nominano prima di «+N»
 
 // Allarmi di autoscaling (target tracking): AWS li crea da solo, in coppia, per ogni policy —
 // `AlarmHigh` = "scala su", `AlarmLow` = "scala giù". NON sono segnali di salute: l'AlarmLow sta
@@ -86,7 +89,13 @@ export async function run(service, ctx) {
   )
   if (!mine.length) return null // nessun allarme attivo per questa risorsa → niente riga
 
-  const names = mine.slice(0, 3).map((a) => a.AlarmName)
-  const more = mine.length > 3 ? `, +${mine.length - 3}` : ''
-  return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list: names.join(', ') + more }) }
+  // `truncateList` e non un `, +N` scritto a mano: era l'unica delle tre liste troncate del repo che
+  // non passava dall'i18n, quindi in inglese quel pezzo restava comunque italiano — cioè niente, perché
+  // «, +2» non ha lingua, ma la regola sì e va in un posto solo.
+  const list = truncateList(
+    mine.map((a) => a.AlarmName),
+    MAX_NOMI,
+    t,
+  )
+  return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list }) }
 }

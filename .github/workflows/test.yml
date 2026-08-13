@@ -1,0 +1,45 @@
+name: test
+
+# La suite (`node --test`, nessun framework) su ogni PR e su ogni push a main.
+#
+# Perché esisteva un buco: `deploy.yml` e `release.yml` partono entrambi da un push su main, cioè
+# DOPO il merge. Fino a qui i test li lanciava solo chi scriveva la modifica, sulla sua macchina: una
+# PR con la suite rossa risultava «CLEAN · MERGEABLE» e il primo a scoprirlo era il deploy in
+# produzione. Girano anche su push a main per prendere i commit diretti (e l'auto patch-bump).
+#
+# Niente segreti, niente OIDC, niente AWS: i test sono tutti offline (fixture + funzioni pure). Se un
+# giorno servisse una credenziale per farne girare uno, quello NON va qui — va in un job separato che
+# le PR dai fork non possono raggiungere.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima.
+concurrency:
+  group: test-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `repo-sanitized.test.js` chiama `git ls-files`: senza il checkout completo del working
+          # tree quel guardiano non vedrebbe niente e passerebbe a vuoto.
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # la stessa major dell'immagine (Dockerfile: node:22-slim)
+          cache: npm
+
+      # `npm ci` e non `npm install`: rispetta il lockfile e non lo riscrive.
+      - run: npm ci
+
+      - run: npm test

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { slackMessage, causeLabel, cleanDetail } from '../server/notify/slack.js'
 import { snapshot } from '../server/notify/diff.js'
 import { unhealthyList } from '../server/runtime/alb.js'
+import { truncateList } from '../server/util/format.js'
 import { makeT, hasKey } from '../server/i18n.js'
 
 // Due righe vere lette in canale il 13/08/2026:
@@ -94,6 +95,15 @@ test('dettaglio: `alert` vince su `summary` — la card e la chat non vogliono l
   // Senza `alert` si resta sul summary: i provider che non hanno niente in più da dire non cambiano.
   delete svc.checks.drift.alert
   assert.equal(snapshot([svc])['stg/api'].detail, 'no · memoria 512MB (TF: 1024MB)')
+})
+
+// La regola «i primi N, e poi +M» era scritta tre volte: nei target di un load balancer, nei security
+// group aperti e negli allarmi attivi — quest'ultima senza i18n. Ora è una funzione sola, e questo test
+// vale per tutti e tre i posti che la chiamano.
+test('liste troncate: sotto il tetto passano intere, sopra dicono quante ne restano', () => {
+  assert.equal(truncateList(['a', 'b'], 2, t), 'a, b')
+  assert.equal(truncateList(['a', 'b', 'c', 'd'], 2, t), 'a, b, +2')
+  assert.equal(truncateList([], 2, t), '', 'lista vuota: niente, nemmeno un «+0»')
 })
 
 test('target fuori: si nominano i primi due e poi «+N», col motivo di AWS', () => {
