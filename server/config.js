@@ -51,6 +51,9 @@ export function validateConfig(doc) {
     // URL intero, oppure path relativo (`/health`) risolto sull'URL della mappa `urls`. Serve ai
     // servizi SCOPERTI dall'auto-discovery, che non possono dichiarare `healthUrl` a mano.
     health: doc?.health ?? null,
+    // `expectedHealthy: { <nome-servizio>: <n> }` per i load balancer scoperti in cui «tutti sani» non
+    // e' lo stato normale (il writer di un Postgres in replica ne ha uno solo, per costruzione).
+    expectedHealthy: doc?.expectedHealthy ?? null,
     // Alias delle persone: `<identità grezza>` → `<nome canonico>`. Serve perché la stessa persona può
     // committare con più identità git, e il pannello mostrava due nomi diversi per la stessa persona.
     // Esplicita di proposito: dedurlo dai nomi somiglianti, quando sbaglia, attribuisce un deploy in
