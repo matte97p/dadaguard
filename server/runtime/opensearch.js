@@ -32,5 +32,10 @@ export async function opensearchRuntime(cfg, aws, opts = {}) {
   )
   const status = m.red >= 1 ? 'down' : m.yellow >= 1 ? 'degraded' : 'up'
   const state = m.red >= 1 ? t('opensearch.red') : m.yellow >= 1 ? t('opensearch.yellow') : t('opensearch.green')
-  return { status, summary: t('opensearch.summary', { state, nodes: Math.round(m.nodes) }) }
+  // "cluster giallo" è il colore, non la conseguenza: chi legge la notifica non sa se ha perso dati o
+  // solo ridondanza. Il perché sta in `alert` — la frase per la chat — come per tutti gli altri
+  // provider: la card tiene la riga compatta, che accanto ha il pannello del cluster.
+  const summary = t('opensearch.summary', { state, nodes: Math.round(m.nodes) })
+  const why = m.red >= 1 ? t('opensearch.why.red') : m.yellow >= 1 ? t('opensearch.why.yellow') : ''
+  return { status, summary, ...(why ? { alert: summary + why } : {}) }
 }

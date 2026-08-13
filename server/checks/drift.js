@@ -37,7 +37,14 @@ export async function run(service, ctx) {
     if (desired.handler != null && desired.handler !== conf.Handler) diffs.push(t('drift.handler'))
 
     if (!diffs.length) return { key, status: 'up', summary: t('drift.insync') }
-    return { key, status: 'degraded', summary: t('drift.diverge', { diffs: diffs.join(', ') }) }
+    // `summary` risponde alla colonna «in sync?» della card ("no · …"); `alert` è la stessa cosa
+    // detta come frase, perché in chat quel «no» non ha una domanda davanti.
+    return {
+      key,
+      status: 'degraded',
+      summary: t('drift.diverge', { diffs: diffs.join(', ') }),
+      alert: t('drift.alert', { diffs: diffs.join(', ') }),
+    }
   } catch (err) {
     return { key, status: 'unknown', reason: cleanAwsReason(err, t) }
   }

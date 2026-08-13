@@ -55,12 +55,42 @@ const S = {
     'lambda.errpct': '{p}% errori',
     'lambda.p95': 'p95 {d}',
     'lambda.neartimeout': 'vicina al timeout ({d})',
+    // Dettaglio per la NOTIFICA: errori in valore assoluto (il 10,7% di 28 chiamate sono 3), la
+    // finestra — che il ramo cron scriveva già e l'on-demand no — e la regola che ha fatto scattare.
+    'lambda.alerterr': '{err} {err#errore#errori} su {n} chiamate ({p}%) in {window}',
+    'lambda.regola': 'un errore o un throttle qualsiasi',
+    'lambda.regolatimeout': 'p95 oltre l’80% del timeout',
     'aws.throttled': 'rate limit AWS — riprovo al refresh',
     'aws.denied': 'accesso negato (permessi insufficienti)',
     'aws.notfound': 'risorsa non trovata',
     'aws.expired': 'credenziali scadute — rifai login',
     'aws.timeout': 'timeout',
     'aws.error': 'errore AWS',
+    // Stati AWS grezzi (ACTIVE, InProgress, UPDATING…): una parola inglese in mezzo a una frase
+    // italiana, e in una notifica è l'unica parola che conta. Mappa UNICA per tutti i provider: prima
+    // ce l'avevano solo RDS ed EC2, gli altri (ALB, DynamoDB, EKS, Kinesis, CloudFront, ElastiCache)
+    // stampavano il codice come arriva da AWS. Codice non mappato → resta grezzo, non sparisce.
+    'state.active': 'attivo',
+    'state.available': 'disponibile',
+    'state.creating': 'in creazione',
+    'state.provisioning': 'in creazione',
+    'state.updating': 'in aggiornamento',
+    'state.modifying': 'in modifica',
+    'state.deleting': 'in eliminazione',
+    'state.failed': 'in errore',
+    'state.active_impaired': 'attivo ma degradato',
+    'state.deployed': 'pubblicata',
+    'state.inprogress': 'pubblicazione in corso',
+    'state.pending': 'in avvio',
+    'state.rebooting': 'in riavvio',
+    'state.snapshotting': 'snapshot in corso',
+    'state.archiving': 'in archiviazione',
+    'state.archived': 'archiviata',
+    // Esiti dei controlli di stato EC2: `impaired` è il guasto, gli altri tre no.
+    'state.impaired': 'guasto',
+    'state.initializing': 'in avvio, non ancora pronto',
+    'state.insufficient-data': 'dati insufficienti',
+    'state.not-applicable': 'non applicabile a questo tipo di istanza',
     // Notifiche (Slack): il messaggio non può usare le chiavi del dizionario del CLIENT — sta in un
     // altro bundle. E la parola giusta in un messaggio non è quella di un tag in interfaccia.
     'notify.status.down': 'GIÙ',
@@ -78,6 +108,35 @@ const S = {
     'notify.cause.security': 'sicurezza',
     'notify.cause.alarms': 'allarme',
     'notify.cause.backups': 'backup',
+    // La causa nomina la RISORSA, non il modulo: `runtime` è il nome del check, e "esecuzione" su un
+    // load balancer, un certificato o un bucket non dice niente. Il dettaglio non ripete questa
+    // parola (sennò la riga direbbe due volte "target"). Tipo ignoto → si resta su "esecuzione".
+    'notify.cause.type.alb': 'target',
+    'notify.cause.type.ecs': 'task',
+    'notify.cause.type.ecs-scheduled': 'cron',
+    'notify.cause.type.lambda.cron': 'cron',
+    'notify.cause.type.lambda': 'funzione',
+    'notify.cause.type.acm': 'certificato',
+    'notify.cause.type.s3': 'esposizione',
+    'notify.cause.type.sqs': 'coda',
+    'notify.cause.type.rds': 'database',
+    'notify.cause.type.elasticache': 'cache',
+    'notify.cause.type.opensearch': 'cluster',
+    'notify.cause.type.eks': 'cluster',
+    'notify.cause.type.ses': 'email',
+    'notify.cause.type.bedrock': 'modello',
+    'notify.cause.type.sagemaker': 'modello',
+    'notify.cause.type.cloudfront': 'CDN',
+    'notify.cause.type.apigateway': 'API',
+    'notify.cause.type.sfn': 'workflow',
+    'notify.cause.type.dynamodb': 'tabella',
+    'notify.cause.type.kinesis': 'stream',
+    'notify.cause.type.ec2': 'istanza',
+    'notify.cause.type.asg': 'istanze',
+    'notify.cause.type.sns': 'topic',
+    // La regola che ha fatto scattare l'allarme, dentro al messaggio: senza, "10,7% errori" non si
+    // sa se è sopra o sotto soglia. Uguale per tutti i segnali, come già fa Bedrock.
+    'rule.fires': ' · scatta a: {regola}',
     'notify.open': 'stato su Dadaguard',
     'm.inv': '{n#invocazione#invocazioni}',
     'm.runs': '{n#esecuzione#esecuzioni}',
@@ -100,7 +159,6 @@ const S = {
     'm.sends': 'inviate',
     'm.bounce': 'bounce',
     'm.complaint': 'complaint',
-    'm.targets': 'target sani',
     'm.queued': 'in coda',
     'm.inflight': 'in volo',
     'bedrock.idle': 'nessuna invocazione in {window}',
@@ -127,10 +185,18 @@ const S = {
     'ses.sent': '{n} inviate',
     'ses.bounce': 'bounce {p}%',
     'ses.complaint': 'complaint {p}%',
+    // Le soglie sono quelle di reputazione AWS: oltre, l'account rischia la sospensione. Vanno DETTE,
+    // perché "bounce 5,4%" da solo non fa capire che è già sopra.
+    'ses.alert': 'bounce {b}% · complaint {c}% su {n} inviate in {hours}h',
+    'ses.regola': 'bounce >{bmax}% o complaint >{cmax}%',
     'opensearch.green': 'verde',
     'opensearch.yellow': 'giallo',
     'opensearch.red': 'rosso',
     'opensearch.summary': 'cluster {state} · {nodes} nodi',
+    // Il colore del cluster è un dato tecnico: da solo non dice cosa perde chi lo usa. In una
+    // notifica Slack la card non c'è accanto, quindi la conseguenza sta nel testo.
+    'opensearch.why.yellow': ' · repliche non allocate: nessuna copia di riserva',
+    'opensearch.why.red': ' · shard primari persi: parte dei dati non è leggibile',
     'lambda.aliasnotfound': "alias '{alias}' non trovato",
 
     'ecs.tasks': '{running}/{desired} task attivi',
@@ -143,6 +209,10 @@ const S = {
     'asg.notfound': 'Auto Scaling Group non trovato',
 
     'rds.cluster': '{engine} · {status} · {available}/{total} istanze',
+    // "1/2 istanze" è un conteggio: non dice QUALE nodo è fuori né cosa non funziona per chi usa il
+    // DB. Il writer fuori e un reader fuori sono due guasti diversi e vanno detti diversi.
+    'rds.writerdown': ' · fuori il nodo di SCRITTURA {list}: scritture a rischio',
+    'rds.readerdown': ' · fuori {list}: meno capacità di lettura e failover più fragile',
     'rds.instance': '{engine} · {status}',
     'rds.clusternotfound': 'cluster RDS non trovato',
     'rds.instancenotfound': 'istanza RDS non trovata',
@@ -161,18 +231,24 @@ const S = {
     'rds.status.storage-full': 'storage pieno',
 
     'alb.targets': '{healthy}/{total} target sani',
+    // Nella card "6/7 target sani" basta (c'è il pannello dei task accanto); in chat no: la notizia è
+    // il target FUORI, non i sei dentro. `DescribeTargetHealth` porta già id e motivo, si buttavano.
+    'alb.unhealthy': '{n} target su {total} non {n#sano#sani}: {list}',
+    'alb.allunhealthy': 'nessuno dei {total} target è sano: {list}',
+    'more.plus': '{list}, +{n}',
     'alb.notarget': 'nessun target collegato',
     'alb.state': 'stato {code}',
     'alb.notfound': 'load balancer non trovato',
     'alb.healthUnreachable': 'attivo · health dei target non raggiungibile',
 
     'sqs.summary': '{n} in coda · {inflight} in volo',
+    'sqs.alert': '{n} in coda, soglia {max} · {inflight} in volo',
     'sqs.notfound': 'coda SQS non trovata',
     'dynamodb.summary': '{status} · {items} item',
     'dynamodb.notfound': 'tabella DynamoDB non trovata',
     'elasticache.summary': '{engine} · {status} · {nodes} nodi',
     'elasticache.notfound': 'cluster ElastiCache non trovato',
-    'alarms.firing': '{n} allarme/i attivo/i: {list}',
+    'alarms.firing': '{n} {n#allarme attivo#allarmi attivi}: {list}',
     'acm.expiry': '{domain} · scade tra {days}g',
     'acm.expired': '{domain} · SCADUTO',
     'acm.noarn': 'manca `arn` del certificato',
@@ -181,7 +257,9 @@ const S = {
     'backups.none': 'nessuno snapshot trovato',
     'backups.last': 'ultimo backup {days}g fa',
 
-    'apigw.summary': '{n} richieste · {e} 5xx',
+    'apigw.summary': '{n} richieste · {e} 5xx ({window})',
+    'apigw.alert': '{e} {e#errore#errori} 5xx su {n} richieste in {window}',
+    'apigw.regola': 'un solo 5xx',
     'apigw.noname': 'manca `apiName`',
     'sfn.ok': 'attiva · nessun fallimento recente',
     'sfn.failed': '{n} esecuzioni fallite (24h)',
@@ -189,7 +267,9 @@ const S = {
     'sfn.notfound': 'state machine non trovata',
     'eks.summary': '{version} · {status}',
     'eks.notfound': 'cluster EKS non trovato',
-    'cf.disabled': 'disabilitata',
+    'cf.disabled': 'spenta di proposito',
+    // Spenta senza che nessuno l'abbia dichiarata: non serve traffico a nessuno, e non lo sa nessuno.
+    'cf.off': 'SPENTA: non risponde a nessuna richiesta (nessun `disabled: true` in config)',
     'cf.notfound': 'distribuzione non trovata',
     'sns.summary': '{n} sottoscrizioni',
     'sns.notfound': 'topic SNS non trovato',
@@ -200,6 +280,10 @@ const S = {
     'kinesis.notfound': 'stream Kinesis non trovato',
 
     'ec2.checks': 'in funzione · check AWS {ok}/2 ok',
+    // "check AWS 1/2 ok" non dice QUALE dei due: sono due guasti diversi (l'host sotto vs la VM).
+    'ec2.check.system': 'controllo di sistema AWS (host)',
+    'ec2.check.instance': 'controllo dell’istanza',
+    'ec2.nochecks': 'i controlli AWS non sono ancora pubblicati',
     'ec2.notfound': 'istanza EC2 non trovata',
     'ec2.state.running': 'in funzione',
     'ec2.state.stopped': 'ferma',
@@ -209,6 +293,9 @@ const S = {
 
     'drift.insync': 'sì',
     'drift.diverge': 'no · {diffs}',
+    // `drift.diverge` è la risposta alla colonna «in sync?» della card: fuori da quella tabella quel
+    // «no» non è una frase. In chat serve il soggetto.
+    'drift.alert': 'fuori sync con Terraform: {diffs}',
     'drift.runtime': 'runtime {actual} (TF: {expected})',
     'drift.memory': 'memoria {actual}MB (TF: {expected}MB)',
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
@@ -307,12 +394,35 @@ const S = {
     'lambda.errpct': '{p}% errors',
     'lambda.p95': 'p95 {d}',
     'lambda.neartimeout': 'near timeout ({d})',
+    'lambda.alerterr': '{err} {err#error#errors} out of {n} calls ({p}%) in {window}',
+    'lambda.regola': 'any single error or throttle',
+    'lambda.regolatimeout': 'p95 above 80% of the timeout',
     'aws.throttled': 'AWS rate limit — retry on refresh',
     'aws.denied': 'access denied (insufficient permissions)',
     'aws.notfound': 'resource not found',
     'aws.expired': 'credentials expired — log in again',
     'aws.timeout': 'timeout',
     'aws.error': 'AWS error',
+    'state.active': 'active',
+    'state.available': 'available',
+    'state.creating': 'creating',
+    'state.provisioning': 'provisioning',
+    'state.updating': 'updating',
+    'state.modifying': 'modifying',
+    'state.deleting': 'deleting',
+    'state.failed': 'failed',
+    'state.active_impaired': 'active but impaired',
+    'state.deployed': 'deployed',
+    'state.inprogress': 'deploying',
+    'state.pending': 'starting',
+    'state.rebooting': 'rebooting',
+    'state.snapshotting': 'snapshotting',
+    'state.archiving': 'archiving',
+    'state.archived': 'archived',
+    'state.impaired': 'impaired',
+    'state.initializing': 'initializing, not ready yet',
+    'state.insufficient-data': 'insufficient data',
+    'state.not-applicable': 'not applicable to this instance type',
     'notify.status.down': 'DOWN',
     'notify.status.degraded': 'DEGRADED',
     'notify.status.improving': 'RECOVERING',
@@ -328,6 +438,30 @@ const S = {
     'notify.cause.security': 'security',
     'notify.cause.alarms': 'alarm',
     'notify.cause.backups': 'backups',
+    'notify.cause.type.alb': 'targets',
+    'notify.cause.type.ecs': 'tasks',
+    'notify.cause.type.ecs-scheduled': 'cron',
+    'notify.cause.type.lambda.cron': 'cron',
+    'notify.cause.type.lambda': 'function',
+    'notify.cause.type.acm': 'certificate',
+    'notify.cause.type.s3': 'exposure',
+    'notify.cause.type.sqs': 'queue',
+    'notify.cause.type.rds': 'database',
+    'notify.cause.type.elasticache': 'cache',
+    'notify.cause.type.opensearch': 'cluster',
+    'notify.cause.type.eks': 'cluster',
+    'notify.cause.type.ses': 'email',
+    'notify.cause.type.bedrock': 'model',
+    'notify.cause.type.sagemaker': 'model',
+    'notify.cause.type.cloudfront': 'CDN',
+    'notify.cause.type.apigateway': 'API',
+    'notify.cause.type.sfn': 'workflow',
+    'notify.cause.type.dynamodb': 'table',
+    'notify.cause.type.kinesis': 'stream',
+    'notify.cause.type.ec2': 'instance',
+    'notify.cause.type.asg': 'instances',
+    'notify.cause.type.sns': 'topic',
+    'rule.fires': ' · fires at: {regola}',
     'notify.open': 'status on Dadaguard',
     'm.inv': '{n#invocation#invocations}',
     'm.runs': '{n#run#runs}',
@@ -350,7 +484,6 @@ const S = {
     'm.sends': 'sent',
     'm.bounce': 'bounce',
     'm.complaint': 'complaint',
-    'm.targets': 'healthy targets',
     'm.queued': 'queued',
     'm.inflight': 'in flight',
     'bedrock.idle': 'no invocations in {window}',
@@ -375,10 +508,14 @@ const S = {
     'ses.sent': '{n} sent',
     'ses.bounce': 'bounce {p}%',
     'ses.complaint': 'complaint {p}%',
+    'ses.alert': 'bounce {b}% · complaint {c}% out of {n} sent in {hours}h',
+    'ses.regola': 'bounce >{bmax}% or complaint >{cmax}%',
     'opensearch.green': 'green',
     'opensearch.yellow': 'yellow',
     'opensearch.red': 'red',
     'opensearch.summary': 'cluster {state} · {nodes} nodes',
+    'opensearch.why.yellow': ' · replicas unallocated: no spare copy',
+    'opensearch.why.red': ' · primary shards lost: part of the data is unreadable',
     'lambda.aliasnotfound': "alias '{alias}' not found",
 
     'ecs.tasks': '{running}/{desired} tasks running',
@@ -391,6 +528,8 @@ const S = {
     'asg.notfound': 'Auto Scaling Group not found',
 
     'rds.cluster': '{engine} · {status} · {available}/{total} instances',
+    'rds.writerdown': ' · WRITER node out {list}: writes at risk',
+    'rds.readerdown': ' · {list} out: less read capacity, weaker failover',
     'rds.instance': '{engine} · {status}',
     'rds.clusternotfound': 'RDS cluster not found',
     'rds.instancenotfound': 'RDS instance not found',
@@ -409,18 +548,22 @@ const S = {
     'rds.status.storage-full': 'storage full',
 
     'alb.targets': '{healthy}/{total} healthy targets',
+    'alb.unhealthy': '{n} of {total} {n#target#targets} unhealthy: {list}',
+    'alb.allunhealthy': 'none of the {total} targets is healthy: {list}',
+    'more.plus': '{list}, +{n}',
     'alb.notarget': 'no target attached',
     'alb.state': 'state {code}',
     'alb.notfound': 'load balancer not found',
     'alb.healthUnreachable': 'active · target health unreachable',
 
     'sqs.summary': '{n} queued · {inflight} in flight',
+    'sqs.alert': '{n} queued, threshold {max} · {inflight} in flight',
     'sqs.notfound': 'SQS queue not found',
     'dynamodb.summary': '{status} · {items} items',
     'dynamodb.notfound': 'DynamoDB table not found',
     'elasticache.summary': '{engine} · {status} · {nodes} nodes',
     'elasticache.notfound': 'ElastiCache cluster not found',
-    'alarms.firing': '{n} alarm(s) firing: {list}',
+    'alarms.firing': '{n} {n#alarm#alarms} firing: {list}',
     'acm.expiry': '{domain} · expires in {days}d',
     'acm.expired': '{domain} · EXPIRED',
     'acm.noarn': 'missing certificate `arn`',
@@ -429,7 +572,9 @@ const S = {
     'backups.none': 'no snapshot found',
     'backups.last': 'last backup {days}d ago',
 
-    'apigw.summary': '{n} requests · {e} 5xx',
+    'apigw.summary': '{n} requests · {e} 5xx ({window})',
+    'apigw.alert': '{e} 5xx {e#error#errors} out of {n} requests in {window}',
+    'apigw.regola': 'a single 5xx',
     'apigw.noname': 'missing `apiName`',
     'sfn.ok': 'active · no recent failures',
     'sfn.failed': '{n} failed executions (24h)',
@@ -437,7 +582,8 @@ const S = {
     'sfn.notfound': 'state machine not found',
     'eks.summary': '{version} · {status}',
     'eks.notfound': 'EKS cluster not found',
-    'cf.disabled': 'disabled',
+    'cf.disabled': 'disabled on purpose',
+    'cf.off': 'OFF: serving no requests (no `disabled: true` in config)',
     'cf.notfound': 'distribution not found',
     'sns.summary': '{n} subscriptions',
     'sns.notfound': 'SNS topic not found',
@@ -448,6 +594,9 @@ const S = {
     'kinesis.notfound': 'Kinesis stream not found',
 
     'ec2.checks': 'running · AWS checks {ok}/2 ok',
+    'ec2.check.system': 'AWS system check (host)',
+    'ec2.check.instance': 'instance check',
+    'ec2.nochecks': 'AWS checks not published yet',
     'ec2.notfound': 'EC2 instance not found',
     'ec2.state.running': 'running',
     'ec2.state.stopped': 'stopped',
@@ -457,6 +606,7 @@ const S = {
 
     'drift.insync': 'yes',
     'drift.diverge': 'no · {diffs}',
+    'drift.alert': 'out of sync with Terraform: {diffs}',
     'drift.runtime': 'runtime {actual} (TF: {expected})',
     'drift.memory': 'memory {actual}MB (TF: {expected}MB)',
     'drift.timeout': 'timeout {actual}s (TF: {expected}s)',
@@ -518,8 +668,26 @@ export function makeT(lang) {
   return (key, vars) => interpolate(S[L][key] ?? S.it[key] ?? key, vars)
 }
 
+// La chiave esiste DAVVERO in quella lingua? Serve ai test: `makeT('en')` ripiega sull'italiano, quindi
+// una riga EN dimenticata non si vede — la stringa esce, solo nella lingua sbagliata. Un controllo che
+// chiama `t` non può accorgersene, deve guardare il dizionario.
+export const hasKey = (lang, key) => Object.hasOwn(S[lang] ?? {}, key)
+
 // t neutro (identità) per quando un check gira senza lingua (es. fuori da una richiesta HTTP).
 export const identityT = (key, vars) => interpolate(key, vars)
+
+// Codice di stato AWS → parola leggibile (`state.*`). Una mappa SOLA per tutti i provider: gli stati
+// arrivano in grafie diverse a seconda del servizio (`ACTIVE`, `Deployed`, `active_impaired`) e prima
+// ognuno faceva da sé — RDS ed EC2 traducevano, DynamoDB/EKS/Kinesis/CloudFront/ElastiCache/ALB no,
+// e in mezzo a una frase italiana restava la parola inglese. Codice non mappato → torna grezzo (meglio
+// un `ARCHIVING` in inglese che una riga senza lo stato).
+export function awsState(code, t = identityT) {
+  const raw = String(code ?? '').trim()
+  if (!raw) return '—'
+  const k = `state.${raw.toLowerCase()}`
+  const v = t(k)
+  return v === k ? raw : v
+}
 
 // Durata compatta "Nu" i18n (bare): da ms di elapsed a "2h"/"12g"/"5m".
 function fmtElapsed(ms, t) {

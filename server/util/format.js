@@ -11,6 +11,15 @@ export function fmtMs(ms) {
   return s ? `${m}m ${s}s` : `${m}m`
 }
 
+// «I primi N, e poi +M»: la stessa regola serve ai target fuori di un load balancer, alle istanze di un
+// cluster RDS e ai security group aperti, ed era scritta tre volte in tre grafie diverse (una, in
+// `alarms.js`, senza nemmeno l'i18n). Una lista senza tetto finisce tagliata a metà identificativo dal
+// limite di lunghezza del messaggio, che è il modo peggiore di troncare.
+export function truncateList(items, max, t) {
+  const list = items.slice(0, max).join(', ')
+  return items.length > max ? t('more.plus', { list, n: items.length - max }) : list
+}
+
 // Conteggio compatto: 1234 → "1.2k", 9999 → "10k", 15000 → "15k", sotto 1000 invariato.
 export function fmtCount(n) {
   if (!Number.isFinite(n)) return '—'

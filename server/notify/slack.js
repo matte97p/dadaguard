@@ -42,14 +42,66 @@ function mention(t) {
   return t.kind === 'alert' && /^prod/i.test(t.account ?? '') ? '<!channel> ' : ''
 }
 
+// La causa: quale SEGNALE ha fatto scattare l'allarme, detto come lo direbbe un umano. `runtime` è il
+// nome del modulo che fa il controllo, non del problema: lo stesso check copre ventidue tipi di
+// risorsa, quindi "esecuzione" su un load balancer o su un certificato non dice niente. Il tipo
+// viaggia già nella transizione, e per le Lambda a schedule lo dice `outcome` (che esiste solo sui
+// cron). Tipo ignoto o non mappato → si resta su "esecuzione", che è sempre meglio di `runtime`.
+export function causeLabel(tr, t) {
+  if (!tr.cause) return ''
+  // `causeType` batte il tipo della risorsa: un servizio ECS con 2/2 container su e un target fuori è
+  // degradato DAI TARGET, e intestare la riga «task» punterebbe al segnale che sta bene.
+  const tipo = tr.causeType ?? tr.type
+  if (tr.cause === 'runtime' && tipo) {
+    const suffisso = tipo === 'lambda' && tr.outcome ? 'lambda.cron' : tipo
+    const k = `notify.cause.type.${suffisso}`
+    const parola = t(k)
+    if (parola !== k) return parola
+  }
+  return t(`notify.cause.${tr.cause}`)
+}
+
+// Quanto può essere lungo il dettaglio in chat. Sommati, i dettagli "spiegati" (soglia + finestra +
+// quale target) allungano la riga: oltre questa soglia su mobile va a capo tre volte e non si legge
+// più nessuna delle righe accanto. Chi vuole tutto apre Dadaguard, il link è in fondo al messaggio.
+const MAX_DETAIL = 160
+// Quanto si tiene almeno della TESTA quando si taglia — il resto va alla coda. La coda è l'ultimo pezzo
+// separato da "·", cioè proprio quello aggiunto di proposito: la soglia, la conseguenza, «scatta a…».
+// Tagliare in fondo — la cosa ovvia da fare — butta via l'unica frase che dice se il numero davanti è
+// un problema e tiene i numeri, che da soli non decidono niente. Quindi si taglia in MEZZO, e la testa
+// serve solo a dire di chi si sta parlando.
+const MIN_TESTA = 40
+
+// Il dettaglio arriva da un summary pensato per la card: può avere il `⚠` davanti (che qui è la terza
+// icona dopo il pallino di stato) e andare a capo. Si normalizza qui, una volta, invece di ricordarsi
+// di non metterlo in venti provider.
+export function cleanDetail(s) {
+  if (!s) return ''
+  const one = String(s)
+    .replace(/^[\s⚠️!]+/u, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (one.length <= MAX_DETAIL) return one
+  // La coda parte dal confine "·" più vicino alla fine, se l'ultimo pezzo ci sta lasciando spazio alla
+  // testa; sennò dagli ultimi caratteri disponibili — meglio una frase che comincia a metà che una che
+  // non c'è.
+  const maxCoda = MAX_DETAIL - MIN_TESTA
+  const taglio = one.lastIndexOf(' · ')
+  const coda = taglio > 0 && one.length - taglio <= maxCoda ? one.slice(taglio) : one.slice(-maxCoda)
+  const testa = one.slice(0, Math.max(1, MAX_DETAIL - coda.length - 1)).trimEnd()
+  return `${testa}…${coda}`
+}
+
 export function slackMessage(transitions, { url = null, t = (k) => k } = {}) {
   const lines = transitions.map((tr) => {
     const emoji = EMOJI[tr.kind] ?? EMOJI[tr.to] ?? EMOJI.down
     // Un alleggerimento arriva sullo stesso stato di un allarme (`degraded`): senza un'etichetta sua
     // si leggerebbe come un secondo rosso, cioè il contrario di quello che è successo.
     const stato = tr.kind === 'improvement' ? t('notify.status.improving') : t(`notify.status.${tr.to}`)
-    const causa = tr.kind === 'alert' && tr.cause ? ` · ${t(`notify.cause.${tr.cause}`)}` : ''
-    const dettaglio = tr.detail ? ` — ${tr.detail}` : ''
+    const parola = tr.kind === 'alert' ? causeLabel(tr, t) : ''
+    const causa = parola ? ` · ${parola}` : ''
+    const pulito = cleanDetail(tr.detail)
+    const dettaglio = pulito ? ` — ${pulito}` : ''
     return `${mention(tr)}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}`
   })
   // Il link chiude l'ultima riga con lo stesso "·" e la stessa etichetta dei messaggi di deploy, che

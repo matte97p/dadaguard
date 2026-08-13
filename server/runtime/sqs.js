@@ -31,8 +31,17 @@ export async function sqsRuntime(cfg, aws, opts = {}) {
     ).Attributes ?? {}
   const depth = Number(a.ApproximateNumberOfMessages ?? 0)
   const inflight = Number(a.ApproximateNumberOfMessagesNotVisible ?? 0)
-  const status = cfg.maxDepth && depth > cfg.maxDepth ? 'degraded' : 'up'
-  const metrics = [{ label: t('m.queued'), value: String(depth), tone: cfg.maxDepth && depth > cfg.maxDepth ? 'warning' : undefined }]
+  const sopra = Boolean(cfg.maxDepth && depth > cfg.maxDepth)
+  const status = sopra ? 'degraded' : 'up'
+  const metrics = [{ label: t('m.queued'), value: String(depth), tone: sopra ? 'warning' : undefined }]
   if (inflight > 0) metrics.push({ label: t('m.inflight'), value: String(inflight) })
-  return { status, summary: t('sqs.summary', { n: depth, inflight }), metrics, depth, inflight }
+  return {
+    status,
+    summary: t('sqs.summary', { n: depth, inflight }),
+    // "1.240 in coda" non dice se è tanto: la soglia che ha fatto scattare l'allarme sta nel messaggio.
+    ...(sopra ? { alert: t('sqs.alert', { n: depth, max: cfg.maxDepth, inflight }) } : {}),
+    metrics,
+    depth,
+    inflight,
+  }
 }
