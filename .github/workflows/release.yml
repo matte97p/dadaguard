@@ -16,6 +16,11 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Quarta strada, di soccorso: il 13/08/2026 GitHub ha PERSO due eventi push su main — nessuna run,
+  # nessuna check suite, Actions «operational» sullo status page. `deploy.yml` si è salvato perché aveva
+  # già il dispatch; qui non c'era modo di recuperare, e un rilascio perso resta perso fino al push dopo.
+  # Non cambia nulla della logica: su `refs/heads/main` il piano decide esattamente come su un push.
+  workflow_dispatch: {}
 
 permissions:
   contents: write # creare tag + Release, e pushare l'eventuale commit di auto patch-bump
