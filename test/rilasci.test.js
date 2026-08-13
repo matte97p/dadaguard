@@ -42,10 +42,10 @@ test('la tabella affianca staging e produzione e dice se sono allineati', () => 
 })
 
 test('un servizio che vive in un ambiente solo NON è «da rilasciare»', () => {
-  // `cato-admin` e le sonde stanno solo in staging per scelta: contarli come non rilasciati sarebbe
+  // `acme-admin` e le sonde stanno solo in staging per scelta: contarli come non rilasciati sarebbe
   // rumore permanente, ed è il modo in cui una lista del genere smette di essere letta.
   const righe = tabellaRilasci({
-    staging: { builds: [build('cato-admin', 'ddd', '2026-08-13T08:00:00Z')] },
+    staging: { builds: [build('acme-admin', 'ddd', '2026-08-13T08:00:00Z')] },
     production: { builds: [] },
   })
   assert.equal(righe[0].allineato, null)

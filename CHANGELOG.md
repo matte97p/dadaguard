@@ -12,7 +12,7 @@ All notable changes to Dadaguard are documented here. Format based on
   di ognuno e il verdetto, e in fondo la **coda del non rilasciato**. Tre scelte che decidono se la lista
   si legge: quello che «gira» è l'ultimo deploy **riuscito** (una build fallita o in corso non ha cambiato
   la produzione); un servizio che vive in un ambiente **solo** non è «da rilasciare» ma «solo staging»,
-  sennò `cato-admin` e le sonde sarebbero rumore permanente; e `?format=testo` risponde in testo piatto,
+  sennò `acme-admin` e le sonde sarebbero rumore permanente; e `?format=testo` risponde in testo piatto,
   perché dal terminale o da una skill rifare la tabella dal JSON significa riscrivere la stessa logica
   fuori da qui. Nessuna chiamata AWS in più: il giro CodeBuild è quello che `/api/deploys` faceva già,
   ora estratto in una funzione che i due endpoint condividono.

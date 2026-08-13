@@ -33,7 +33,7 @@ export function ultimoRilascioPerServizio(builds = []) {
 //
 // `allineato` risponde alla domanda vera, e ha tre valori invece di due: `sì` (stesso commit), `no`
 // (commit diversi: c'è qualcosa in staging che in produzione non c'è), e `null` quando il servizio
-// esiste in un ambiente solo. Il terzo caso NON è un problema da segnalare: `cato-admin` e le sonde
+// esiste in un ambiente solo. Il terzo caso NON è un problema da segnalare: `acme-admin` e le sonde
 // vivono solo in staging per scelta, e trattarli come «non rilasciato» sarebbe rumore per sempre.
 export function tabellaRilasci(perAccount = {}) {
   const perAmbiente = { staging: new Map(), produzione: new Map() }
