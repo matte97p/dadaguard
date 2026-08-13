@@ -22,9 +22,25 @@ export function publicUrlOfLb(lb) {
   return lb?.Scheme === 'internet-facing' && lb?.DNSName ? `https://${lb.DNSName}` : null
 }
 
+// Quanti target sani vogliono dire «tutto a posto». Di norma tutti quelli registrati, ma non sempre:
+// nel target group del WRITER di un cluster Postgres in replica, l'health check passa solo sul primario,
+// quindi lo standby registrato è `unhealthy` PER COSTRUZIONE e lo stato di regime è 1 sano su 2. Senza
+// questa distinzione quel servizio resta giallo per sempre, e un allarme che suona ogni giorno per il
+// funzionamento normale insegna a ignorare il canale: il contrario di quello che serve. Pura/testabile.
+//
+// `atteso` non spegne il rosso: zero sani resta GIÙ anche se ne bastava uno. Un numero più alto dei
+// target registrati vale come «tutti» (config vecchia, cluster ridimensionato: non si inventa un guasto).
+export function albStatus(healthy, total, expected = null) {
+  if (total === 0) return 'unknown'
+  if (healthy === 0) return 'down'
+  const atteso = Math.min(Number.isFinite(expected) && expected > 0 ? expected : total, total)
+  return healthy >= atteso ? 'up' : 'degraded'
+}
+
 // RuntimeProvider per ALB: stato del LB + target healthy / totali (su tutti i target group).
 // Permessi: elasticloadbalancing:Describe*.
 // Config: aws: { type: alb, name: <lb-name> }  oppure  { type: alb, arn: <lb-arn> }
+//         `expectedHealthy: <n>` = quanti sani sono la normalità (default: tutti)
 export async function albRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
   const client = new ElasticLoadBalancingV2Client(clientOpts(aws))
@@ -74,10 +90,11 @@ export async function albRuntime(cfg, aws, opts = {}) {
     return { status: 'degraded', summary: t('alb.healthUnreachable'), url }
   }
 
-  const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'
+  const atteso = Number.isFinite(cfg.expectedHealthy) ? Math.min(cfg.expectedHealthy, total) : total
+  const status = albStatus(healthy, total, cfg.expectedHealthy)
   // In chat il conteggio da solo non basta: `alert` dice quanti sono fuori (non quanti sono dentro),
   // quali e con che motivo. La card tiene il conteggio, che accanto alla metrica è più leggibile.
-  const alert = bad.length
+  const alert = bad.length && status !== 'up'
     ? t(healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
         n: bad.length,
         total,
@@ -86,9 +103,15 @@ export async function albRuntime(cfg, aws, opts = {}) {
     : undefined
   return {
     status,
-    summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }),
+    summary:
+      total === 0
+        ? t('alb.notarget')
+        : t('alb.targets', { healthy, total }) + (atteso < total ? t('alb.expected', { n: atteso }) : ''),
     ...(alert ? { alert } : {}),
-    metrics: total === 0 ? undefined : [{ label: t('m.targets'), value: `${healthy}/${total}`, tone: healthy >= total ? 'good' : healthy === 0 ? 'critical' : 'warning' }],
+    metrics:
+      total === 0
+        ? undefined
+        : [{ label: t('m.targets'), value: `${healthy}/${total}`, tone: status === 'up' ? 'good' : status === 'down' ? 'critical' : 'warning' }],
     url,
   }
 }

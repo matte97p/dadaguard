@@ -5,6 +5,16 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **`expectedHealthy` sui load balancer: quando «1 sano su 2» è la normalità.** Un target group può avere
+  per costruzione un solo target sano: è il caso del writer di un Postgres in replica, dove l'health check
+  chiede «sei il primario?» e lo standby registrato risponde no, quindi resta `unhealthy` per sempre.
+  Dadaguard lo chiamava ATTENZIONE a ogni giro: visto su `cato-staging-postgres-writer` il 13/08/2026,
+  subito dopo il rientro dello standby. Con `aws: { type: alb, expectedHealthy: 1 }` quello diventa lo
+  stato di regime, la card lo scrive («1/2 target sani (attesi 1)») e la notifica tace. Zero sani resta
+  GIÙ comunque: la soglia si sposta, il rosso no. Un `expectedHealthy` più alto dei target registrati vale
+  «tutti», così una config vecchia o un cluster ridimensionato non inventano un guasto.
+
 ### Changed
 - **Il registro di «cosa è già uscito» sono i tag, non `package.json` su main.** L'auto patch-bump si
   scriveva il bump come commit `[skip ci]` su `main`; da quando `main` ha un ruleset che richiede il check
