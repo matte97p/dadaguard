@@ -190,6 +190,8 @@ services:
 #   aws: { type: sfn, arn: arn:aws:states:...:stateMachine:my-sm } # Step Functions (esecuzioni fallite 24h)
 #   aws: { type: eks, cluster: my-cluster }          # EKS (stato cluster + versione)
 #   aws: { type: alb, name: my-lb, expectedHealthy: 1 } # ...quando 1 sano su N e' la NORMALITA'
+#     Sui load balancer SCOPERTI (che non hanno un blocco `aws:` da scrivere) si usa la mappa
+#     `expectedHealthy:` in fondo a questo file, indicizzata per nome del servizio.
 #     Serve per i target group in cui l'health check passa solo su UN target per costruzione: il caso
 #     vero e' il writer di un Postgres in replica, dove lo standby registrato risponde «non sono il
 #     primario» e resta `unhealthy` per sempre. Senza questa riga quel servizio e' giallo ogni giorno.
@@ -221,3 +223,13 @@ services:
 # Dipendenze (vista Topologia): DEDOTTE in automatico da AWS (env Lambda, event source,
 # security group) — non serve dichiararle. Puoi comunque aggiungerle/forzarle a mano:
 #   dependsOn: [my-db, my-queue]
+
+# Load balancer in cui «tutti i target sani» NON e' lo stato normale, per i servizi SCOPERTI dalla
+# discovery (che non hanno un blocco `aws:` in cui scriverlo). Chiave: `<account>/<nome>` oppure il nome
+# secco; valore: quanti sani sono la normalita'.
+# Il caso vero e' il writer di un Postgres in replica: l'health check chiede «sei il primario?», quindi
+# lo standby registrato risponde no e resta `unhealthy` per sempre. Senza questa riga quel servizio
+# risulta ATTENZIONE ogni giorno, e un allarme che suona sempre non si legge piu'.
+# Zero target sani resta GIU' comunque: qui si sposta la soglia, non si spegne il rosso.
+# expectedHealthy:
+#   staging/acme-staging-postgres-writer: 1
