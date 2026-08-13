@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Il registro di «cosa è già uscito» sono i tag, non `package.json` su main.** L'auto patch-bump si
+  scriveva il bump come commit `[skip ci]` su `main`; da quando `main` ha un ruleset che richiede il check
+  `test`, quel push viene rifiutato — `GH013: Required status check "test" is expected` — e non può
+  passare, perché un commit `[skip ci]` non farà mai girare nessun check. Visto dal vivo: il rilascio di
+  `v0.4.101` è morto lì. Ora il bump vive **solo nel working tree della run**: entra nell'immagine (il
+  Dockerfile copia `package.json`) e resta registrato dal tag `v<versione>` che la Release stacca in fondo,
+  che è anche il riferimento con cui il giro dopo decide se ci sono file spediti cambiati. Conseguenza da
+  sapere: su `main` `package.json` resta indietro rispetto all'ultima versione pubblicata, ed è normale —
+  la verità è `git tag -l 'v*' | sort -V | tail -1`.
+
 ### Added
 - **La suite gira sulle PR e blocca il deploy.** `deploy.yml` e `release.yml` partono entrambi da un push
   su `main`, cioè **dopo** il merge, e in parallelo: i test li lanciava solo chi scriveva la modifica,
