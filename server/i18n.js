@@ -235,6 +235,7 @@ const S = {
     // il target FUORI, non i sei dentro. `DescribeTargetHealth` porta già id e motivo, si buttavano.
     'alb.unhealthy': '{n} target su {total} non {n#sano#sani}: {list}',
     'alb.allunhealthy': 'nessuno dei {total} target è sano: {list}',
+    'alb.expected': ' (attesi {n})',
     'alb.notarget': 'nessun target collegato',
     'alb.state': 'stato {code}',
     'alb.notfound': 'load balancer non trovato',
@@ -550,6 +551,7 @@ const S = {
     'alb.targets': '{healthy}/{total} healthy targets',
     'alb.unhealthy': '{n} of {total} {n#target#targets} unhealthy: {list}',
     'alb.allunhealthy': 'none of the {total} targets is healthy: {list}',
+    'alb.expected': ' ({n} expected)',
     'alb.notarget': 'no target attached',
     'alb.state': 'state {code}',
     'alb.notfound': 'load balancer not found',
