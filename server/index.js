@@ -11,6 +11,7 @@ import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCost
 import { cached } from './util/ttlcache.js'
 import { isQueryable } from './accounts.js'
 import { listDeploys } from './deploys.js'
+import { tabellaRilasci, daRilasciare, testoRilasci } from './rilasci.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { wafOverview } from './waf.js'
 import { budgetsOverview } from './budgets.js'
@@ -300,34 +301,55 @@ app.get('/api/costs/categories', async (req, res) => {
 
 // Deploy: build CodeBuild dei progetti `acme-*-*-deploy` per account — cosa sta uscendo ORA + gli
 // ultimi. On-demand, read-only. Stessa forma per-account di /api/costs (label/color + payload).
+// I deploy per account, una volta sola: la usano sia `/api/deploys` (la vista) sia `/api/rilasci`
+// (staging contro produzione). Estratta dall'handler perché due endpoint che rifanno lo stesso giro
+// CodeBuild sono due giri di rete per lo stesso dato.
+async function deploysPerAccount(t) {
+  // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
+  // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
+  const { accounts } = await resolveServices()
+  const out = {}
+  await Promise.all(
+    Object.entries(accounts).map(async ([key, a]) => {
+      if (!isQueryable(a)) return
+      try {
+        const { builds, noProjects } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
+        out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }
+      } catch (err) {
+        out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+      }
+    }),
+  )
+  // Cloudflare: se c'è un token (env o wrangler), aggiungi i deploy dei Worker come sezione a parte.
+  // Nessun token → cloudflareDeploysAccount ritorna null e la sezione non compare.
+  try {
+    const cf = await cloudflareDeploysAccount()
+    if (cf) out.cloudflare = cf
+  } catch (err) {
+    out.cloudflare = { label: 'Cloudflare', color: '#f6821f', provider: 'cloudflare', error: err.message }
+  }
+  return out
+}
+
 app.get('/api/deploys', async (req, res) => {
   try {
     if (isDemo) return res.json(demoDeploys())
-    const t = makeT(req.query.lang)
-    // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
-    // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
-    const { accounts } = await resolveServices()
-    const out = {}
-    await Promise.all(
-      Object.entries(accounts).map(async ([key, a]) => {
-        if (!isQueryable(a)) return
-        try {
-          const { builds, noProjects } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
-          out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }
-        } catch (err) {
-          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
-        }
-      }),
-    )
-    // Cloudflare: se c'è un token (env o wrangler), aggiungi i deploy dei Worker come sezione a parte.
-    // Nessun token → cloudflareDeploysAccount ritorna null e la sezione non compare.
-    try {
-      const cf = await cloudflareDeploysAccount()
-      if (cf) out.cloudflare = cf
-    } catch (err) {
-      out.cloudflare = { label: 'Cloudflare', color: '#f6821f', provider: 'cloudflare', error: err.message }
-    }
-    res.json(out)
+    res.json(await deploysPerAccount(makeT(req.query.lang)))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// «La mia modifica è già in produzione?». Riusa /api/deploys (stesso giro AWS, nessuna chiamata in
+// più) e mette staging e produzione AFFIANCATI per servizio, più la coda del non rilasciato.
+// `?format=testo` risponde in testo piatto: serve al terminale (`curl`) e a una skill, che con il JSON
+// dovrebbero rifare a mano l'unica cosa che questa vista sa fare.
+app.get('/api/rilasci', async (req, res) => {
+  try {
+    const perAccount = isDemo ? demoDeploys() : await deploysPerAccount(makeT(req.query.lang))
+    const righe = tabellaRilasci(perAccount)
+    if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
+    res.json({ righe, daRilasciare: daRilasciare(righe) })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
