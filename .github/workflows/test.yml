@@ -30,12 +30,13 @@ on:
 permissions:
   contents: read
 
-# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima. Quando gira dentro al
-# deploy NO: lì cancellare significa lasciar passare il `needs`… o meglio, lasciarlo «cancelled», che non
-# è un successo e fermerebbe il deploy a metà. Si cancella solo sulle PR.
+# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima. Il gruppo include la
+# `sha` quando non c'è un branch di PR (cioè quando gira dentro a deploy/release): lì ogni commit ha un
+# gruppo suo, quindi non si cancella niente a vicenda — e una run «cancelled» fermerebbe il deploy, che
+# non è un successo. Niente espressione in `cancel-in-progress`: il gruppo fa già la distinzione.
 concurrency:
   group: test-${{ github.workflow }}-${{ github.head_ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   test:
