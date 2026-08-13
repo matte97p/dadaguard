@@ -8,6 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTargetHealth } from '../server/runtime/ecs.js'
+import { albStatus } from '../server/runtime/alb.js'
 
 test('zero target sani con task voluti: GIÙ, anche se i container girano', () => {
   const out = applyTargetHealth({ status: 'up', desiredCount: 2 }, { total: 2, healthy: 0 })
@@ -40,4 +41,34 @@ test('servizio scalato a zero: nessun target sano NON è un guasto', () => {
   // desiredCount 0 = spento di proposito (idle): il rosso qui sarebbe una bugia.
   const out = applyTargetHealth({ status: 'idle', desiredCount: 0 }, { total: 0, healthy: 0 })
   assert.deepEqual(out, { status: 'idle', changed: false })
+})
+
+// --- albStatus: quanti target sani sono «tutto a posto» ---
+// Il caso che ha costretto a introdurlo: il target group del WRITER di un Postgres in replica. Lì
+// l'health check passa solo sul primario, quindi lo standby registrato è `unhealthy` per costruzione e
+// lo stato di regime è 1 sano su 2. Prima Dadaguard lo chiamava ATTENZIONE ogni giorno, per sempre.
+test('albStatus: senza atteso, sani < totali è ATTENZIONE (comportamento di prima)', () => {
+  assert.equal(albStatus(2, 2), 'up')
+  assert.equal(albStatus(1, 2), 'degraded')
+  assert.equal(albStatus(6, 7), 'degraded')
+})
+
+test('albStatus: con atteso 1, un solo sano su due è la normalità', () => {
+  assert.equal(albStatus(1, 2, 1), 'up')
+  assert.equal(albStatus(2, 2, 1), 'up', 'più sani del previsto non è un guasto')
+})
+
+test('albStatus: zero sani resta GIÙ, anche se ne bastava uno', () => {
+  assert.equal(albStatus(0, 2, 1), 'down', 'la soglia si sposta, il rosso no')
+  assert.equal(albStatus(0, 2), 'down')
+})
+
+test('albStatus: atteso più alto dei registrati vale «tutti», non un guasto inventato', () => {
+  // Config vecchia o cluster ridimensionato: 2 sani su 2 con atteso 3 è a posto.
+  assert.equal(albStatus(2, 2, 3), 'up')
+  assert.equal(albStatus(1, 2, 3), 'degraded')
+})
+
+test('albStatus: nessun target registrato resta «non lo so»', () => {
+  assert.equal(albStatus(0, 0, 1), 'unknown')
 })

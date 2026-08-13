@@ -189,6 +189,11 @@ services:
 #   aws: { type: apigateway, apiName: my-api, stage: prod }   # API Gateway (5xx recenti via CloudWatch)
 #   aws: { type: sfn, arn: arn:aws:states:...:stateMachine:my-sm } # Step Functions (esecuzioni fallite 24h)
 #   aws: { type: eks, cluster: my-cluster }          # EKS (stato cluster + versione)
+#   aws: { type: alb, name: my-lb, expectedHealthy: 1 } # ...quando 1 sano su N e' la NORMALITA'
+#     Serve per i target group in cui l'health check passa solo su UN target per costruzione: il caso
+#     vero e' il writer di un Postgres in replica, dove lo standby registrato risponde «non sono il
+#     primario» e resta `unhealthy` per sempre. Senza questa riga quel servizio e' giallo ogni giorno.
+#     Zero target sani resta GIU' comunque: `expectedHealthy` non spegne il rosso, sposta solo la soglia.
 #   aws: { type: cloudfront, id: E123ABC }           # CloudFront (distribuzione, globale)
 #   aws: { type: cloudfront, id: E123ABC, disabled: true } # ...spenta di proposito: NON è un allarme
 #     `disabled: true` è l'unico modo di dire «lo so, l'ho spenta io»: da AWS una distribuzione con
