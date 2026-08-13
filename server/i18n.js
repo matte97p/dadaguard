@@ -235,7 +235,6 @@ const S = {
     // il target FUORI, non i sei dentro. `DescribeTargetHealth` porta già id e motivo, si buttavano.
     'alb.unhealthy': '{n} target su {total} non {n#sano#sani}: {list}',
     'alb.allunhealthy': 'nessuno dei {total} target è sano: {list}',
-    'more.plus': '{list}, +{n}',
     'alb.notarget': 'nessun target collegato',
     'alb.state': 'stato {code}',
     'alb.notfound': 'load balancer non trovato',
@@ -317,7 +316,9 @@ const S = {
     'exposure.unknown': 'stato della porta pubblica non verificabile',
 
     // #11 security quick-win
-    'security.sgopen': '{n} regola/e aperta/e a internet ({list})',
+    // `openSgRules` ritorna PORTE (una regola su 22-5432 ne produce cinque): dire «regole» faceva
+    // contare cinque regole dove ce n'era una. Il numero e la parola devono descrivere la stessa cosa.
+    'security.sgopen': '{n} {n#porta aperta#porte aperte} a internet ({list})',
     'security.iamwildcard': '{n} policy con wildcard ampia ({list})',
     'security.clean': 'nessuna apertura nota',
     'security.nosg': 'nessun security group correlabile',
@@ -549,7 +550,6 @@ const S = {
     'alb.targets': '{healthy}/{total} healthy targets',
     'alb.unhealthy': '{n} of {total} {n#target#targets} unhealthy: {list}',
     'alb.allunhealthy': 'none of the {total} targets is healthy: {list}',
-    'more.plus': '{list}, +{n}',
     'alb.notarget': 'no target attached',
     'alb.state': 'state {code}',
     'alb.notfound': 'load balancer not found',
@@ -627,7 +627,7 @@ const S = {
     'exposure.unknown': 'public door status not verifiable',
 
     // #11 security quick-win
-    'security.sgopen': '{n} rule(s) open to the internet ({list})',
+    'security.sgopen': '{n} {n#port#ports} open to the internet ({list})',
     'security.iamwildcard': '{n} policy/ies with broad wildcard ({list})',
     'security.clean': 'no known exposure',
     'security.nosg': 'no correlatable security group',

@@ -1,38 +1,47 @@
 name: test
 
-# La suite (`node --test`, nessun framework) su ogni PR e su ogni push a main.
+# Build + suite (`node --test`, nessun framework). Tre modi di essere invocata:
+#   · `pull_request` — il segnale sulla PR, prima del merge;
+#   · `workflow_call` — come primo job di `deploy.yml` e `release.yml`, che ci mettono `needs: test`.
+# Niente trigger `push`: su main ci arrivano già entrambi i chiamanti, e tenerlo faceva girare la suite
+# tre volte sullo stesso commit.
 #
-# Perché esisteva un buco: `deploy.yml` e `release.yml` partono entrambi da un push su main, cioè
-# DOPO il merge. Fino a qui i test li lanciava solo chi scriveva la modifica, sulla sua macchina: una
-# PR con la suite rossa risultava «CLEAN · MERGEABLE» e il primo a scoprirlo era il deploy in
-# produzione. Girano anche su push a main per prendere i commit diretti (e l'auto patch-bump).
+# Il terzo modo è quello che conta. Il buco che questo file chiude non era «non si vede se è rosso», era
+# che `deploy.yml` e `release.yml` partono da un push su main IN PARALLELO e non si guardano: una suite
+# rossa arrivava in ECS e sul registry pubblico comunque, e il rosso su questo workflow restava
+# decorativo. Renderlo `workflow_call` + `needs` è ciò che lo rende bloccante senza dipendere dalle
+# impostazioni del repo (la branch protection sarebbe l'altra metà, e vive fuori dal codice).
 #
-# Niente segreti, niente OIDC, niente AWS: i test sono tutti offline (fixture + funzioni pure). Se un
-# giorno servisse una credenziale per farne girare uno, quello NON va qui — va in un job separato che
-# le PR dai fork non possono raggiungere.
+# Nota su ciò che NON copre: il commit di auto patch-bump che `release.yml` si scrive da sé porta
+# `[skip ci]`, quindi su quello i workflow non partono affatto — ma il suo albero è quello del commit
+# appena testato più il `version` di package.json, quindi non è un buco.
+#
+# `npm run build` e non solo `npm test`: lo chiede CONTRIBUTING.md, e la suite è tutta lato server —
+# un errore in `web/*.jsx` passerebbe verde qui per poi fermare il `docker build` del deploy su main,
+# bloccando anche i commit successivi. Costa 400ms.
+#
+# Niente segreti, niente OIDC, niente AWS: i test sono offline (fixture + funzioni pure). Se un giorno
+# servisse una credenziale, quella NON va qui — va in un job separato, che le PR dai fork non toccano.
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
-# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima.
+# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima. Quando gira dentro al
+# deploy NO: lì cancellare significa lasciar passare il `needs`… o meglio, lasciarlo «cancelled», che non
+# è un successo e fermerebbe il deploy a metà. Si cancella solo sulle PR.
 concurrency:
-  group: test-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  group: test-${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # `repo-sanitized.test.js` chiama `git ls-files`: senza il checkout completo del working
-          # tree quel guardiano non vedrebbe niente e passerebbe a vuoto.
-          fetch-depth: 1
 
       - uses: actions/setup-node@v4
         with:
@@ -41,5 +50,7 @@ jobs:
 
       # `npm ci` e non `npm install`: rispetta il lockfile e non lo riscrive.
       - run: npm ci
+
+      - run: npm run build
 
       - run: npm test

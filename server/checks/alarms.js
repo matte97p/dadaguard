@@ -89,13 +89,12 @@ export async function run(service, ctx) {
   )
   if (!mine.length) return null // nessun allarme attivo per questa risorsa → niente riga
 
-  // `truncateList` e non un `, +N` scritto a mano: era l'unica delle tre liste troncate del repo che
-  // non passava dall'i18n, quindi in inglese quel pezzo restava comunque italiano — cioè niente, perché
-  // «, +2» non ha lingua, ma la regola sì e va in un posto solo.
+  // `truncateList` e non un `, +N` scritto a mano: la regola sta in un posto solo (`util/format.js`),
+  // che è l'unico modo di cambiarla senza dimenticarne una copia. Tetto 3 e non 2: un allarme arriva
+  // spesso in gruppo (5xx + latenza + target), e vederne tre dice se è un sintomo o un incendio.
   const list = truncateList(
     mine.map((a) => a.AlarmName),
     MAX_NOMI,
-    t,
   )
   return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list }) }
 }

@@ -12,13 +12,17 @@ export function fmtMs(ms) {
 }
 
 // «I primi N, e poi +M»: la stessa regola serve ai target fuori di un load balancer, alle istanze di un
-// cluster RDS e ai security group aperti, ed era scritta tre volte in tre grafie diverse (una, in
-// `alarms.js`, senza nemmeno l'i18n). Una lista senza tetto finisce tagliata a metà identificativo dal
-// limite di lunghezza del messaggio, che è il modo peggiore di troncare.
-export function truncateList(items, max, t) {
-  const list = items.slice(0, max).join(', ')
-  return items.length > max ? t('more.plus', { list, n: items.length - max }) : list
+// cluster RDS, ai security group aperti, agli allarmi attivi, ai secret mancanti e alle regole WAF. Era
+// scritta sei volte in sei grafie diverse, e tre tagliavano SENZA dirlo — una lista troncata in silenzio
+// fa concludere che gli elementi siano quelli, che è il modo peggiore di risparmiare caratteri.
+//
+// Niente `t`: «+3» non ha lingua. Passarlo dal dizionario aggiungeva una chiave da tenere allineata in
+// due bundle e un modo di perdere tutto (con un `t` identità usciva la chiave al posto dei nomi).
+export function truncateItems(items, max = 2) {
+  return items.length > max ? [...items.slice(0, max), `+${items.length - max}`] : [...items]
 }
+
+export const truncateList = (items, max = 2) => truncateItems(items, max).join(', ')
 
 // Conteggio compatto: 1234 → "1.2k", 9999 → "10k", 15000 → "15k", sotto 1000 invariato.
 export function fmtCount(n) {
