@@ -2,9 +2,17 @@ name: test
 
 # Build + suite (`node --test`, nessun framework). Tre modi di essere invocata:
 #   · `pull_request` — il segnale sulla PR, prima del merge;
-#   · `workflow_call` — come primo job di `deploy.yml` e `release.yml`, che ci mettono `needs: test`.
+#   · `workflow_call` — come primo job di `deploy.yml` e `release.yml`, che ci mettono `needs: test`;
+#   · `workflow_dispatch` — di soccorso, quando l'evento non arriva (sotto).
 # Niente trigger `push`: su main ci arrivano già entrambi i chiamanti, e tenerlo faceva girare la suite
 # tre volte sullo stesso commit.
+#
+# Il dispatch serve perché il 13/08/2026 GitHub ha perso QUATTRO eventi push: nessuna run, nessuna check
+# suite sul commit, Actions «operational» sullo status page. Con il check `test` obbligatorio su main, un
+# evento perso non lascia la PR «non verificata» ma BLOCCATA, e chiudere/riaprire la PR non basta (provato):
+# l'unico rimedio era un commit vuoto, che resta nella history per sempre. Da qui si rilancia la suite sul
+# branch della PR — il check run si attacca al commit, che è ciò che il ruleset guarda — senza inquinare
+# niente: `gh workflow run test.yml --ref <branch>`.
 #
 # Il terzo modo è quello che conta. Il buco che questo file chiude non era «non si vede se è rosso», era
 # che `deploy.yml` e `release.yml` partono da un push su main IN PARALLELO e non si guardano: una suite
@@ -28,6 +36,7 @@ name: test
 on:
   pull_request:
   workflow_call:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
