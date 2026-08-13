@@ -23,8 +23,10 @@ import {
   GetPolicyVersionCommand,
 } from '@aws-sdk/client-iam'
 import { clientOpts } from '../runtime/awsClient.js'
+import { truncateList } from '../util/format.js'
 
 export const key = 'security'
+
 
 // Porte “sensibili”: pannelli/DB/SSH che non dovrebbero stare su 0.0.0.0/0.
 // 22 SSH · 3389 RDP · 3306 MySQL · 5432 Postgres · 6379 Redis · 27017 Mongo · 9200 ES.
@@ -55,9 +57,7 @@ export async function run(service, ctx) {
     try {
       const open = await openSgRules(sgIds, aws, t)
       if (open.length) {
-        const list = open.slice(0, 2).join(', ')
-        const more = open.length > 2 ? t('security.sgopenmore', { list, n: open.length - 2 }) : list
-        findings.push(t('security.sgopen', { n: open.length, list: more }))
+        findings.push(t('security.sgopen', { n: open.length, list: truncateList(open) }))
       }
     } catch {
       return { key, status: 'unknown', reason: t('security.nosg') }
@@ -69,8 +69,9 @@ export async function run(service, ctx) {
     try {
       const wild = await roleWildcards(roleName, aws)
       if (wild.length) {
-        const list = wild.slice(0, 2).join(', ')
-        findings.push(t('security.iamwildcard', { n: wild.length, list }))
+        // Anche qui col tetto: prima si tagliava a due SENZA dirlo, e "4 policy con wildcard ampia
+        // (a, b)" fa contare due nomi e leggere quattro.
+        findings.push(t('security.iamwildcard', { n: wild.length, list: truncateList(wild) }))
       }
     } catch {
       // permessi IAM read mancanti: non rompere — se non c'era nemmeno un SG, marca unknown.

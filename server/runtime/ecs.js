@@ -207,7 +207,7 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
       ? `${summary} · ${t(health.healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
           n: health.bad.length,
           total: health.total,
-          list: unhealthyList(health.bad, t),
+          list: unhealthyList(health.bad),
         })}`
       : undefined
 

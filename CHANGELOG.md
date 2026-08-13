@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **La suite gira sulle PR e blocca il deploy.** `deploy.yml` e `release.yml` partono entrambi da un push
+  su `main`, cioè **dopo** il merge, e in parallelo: i test li lanciava solo chi scriveva la modifica,
+  sulla sua macchina, una PR con la suite rossa risultava `CLEAN · MERGEABLE`, e il primo a scoprirlo era
+  il deploy in produzione. Ora `test.yml` gira su ogni PR **e** come primo job dei due workflow di
+  rilascio (`workflow_call` + `needs: test`), quindi un rosso non arriva né su ECS né sul registry
+  pubblico. Fa anche `npm run build`, che CONTRIBUTING.md chiede da sempre e nessuno verificava: la suite
+  è tutta lato server, quindi un errore in `web/*.jsx` passava verde e poi fermava il `docker build` su
+  main. Resta fuori, di proposito, la *branch protection*: vive nelle impostazioni del repo, non nel
+  codice, e va accesa a mano (`test` come required status check).
+
 ### Changed
 - **Le notifiche dicono cosa è rotto, non quale modulo l'ha visto.** Due righe lette in canale il
   13/08/2026 — `acme-staging-alb-int [STAGING] ATTENZIONE · esecuzione — 6/7 target sani` e

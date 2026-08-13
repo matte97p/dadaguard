@@ -55,3 +55,19 @@ test('la correlazione per dimensione diretta continua a funzionare', async () =>
   assert.ok(r)
   assert.match(r.summary, /ecs-cpu/)
 })
+
+// Un servizio può avere cinque allarmi attivi insieme (5xx + latenza + target + CPU + memoria): la riga
+// ne nomina tre e dice quanti restano. Il `, +N` era scritto a mano qui dentro, ora è la funzione
+// condivisa — e questo test guarda la riga VERA, non l'helper.
+test('più allarmi del tetto: tre nomi e «+N», non un elenco infinito né un silenzio', async () => {
+  const cinque = ['a', 'b', 'c', 'd', 'e'].map((n) => allarmeAlb('acme-production-backend', `alb-${n}`))
+  const t = (_k, v) => `${v.n}|${v.list}`
+  const r = await run(ecs('backend'), { alarms: cinque, t })
+  assert.equal(r.summary, '5|alb-a, alb-b, alb-c, +2')
+})
+
+test('allarmi sotto il tetto: nessun «+0» appiccicato in fondo', async () => {
+  const due = ['a', 'b'].map((n) => allarmeAlb('acme-production-backend', `alb-${n}`))
+  const r = await run(ecs('backend'), { alarms: due, t: (_k, v) => v.list })
+  assert.equal(r.summary, 'alb-a, alb-b')
+})

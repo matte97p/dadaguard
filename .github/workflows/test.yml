@@ -1,0 +1,57 @@
+name: test
+
+# Build + suite (`node --test`, nessun framework). Tre modi di essere invocata:
+#   · `pull_request` — il segnale sulla PR, prima del merge;
+#   · `workflow_call` — come primo job di `deploy.yml` e `release.yml`, che ci mettono `needs: test`.
+# Niente trigger `push`: su main ci arrivano già entrambi i chiamanti, e tenerlo faceva girare la suite
+# tre volte sullo stesso commit.
+#
+# Il terzo modo è quello che conta. Il buco che questo file chiude non era «non si vede se è rosso», era
+# che `deploy.yml` e `release.yml` partono da un push su main IN PARALLELO e non si guardano: una suite
+# rossa arrivava in ECS e sul registry pubblico comunque, e il rosso su questo workflow restava
+# decorativo. Renderlo `workflow_call` + `needs` è ciò che lo rende bloccante senza dipendere dalle
+# impostazioni del repo (la branch protection sarebbe l'altra metà, e vive fuori dal codice).
+#
+# Nota su ciò che NON copre: il commit di auto patch-bump che `release.yml` si scrive da sé porta
+# `[skip ci]`, quindi su quello i workflow non partono affatto — ma il suo albero è quello del commit
+# appena testato più il `version` di package.json, quindi non è un buco.
+#
+# `npm run build` e non solo `npm test`: lo chiede CONTRIBUTING.md, e la suite è tutta lato server —
+# un errore in `web/*.jsx` passerebbe verde qui per poi fermare il `docker build` del deploy su main,
+# bloccando anche i commit successivi. Costa 400ms.
+#
+# Niente segreti, niente OIDC, niente AWS: i test sono offline (fixture + funzioni pure). Se un giorno
+# servisse una credenziale, quella NON va qui — va in un job separato, che le PR dai fork non toccano.
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Una PR che riceve tre push di fila non ha bisogno di tre run: vince l'ultima. Il gruppo include la
+# `sha` quando non c'è un branch di PR (cioè quando gira dentro a deploy/release): lì ogni commit ha un
+# gruppo suo, quindi non si cancella niente a vicenda — e una run «cancelled» fermerebbe il deploy, che
+# non è un successo. Niente espressione in `cancel-in-progress`: il gruppo fa già la distinzione.
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # la stessa major dell'immagine (Dockerfile: node:22-slim)
+          cache: npm
+
+      # `npm ci` e non `npm install`: rispetta il lockfile e non lo riscrive.
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test

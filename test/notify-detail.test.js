@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { slackMessage, causeLabel, cleanDetail } from '../server/notify/slack.js'
 import { snapshot } from '../server/notify/diff.js'
 import { unhealthyList } from '../server/runtime/alb.js'
+import { truncateList, truncateItems } from '../server/util/format.js'
 import { makeT, hasKey } from '../server/i18n.js'
 
 // Due righe vere lette in canale il 13/08/2026:
@@ -96,14 +97,27 @@ test('dettaglio: `alert` vince su `summary` — la card e la chat non vogliono l
   assert.equal(snapshot([svc])['stg/api'].detail, 'no · memoria 512MB (TF: 1024MB)')
 })
 
+// La regola «i primi N, e poi +M» era scritta SEI volte in sei grafie (target di un load balancer,
+// istanze RDS, security group, policy IAM, allarmi attivi, secret mancanti, regole WAF), e tre di quelle
+// tagliavano senza dirlo. Ora è una funzione sola: questo test vale per tutti i posti che la chiamano.
+test('liste troncate: sotto il tetto passano intere, sopra dicono quante ne restano', () => {
+  assert.equal(truncateList(['a', 'b']), 'a, b')
+  assert.equal(truncateList(['a', 'b', 'c', 'd']), 'a, b, +2')
+  assert.equal(truncateList(['a', 'b', 'c', 'd'], 3), 'a, b, c, +1', 'il tetto è un parametro')
+  assert.equal(truncateList([]), '', 'lista vuota: niente, nemmeno un «+0»')
+  // Niente `t`: «+2» non ha lingua, e passandolo dal dizionario un `t` identità (un check che gira
+  // senza lingua) restituiva la CHIAVE al posto dei nomi — la lista si perdeva tutta.
+  assert.deepEqual(truncateItems(['a', 'b', 'c']), ['a', 'b', '+1'], 'la forma a lista serve al pannello WAF')
+})
+
 test('target fuori: si nominano i primi due e poi «+N», col motivo di AWS', () => {
   const bad = [
     { id: 'i-aaa', reason: 'Target.FailedHealthChecks' },
     { id: 'i-bbb', reason: 'Target.Timeout' },
     { id: 'i-ccc', reason: 'Target.Timeout' },
   ]
-  assert.equal(unhealthyList(bad, t), 'i-aaa (Target.FailedHealthChecks), i-bbb (Target.Timeout), +1')
-  assert.equal(unhealthyList([{ id: 'i-aaa', reason: null }], t), 'i-aaa', 'senza motivo resta il solo id')
+  assert.equal(unhealthyList(bad), 'i-aaa (Target.FailedHealthChecks), i-bbb (Target.Timeout), +1')
+  assert.equal(unhealthyList([{ id: 'i-aaa', reason: null }]), 'i-aaa', 'senza motivo resta il solo id')
 })
 
 test('la riga intera: causa e dettaglio non ripetono la stessa parola', () => {
