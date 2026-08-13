@@ -15,6 +15,11 @@ All notable changes to Dadaguard are documented here. Format based on
   GIÙ comunque: la soglia si sposta, il rosso no. Un `expectedHealthy` più alto dei target registrati vale
   «tutti», così una config vecchia o un cluster ridimensionato non inventano un guasto.
 
+  Sui load balancer **scoperti** dalla discovery, che non hanno un blocco `aws:` in cui scriverlo, la
+  soglia si dichiara con la mappa `expectedHealthy:` in `services.yaml`, indicizzata per `<account>/<nome>`
+  o per nome secco, come già si fa per `urls` e `health`. Senza quella mappa la modifica sarebbe stata
+  irraggiungibile proprio nel caso per cui è nata: il writer di un Postgres è un load balancer scoperto.
+
 ### Changed
 - **Il registro di «cosa è già uscito» sono i tag, non `package.json` su main.** L'auto patch-bump si
   scriveva il bump come commit `[skip ci]` su `main`; da quando `main` ha un ruleset che richiede il check

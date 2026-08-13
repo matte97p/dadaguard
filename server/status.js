@@ -49,6 +49,20 @@ export function byServiceName(map, account, name) {
 // Nome storico dello stesso lookup, usato per l'endpoint mostrato in card.
 export const urlForService = byServiceName
 
+// `expectedHealthy` ai servizi SCOPERTI, che non hanno un posto dove dichiararlo. Serve al caso del
+// writer di un Postgres in replica: lo standby registrato risponde «non sono il primario», quindi resta
+// `unhealthy` per costruzione e lo stato di regime e' 1 sano su 2. Il load balancer lo scopre la
+// discovery, quindi senza questa mappa la config non arriverebbe mai al provider e il servizio suonerebbe
+// giallo ogni giorno. Un valore dichiarato a mano sul servizio vince. Pura/testabile.
+export function applyExpectedHealthy(services, expected) {
+  if (!expected) return services
+  return services.map((s) => {
+    if (s.aws?.expectedHealthy != null) return s
+    const n = byServiceName(expected, s.account, s.name)
+    return Number.isFinite(n) && s.aws ? { ...s, aws: { ...s.aws, expectedHealthy: n } } : s
+  })
+}
+
 // Aggancia la sonda HTTP ai servizi SCOPERTI, che non hanno modo di dichiarare `healthUrl`: la mappa
 // `health` vale un URL intero oppure un path (`/health`) risolto sull'URL della mappa `urls`.
 // Un `healthUrl` dichiarato a mano vince sempre. Path senza URL di base → nessuna sonda: meglio un
@@ -147,7 +161,7 @@ export function findService(services, { service, account } = {}) {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, people } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, expectedHealthy, people } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -206,7 +220,14 @@ export async function resolveServices() {
     const added = services.length - before
     if (added > 0) discovered = { count: added, accounts: Object.keys(accounts) }
   }
-  const value = { accounts, services: applyHealthUrls(services, health, urls), discovered, discoveryProblems, urls, people }
+  const value = {
+    accounts,
+    services: applyExpectedHealthy(applyHealthUrls(services, health, urls), expectedHealthy),
+    discovered,
+    discoveryProblems,
+    urls,
+    people,
+  }
   _resolveCache = { at: Date.now(), value }
   return value
 }
