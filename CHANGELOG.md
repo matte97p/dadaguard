@@ -6,6 +6,17 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Le due azioni che non lasciavano traccia da nessuna parte.** La pagina dei rilasci mostrava i riavvii
+  forzati e gli hotfix; restavano invisibili le due cose più invasive che si fanno a mano su AWS, e
+  CloudTrail le sapeva da sempre. Ora compaiono accanto alle altre: l'**apertura a mano di una porta su
+  un security group** (il break-glass: serve quando Teleport o IAM sono giù, lascia drift rispetto a
+  Terragrunt e va richiusa) con la sua **riga gemella di chiusura**, così le due insieme dicono se la
+  porta è ancora aperta, e la **shell aperta dentro a un container** che gira, che vede tutti i segreti
+  del servizio. Di entrambe si dice **chi**, e se è passata da Teleport (sessione registrata) o da una
+  console con AdministratorAccess. Anche i tentativi **respinti** si vedono: un break-glass negato
+  spiega perché qualcuno è rimasto fuori, e nasconderlo lascia la domanda aperta.
+
+### Added
 - **«La mia modifica è già in produzione?», in una riga.** La domanda si risponde oggi aprendo un compare
   su GitHub e confrontando due tag a mano, mentre i dati erano già dentro Dadaguard (le build CodeBuild
   per account). Ora `/api/rilasci` mette **staging e produzione affiancati per servizio**, con il commit
