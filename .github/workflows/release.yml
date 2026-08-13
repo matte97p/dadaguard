@@ -2,8 +2,17 @@
 # Tre strade, tutte idempotenti (mai una versione doppia sul registry):
 #   1. Push su main col `version` di package.json bumpato → rilascia quella versione.
 #   2. Push su main SENZA bump ma con file dell'IMMAGINE cambiati (server/web/deps) → auto
-#      patch-bump: bumpa package.json, committa `[skip ci]`, e pubblica il nuovo patch.
+#      patch-bump a partire dall'ULTIMO TAG, senza committare niente su main.
 #   3. Push di un tag v* → release esplicita classica (il tag deve combaciare con package.json).
+#
+# Il registro di «cosa è già uscito» sono i TAG `v*`, non il `version` di package.json su main. Prima
+# l'auto patch-bump si scriveva il bump come commit `[skip ci]` su main: da quando main ha un ruleset che
+# richiede il check `test`, quel push viene RIFIUTATO (`GH013: Required status check "test" is expected`)
+# — e non può passare, perché un commit `[skip ci]` non farà mai girare nessun check. Il bump ora vive
+# solo nel working tree della run: entra nell'immagine (il Dockerfile copia package.json) e viene
+# registrato dal tag `v<versione>` che la Release stacca in fondo. Conseguenza da sapere: su main
+# `package.json` resta indietro rispetto all'ultima versione pubblicata, ed è normale — la verità è
+# `git tag -l 'v*' | sort -V | tail -1`.
 # Push su main che tocca solo doc/test/CI → niente da fare. Allineato al pattern degli altri repo
 # OSS (demowright/pentest-framework/…): main → pubblica, deciso confrontando col registry + il diff.
 # "File spediti" = ciò che il Dockerfile mette nell'immagine (server + sorgenti frontend + package*),
@@ -23,7 +32,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write # creare tag + Release, e pushare l'eventuale commit di auto patch-bump
+  contents: write # creare il tag e la Release (nessun push su main: vedi la testa del file)
   packages: write # pushare su ghcr.io
 
 jobs:
@@ -61,26 +70,29 @@ jobs:
           else
             PUBLISHED="$(curl -fsSL "https://hub.docker.com/v2/repositories/matte97/dadaguard/tags?page_size=100" \
               | jq -r '.results[].name' 2>/dev/null || true)"
-            if ! grep -qx "$LOCAL" <<< "$PUBLISHED"; then
-              # package.json bumpato di proposito rispetto al registry → rilascia quella versione.
-              echo "::notice::$LOCAL non ancora pubblicata — rilascio"
+            # L'ultima versione USCITA la dicono i tag, non package.json su main (che resta indietro:
+            # l'auto patch-bump non committa più niente — vedi la testa del file).
+            LAST="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+            if [[ -z "$LAST" ]]; then
+              echo "::notice::nessun tag v* — prima release: $LOCAL"
               V="$LOCAL"; PUBLISH=true
-            elif ! git rev-parse -q --verify "refs/tags/v$LOCAL" >/dev/null; then
-              echo "::notice::$LOCAL già pubblicata ma manca il tag v$LOCAL — niente diff, skip"
+            elif ! grep -qx "$LOCAL" <<< "$PUBLISHED" && [[ "$(printf '%s\n%s\n' "$LAST" "$LOCAL" | sort -V | tail -1)" == "$LOCAL" && "$LOCAL" != "$LAST" ]]; then
+              # package.json bumpato di proposito, oltre l'ultimo tag e non ancora sul registry.
+              echo "::notice::$LOCAL non ancora pubblicata e oltre v$LAST — rilascio"
+              V="$LOCAL"; PUBLISH=true
             else
-              # Stessa versione live: patch-bump solo se è cambiato ciò che ENTRA nell'immagine
-              # (server + sorgenti frontend + dipendenze). Doc/test/CI/deploy non spediscono → no.
+              # Patch-bump solo se è cambiato ciò che ENTRA nell'immagine (server + sorgenti frontend +
+              # dipendenze) rispetto all'ultimo tag. Doc/test/CI/deploy non spediscono → niente.
               SHIP='server web index.html vite.config.js package.json package-lock.json'
-              if git diff --quiet "v$LOCAL" HEAD -- $SHIP; then
-                echo "::notice::nessun file spedito cambiato da v$LOCAL — skip"
+              if git diff --quiet "v$LAST" HEAD -- $SHIP; then
+                echo "::notice::nessun file spedito cambiato da v$LAST — skip"
               else
-                npm version patch --no-git-tag-version >/dev/null
-                V="$(node -p "require('./package.json').version")"
-                echo "::notice::file spediti cambiati da v$LOCAL — auto patch-bump a $V"
-                git config user.name  "github-actions[bot]"
-                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                git commit -aqm "chore(release): $V — auto patch-bump (file spediti cambiati da v$LOCAL) [skip ci]"
-                git push origin HEAD:main
+                V="$(node -p "const [a,b,c]='$LAST'.split('.').map(Number); \`\${a}.\${b}.\${c + 1}\`")"
+                # Il bump vive SOLO nel working tree della run: entra nell'immagine (il Dockerfile copia
+                # package.json) e resta registrato dal tag v$V che la Release stacca in fondo. Nessun
+                # commit e nessun push su main, che è protetto da un ruleset e li rifiuterebbe.
+                npm version "$V" --no-git-tag-version --allow-same-version >/dev/null
+                echo "::notice::file spediti cambiati da v$LAST — patch-bump a $V (senza commit su main)"
                 PUBLISH=true
               fi
             fi
