@@ -6,6 +6,18 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **«La mia modifica è già in produzione?», in una riga.** La domanda si risponde oggi aprendo un compare
+  su GitHub e confrontando due tag a mano, mentre i dati erano già dentro Dadaguard (le build CodeBuild
+  per account). Ora `/api/rilasci` mette **staging e produzione affiancati per servizio**, con il commit
+  di ognuno e il verdetto, e in fondo la **coda del non rilasciato**. Tre scelte che decidono se la lista
+  si legge: quello che «gira» è l'ultimo deploy **riuscito** (una build fallita o in corso non ha cambiato
+  la produzione); un servizio che vive in un ambiente **solo** non è «da rilasciare» ma «solo staging»,
+  sennò `acme-admin` e le sonde sarebbero rumore permanente; e `?format=testo` risponde in testo piatto,
+  perché dal terminale o da una skill rifare la tabella dal JSON significa riscrivere la stessa logica
+  fuori da qui. Nessuna chiamata AWS in più: il giro CodeBuild è quello che `/api/deploys` faceva già,
+  ora estratto in una funzione che i due endpoint condividono.
+
+### Added
 - **`expectedHealthy` sui load balancer: quando «1 sano su 2» è la normalità.** Un target group può avere
   per costruzione un solo target sano: è il caso del writer di un Postgres in replica, dove l'health check
   chiede «sei il primario?» e lo standby registrato risponde no, quindi resta `unhealthy` per sempre.
