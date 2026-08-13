@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isForcedRestart, restartRow, startEntry, viaTeleportRole, isHotfixRole, serviceFromEcs } from '../server/manualActions.js'
+import { isForcedRestart, restartRow, startEntry, viaTeleportRole, isHotfixRole, serviceFromEcs , sgRow, execRow } from '../server/manualActions.js'
 import { resolveTrigger, mapBuild } from '../server/deploys.js'
 
 // Evento CloudTrail sintetico: la forma è quella vera (CloudTrailEvent è una STRINGA JSON).
@@ -121,4 +121,62 @@ test('mapBuild: lo starter porta chi ha premuto, che NON è l’autore del commi
   const plain = mapBuild({ projectName: 'acme-production-backend-deploy', buildStatus: 'SUCCEEDED', initiator: 'matte97p' })
   assert.equal(plain.trigger, 'manuale')
   assert.equal(plain.forcedBy, null)
+})
+
+// --- break-glass e shell nei container: le due azioni che non lasciavano traccia ---
+// `sg-allow open` apre una porta a mano su un security group: serve quando Teleport o IAM sono giù,
+// lascia drift rispetto a Terragrunt e VA RICHIUSA. Finora «chi ha aperto cosa e non l'ha richiuso»
+// era una domanda senza risposta, e la risposta stava in CloudTrail da sempre.
+const eventoSg = (nome, extra = {}) => ({
+  EventId: 'e1',
+  EventTime: '2026-08-13T18:00:00Z',
+  CloudTrailEvent: JSON.stringify({
+    eventName: nome,
+    eventTime: '2026-08-13T18:00:00Z',
+    userIdentity: { arn: 'arn:aws:sts::1:assumed-role/AWSReservedSSO_Admin_abc/persona' },
+    requestParameters: { groupId: 'sg-0abc', ipPermissions: { items: [{ fromPort: 5432, toPort: 5432 }] } },
+    ...extra,
+  }),
+})
+
+test('apertura di un security group: riga di break-glass, con porta e con chi', () => {
+  const r = sgRow(eventoSg('AuthorizeSecurityGroupIngress'))
+  assert.equal(r.kind, 'sg-open')
+  assert.equal(r.service, 'sg-0abc')
+  assert.deepEqual(r.porte, [5432])
+  assert.equal(r.trigger, 'break-glass APERTO')
+  assert.equal(r.forcedBy, 'persona')
+  assert.equal(r.status, 'SUCCEEDED')
+})
+
+test('chiusura: la riga gemella, così le due insieme dicono se è ancora aperta', () => {
+  assert.equal(sgRow(eventoSg('RevokeSecurityGroupIngress')).kind, 'sg-close')
+  assert.equal(sgRow(eventoSg('RevokeSecurityGroupIngress')).trigger, 'break-glass chiuso')
+})
+
+test('security group: la forma senza `items` (altro SDK) non diventa «porta ignota»', () => {
+  const r = sgRow(eventoSg('AuthorizeSecurityGroupIngress', { requestParameters: { groupId: 'sg-1', ipPermissions: [{ fromPort: 22 }] } }))
+  assert.deepEqual(r.porte, [22])
+})
+
+test('un tentativo RESPINTO si vede: un break-glass negato spiega perché si è rimasti fuori', () => {
+  const r = sgRow(eventoSg('AuthorizeSecurityGroupIngress', { errorCode: 'UnauthorizedOperation', errorMessage: 'no' }))
+  assert.equal(r.status, 'FAILED')
+  assert.match(r.failReason, /UnauthorizedOperation/)
+})
+
+test('shell dentro a un container: tracciata, perché vede tutti i segreti del servizio', () => {
+  const r = execRow({
+    EventId: 'e2',
+    EventTime: '2026-08-13T19:00:00Z',
+    CloudTrailEvent: JSON.stringify({
+      eventName: 'ExecuteCommand',
+      userIdentity: { arn: 'arn:aws:sts::1:assumed-role/teleport-restart-production/persona' },
+      requestParameters: { cluster: 'acme-production', task: 'abc' },
+    }),
+  })
+  assert.equal(r.kind, 'exec')
+  assert.equal(r.trigger, 'shell nel container')
+  assert.equal(r.viaTeleport, true, 'passata da Teleport: sessione registrata')
+  assert.equal(r.forcedBy, 'persona')
 })
