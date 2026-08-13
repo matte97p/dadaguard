@@ -1,5 +1,6 @@
 import { DynamoDBClient, DescribeTableCommand } from '@aws-sdk/client-dynamodb'
 import { clientOpts } from './awsClient.js'
+import { awsState } from '../i18n.js'
 import { fmtCount } from '../util/format.js'
 
 // RuntimeProvider per DynamoDB: stato della tabella. ACTIVE = up; CREATING/UPDATING = degraded;
@@ -13,5 +14,5 @@ export async function dynamodbRuntime(cfg, aws, opts = {}) {
 
   const st = tbl.TableStatus
   const status = st === 'ACTIVE' ? 'up' : st === 'DELETING' ? 'down' : 'degraded'
-  return { status, summary: t('dynamodb.summary', { status: st, items: fmtCount(tbl.ItemCount ?? 0) }) }
+  return { status, summary: t('dynamodb.summary', { status: awsState(st, t), items: fmtCount(tbl.ItemCount ?? 0) }) }
 }

@@ -27,7 +27,9 @@ export async function sesRuntime(cfg, aws, opts = {}) {
   const bounceRate = (m.bounce / m.send) * 100
   const complaintRate = (m.complaint / m.send) * 100
   // Soglie di reputazione AWS: oltre queste l'account rischia la sospensione.
-  const status = bounceRate > 5 || complaintRate > 0.1 ? 'degraded' : 'up'
+  const BOUNCE_MAX = 5
+  const COMPLAINT_MAX = 0.1
+  const status = bounceRate > BOUNCE_MAX || complaintRate > COMPLAINT_MAX ? 'degraded' : 'up'
   const parts = [
     t('ses.sent', { n: fmtCount(Math.round(m.send)) }),
     t('ses.bounce', { p: bounceRate.toFixed(1) }),
@@ -35,8 +37,19 @@ export async function sesRuntime(cfg, aws, opts = {}) {
   ]
   const metrics = [
     { label: t('m.sends'), value: fmtCount(Math.round(m.send)) },
-    { label: t('m.bounce'), value: `${bounceRate < 0.05 ? '0' : bounceRate.toFixed(1)}%`, tone: bounceRate > 5 ? 'critical' : undefined },
-    { label: t('m.complaint'), value: `${complaintRate < 0.01 ? '0' : complaintRate.toFixed(2)}%`, tone: complaintRate > 0.1 ? 'critical' : undefined },
+    { label: t('m.bounce'), value: `${bounceRate < 0.05 ? '0' : bounceRate.toFixed(1)}%`, tone: bounceRate > BOUNCE_MAX ? 'critical' : undefined },
+    { label: t('m.complaint'), value: `${complaintRate < 0.01 ? '0' : complaintRate.toFixed(2)}%`, tone: complaintRate > COMPLAINT_MAX ? 'critical' : undefined },
   ]
-  return { status, summary: `${parts.join(' · ')} (${hours}h)`, metrics, window: `${hours}h` }
+  // Le percentuali senza le soglie non dicono se siamo sopra: e qui "sopra" significa che AWS può
+  // sospendere l'invio, non che una metrica è brutta.
+  const alert =
+    status === 'degraded'
+      ? t('ses.alert', {
+          b: bounceRate.toFixed(1),
+          c: complaintRate.toFixed(2),
+          n: fmtCount(Math.round(m.send)),
+          hours,
+        }) + t('rule.fires', { regola: t('ses.regola', { bmax: BOUNCE_MAX, cmax: COMPLAINT_MAX }) })
+      : undefined
+  return { status, summary: `${parts.join(' · ')} (${hours}h)`, ...(alert ? { alert } : {}), metrics, window: `${hours}h` }
 }

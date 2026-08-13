@@ -4,6 +4,7 @@ import {
   DescribeInstanceStatusCommand,
 } from '@aws-sdk/client-ec2'
 import { clientOpts } from './awsClient.js'
+import { awsState } from '../i18n.js'
 
 // RuntimeProvider per istanza EC2: stato + status check (system/instance).
 // Permesso: ec2:DescribeInstances, ec2:DescribeInstanceStatus.
@@ -35,7 +36,17 @@ export async function ec2Runtime(cfg, aws, opts = {}) {
   const ins = s?.InstanceStatus?.Status
   const okCount = (sys === 'ok' ? 1 : 0) + (ins === 'ok' ? 1 : 0)
   const ok = okCount === 2
-  return { status: ok ? 'up' : 'degraded', summary: t('ec2.checks', { ok: okCount }) }
+  // "check AWS 1/2 ok" non dice quale: il controllo di SISTEMA è l'host sotto (lo aggiusta AWS, o si
+  // sposta l'istanza), quello dell'ISTANZA è il sistema operativo dentro (lo aggiustiamo noi). Sono due
+  // guasti con due destinatari diversi. Si riporta lo STATO vero e non un «fallito»: dopo un riavvio
+  // AWS risponde `initializing`, e su alcuni tipi di istanza `not-applicable` — nessuno dei due è un
+  // guasto, e chiamarlo fallito manda a cercare un problema che non c'è.
+  const fuori = [
+    sys !== 'ok' ? `${t('ec2.check.system')}: ${awsState(sys ?? 'insufficient-data', t)}` : null,
+    ins !== 'ok' ? `${t('ec2.check.instance')}: ${awsState(ins ?? 'insufficient-data', t)}` : null,
+  ].filter(Boolean)
+  const alert = ok ? undefined : !s ? t('ec2.nochecks') : fuori.join(' · ')
+  return { status: ok ? 'up' : 'degraded', summary: t('ec2.checks', { ok: okCount }), ...(alert ? { alert } : {}) }
 }
 
 // #2 build/deploy zero-config per EC2: AMI + da quando è su (LaunchTime).

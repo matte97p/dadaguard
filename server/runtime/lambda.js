@@ -193,11 +193,30 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     })
   if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
 
+  // Dettaglio per la chat: "10,7% errori" non dice quanti sono (3 su 28), su quanto tempo (60 min, che
+  // il ramo cron scriveva e questo no) né se è sopra soglia. La regola sta nel messaggio, come su
+  // Bedrock: si tara leggendo il canale, senza aprire il codice.
+  const win = fmtDur(windowMin, t)
+  const alert =
+    status === 'up'
+      ? undefined
+      : [
+          errors > 0 ? t('lambda.alerterr', { err: errors, n: fmtCount(invocations), p: errRate < 0.05 ? '0' : errRate.toFixed(1), window: win }) : null,
+          throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
+          nearTimeout ? t('lambda.neartimeout', { d: fmtMs(timeoutSec * 1000) }) : null,
+          p95 ? t('lambda.p95', { d: fmtMs(Math.round(p95)) }) : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') +
+        // La regola citata deve essere QUELLA che è scattata: un p95 vicino al timeout non è un errore.
+        t('rule.fires', { regola: errors > 0 || throttles > 0 ? t('lambda.regola') : t('lambda.regolatimeout') })
+
   return {
     status,
     summary: aliasInfo + parts.join(' · '),
+    ...(alert ? { alert: aliasInfo + alert } : {}),
     metrics,
-    window: fmtDur(windowMin, t), // su che periodo sono i numeri (e quindi anche gli andamenti)
+    window: win, // su che periodo sono i numeri (e quindi anche gli andamenti)
     invocations,
     errors,
     throttles,
