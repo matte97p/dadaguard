@@ -10,11 +10,13 @@ name: test
 # che `deploy.yml` e `release.yml` partono da un push su main IN PARALLELO e non si guardano: una suite
 # rossa arrivava in ECS e sul registry pubblico comunque, e il rosso su questo workflow restava
 # decorativo. Renderlo `workflow_call` + `needs` è ciò che lo rende bloccante senza dipendere dalle
-# impostazioni del repo (la branch protection sarebbe l'altra metà, e vive fuori dal codice).
+# impostazioni del repo. L'altra metà — il check `test` come required status check su `main` — è accesa
+# come ruleset dal 13/08/2026: da lì, ogni commit che entra in main è passato da qui.
 #
-# Nota su ciò che NON copre: il commit di auto patch-bump che `release.yml` si scrive da sé porta
-# `[skip ci]`, quindi su quello i workflow non partono affatto — ma il suo albero è quello del commit
-# appena testato più il `version` di package.json, quindi non è un buco.
+# Quel ruleset ha una conseguenza che si è vista subito: un push che porta `[skip ci]` non potrà MAI
+# soddisfare un check obbligatorio (nessuna run parte, quindi il check resta «expected» per sempre), e
+# infatti `release.yml` ha smesso di committare su main il suo bump di versione — ora lo registra il tag.
+# Se un domani qualcosa deve scrivere su main da dentro la CI, è questo il muro che troverà.
 #
 # `npm run build` e non solo `npm test`: lo chiede CONTRIBUTING.md, e la suite è tutta lato server —
 # un errore in `web/*.jsx` passerebbe verde qui per poi fermare il `docker build` del deploy su main,
