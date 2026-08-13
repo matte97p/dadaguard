@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { slackMessage, causeLabel, cleanDetail } from '../server/notify/slack.js'
 import { snapshot } from '../server/notify/diff.js'
 import { unhealthyList } from '../server/runtime/alb.js'
-import { makeT } from '../server/i18n.js'
+import { makeT, hasKey } from '../server/i18n.js'
 
 // Due righe vere lette in canale il 13/08/2026:
 //   acme-staging-alb-int [STAGING] ATTENZIONE · esecuzione — 6/7 target sani
@@ -32,13 +32,25 @@ test('causa: tipo assente o non mappato → «esecuzione», non la chiave grezza
 })
 
 // Le chiavi costruite a runtime (`notify.cause.type.*`, `state.*`) non le vede il controllo di parità
-// dei dizionari, che scansiona solo i `t('chiave')` scritti a mano: se manca la riga EN, in inglese
-// esce la chiave grezza e nessun test se ne accorge.
-test('parità it/en anche sulle chiavi composte a runtime', () => {
-  const en = makeT('en')
-  for (const k of ['notify.cause.type.alb', 'notify.cause.type.lambda.cron', 'notify.cause.type.acm', 'state.inprogress', 'state.active_impaired', 'state.available']) {
-    assert.notEqual(en(k), k, `manca in EN: ${k}`)
-    assert.notEqual(t(k), k, `manca in IT: ${k}`)
+// dei dizionari, che scansiona solo i `t('chiave')` scritti a mano. E non basta chiamare `t`: `makeT`
+// ripiega sull'italiano, quindi una riga EN dimenticata non fa uscire la chiave grezza — fa uscire la
+// parola ITALIANA a chi legge in inglese, che nessuna assunzione su `t` può vedere. Si guarda il
+// dizionario (`hasKey`), che è l'unica cosa che sa la differenza.
+test('parità it/en sulle chiavi composte a runtime (guardando il dizionario, non `t`)', () => {
+  const chiavi = [
+    'notify.cause.type.alb',
+    'notify.cause.type.lambda.cron',
+    'notify.cause.type.acm',
+    'state.inprogress',
+    'state.active_impaired',
+    'state.available',
+    'state.initializing',
+    'state.not-applicable',
+    'cf.off',
+  ]
+  for (const k of chiavi) {
+    assert.ok(hasKey('it', k), `manca in IT: ${k}`)
+    assert.ok(hasKey('en', k), `manca in EN: ${k}`)
   }
 })
 
@@ -49,11 +61,24 @@ test('dettaglio: il ⚠ dentro al testo si toglie (l’icona di stato è già la
 })
 
 test('dettaglio: tetto di lunghezza, perché sommate le spiegazioni allungano la riga', () => {
-  const lungo = 'x'.repeat(400)
-  const out = cleanDetail(lungo)
+  const out = cleanDetail('x'.repeat(400))
   assert.ok(out.length <= 160, `dettaglio non tagliato: ${out.length}`)
-  assert.ok(out.endsWith('…'), 'il taglio si vede')
+  assert.ok(out.includes('…'), 'il taglio si vede')
   assert.equal(cleanDetail('corto'), 'corto', 'chi sta nel tetto non viene toccato')
+})
+
+// Il taglio ovvio — buttare la fine — butterebbe via ESATTAMENTE la frase per cui questa PR esiste: la
+// soglia e la conseguenza stanno sempre in coda, i numeri (che da soli non decidono niente) in testa.
+test('dettaglio: quando si taglia, la coda con soglia e conseguenza resta', () => {
+  const detail =
+    'aurora-postgresql · disponibile · 2/6 istanze · fuori prod-db-instance-2 (in riavvio), prod-db-instance-3 (in modifica), +2: meno capacità di lettura · fuori il nodo di SCRITTURA prod-db-instance-1 (in riavvio): scritture a rischio'
+  const out = cleanDetail(detail)
+  assert.ok(out.length <= 160, `oltre il tetto: ${out.length}`)
+  assert.match(out, /scritture a rischio$/, 'la frase più grave sopravvive al taglio')
+  assert.match(out, /^aurora-postgresql/, 'e l’inizio dice ancora di chi si parla')
+
+  const lambda = `${'chiamate '.repeat(20)}· scatta a: un errore o un throttle qualsiasi`
+  assert.match(cleanDetail(lambda), /scatta a: un errore o un throttle qualsiasi$/, 'vale per la regola come per la conseguenza')
 })
 
 test('dettaglio: `alert` vince su `summary` — la card e la chat non vogliono la stessa frase', () => {
@@ -102,13 +127,11 @@ test('la riga intera: causa e dettaglio non ripetono la stessa parola', () => {
   assert.ok(!text.startsWith('<!channel>'), 'staging non suona la sirena')
 })
 
-test('la riga intera: il dettaglio che ripete l’esito non si scrive due volte', () => {
-  const { text } = slackMessage(
-    [{ kind: 'recovery', name: 'acme-prod-cdn', account: 'Production', from: 'degraded', to: 'disabled', type: 'cloudfront', detail: t('cf.disabled') }],
-    { t },
-  )
-  assert.match(text, /spenta di proposito/)
-  assert.equal(text.match(/spenta di proposito/g).length, 1, 'una volta, non due')
+// Un servizio ECS con tutti i container su e un target fuori è degradato DAI TARGET: intestare la riga
+// «task» punterebbe al segnale che sta bene, ed è il motivo per cui `causeType` batte il tipo.
+test('causa: il segnale colpevole batte il tipo della risorsa', () => {
+  assert.equal(causeLabel({ cause: 'runtime', type: 'ecs', causeType: 'alb' }, t), 'target')
+  assert.equal(causeLabel({ cause: 'runtime', type: 'ecs' }, t), 'task', 'senza indicazione resta il tipo')
 })
 
 test('la riga intera: la soglia che ha fatto scattare l’allarme sta nel messaggio', () => {

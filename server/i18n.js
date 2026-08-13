@@ -86,6 +86,11 @@ const S = {
     'state.snapshotting': 'snapshot in corso',
     'state.archiving': 'in archiviazione',
     'state.archived': 'archiviata',
+    // Esiti dei controlli di stato EC2: `impaired` è il guasto, gli altri tre no.
+    'state.impaired': 'guasto',
+    'state.initializing': 'in avvio, non ancora pronto',
+    'state.insufficient-data': 'dati insufficienti',
+    'state.not-applicable': 'non applicabile a questo tipo di istanza',
     // Notifiche (Slack): il messaggio non può usare le chiavi del dizionario del CLIENT — sta in un
     // altro bundle. E la parola giusta in un messaggio non è quella di un tag in interfaccia.
     'notify.status.down': 'GIÙ',
@@ -263,6 +268,8 @@ const S = {
     'eks.summary': '{version} · {status}',
     'eks.notfound': 'cluster EKS non trovato',
     'cf.disabled': 'spenta di proposito',
+    // Spenta senza che nessuno l'abbia dichiarata: non serve traffico a nessuno, e non lo sa nessuno.
+    'cf.off': 'SPENTA: non risponde a nessuna richiesta (nessun `disabled: true` in config)',
     'cf.notfound': 'distribuzione non trovata',
     'sns.summary': '{n} sottoscrizioni',
     'sns.notfound': 'topic SNS non trovato',
@@ -274,7 +281,6 @@ const S = {
 
     'ec2.checks': 'in funzione · check AWS {ok}/2 ok',
     // "check AWS 1/2 ok" non dice QUALE dei due: sono due guasti diversi (l'host sotto vs la VM).
-    'ec2.alert': '{list} {n#fallito#falliti}',
     'ec2.check.system': 'controllo di sistema AWS (host)',
     'ec2.check.instance': 'controllo dell’istanza',
     'ec2.nochecks': 'i controlli AWS non sono ancora pubblicati',
@@ -413,6 +419,10 @@ const S = {
     'state.snapshotting': 'snapshotting',
     'state.archiving': 'archiving',
     'state.archived': 'archived',
+    'state.impaired': 'impaired',
+    'state.initializing': 'initializing, not ready yet',
+    'state.insufficient-data': 'insufficient data',
+    'state.not-applicable': 'not applicable to this instance type',
     'notify.status.down': 'DOWN',
     'notify.status.degraded': 'DEGRADED',
     'notify.status.improving': 'RECOVERING',
@@ -573,6 +583,7 @@ const S = {
     'eks.summary': '{version} · {status}',
     'eks.notfound': 'EKS cluster not found',
     'cf.disabled': 'disabled on purpose',
+    'cf.off': 'OFF: serving no requests (no `disabled: true` in config)',
     'cf.notfound': 'distribution not found',
     'sns.summary': '{n} subscriptions',
     'sns.notfound': 'SNS topic not found',
@@ -583,7 +594,6 @@ const S = {
     'kinesis.notfound': 'Kinesis stream not found',
 
     'ec2.checks': 'running · AWS checks {ok}/2 ok',
-    'ec2.alert': '{list} {n#failed#failed}',
     'ec2.check.system': 'AWS system check (host)',
     'ec2.check.instance': 'instance check',
     'ec2.nochecks': 'AWS checks not published yet',
@@ -657,6 +667,11 @@ export function makeT(lang) {
   const L = S[lang] ? lang : 'it'
   return (key, vars) => interpolate(S[L][key] ?? S.it[key] ?? key, vars)
 }
+
+// La chiave esiste DAVVERO in quella lingua? Serve ai test: `makeT('en')` ripiega sull'italiano, quindi
+// una riga EN dimenticata non si vede — la stringa esce, solo nella lingua sbagliata. Un controllo che
+// chiama `t` non può accorgersene, deve guardare il dizionario.
+export const hasKey = (lang, key) => Object.hasOwn(S[lang] ?? {}, key)
 
 // t neutro (identità) per quando un check gira senza lingua (es. fuori da una richiesta HTTP).
 export const identityT = (key, vars) => interpolate(key, vars)

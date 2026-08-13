@@ -215,6 +215,9 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
     status: finalStatus,
     summary: finalSummary,
     ...(alert ? { alert } : {}),
+    // Se il servizio è degradato DAI TARGET (container tutti su, load balancer che non manda traffico),
+    // la notifica deve intestare la riga «target»: `task` nominerebbe il segnale che sta bene.
+    ...(targetiFuori && status === 'up' ? { causeType: 'alb' } : {}),
     metrics,
     url,
     desiredCount,

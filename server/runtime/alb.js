@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
 import { awsState } from '../i18n.js'
+import { truncateList } from '../util/format.js'
 
 // Quanti target si nominano per nome prima di passare a "+N": due bastano a capire se è un nodo solo o
 // tutto il gruppo, e la riga in chat ha un tetto.
@@ -15,9 +16,11 @@ const MAX_NOMI = 2
 // `Elb.RegistrationInProgress`…): è la differenza tra «uno è fuori» e «sapere perché». Arriva dalla
 // stessa `DescribeTargetHealth` che serviva per contarli — zero chiamate in più. Pura/testabile.
 export function unhealthyList(bad, t) {
-  const nomi = bad.slice(0, MAX_NOMI).map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id))
-  const list = nomi.join(', ')
-  return bad.length > MAX_NOMI ? t('more.plus', { list, n: bad.length - MAX_NOMI }) : list
+  return truncateList(
+    bad.map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id)),
+    MAX_NOMI,
+    t,
+  )
 }
 
 // Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile

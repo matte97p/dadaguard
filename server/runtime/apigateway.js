@@ -21,6 +21,8 @@ export async function apigatewayRuntime(cfg, aws, opts = {}) {
   const count = sum('c')
   const e5 = sum('e')
   // La finestra è 15 minuti e non lo diceva nessuno: "3.400 richieste" senza periodo non è un numero.
+  // Sta nel testo e non in un campo `window`: quello lo rende solo la card, e questo provider non
+  // espone metriche, quindi lì non arriverebbe mai — due fonti per lo stesso dato, una muta.
   const window = '15m'
   return {
     status: e5 > 0 ? 'degraded' : 'up',
@@ -32,6 +34,5 @@ export async function apigatewayRuntime(cfg, aws, opts = {}) {
             t('rule.fires', { regola: t('apigw.regola') }),
         }
       : {}),
-    window,
   }
 }

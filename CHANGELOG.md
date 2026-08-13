@@ -30,13 +30,18 @@ All notable changes to Dadaguard are documented here. Format based on
     «1/2 istanze» ora dicono cosa perde chi li usa, e se è fuori il nodo di **scrittura**).
   - **Un tetto e una pulizia sola**: il `⚠` dentro al testo si toglie (l'icona di stato è già la prima
     cosa della riga) e il dettaglio si taglia a 160 caratteri — sommate, le spiegazioni allungano la
-    riga fino a mandare a capo tre volte su mobile.
+    riga fino a mandare a capo tre volte su mobile. Il taglio è **in mezzo**, non in fondo: la coda è
+    dove stanno soglia e conseguenza, cioè l'unica frase che dice se il numero davanti è un problema.
+    Tagliare in fondo avrebbe buttato via esattamente quello che questa modifica aggiunge.
 
 ### Fixed
-- **Una distribuzione CloudFront spenta non è più un guasto.** `Enabled: false` dava `degraded` per
-  sempre, col testo `Deployed · disabilitata` che si contraddice da sé: un giallo fisso in dashboard è
-  il modo migliore per insegnare a ignorare i gialli. Ora è `disabled`, come le cron spente di
-  proposito, che il notificatore tratta come non-problema.
+- **Una distribuzione CloudFront spenta di proposito non è più un guasto — ma solo se lo dichiari.**
+  `Enabled: false` dava `degraded` per sempre col testo `Deployed · disabilitata`, che si contraddice
+  da sé. Ora, con `aws: { type: cloudfront, disabled: true }`, è `disabled` come le cron spente di
+  proposito; **senza** quella riga resta un allarme, col testo che dice cosa è successo — perché da
+  AWS «l'ho spenta io» e «l'ha spenta un apply per sbaglio» hanno la stessa faccia, e un CDN di
+  produzione che si spegne è la cosa per cui esiste un watchdog. Stessa logica dello schedule
+  EventBridge `DISABLED`, che le Lambda leggono dallo state Terraform: l'intento va dichiarato.
 - **Stati AWS in italiano anche fuori da RDS ed EC2.** `ACTIVE`, `InProgress`, `UPDATING` uscivano
   grezzi da ALB, DynamoDB, EKS, Kinesis, CloudFront ed ElastiCache — una parola inglese in mezzo a una
   frase italiana, e in una notifica è l'unica parola che conta. Mappa unica (`awsState`), codice non

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
-import { makeT } from '../server/i18n.js'
+import { makeT, hasKey } from '../server/i18n.js'
 
 test('makeT: interpolazione it/en', () => {
   assert.equal(makeT('it')('lambda.calls', { n: 5 }), '5 chiamate')
@@ -31,7 +31,9 @@ test('i18n server: le chiavi usate nel server (top-level, runtime, checks) esist
       for (const m of src.matchAll(/t\('([a-z]+\.[a-zA-Z.]+)'/g)) used.add(m[1])
     }
   }
-  const missing = [...used].filter((k) => it(k) === k || en(k) === k).sort()
+  // `hasKey` e non `t`: `makeT('en')` ripiega sull'italiano, quindi una riga EN dimenticata non fa
+  // uscire la chiave grezza (che questo test vedrebbe) ma la parola italiana a chi legge in inglese.
+  const missing = [...used].filter((k) => !hasKey('it', k) || !hasKey('en', k)).sort()
   assert.deepEqual(missing, [], `chiavi i18n usate ma assenti nel dizionario server: ${missing.join(', ')}`)
 })
 

@@ -37,8 +37,8 @@ export async function sesRuntime(cfg, aws, opts = {}) {
   ]
   const metrics = [
     { label: t('m.sends'), value: fmtCount(Math.round(m.send)) },
-    { label: t('m.bounce'), value: `${bounceRate < 0.05 ? '0' : bounceRate.toFixed(1)}%`, tone: bounceRate > 5 ? 'critical' : undefined },
-    { label: t('m.complaint'), value: `${complaintRate < 0.01 ? '0' : complaintRate.toFixed(2)}%`, tone: complaintRate > 0.1 ? 'critical' : undefined },
+    { label: t('m.bounce'), value: `${bounceRate < 0.05 ? '0' : bounceRate.toFixed(1)}%`, tone: bounceRate > BOUNCE_MAX ? 'critical' : undefined },
+    { label: t('m.complaint'), value: `${complaintRate < 0.01 ? '0' : complaintRate.toFixed(2)}%`, tone: complaintRate > COMPLAINT_MAX ? 'critical' : undefined },
   ]
   // Le percentuali senza le soglie non dicono se siamo sopra: e qui "sopra" significa che AWS può
   // sospendere l'invio, non che una metrica è brutta.
