@@ -29,6 +29,8 @@ export async function rdsRuntime(cfg, aws, opts = {}) {
 
     let available = (c.DBClusterMembers ?? []).length
     let total = available
+    let fuori = [] // le istanze NON available, col loro stato: il conteggio non dice QUALE è fuori
+    let writerFuori = false
     try {
       const inst = await client.send(
         new DescribeDBInstancesCommand({
@@ -38,14 +40,26 @@ export async function rdsRuntime(cfg, aws, opts = {}) {
       const insts = inst.DBInstances ?? []
       total = insts.length
       available = insts.filter((i) => i.DBInstanceStatus === 'available').length
+      fuori = insts.filter((i) => i.DBInstanceStatus !== 'available')
+      // Chi è il writer lo dice il cluster (IsClusterWriter), non l'istanza: writer fuori = le
+      // scritture sono a rischio; un reader fuori = ridondanza in meno. Due guasti diversi.
+      const writerId = (c.DBClusterMembers ?? []).find((mb) => mb.IsClusterWriter)?.DBInstanceIdentifier ?? null
+      writerFuori = Boolean(writerId) && fuori.some((i) => i.DBInstanceIdentifier === writerId)
     } catch {
       /* tieni il conteggio dai membri del cluster */
     }
 
     const status = c.Status !== 'available' ? statusFor(c.Status) : available < total ? 'degraded' : 'up'
+    // Un cluster «disponibile» con 1/2 istanze è ATTENZIONE, e finora il testo diceva solo
+    // «disponibile»: la contraddizione stava tutta lì. Qui si aggiunge chi è fuori e cosa comporta.
+    const dettaglio = fuori.length
+      ? t(writerFuori ? 'rds.writerdown' : 'rds.readerdown', {
+          list: fuori.map((i) => `${i.DBInstanceIdentifier} (${stLabel(i.DBInstanceStatus)})`).join(', '),
+        })
+      : ''
     return {
       status,
-      summary: t('rds.cluster', { engine: c.Engine, status: stLabel(c.Status), available, total }),
+      summary: t('rds.cluster', { engine: c.Engine, status: stLabel(c.Status), available, total }) + dettaglio,
       metrics: [
         { label: t('m.engine'), value: c.Engine },
         { label: t('m.state'), value: stLabel(c.Status), tone: c.Status === 'available' ? 'good' : 'critical' },

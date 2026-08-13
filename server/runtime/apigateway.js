@@ -20,5 +20,18 @@ export async function apigatewayRuntime(cfg, aws, opts = {}) {
   const sum = (id) => (res.MetricDataResults?.find((r) => r.Id === id)?.Values ?? []).reduce((a, b) => a + b, 0)
   const count = sum('c')
   const e5 = sum('e')
-  return { status: e5 > 0 ? 'degraded' : 'up', summary: t('apigw.summary', { n: fmtCount(Math.round(count)), e: e5 }) }
+  // La finestra è 15 minuti e non lo diceva nessuno: "3.400 richieste" senza periodo non è un numero.
+  const window = '15m'
+  return {
+    status: e5 > 0 ? 'degraded' : 'up',
+    summary: t('apigw.summary', { n: fmtCount(Math.round(count)), e: e5, window }),
+    ...(e5 > 0
+      ? {
+          alert:
+            t('apigw.alert', { e: e5, n: fmtCount(Math.round(count)), window }) +
+            t('rule.fires', { regola: t('apigw.regola') }),
+        }
+      : {}),
+    window,
+  }
 }

@@ -39,7 +39,11 @@ export function snapshot(services = []) {
     out[serviceKey(s)] = {
       overall: s.overall ?? 'unknown',
       cause: s.cause ?? null,
-      detail: s.checks?.[s.cause]?.summary ?? s.checks?.[s.cause]?.reason ?? null,
+      // `alert` prima di `summary`: la card e la chat non vogliono la stessa frase. Il summary è
+      // scritto per stare accanto alle metriche e al pannello dei task ("6/7 target sani", "no ·
+      // memoria 512MB"); in chat non c'è niente accanto, quindi serve il soggetto, la conseguenza e
+      // la soglia. I provider che hanno qualcosa in più da dire mettono `alert`, gli altri no.
+      detail: s.checks?.[s.cause]?.alert ?? s.checks?.[s.cause]?.summary ?? s.checks?.[s.cause]?.reason ?? null,
       account: s.account?.label ?? null,
       name: s.name,
       type: s.type ?? null,

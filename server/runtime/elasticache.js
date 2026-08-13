@@ -4,6 +4,7 @@ import {
   DescribeReplicationGroupsCommand,
 } from '@aws-sdk/client-elasticache'
 import { clientOpts } from './awsClient.js'
+import { awsState } from '../i18n.js'
 
 // RuntimeProvider per ElastiCache (Redis/Memcached): stato del cluster. available = up;
 // deleting/restore-failed/incompatible-network = down; il resto (creating/modifying) = degraded.
@@ -38,7 +39,7 @@ export async function elasticacheRuntime(cfg, aws, opts = {}) {
       status: elasticacheStatus(g.Status),
       summary: t('elasticache.summary', {
         engine: g.Engine ?? 'redis',
-        status: g.Status,
+        status: awsState(g.Status, t),
         nodes: (g.MemberClusters ?? []).length,
       }),
     }
@@ -53,7 +54,7 @@ export async function elasticacheRuntime(cfg, aws, opts = {}) {
     status: elasticacheStatus(c.CacheClusterStatus),
     summary: t('elasticache.summary', {
       engine: c.Engine,
-      status: c.CacheClusterStatus,
+      status: awsState(c.CacheClusterStatus, t),
       nodes: c.NumCacheNodes ?? 0,
     }),
   }

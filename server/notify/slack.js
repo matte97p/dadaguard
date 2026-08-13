@@ -42,14 +42,51 @@ function mention(t) {
   return t.kind === 'alert' && /^prod/i.test(t.account ?? '') ? '<!channel> ' : ''
 }
 
+// La causa: quale SEGNALE ha fatto scattare l'allarme, detto come lo direbbe un umano. `runtime` è il
+// nome del modulo che fa il controllo, non del problema: lo stesso check copre ventidue tipi di
+// risorsa, quindi "esecuzione" su un load balancer o su un certificato non dice niente. Il tipo
+// viaggia già nella transizione, e per le Lambda a schedule lo dice `outcome` (che esiste solo sui
+// cron). Tipo ignoto o non mappato → si resta su "esecuzione", che è sempre meglio di `runtime`.
+export function causeLabel(tr, t) {
+  if (!tr.cause) return ''
+  if (tr.cause === 'runtime' && tr.type) {
+    const suffisso = tr.type === 'lambda' && tr.outcome ? 'lambda.cron' : tr.type
+    const k = `notify.cause.type.${suffisso}`
+    const parola = t(k)
+    if (parola !== k) return parola
+  }
+  return t(`notify.cause.${tr.cause}`)
+}
+
+// Quanto può essere lungo il dettaglio in chat. Sommati, i dettagli "spiegati" (soglia + finestra +
+// quale target) allungano la riga: oltre questa soglia su mobile va a capo tre volte e non si legge
+// più nessuna delle righe accanto. Chi vuole tutto apre Dadaguard, il link è in fondo al messaggio.
+const MAX_DETAIL = 160
+
+// Il dettaglio arriva da un summary pensato per la card: può avere il `⚠` davanti (che qui è la terza
+// icona dopo il pallino di stato) e andare a capo. Si normalizza qui, una volta, invece di ricordarsi
+// di non metterlo in venti provider.
+export function cleanDetail(s) {
+  if (!s) return ''
+  const one = String(s)
+    .replace(/^[\s⚠️!]+/u, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return one.length > MAX_DETAIL ? `${one.slice(0, MAX_DETAIL - 1).trimEnd()}…` : one
+}
+
 export function slackMessage(transitions, { url = null, t = (k) => k } = {}) {
   const lines = transitions.map((tr) => {
     const emoji = EMOJI[tr.kind] ?? EMOJI[tr.to] ?? EMOJI.down
     // Un alleggerimento arriva sullo stesso stato di un allarme (`degraded`): senza un'etichetta sua
     // si leggerebbe come un secondo rosso, cioè il contrario di quello che è successo.
     const stato = tr.kind === 'improvement' ? t('notify.status.improving') : t(`notify.status.${tr.to}`)
-    const causa = tr.kind === 'alert' && tr.cause ? ` · ${t(`notify.cause.${tr.cause}`)}` : ''
-    const dettaglio = tr.detail ? ` — ${tr.detail}` : ''
+    const parola = tr.kind === 'alert' ? causeLabel(tr, t) : ''
+    const causa = parola ? ` · ${parola}` : ''
+    // Un dettaglio che ripete l'esito non aggiunge niente: una distribuzione CloudFront spenta
+    // usciva «spenta di proposito — spenta di proposito», perché il summary della card È l'esito.
+    const pulito = cleanDetail(tr.detail)
+    const dettaglio = pulito && pulito.toLowerCase() !== stato.toLowerCase() ? ` — ${pulito}` : ''
     return `${mention(tr)}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}`
   })
   // Il link chiude l'ultima riga con lo stesso "·" e la stessa etichetta dei messaggi di deploy, che

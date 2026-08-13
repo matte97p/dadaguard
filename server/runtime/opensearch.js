@@ -32,5 +32,8 @@ export async function opensearchRuntime(cfg, aws, opts = {}) {
   )
   const status = m.red >= 1 ? 'down' : m.yellow >= 1 ? 'degraded' : 'up'
   const state = m.red >= 1 ? t('opensearch.red') : m.yellow >= 1 ? t('opensearch.yellow') : t('opensearch.green')
-  return { status, summary: t('opensearch.summary', { state, nodes: Math.round(m.nodes) }) }
+  // "cluster giallo" è il colore, non la conseguenza: chi legge la notifica non sa se ha perso dati o
+  // solo ridondanza. Il perché si aggiunge SOLO quando c'è un problema (verde non ha niente da dire).
+  const why = m.red >= 1 ? t('opensearch.why.red') : m.yellow >= 1 ? t('opensearch.why.yellow') : ''
+  return { status, summary: t('opensearch.summary', { state, nodes: Math.round(m.nodes) }) + why }
 }

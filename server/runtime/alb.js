@@ -5,6 +5,20 @@ import {
   DescribeTargetHealthCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
+import { awsState } from '../i18n.js'
+
+// Quanti target si nominano per nome prima di passare a "+N": due bastano a capire se è un nodo solo o
+// tutto il gruppo, e la riga in chat ha un tetto.
+const MAX_NOMI = 2
+
+// I target NON sani, con il motivo che dà AWS (`Target.FailedHealthChecks`, `Target.Timeout`,
+// `Elb.RegistrationInProgress`…): è la differenza tra «uno è fuori» e «sapere perché». Arriva dalla
+// stessa `DescribeTargetHealth` che serviva per contarli — zero chiamate in più. Pura/testabile.
+export function unhealthyList(bad, t) {
+  const nomi = bad.slice(0, MAX_NOMI).map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id))
+  const list = nomi.join(', ')
+  return bad.length > MAX_NOMI ? t('more.plus', { list, n: bad.length - MAX_NOMI }) : list
+}
 
 // Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile
 // da fuori); interno → null (non lo mostro, non sarebbe cliccabile). Puro/testabile.
@@ -28,7 +42,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
   if (lb.State?.Code !== 'active') {
     return {
       status: lb.State?.Code === 'failed' ? 'down' : 'degraded',
-      summary: t('alb.state', { code: lb.State?.Code }),
+      summary: t('alb.state', { code: awsState(lb.State?.Code, t) }),
       url,
     }
   }
@@ -37,6 +51,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
   // il LB è comunque `active`, quindi degrada con un messaggio chiaro invece di sollevare.
   let healthy = 0
   let total = 0
+  const bad = [] // chi è fuori e perché: la notizia è il target FUORI, non quelli dentro
   try {
     // paginazione target group (Marker/NextMarker): senza loop si ignorano i TG oltre la prima pagina.
     const tgs = []
@@ -54,15 +69,29 @@ export async function albRuntime(cfg, aws, opts = {}) {
           .TargetHealthDescriptions ?? []
       total += th.length
       healthy += th.filter((x) => x.TargetHealth?.State === 'healthy').length
+      for (const x of th) {
+        if (x.TargetHealth?.State === 'healthy') continue
+        bad.push({ id: x.Target?.Id ?? '?', reason: x.TargetHealth?.Reason ?? x.TargetHealth?.State ?? null })
+      }
     }
   } catch {
     return { status: 'degraded', summary: t('alb.healthUnreachable'), url }
   }
 
   const status = total === 0 ? 'unknown' : healthy >= total ? 'up' : healthy === 0 ? 'down' : 'degraded'
+  // In chat il conteggio da solo non basta: `alert` dice quanti sono fuori (non quanti sono dentro),
+  // quali e con che motivo. La card tiene il conteggio, che accanto alla metrica è più leggibile.
+  const alert = bad.length
+    ? t(healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
+        n: bad.length,
+        total,
+        list: unhealthyList(bad, t),
+      })
+    : undefined
   return {
     status,
     summary: total === 0 ? t('alb.notarget') : t('alb.targets', { healthy, total }),
+    ...(alert ? { alert } : {}),
     metrics: total === 0 ? undefined : [{ label: t('m.targets'), value: `${healthy}/${total}`, tone: healthy >= total ? 'good' : healthy === 0 ? 'critical' : 'warning' }],
     url,
   }

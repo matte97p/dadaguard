@@ -47,6 +47,11 @@ test('makeT: forma plurale {n#singolare#plurale} (IT ed EN)', () => {
   assert.equal(it('m.inv', { n: 2 }), 'invocazioni')
   assert.equal(en('m.errors', { n: 1 }), 'error')
   assert.equal(en('m.errors', { n: 2 }), 'errors')
+  // Vale anche nelle FRASI, non solo nelle etichette: "3 allarme/i attivo/i" era la scorciatoia
+  // scritta prima che l'interpolazione plurale esistesse, e si leggeva in chat a ogni allarme.
+  assert.equal(it('alarms.firing', { n: 1, list: 'x' }), '1 allarme attivo: x')
+  assert.equal(it('alarms.firing', { n: 3, list: 'x, y, z' }), '3 allarmi attivi: x, y, z')
+  assert.equal(en('alarms.firing', { n: 1, list: 'x' }), '1 alarm firing: x')
 })
 
 test('makeT: senza il conteggio la forma plurale non lascia in giro i segnaposto', () => {

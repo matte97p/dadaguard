@@ -6,6 +6,43 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Le notifiche dicono cosa è rotto, non quale modulo l'ha visto.** Due righe lette in canale il
+  13/08/2026 — `acme-staging-alb-int [STAGING] ATTENZIONE · esecuzione — 6/7 target sani` e
+  `webhook-dispatch [STAGING] ATTENZIONE · esecuzione — 28 chiamate · 10.7% errori · p95 751ms` —
+  non permettevano di decidere niente: «esecuzione» è il nome del check `runtime`, lo stesso per
+  ventidue tipi di risorsa, e il dettaglio era la frase scritta per la **card**, dove accanto ci sono
+  le metriche e il pannello dei task. In chat non c'è niente accanto.
+
+  Tre cose, tutte nello stesso posto:
+  - **La causa nomina la risorsa**: `· target`, `· cron`, `· certificato`, `· coda`, `· CDN`. Tipo
+    ignoto → si resta su «esecuzione». Una Lambda a schedule si riconosce da `outcome`, che esiste
+    solo sui cron.
+  - **`alert`, il dettaglio scritto per la chat.** Un check può esporlo accanto a `summary`: la card
+    tiene la sua frase compatta, la notifica riceve soggetto, conseguenza e soglia. Chi non ce l'ha
+    non cambia. Così `6/7 target sani` diventa `1 target su 7 non sano: i-0abc
+    (Target.FailedHealthChecks)` — id e motivo arrivavano già dalla stessa `DescribeTargetHealth`, si
+    buttavano — e `10.7% errori` diventa `3 errori su 28 chiamate (10.7%) in 60m · scatta a: un errore
+    o un throttle qualsiasi`: valore assoluto, finestra (che il ramo cron scriveva e l'on-demand no) e
+    **la regola**, come già faceva Bedrock. Stessa cura su SQS (la soglia `maxDepth`), SES (le soglie
+    di reputazione AWS), API Gateway (la finestra di 15 minuti, mai detta), EC2 (**quale** dei due
+    controlli AWS è fallito: l'host sotto o il sistema operativo dentro), drift (`no · memoria 512MB`
+    era la risposta alla colonna «in sync?» della card) e OpenSearch/RDS (il colore del cluster e
+    «1/2 istanze» ora dicono cosa perde chi li usa, e se è fuori il nodo di **scrittura**).
+  - **Un tetto e una pulizia sola**: il `⚠` dentro al testo si toglie (l'icona di stato è già la prima
+    cosa della riga) e il dettaglio si taglia a 160 caratteri — sommate, le spiegazioni allungano la
+    riga fino a mandare a capo tre volte su mobile.
+
+### Fixed
+- **Una distribuzione CloudFront spenta non è più un guasto.** `Enabled: false` dava `degraded` per
+  sempre, col testo `Deployed · disabilitata` che si contraddice da sé: un giallo fisso in dashboard è
+  il modo migliore per insegnare a ignorare i gialli. Ora è `disabled`, come le cron spente di
+  proposito, che il notificatore tratta come non-problema.
+- **Stati AWS in italiano anche fuori da RDS ed EC2.** `ACTIVE`, `InProgress`, `UPDATING` uscivano
+  grezzi da ALB, DynamoDB, EKS, Kinesis, CloudFront ed ElastiCache — una parola inglese in mezzo a una
+  frase italiana, e in una notifica è l'unica parola che conta. Mappa unica (`awsState`), codice non
+  mappato lasciato grezzo invece di perso.
+- **«3 allarme/i attivo/i»** usa la forma plurale che esisteva già: `3 allarmi attivi`, `1 allarme
+  attivo`. Ed `m.targets` era dichiarata due volte per lingua.
 - **Navigazione riorganizzata, e una pagina nuova che risponde alla domanda che si fa per prima.**
   Le nove voci nell'header erano in ordine di arrivo e senza gerarchia — «Free Tier» pesava come
   «Dashboard» — e la barra era satura: le due viste nuove (WAF e budget) hanno dovuto entrare dentro

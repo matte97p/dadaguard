@@ -35,7 +35,12 @@ export async function ec2Runtime(cfg, aws, opts = {}) {
   const ins = s?.InstanceStatus?.Status
   const okCount = (sys === 'ok' ? 1 : 0) + (ins === 'ok' ? 1 : 0)
   const ok = okCount === 2
-  return { status: ok ? 'up' : 'degraded', summary: t('ec2.checks', { ok: okCount }) }
+  // "check AWS 1/2 ok" non dice quale: il controllo di SISTEMA è l'host sotto (lo aggiusta AWS, o si
+  // sposta l'istanza), quello dell'ISTANZA è il sistema operativo dentro (lo aggiustiamo noi). Sono due
+  // guasti con due destinatari diversi. Se AWS non ha ancora pubblicato i controlli, si dice anche quello.
+  const fuori = [sys !== 'ok' ? t('ec2.check.system') : null, ins !== 'ok' ? t('ec2.check.instance') : null].filter(Boolean)
+  const alert = ok ? undefined : !s ? t('ec2.nochecks') : t('ec2.alert', { list: fuori.join(' e '), n: fuori.length })
+  return { status: ok ? 'up' : 'degraded', summary: t('ec2.checks', { ok: okCount }), ...(alert ? { alert } : {}) }
 }
 
 // #2 build/deploy zero-config per EC2: AMI + da quando è su (LaunchTime).

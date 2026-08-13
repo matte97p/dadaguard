@@ -11,7 +11,7 @@ import {
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
 import { cached } from '../util/ttlcache.js'
-import { publicUrlOfLb } from './alb.js'
+import { publicUrlOfLb, unhealthyList } from './alb.js'
 import { principalName } from '../util/principal.js'
 
 // Le stesse informazioni servivano a DUE check diversi (`runtime` e `version`), che girano in
@@ -144,12 +144,19 @@ async function targetHealth(svc, aws) {
       arns.map((TargetGroupArn) =>
         cached(`elb:health:${credKey(aws)}|${TargetGroupArn}`, HEALTH_TTL_MS, async () => {
           const out = await elb.send(new DescribeTargetHealthCommand({ TargetGroupArn }))
-          const states = (out.TargetHealthDescriptions ?? []).map((d) => d.TargetHealth?.State)
-          return { total: states.length, healthy: states.filter((x) => x === 'healthy').length }
+          const desc = out.TargetHealthDescriptions ?? []
+          return {
+            total: desc.length,
+            healthy: desc.filter((d) => d.TargetHealth?.State === 'healthy').length,
+            // Chi è fuori e perché: la risposta ce l'ha già, e in una notifica è l'unica parte utile.
+            bad: desc
+              .filter((d) => d.TargetHealth?.State !== 'healthy')
+              .map((d) => ({ id: d.Target?.Id ?? '?', reason: d.TargetHealth?.Reason ?? d.TargetHealth?.State ?? null })),
+          }
         }),
       ),
     )
-    return per.reduce((a, b) => ({ total: a.total + b.total, healthy: a.healthy + b.healthy }), { total: 0, healthy: 0 })
+    return per.reduce((a, b) => ({ total: a.total + b.total, healthy: a.healthy + b.healthy, bad: [...a.bad, ...b.bad] }), { total: 0, healthy: 0, bad: [] })
   } catch {
     return null // permesso mancante o chiamata fallita: nessun segnale, non un falso allarme
   }
@@ -189,14 +196,25 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
     })
   }
   const { status: finalStatus } = applyTargetHealth({ status, desiredCount, deploying }, health)
-  const finalSummary =
-    health && health.total > 0 && health.healthy < health.total && !deploying
-      ? `${summary} · ${t('ecs.targets', { healthy: health.healthy, total: health.total })}`
-      : summary
+  const targetiFuori = Boolean(health && health.total > 0 && health.healthy < health.total && !deploying)
+  const finalSummary = targetiFuori
+    ? `${summary} · ${t('ecs.targets', { healthy: health.healthy, total: health.total })}`
+    : summary
+  // In chat il conteggio dei task non spiega niente se il problema sta dietro al load balancer: qui si
+  // dice quale target è fuori e con che motivo (dalla stessa risposta AWS già in mano).
+  const alert =
+    targetiFuori && (health.bad ?? []).length
+      ? `${summary} · ${t(health.healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
+          n: health.bad.length,
+          total: health.total,
+          list: unhealthyList(health.bad, t),
+        })}`
+      : undefined
 
   return {
     status: finalStatus,
     summary: finalSummary,
+    ...(alert ? { alert } : {}),
     metrics,
     url,
     desiredCount,
