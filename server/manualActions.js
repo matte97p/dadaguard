@@ -101,6 +101,68 @@ export function restartRow(event = {}) {
   }
 }
 
+// Evento CloudTrail `AuthorizeSecurityGroupIngress` → una porta APERTA a mano su un security group.
+// È il break-glass (l'apertura a mano di una porta): serve quando Teleport o IAM sono giù, lascia drift rispetto a
+// Terragrunt, e va richiuso. Finora non compariva da nessuna parte, quindi «chi ha aperto cosa e non
+// l'ha richiuso» era una domanda senza risposta. Il gemello `Revoke...` è la chiusura: le due righe
+// insieme raccontano se la porta è ancora aperta. Puro/testabile.
+export function sgRow(event = {}) {
+  const rec = parse(event.CloudTrailEvent)
+  const req = rec.requestParameters ?? {}
+  const at = event.EventTime ?? rec.eventTime ?? null
+  const arn = rec.userIdentity?.arn ?? null
+  const chiuso = /^Revoke/i.test(rec.eventName ?? event.EventName ?? '')
+  // Le regole arrivano in due forme a seconda dell'SDK di chi ha chiamato: si leggono entrambe invece
+  // di mostrare «porta ?» a chi ha usato l'altra.
+  const set = req.ipPermissions?.items ?? req.ipPermissions ?? []
+  const porte = [...new Set((Array.isArray(set) ? set : [set]).map((p) => p?.fromPort).filter((x) => x != null))]
+  return {
+    id: `sg:${event.EventId ?? `${req.groupId}:${at}`}`,
+    kind: chiuso ? 'sg-close' : 'sg-open',
+    provider: 'ec2',
+    service: req.groupId ?? 'security group',
+    cluster: null,
+    status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
+    inProgress: false,
+    trigger: chiuso ? 'break-glass chiuso' : 'break-glass APERTO',
+    forcedBy: principalName(arn),
+    viaTeleport: viaTeleportRole(arn),
+    porte,
+    startedAt: at,
+    endedAt: at,
+    durationMs: null,
+    commit: null,
+    failReason: rec.errorCode ? `${rec.errorCode}${rec.errorMessage ? `: ${rec.errorMessage}` : ''}` : null,
+  }
+}
+
+// Evento CloudTrail `ExecuteCommand` → una shell APERTA dentro a un container che gira (il wrapper `exec` del dev-env).
+// Quella shell vede tutti i segreti del servizio e può cambiare lo stato a mano: è l'azione più
+// invasiva che passa da Teleport, e finora non lasciava traccia in nessuna vista. Puro/testabile.
+export function execRow(event = {}) {
+  const rec = parse(event.CloudTrailEvent)
+  const req = rec.requestParameters ?? {}
+  const at = event.EventTime ?? rec.eventTime ?? null
+  const arn = rec.userIdentity?.arn ?? null
+  return {
+    id: `exec:${event.EventId ?? `${req.task}:${at}`}`,
+    kind: 'exec',
+    provider: 'ecs',
+    service: serviceFromEcs(req.cluster ?? ''),
+    cluster: req.cluster ?? null,
+    status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
+    inProgress: false,
+    trigger: 'shell nel container',
+    forcedBy: principalName(arn),
+    viaTeleport: viaTeleportRole(arn),
+    startedAt: at,
+    endedAt: at,
+    durationMs: null,
+    commit: null,
+    failReason: rec.errorCode ? `${rec.errorCode}${rec.errorMessage ? `: ${rec.errorMessage}` : ''}` : null,
+  }
+}
+
 // Evento CloudTrail `StartBuild` → chi ha premuto, per build. La chiave è l'ARN della build (esatta);
 // in fallback l'id, che CloudTrail a volte riporta al posto dell'ARN. Puro/testabile.
 export function startEntry(event = {}) {
@@ -152,9 +214,23 @@ export async function manualActions(aws = {}, { hours = LOOKBACK_HOURS, now = Da
   const key = `manual:${aws.roleArn ?? ''}|${aws.profile ?? ''}|${aws.region ?? ''}:${hours}`
   return cachedCall(key, TTL_MS, async () => {
     try {
-      const [updates, starts] = await Promise.all([lookup(aws, 'UpdateService', { hours, now }), lookup(aws, 'StartBuild', { hours, now })])
+      // Quattro lookup, non due: CloudTrail non filtra per due attributi insieme, quindi un evento in
+      // più è una chiamata in più. Restano dietro la stessa cache, e il cap di 2 TPS per account vale
+      // per tutte: se scatta, `lookup` lo dice nei log invece di accorciare il periodo in silenzio.
+      const [updates, starts, sgOpen, sgClose, execs] = await Promise.all([
+        lookup(aws, 'UpdateService', { hours, now }),
+        lookup(aws, 'StartBuild', { hours, now }),
+        lookup(aws, 'AuthorizeSecurityGroupIngress', { hours, now }),
+        lookup(aws, 'RevokeSecurityGroupIngress', { hours, now }),
+        lookup(aws, 'ExecuteCommand', { hours, now }),
+      ])
       return {
-        restarts: updates.events.map(restartRow).filter(Boolean),
+        restarts: [
+          ...updates.events.map(restartRow),
+          ...sgOpen.events.map(sgRow),
+          ...sgClose.events.map(sgRow),
+          ...execs.events.map(execRow),
+        ].filter(Boolean),
         startedBy: new Map(starts.events.map(startEntry).filter(Boolean)),
       }
     } catch (err) {
