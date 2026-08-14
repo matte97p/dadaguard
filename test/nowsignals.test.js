@@ -36,7 +36,10 @@ test('deploy: si tengono falliti, in corso e azioni a mano; i rilasci auto riusc
       label: 'Staging',
       builds: [
         { id: 'b1', service: 'backend', status: 'SUCCEEDED', trigger: 'auto', startedAt: hoursAgo(1) },
-        { id: 'b2', service: 'backend', status: 'FAILED', trigger: 'auto', failPhase: 'BUILD', failReason: 'exit 1', startedAt: hoursAgo(2) },
+        // Servizio DIVERSO da quello della build riuscita sopra: da quando un fallimento superato da un
+        // rilascio successivo non compare più (vedi il test dedicato), tenerlo su `backend` avrebbe
+        // provato la supersessione invece di ciò che questo test prova.
+        { id: 'b2', service: 'worker', status: 'FAILED', trigger: 'auto', failPhase: 'BUILD', failReason: 'exit 1', startedAt: hoursAgo(2) },
         { id: 'b3', service: 'chat', status: 'IN_PROGRESS', inProgress: true, trigger: 'auto', startedAt: hoursAgo(0.1) },
         { id: 'b4', service: 'web', status: 'SUCCEEDED', trigger: 'hotfix', forcedBy: 'matte97p', startedAt: hoursAgo(3) },
         { id: 'b5', service: 'api', status: 'SUCCEEDED', kind: 'restart', trigger: 'restart', forcedBy: 'alex', startedAt: hoursAgo(4) },
@@ -154,4 +157,64 @@ test('countByLevel: conta solo i livelli noti', () => {
 test('nessuna fonte: nessun segnale, e non esplode', () => {
   assert.deepEqual(buildSignals(), [])
   assert.deepEqual(buildSignals({ services: null, deploys: null, waf: null, budgets: null }), [])
+})
+
+test('un deploy fallito SUPERATO da un rilascio riuscito non compare più', () => {
+  const deploys = {
+    prod: {
+      label: 'Production',
+      builds: [
+        // il rilascio riuscito è DOPO il fallimento: il problema non morde più adesso
+        { id: 'b2', service: 'backend', status: 'SUCCEEDED', startedAt: hoursAgo(1), endedAt: hoursAgo(1) },
+        { id: 'b1', service: 'backend', status: 'FAILED', failPhase: 'POST_BUILD', failReason: 'x', startedAt: hoursAgo(3) },
+      ],
+    },
+  }
+  const soloDeploy = buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).filter((s) => s.kind === 'deploy')
+  assert.deepEqual(soloDeploy, [])
+})
+
+test('un deploy fallito NON superato resta, e un fallimento DOPO il successo resta', () => {
+  const deploys = {
+    prod: {
+      label: 'Production',
+      builds: [
+        { id: 'ok', service: 'backend', status: 'SUCCEEDED', startedAt: hoursAgo(5), endedAt: hoursAgo(5) },
+        { id: 'ko', service: 'backend', status: 'FAILED', failPhase: 'BUILD', failReason: 'boom', startedAt: hoursAgo(2) },
+        { id: 'altro', service: 'frontend', status: 'FAILED', failPhase: 'BUILD', failReason: 'boom', startedAt: hoursAgo(2) },
+      ],
+    },
+  }
+  const ids = buildSignals({ services: [], deploys, hours: 24, now: NOW, t })
+    .filter((s) => s.kind === 'deploy')
+    .map((s) => s.id)
+  assert.deepEqual(ids.sort(), ['dep:altro', 'dep:ko'])
+})
+
+test('un riavvio RESPINTO resta anche se poi è passato un rilascio: non è un guasto che si aggiusta', () => {
+  const deploys = {
+    prod: {
+      label: 'Production',
+      builds: [
+        { id: 'dep', service: 'backend', status: 'SUCCEEDED', startedAt: hoursAgo(1), endedAt: hoursAgo(1) },
+        { id: 'rst', service: 'backend', kind: 'restart', status: 'FAILED', forcedBy: 'persona', startedAt: hoursAgo(3) },
+      ],
+    },
+  }
+  const kinds = buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).map((s) => s.kind)
+  assert.deepEqual(kinds, ['restart'])
+})
+
+test('il motivo di una build fallita non trascina dentro tutto lo script del buildspec', () => {
+  const muro =
+    'COMMAND_EXECUTION_ERROR: Error while executing command: if aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"; then COUNTS=$(aws ecs describe-services) echo "ok" else exit 1 fi . Reason: exit status 1'
+  const deploys = {
+    prod: { label: 'Production', builds: [{ id: 'b', service: 'backend', status: 'FAILED', failPhase: 'POST_BUILD', failReason: muro, startedAt: hoursAgo(2) }] },
+  }
+  const sig = buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).find((s) => s.kind === 'deploy')
+  assert.ok(sig.detail.includes('exit status 1'), `atteso l'esito nel dettaglio: ${sig.detail}`)
+  assert.ok(!sig.detail.includes('describe-services'), `lo script non deve finire nell'elenco: ${sig.detail}`)
+  assert.ok(sig.detail.length < 120, `dettaglio troppo lungo (${sig.detail.length})`)
+  // ...ma il testo integrale resta disponibile per chi lo vuole (tooltip della riga, pagina Deploy).
+  assert.equal(sig.full, muro)
 })

@@ -12,6 +12,8 @@
 // Tutto puro e testabile: è la funzione che decide cosa vede un umano quando apre la dashboard, e le
 // soglie qui dentro sono decisioni di prodotto, non dettagli.
 
+import { compactBuildReason } from './format.js'
+
 const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 
 // Sopra questa cifra un'anomalia di costo non è una curiosità. Sotto, resta in elenco come `info`:
@@ -53,10 +55,33 @@ function serviceSignals(services = [], t, nameOf) {
   return out
 }
 
+// L'istante dell'ultima build RIUSCITA, per account e servizio. Pura/testabile.
+export function lastSuccessBySvc(deploys = {}) {
+  const map = new Map()
+  for (const [key, acc] of Object.entries(deploys)) {
+    for (const b of acc?.builds ?? []) {
+      if (b.inProgress || FAILED.has(b.status) || b.status === 'STOPPED') continue
+      const at = ms(b.endedAt ?? b.startedAt)
+      const k = `${key}/${b.service ?? ''}`
+      if (at != null && (map.get(k) ?? -Infinity) < at) map.set(k, at)
+    }
+  }
+  return map
+}
+
 // Deploy: si tengono i FALLITI, quelli IN CORSO e tutte le azioni fatte a mano (hotfix e riavvii).
 // I rilasci automatici riusciti no: sono la normalità, e riempirebbero la pagina di righe verdi
 // facendo scorrere via le tre che contano.
+//
+// E un fallimento SUPERATO non ci sta: se dopo quella build ne è passata una riuscita per lo stesso
+// servizio, il problema non morde più adesso — e questa pagina risponde a «devo preoccuparmi in questo
+// momento», non «cosa è andato storto oggi». Restava in cima per ore, sopra i guasti veri, e la prima
+// reazione di chi la legge è «ma quella poi è andata: che ci fa ancora qui?». Lo storico completo sta
+// nella pagina Deploy, che è il posto dove si scava.
+// Un riavvio RESPINTO resta invece sempre: non è un guasto che un rilascio successivo aggiusta, è il
+// fatto che qualcuno ha provato a toccare la produzione e non ha potuto.
 function deploySignals(deploys = {}, opts, t) {
+  const riuscite = lastSuccessBySvc(deploys)
   const out = []
   for (const [key, acc] of Object.entries(deploys)) {
     for (const b of acc?.builds ?? []) {
@@ -64,16 +89,20 @@ function deploySignals(deploys = {}, opts, t) {
       const restart = b.kind === 'restart'
       const hotfix = b.trigger === 'hotfix'
       const failed = FAILED.has(b.status)
+      const superata = failed && !restart && (riuscite.get(`${key}/${b.service ?? ''}`) ?? -Infinity) > (ms(b.startedAt) ?? 0)
+      if (superata) continue
       let level = null
       let detail = null
       if (failed && restart) {
         // Un riavvio respinto non è «una build fallita»: non c'era nessuna build. La parola sbagliata
         // qui manda a cercare un errore di compilazione che non esiste.
         level = 'bad'
-        detail = [t('now.restartDenied', { who: b.forcedBy ?? '—' }), b.failReason].filter(Boolean).join(': ')
+        detail = [t('now.restartDenied', { who: b.forcedBy ?? '—' }), compactBuildReason(b.failReason)].filter(Boolean).join(': ')
       } else if (failed) {
         level = 'bad'
-        detail = [b.failPhase ? t('now.deployFailedIn', { phase: b.failPhase }) : t('now.deployFailed'), b.failReason].filter(Boolean).join(': ')
+        detail = [b.failPhase ? t('now.deployFailedIn', { phase: b.failPhase }) : t('now.deployFailed'), compactBuildReason(b.failReason)]
+          .filter(Boolean)
+          .join(': ')
       } else if (hotfix) {
         level = 'warn'
         detail = t('now.hotfix', { who: b.forcedBy ?? '—' })
@@ -92,6 +121,9 @@ function deploySignals(deploys = {}, opts, t) {
         title: b.service ?? '—',
         detail,
         when: b.startedAt ?? null,
+        // Il messaggio integrale non si butta: sta nel `title` della riga (e nella pagina Deploy). Chi
+        // vuole il comando che è morto lo trova; chi legge l'elenco non se lo trova addosso.
+        full: b.failReason ?? null,
         to: `/deploy?service=${encodeURIComponent(b.service ?? '')}`,
         accountKey: key,
         accountLabel: acc?.label ?? key,

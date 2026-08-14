@@ -30,7 +30,11 @@ const KIND_ICON = {
   anomaly: <LineChartOutlined />,
 }
 
-const WINDOWS = [24, 72, 168]
+// Finestre: 1h e 6h ci sono perché è dentro un incidente che si apre questa pagina, e lì la domanda è
+// «cos'è cambiato nell'ultima ora», non «cos'è successo oggi». Partono da 24h — la finestra di chi
+// arriva la mattina — e le due corte si scelgono quando servono. Il WAF le sopporta tutte (l'endpoint
+// prende `hours` e la sua cache è per finestra), gli altri due dati non hanno finestra: si filtra qui.
+const WINDOWS = [1, 6, 24, 72, 168]
 
 function SignalRow({ s, t, onOpen }) {
   const color = levelColor(s.level)
@@ -38,7 +42,7 @@ function SignalRow({ s, t, onOpen }) {
     <div
       role="button"
       tabIndex={0}
-      title={t('now.open')}
+      title={s.full ?? t('now.open')}
       // data-signal: ancora per il video demo, vedi pageKit.jsx.
       data-signal={s.kind}
       onClick={() => onOpen(s)}

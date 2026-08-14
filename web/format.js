@@ -177,3 +177,29 @@ export function shortActor(who) {
   if (at <= 0) return s
   return s.slice(0, at).replace(/^\d+\+/, '') || s
 }
+
+// MOTIVO di una build fallita, in una riga leggibile.
+//
+// CodeBuild, quando una fase muore, restituisce come "messaggio" il COMANDO INTERO che stava eseguendo:
+// su un buildspec con un `if` di venti righe (attesa del rollout ECS, describe-services, echo dei
+// messaggi) esce un muro di shell in cui la parte utile — l'esito, e il nome della fase — sta in fondo.
+// Nella pagina «Adesso» quel muro occupa mezzo schermo per una riga di elenco.
+//
+// Qui si tiene ciò che risponde alla domanda: com'è morto, e quale comando era. Lo script si butta; il
+// testo integrale resta nel dettaglio della build (pagina Deploy) e nel `title` della riga, quindi non
+// si perde niente. Pura/testabile.
+export function compactBuildReason(reason, { max = 150, cmd = 56 } = {}) {
+  const raw = String(reason ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ''
+  // Forma tipica: `[CODICE:] Error while executing command: <script>. Reason: exit status 1`
+  const m = /Error while executing command:\s*([\s\S]*?)\.?\s*Reason:\s*(.+)$/i.exec(raw)
+  if (m) {
+    const script = m[1].trim()
+    const primo = script.split(/;|&&|\|\|/)[0].trim()
+    // I puntini si mettono solo se si è tagliato per davvero: metterli sempre fa sembrare troncato un
+    // comando che era intero (`npm test…`), e allora non significano più niente.
+    const testa = primo.length > cmd ? `${primo.slice(0, cmd)}…` : primo !== script ? `${primo}…` : primo
+    return [m[2].trim(), testa].filter(Boolean).join(' · ')
+  }
+  return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw
+}
