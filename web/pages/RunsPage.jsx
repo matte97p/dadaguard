@@ -67,14 +67,23 @@ const TYPE_KEY = { lambda: 'runs.type.lambda', 'ecs-scheduled': 'runs.type.ecs',
 // Le colonne della tabella, in una funzione a parte: così si possono rendere (e quindi provare) fuori
 // dal browser, che in questo repo è l'unico modo di provare della UI — i test girano su `node --test`,
 // senza DOM. Una colonna che lancia su una run senza durata è una pagina bianca, e va scoperta qui.
-export function runColumns({ t = (k) => k, onOpen = () => {} } = {}) {
+export function runColumns({ t = (k) => k, onOpen = () => {}, onPickCron = null } = {}) {
   return [
     {
       title: t('runs.col.cron'),
       dataIndex: 'cronName',
       render: (name, r) => (
         <Space size={6} wrap>
-          <span style={{ fontFamily: MONO }}>{name}</span>
+          {/* Il nome apre TUTTE le esecuzioni di quel cron: nella vista d'insieme ognuno porta le sue
+              ultime poche, e «fammi vedere solo questo, più a fondo» è la mossa naturale dopo aver
+              visto una riga rossa. */}
+          {onPickCron && r.cronKey ? (
+            <Button type="link" size="small" style={{ padding: 0, fontFamily: MONO, height: 'auto' }} onClick={() => onPickCron(r.cronKey)}>
+              {name}
+            </Button>
+          ) : (
+            <span style={{ fontFamily: MONO }}>{name}</span>
+          )}
           {r.accountLabel && (
             <Tag bordered={false} color={r.accountColor ?? undefined} style={{ marginInlineEnd: 0, fontSize: 11 }}>
               {r.accountLabel}
@@ -165,11 +174,14 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   const [soloProblemi, setSoloProblemi] = useState(false)
   const [query, setQuery] = useState('')
   const [aperta, setAperta] = useState(null) // { cron, run } della run di cui si leggono i log
+  // Cron scelto: la vista passa da «le ultime di tutti» a «tutte le sue». È il server a leggere più a
+  // fondo (vedi runsOverview): filtrare lato client non aggiungerebbe le run che non sono state chieste.
+  const [soloCron, setSoloCron] = useState(null)
 
   // Polling educato (in pausa a tab nascosto, rinfresca al rientro): una run in corso va vista
   // avanzare, ma senza chiamare AWS quando nessuno guarda. `refreshKey` = il tasto Aggiorna globale.
   const { data, loading, error, refreshing, lastUpdated } = usePoll(
-    `/api/runs?minutes=${minutes}&lang=${lang}&k=${refreshKey ?? 0}`,
+    `/api/runs?minutes=${minutes}&lang=${lang}${soloCron ? `&cron=${encodeURIComponent(soloCron)}&limit=25` : ''}&k=${refreshKey ?? 0}`,
     { intervalMs: 30_000 },
   )
 
@@ -208,7 +220,10 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   const falliteFinestra = righe.filter((r) => r.outcome === 'failed').length
 
   const cronOf = (riga) => crons.find((c) => c.key === riga.cronKey) ?? { key: riga.cronKey, name: riga.cronName }
-  const columns = useMemo(() => runColumns({ t, onOpen: (r) => setAperta({ cron: cronOf(r), run: r }) }), [t, crons])
+  const columns = useMemo(
+    () => runColumns({ t, onOpen: (r) => setAperta({ cron: cronOf(r), run: r }), onPickCron: soloCron ? null : setSoloCron }),
+    [t, crons, soloCron],
+  )
 
   return (
     <>
@@ -217,6 +232,11 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         desc={t('runs.desc')}
         extra={
           <Space size={12} wrap>
+            {soloCron && (
+              <Tag closable color="processing" onClose={() => setSoloCron(null)} style={{ marginInlineEnd: 0 }}>
+                {t('runs.onlyCron', { cron: soloCron.split('/').slice(1).join('/') })}
+              </Tag>
+            )}
             <Segmented size="small" value={minutes} onChange={setMinutes} options={WINDOWS} />
             <Space size={6}>
               <Switch size="small" checked={soloProblemi} onChange={setSoloProblemi} />
