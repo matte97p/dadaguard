@@ -71,6 +71,18 @@ export const LANES = ['ingress', 'app', 'data', 'ops']
 const HUB_MIN_FANOUT = 4
 const WEAK_VIAS = new Set(['env', 'iam'])
 
+// PROVENIENZE FORTI: relazioni in cui passa traffico vero (un load balancer instrada, una coda
+// consegna, la rete permette, un flow chiama) o dichiarate a mano. Le altre — `env` e `iam` — dicono
+// che un servizio NOMINA un altro nella configurazione o che ne ha il permesso: informazione vera, ma
+// non «una richiesta va da qui a lì».
+//
+// Perché è il filtro che decide se la pagina si legge: sui dati veli sono 62 archi per ambiente, di cui
+// 41 `env` e 14 `iam`. Disegnarli tutti insieme è la ragione per cui «le frecce sono troppo intasate»:
+// i sette archi che raccontano il flusso stanno sotto cinquantacinque che raccontano una convenzione di
+// nomi. Di default si disegna il traffico; il resto è a un clic.
+const VIE_FORTI = new Set(['lb', 'net', 'event', 'flow', 'declared'])
+export const isViaForte = (vias = []) => vias.some((v) => VIE_FORTI.has(v))
+
 export function classifyHubs(edges) {
   const out = new Map()
   const incoming = new Set(edges.map((e) => e.target))
@@ -93,7 +105,7 @@ export function classifyHubs(edges) {
 // per un nome, il servizio all'altro capo dell'arco spariva e con esso ogni arco, così cercare un
 // servizio nella vista che ne mostra le dipendenze le cancellava. I vicini fuori dal filtro restano
 // disegnati, ma smorzati: sono contesto, non risultato.
-export function buildGraph(services, topo, dark, t) {
+export function buildGraph(services, topo, dark, t, { deboli = false } = {}) {
   const universe = new Map((topo.nodes ?? []).map((n) => [n.id, n]))
   const selected = new Map(services.map((s) => [topologyNodeId(s), s]))
   const external = new Map((topo.extraNodes ?? []).map((n) => [n.id, n]))
@@ -107,6 +119,15 @@ export function buildGraph(services, topo, dark, t) {
   const nameOf = (id) => selected.get(id)?.name ?? universe.get(id)?.name ?? external.get(id)?.label ?? id
   const typeOf = (id) => selected.get(id)?.type ?? universe.get(id)?.type ?? external.get(id)?.type ?? null
   const statusOf = (id) => selected.get(id)?.overall ?? null
+  // Repliche attive/desiderate: il check runtime le porta già come numeri (`runningCount`,
+  // `desiredCount`), quindi non si leggono da una frase — «2/3» è un fatto, e su una card è la seconda
+  // cosa che si guarda dopo il colore.
+  const replicheOf = (id) => {
+    const r = selected.get(id)?.checks?.runtime
+    if (!r || r.desiredCount == null) return null
+    const attive = r.runningCount ?? 0
+    return { testo: `${attive}/${r.desiredCount}`, male: attive < r.desiredCount }
+  }
   // `topo.nodes` porta la CHIAVE dell'account ('production'), i servizi la sua etichetta
   // ('Production'): senza tradurla, un vicino fuori dal filtro finiva accanto a un servizio dentro al
   // filtro con lo stesso account scritto in due modi, che si legge come un errore.
@@ -139,7 +160,11 @@ export function buildGraph(services, topo, dark, t) {
     const list = edges.filter((e) => e.source === id)
     collapsed.push({ source: id, targets: list.map((e) => e.target), vias: [...new Set(list.flatMap((e) => e.vias ?? []))] })
   }
-  const drawnEdges = edges.filter((e) => !hubs.has(e.source))
+  // I NODI restano quelli di sempre (chi ha una relazione di qualunque tipo): filtrando anche loro,
+  // accendere e spegnere le frecce farebbe apparire e sparire mezza architettura, e un servizio senza
+  // frecce finirebbe nell'elenco «senza relazioni dedotte» — cioè si direbbe il falso. Cambiano solo
+  // le LINEE disegnate.
+  const drawnEdges = edges.filter((e) => !hubs.has(e.source) && (deboli || isViaForte(e.vias ?? [])))
 
   const laneOf = (id) => (hubs.has(id) ? 'ops' : external.has(id) ? 'data' : LANE_OF_TYPE[typeOf(id)] ?? 'app')
   const byLane = new Map(LANES.map((l) => [l, []]))
@@ -236,6 +261,7 @@ export function buildGraph(services, topo, dark, t) {
           type: typeOf(id),
           color,
           ghost,
+          repliche: replicheOf(id),
           // Il meta porta il tipo, e l'account SOLO quando lo stesso nome vive in più ambienti: in una
           // vista già filtrata per ambiente, ripeterlo su ogni card è trenta volte la stessa parola.
           meta: [typeOf(id), nameCount.get(nameOf(id)) > 1 ? conto : null].filter(Boolean).join(' · '),
@@ -275,8 +301,10 @@ export function buildGraph(services, topo, dark, t) {
       source: e.source,
       target: e.target,
       // Curve morbide, non gomiti: un diagramma di flusso si segue con l'occhio, e gli angoli retti su
-      // cento archi diventano un circuito stampato.
-      type: 'bezier',
+      // cento archi diventano un circuito stampato. Il tipo si chiama 'default' — che in ReactFlow È la
+      // bezier: scrivere 'bezier' fa un tipo INESISTENTE, e la libreria avvisa e ricade sul default
+      // (quindi il disegno era giusto e la console piena di avvertimenti).
+      type: 'default',
       markerEnd: { type: FRECCIA, color, width: 14, height: 14 },
       animated: broken,
       style: { stroke: color, strokeDasharray: primary === 'net' && !broken ? '6 6' : undefined },

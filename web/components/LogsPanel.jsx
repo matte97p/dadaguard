@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button, Select } from 'antd'
+import { Switch, Segmented, Alert, Empty, Typography, Space, Button, Select } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { taskOfStream, instanceOptions } from '../format.js'
 import { NOISE, LogLines } from '../logline.jsx'
+import Loading from './Loading.jsx'
 
 const { Text } = Typography
 
@@ -160,7 +161,7 @@ export default function LogsPanel({
 
       {loading ? (
         <div style={{ textAlign: 'center', paddingTop: 80 }}>
-          <Spin tip={t('logs.loading')} />
+          <Loading text={t('logs.loading')} />
         </div>
       ) : data?.notApplicable ? (
         <Empty style={{ paddingTop: 60 }} description={t('logs.notApplicable')} />

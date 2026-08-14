@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Table, Typography, Alert, Empty, Spin, Space, Button, Tag, Progress, Tooltip } from 'antd'
+import { Table, Typography, Alert, Empty, Space, Button, Tag, Progress, Tooltip } from 'antd'
 import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
+import Loading from './Loading.jsx'
 
 const { Text, Link } = Typography
 
@@ -227,7 +228,7 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
 
       {loading && !data ? (
         <div style={{ textAlign: 'center', paddingTop: 60 }}>
-          <Spin tip={t('logs.loading')} />
+          <Loading text={t('logs.loading')} />
         </div>
       ) : data?.notApplicable ? (
         <Empty style={{ paddingTop: 50 }} description={t('instances.notApplicable')} />

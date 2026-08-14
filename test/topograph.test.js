@@ -149,3 +149,41 @@ test('una corsia lunga VA A CAPO: la tela resta un rettangolo, non una striscia'
   const fasciaData = g.nodes.find((n) => n.id === 'lane:data')
   assert.ok(fasciaData.position.y > fasciaApp.position.y + fasciaApp.data.height - 1)
 })
+
+test('di default si disegna il TRAFFICO: le frecce dedotte da env var e IAM sono a un clic', () => {
+  const services = [svc('alb', 'prod', 'alb'), svc('backend', 'prod', 'ecs'), svc('db', 'prod', 'rds')]
+  const topo = {
+    nodes: [nodo('alb', 'prod', 'alb'), nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
+    edges: [
+      arco('prod::alb', 'prod::backend', ['lb']), // traffico vero: un load balancer instrada
+      arco('prod::backend', 'prod::db', ['env']), // il backend NOMINA il db in una env var
+      arco('prod::backend', 'prod::alb', ['iam']), // ...e ne ha il permesso
+    ],
+    extraNodes: [],
+  }
+  const traffico = buildGraph(services, topo, false, t)
+  const tutte = buildGraph(services, topo, false, t, { deboli: true })
+  assert.equal(traffico.edges.length, 1, 'solo l’arco in cui passa traffico')
+  assert.equal(tutte.edges.length, 3)
+  // I NODI non cambiano: accendere le frecce non deve far apparire e sparire mezza architettura, e un
+  // servizio rimasto senza frecce non deve finire fra quelli «senza relazioni dedotte».
+  assert.equal(traffico.nodes.length, tutte.nodes.length)
+  assert.equal(traffico.orphans.length, 0)
+})
+
+test('le repliche arrivano dai NUMERI del check runtime, e 2/3 è rosso', () => {
+  const conRepliche = (name, running, desired) => ({
+    ...svc(name, 'prod', 'ecs'),
+    checks: { runtime: { runningCount: running, desiredCount: desired } },
+  })
+  const g = buildGraph([conRepliche('backend', 2, 3), conRepliche('frontend', 1, 1), svc('db', 'prod', 'rds')], {
+    nodes: [nodo('backend', 'prod', 'ecs'), nodo('frontend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
+    edges: [arco('prod::backend', 'prod::db', ['net']), arco('prod::frontend', 'prod::db', ['net'])],
+    extraNodes: [],
+  }, false, t)
+  const rep = (id) => g.nodes.find((n) => n.id === id).data.repliche
+  assert.deepEqual(rep('prod::backend'), { testo: '2/3', male: true })
+  assert.deepEqual(rep('prod::frontend'), { testo: '1/1', male: false })
+  // Un servizio che non ha repliche (un database gestito) non deve mostrare «0/0».
+  assert.equal(rep('prod::db'), null)
+})

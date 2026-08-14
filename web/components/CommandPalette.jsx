@@ -54,7 +54,7 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
   }
 
   return (
-    <Modal open={open} onCancel={onClose} footer={null} title={null} closable={false} width={560} styles={{ body: { padding: 0 } }} destroyOnClose>
+    <Modal open={open} onCancel={onClose} footer={null} title={null} closable={false} width={560} styles={{ body: { padding: 0 } }} destroyOnHidden>
       <Input
         ref={inputRef}
         size="large"

@@ -406,7 +406,12 @@ app.get('/api/topology', async (_req, res) => {
   try {
     if (isDemo) return res.json(demoTopology())
     const { accounts, services } = await resolveServices()
-    res.json(await deduceTopology(services, accounts))
+    // CACHE lunga, e non è pigrizia: questo giro legge le env var di ogni Lambda, i target group di ogni
+    // ALB e i security group di ogni servizio — decine di chiamate, ~10 secondi sulla flotta vera. La
+    // topologia però cambia quando cambia l'INFRASTRUTTURA (un apply Terraform), non col traffico:
+    // rifarla a ogni apertura di pagina significa far aspettare dieci secondi per un disegno identico.
+    // Cinque minuti, e le aperture successive (anche di altre persone) sono immediate.
+    res.json(await cached('topology', 300_000, () => deduceTopology(services, accounts)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

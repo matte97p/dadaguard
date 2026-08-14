@@ -480,6 +480,8 @@ const STRINGS = {
     'topo.hubTargets': '{n} {n#servizio#servizi}',
     'topo.ghosts':
       '{n} {n#vicino#vicini} {n#è#sono} fuori dal filtro: {n#resta#restano} tratteggiati perché una dipendenza non si legge a metà.',
+    'topo.edges.traffic': 'Traffico',
+    'topo.edges.all': 'Tutte le relazioni',
     'topo.lane.ingress': 'Ingresso',
     'topo.lane.app': 'Applicazioni',
     'topo.lane.data': 'Dati',
@@ -1138,6 +1140,8 @@ const STRINGS = {
     'topo.hubTargets': '{n} {n#service#services}',
     'topo.ghosts':
       '{n} {n#neighbour#neighbours} {n#is#are} outside the filter: {n#it stays#they stay} dashed, because half a dependency reads as none.',
+    'topo.edges.traffic': 'Traffic',
+    'topo.edges.all': 'All relations',
     'topo.lane.ingress': 'Ingress',
     'topo.lane.app': 'Applications',
     'topo.lane.data': 'Data',

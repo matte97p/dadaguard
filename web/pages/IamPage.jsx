@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Badge, Space, Segmented, Select } from 'antd'
 import { PageIntro, PANEL_GRID, EmptyState } from './pageKit.jsx'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
@@ -472,7 +473,7 @@ export default function IamPage({ services = [], t = (k) => k, lang }) {
       <>
         <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
         <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin tip={t('iam.loading')} />
+          <Loading text={t('iam.loading')} />
         </div>
       </>
     )

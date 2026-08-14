@@ -55,7 +55,7 @@ export function TopoNode({ data, selected }) {
       <span className="dg-topo-icon">
         <Icona />
       </span>
-      <span style={{ minWidth: 0 }}>
+      <span style={{ minWidth: 0, flex: 1 }}>
         <span className="dg-topo-name" style={{ fontFamily: MONO }}>
           {/* Testa condivisa muta, coda in evidenza: metà dei nomi qui iniziano con lo stesso
               prefisso di ambiente, e su una card da 200px l'ellissi mangerebbe la parte che distingue. */}
@@ -68,6 +68,13 @@ export function TopoNode({ data, selected }) {
           </span>
         )}
       </span>
+      {/* Repliche attive/desiderate. Sta a destra e in cifre a larghezza fissa: «2/3» su una card è la
+          seconda cosa che si guarda dopo il colore, e quando le due cifre non coincidono va rosso —
+          «attivo» e «quante ne dovrebbero girare» sono due domande diverse, e il verde risponde solo
+          alla prima. */}
+      {data.repliche && (
+        <span className={`dg-topo-rep${data.repliche.male ? ' dg-topo-rep-male' : ''}`}>{data.repliche.testo}</span>
+      )}
       <Handle type="source" position={Position.Bottom} className="dg-topo-handle" />
     </div>
   )

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Spin, Alert, Typography, Tag, Segmented, Space } from 'antd'
+import { Alert, Typography, Tag, Segmented, Space } from 'antd'
 import { PageIntro, EmptyState } from './pageKit.jsx'
 import WafPanel from '../components/WafPanel.jsx'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
@@ -55,7 +56,7 @@ export default function SecurityPage({ t = (k) => k, lang }) {
       <WafPanel t={t} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin tip={t('sec.loading')} />
+          <Loading text={t('sec.loading')} />
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}

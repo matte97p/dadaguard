@@ -668,7 +668,7 @@ details[open] > .dg-summary .dg-chev {
    muro di riquadri. */
 .dg-topo-node {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 9px;
   align-items: center;
   width: 208px;
@@ -777,4 +777,22 @@ details[open] > .dg-summary .dg-chev {
 }
 .dg-topo-edge-off .react-flow__edge-path {
   opacity: 0.14;
+}
+
+/* Repliche sulla card: cifre a larghezza fissa, in un riquadro appena accennato. Rosse quando le
+   attive sono meno di quelle desiderate — «attivo» e «quante dovrebbero girare» sono due domande, e il
+   verde dello stato risponde solo alla prima. */
+.dg-topo-rep {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dg-ink-mute);
+  background: var(--dg-row);
+  border-radius: 6px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.dg-topo-rep-male {
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.12);
 }

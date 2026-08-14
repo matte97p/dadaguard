@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Alert, Spin, Typography, Space, Button, Divider, Tag } from 'antd'
+import { Alert, Typography, Space, Button, Divider, Tag } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
+import Loading from './Loading.jsx'
 
 const { Text } = Typography
 
@@ -53,7 +54,7 @@ export default function EventsPanel({ service, account, t = (k) => k, lang }) {
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
       {loading ? (
         <div style={{ textAlign: 'center', paddingTop: 80 }}>
-          <Spin tip={t('events.loading')} />
+          <Loading text={t('events.loading')} />
         </div>
       ) : data ? (
         <>

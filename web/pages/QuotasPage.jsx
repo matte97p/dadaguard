@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Spin, Alert, Typography, Space, Badge, Progress } from 'antd'
+import { Alert, Typography, Space, Badge, Progress } from 'antd'
 import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
@@ -28,7 +29,7 @@ export default function QuotasPage({ accountLabels, t = (k) => k, lang, embedded
       <PageIntro title={embedded ? null : t('quotas.title')} desc={t('quotas.desc')} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin tip={t('quotas.loading')} />
+          <Loading text={t('quotas.loading')} />
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}

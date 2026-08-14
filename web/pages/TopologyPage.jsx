@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Typography, Spin, Space, Alert } from 'antd'
+import { Segmented, Typography, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
 import { FONT, SPACE } from '../theme.js'
 import { buildGraph, topologyNodeId, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
@@ -163,6 +164,11 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   // Nodo a fuoco: il suo vicinato resta in primo piano, il resto si smorza. È la risposta a «se questo
   // va giù, chi ne soffre», che su cento archi tutti uguali non si legge.
   const [fuoco, setFuoco] = useState(null)
+  // Quali FRECCE disegnare. Di default il traffico: sui dati veri gli archi sono 62 per ambiente, di cui
+  // 55 dicono «questo servizio nomina quest'altro in una env var o ne ha il permesso IAM». Vere, ma non
+  // sono un flusso, e disegnate insieme seppelliscono i sette archi che il flusso lo raccontano — è la
+  // ragione per cui «le frecce sono troppo intasate».
+  const [frecce, setFrecce] = useState('traffico')
   const [topo, setTopo] = useState({ edges: [], extraNodes: [], nodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -224,8 +230,8 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   )
 
   const { nodes, edges, usedVias, orphans, ghosts } = useMemo(
-    () => buildGraph(serviziAmbiente, topo, dark, t),
-    [serviziAmbiente, topo, dark, t],
+    () => buildGraph(serviziAmbiente, topo, dark, t, { deboli: frecce === 'tutte' }),
+    [serviziAmbiente, topo, dark, t, frecce],
   )
 
   // Vicinato del nodo a fuoco: un salto in entrambe le direzioni. Due salti su questo grafo tornano a
@@ -274,6 +280,17 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
         desc={t('topo.desc')}
         extra={
           <Toolbar>
+            {view === 'deps' && (
+              <Segmented
+                size="small"
+                value={frecce}
+                onChange={setFrecce}
+                options={[
+                  { value: 'traffico', label: t('topo.edges.traffic') },
+                  { value: 'tutte', label: t('topo.edges.all') },
+                ]}
+              />
+            )}
             {view === 'deps' && conti.length > 1 && (
               <Segmented
                 size="small"
@@ -314,7 +331,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
           )}
           {loading ? (
             <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Spin tip={t('topo.loading')} />
+              <Loading text={t('topo.loading')} />
             </div>
           ) : services.length === 0 ? (
             <div style={CANVAS}>
@@ -409,7 +426,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
           <div style={CANVAS}>
             {netLoading ? (
               <div style={{ textAlign: 'center', paddingTop: 120 }}>
-                <Spin tip={t('topo.netLoading')} />
+                <Loading text={t('topo.netLoading')} />
               </div>
             ) : !netGraph.hasData ? (
               <EmptyState description={t('topo.netEmpty')} />

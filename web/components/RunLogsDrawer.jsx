@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Space, Switch, Typography, Tag, Alert, Empty, Spin, Button } from 'antd'
+import { Drawer, Space, Switch, Typography, Tag, Alert, Empty, Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { LogLines } from '../logline.jsx'
 import { fmtMs } from '../format.js'
 import { MONO } from '../theme.js'
 import { OUTCOME_TAG } from './runBits.jsx'
+import Loading from './Loading.jsx'
 
 const { Text } = Typography
 
@@ -109,7 +110,7 @@ export default function RunLogsDrawer({ open, onClose, cron, run, t = (k) => k, 
 
       {loading && !eventi.length ? (
         <div style={{ textAlign: 'center', paddingTop: 60 }}>
-          <Spin tip={t('logs.loading')} />
+          <Loading text={t('logs.loading')} />
         </div>
       ) : data?.notApplicable ? (
         <Empty style={{ paddingTop: 60 }} description={t('logs.notApplicable')} />

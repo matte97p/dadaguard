@@ -47,6 +47,13 @@ import {
   GetPolicyVersionCommand,
 } from '@aws-sdk/client-iam'
 import { clientOpts } from '../runtime/awsClient.js'
+import { mapLimit } from '../util/pool.js'
+
+// Tetto alle chiamate in volo. `Promise.all` su tutti i servizi ne apriva 78 insieme, e sopra ~10
+// richieste al secondo per account AWS non risponde più veloce: mette in coda e fa ritentare, quindi il
+// tetto rende il giro PIÙ rapido, non più lento (misurato altrove in questo repo: la stessa query passa
+// da 600ms a 4,8s con 26 richieste insieme).
+const LIMITE = 8
 
 // Credenziali/region per un servizio: dall'account, con override di region per-servizio.
 function awsFor(service, accounts) {
@@ -293,8 +300,7 @@ async function serviceSecurityGroups(service, aws) {
 // Se l'SG del servizio T ammette come sorgente l'SG del servizio A → A dipende da T.
 async function deduceBySecurityGroups(services, accounts, push) {
   const perAccount = new Map() // accountKey -> { sgToServices: Map<sgId, Set<name>>, aws }
-  await Promise.all(
-    services.map(async (s) => {
+  await mapLimit(services, LIMITE, async (s) => {
       const aws = awsFor(s, accounts)
       const sgs = await serviceSecurityGroups(s, aws)
       if (!sgs.length) return
@@ -305,8 +311,7 @@ async function deduceBySecurityGroups(services, accounts, push) {
         if (!m.has(sg)) m.set(sg, new Set())
         m.get(sg).add(keyOf(s))
       }
-    }),
-  )
+    })
 
   for (const { sgToServices, aws } of perAccount.values()) {
     const ids = [...sgToServices.keys()]
@@ -352,8 +357,7 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
     if (s.aws?.type === 'ec2' && s.aws.instanceId)
       ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, keyOf(s))
 
-  await Promise.all(
-    albs.map(async (alb) => {
+  await mapLimit(albs, LIMITE, async (alb) => {
       const aws = awsFor(alb, accounts)
       const acct = alb.account ?? '__none__'
       try {
@@ -388,8 +392,7 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
       } catch {
         /* ALB non leggibile / permesso assente → niente archi lb per questo LB */
       }
-    }),
-  )
+    })
 }
 
 // Deduzione completa. Ritorna { edges, extraNodes, nodes }:
@@ -397,14 +400,12 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
 //   extraNodes [{ id, type, label }]        — sorgenti evento non tracciate (code/stream), id già unico
 //   nodes      [{ id, name, account, type }] — chiave → servizio, per etichettare senza indovinare
 export async function deduceTopology(services, accounts) {
-  const idList = await Promise.all(
-    services.map(async (s) => ({
+  const idList = await mapLimit(services, LIMITE, async (s) => ({
       name: s.name,
       account: s.account ?? '__none__', // serve a disambiguare i match tra account diversi
       key: keyOf(s),
       ids: await identifiers(s, awsFor(s, accounts)),
-    })),
-  )
+    }))
   // Un `dependsOn` dichiarato cita un NOME, non una chiave: si risolve preferendo lo stesso account,
   // e resta ambiguo solo se quel nome esiste in più account e nessuno è il proprio.
   const resolveDeclared = (name, self) =>
@@ -433,15 +434,10 @@ export async function deduceTopology(services, accounts) {
 
   // ECS: leggo env + target group una volta sola per servizio (riusati dai pass env e lb).
   const ecsData = new Map()
-  await Promise.all(
-    services
-      .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service)
-      .map(async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts)))),
-  )
+  await mapLimit(services .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service), LIMITE, async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts))))
 
   // env (Lambda + ECS) + event source (Lambda).
-  await Promise.all(
-    services.map(async (s) => {
+  await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
       const self = { name: s.name, account: s.account ?? '__none__' }
 
@@ -471,14 +467,10 @@ export async function deduceTopology(services, accounts) {
         for (const t of matchEnvTargets(ecsData.get(keyOf(s))?.env ?? '', self, idList))
           push(keyOf(s), t.key, 'env')
       }
-    }),
-  )
+    })
 
   // Step Functions → risorse citate nella definizione (i task orchestrati).
-  await Promise.all(
-    services
-      .filter((s) => s.aws?.type === 'sfn' && s.aws.arn)
-      .map(async (s) => {
+  await mapLimit(services .filter((s) => s.aws?.type === 'sfn' && s.aws.arn), LIMITE, async (s) => {
         const self = { name: s.name, account: s.account ?? '__none__' }
         try {
           const sfn = new SFNClient(clientOpts(awsFor(s, accounts)))
@@ -490,16 +482,14 @@ export async function deduceTopology(services, accounts) {
         } catch {
           /* states:DescribeStateMachine assente → niente archi 'flow' */
         }
-      }),
-  )
+      })
 
   // ALB → servizi dietro i target group.
   await deduceLoadBalancers(services, accounts, ecsData, push).catch(() => {})
 
   // IAM → risorse a cui il ruolo del servizio può accedere (dipendenza dedotta dai permessi).
   const roleCache = new Map()
-  await Promise.all(
-    services.map(async (s) => {
+  await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
       const roleArn =
         type === 'lambda' ? roleByService.get(keyOf(s)) : type === 'ecs' ? ecsData.get(keyOf(s))?.roleArn : null
@@ -510,8 +500,7 @@ export async function deduceTopology(services, accounts) {
         const matched = matchByArn(arn, idList, self)
         if (matched) push(keyOf(s), matched.key, 'iam')
       }
-    }),
-  ).catch(() => {})
+    }).catch(() => {})
 
   // rete (security group) — best effort, non blocca se manca il permesso.
   await deduceBySecurityGroups(services, accounts, push).catch(() => {})
