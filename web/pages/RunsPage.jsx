@@ -9,6 +9,7 @@ import { levelColor, MONO, FONT, SPACE } from '../theme.js'
 import { OUTCOME_TAG, runElapsed, useTick } from '../components/runBits.jsx'
 import RunTimeline from '../components/RunTimeline.jsx'
 import RunLogsDrawer from '../components/RunLogsDrawer.jsx'
+import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
 
@@ -299,6 +300,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         desc={t('runs.desc')}
         extra={
           <Toolbar>
+            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
             {soloCron && (
               <Tag closable color="processing" onClose={() => setSoloCron(null)} style={{ marginInlineEnd: 0 }}>
                 {t('runs.onlyCron', { cron: soloCron.split('/').slice(1).join('/') })}
@@ -429,12 +431,6 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
                 ))}
               </Space>
             </Section>
-          )}
-
-          {lastUpdated && (
-            <Text type="secondary" style={{ fontSize: FONT.micro, display: 'block', marginTop: SPACE.md }}>
-              {refreshing ? t('runs.refreshing') : t('runs.updated', { ago: fmtAgo(lastUpdated, t) })}
-            </Text>
           )}
         </>
       )}

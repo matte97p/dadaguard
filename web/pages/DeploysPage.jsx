@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
-import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
+import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
 import { shortActor, fmtAgo } from '../format.js'
 import { usePoll } from '../usePoll.js'
+import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
 const MONO = 'ui-monospace, SFMono-Regular, monospace'
@@ -519,30 +520,6 @@ function DeploysSkeleton() {
         ))}
       </div>
     </>
-  )
-}
-
-// Indicatore di freschezza: "aggiornato Ns fa" che scorre in tempo reale + icona che gira durante il
-// refresh in background. Rende visibile che la vista si aggiorna da sola (niente più tab fermo a uno
-// snapshot vecchio senza accorgersene, che era la causa dello sfasamento con la notifica Slack).
-function PollStatus({ lastUpdated, refreshing, t }) {
-  const [, force] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-  let label = ''
-  if (refreshing) label = t('poll.updating')
-  else if (lastUpdated) {
-    const s = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000))
-    label = s < 5 ? t('poll.justNow') : s < 60 ? t('poll.secAgo', { s }) : t('poll.minAgo', { m: Math.floor(s / 60) })
-  }
-  if (!label) return null
-  return (
-    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-      <SyncOutlined spin={refreshing} style={{ marginInlineEnd: 5, opacity: 0.7 }} />
-      {label}
-    </Text>
   )
 }
 
