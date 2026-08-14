@@ -236,3 +236,13 @@ export function awsErrorText(reason, t = (k) => k, { max = 120 } = {}) {
   if (e.key) return t(e.key, e.params)
   return e.raw.length > max ? `${e.raw.slice(0, max - 1)}…` : e.raw
 }
+
+// Nome dell'account in forma CORTA, per stare accanto a un altro dato senza rubargli la riga:
+// «Management (payer)» → «Management». La parentesi spiega cos'è quell'account e serve dove l'account è
+// il soggetto (la sua sezione, il filtro Account); in una voce di tendina accanto al nome di un servizio
+// è rumore che spinge il resto fuori dallo schermo. Pura/testabile.
+export function accountShort(label) {
+  return String(label ?? '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .trim()
+}

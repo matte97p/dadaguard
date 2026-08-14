@@ -16,6 +16,7 @@ import { buildSignals, countByLevel } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
 import { levelColor, FONT, SPACE } from '../theme.js'
+import { matchesAny } from '../filters.js'
 
 const { Text } = Typography
 
@@ -96,7 +97,7 @@ function SignalRow({ s, t, onOpen }) {
 // finestra in cui la flotta era vuota e nessuno stava ancora caricando — e questa pagina scriveva
 // «niente da segnalare · controllati 0 servizi», che è un ESITO, mentre i servizi non li aveva
 // nemmeno guardati. Cinque secondi dopo comparivano, giù e degradati, in cima all'elenco.
-export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = 'all', t = (k) => k, lang }) {
+export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = [], t = (k) => k, lang }) {
   const navigate = useNavigate()
   const [hours, setHours] = useState(24)
   const [deploys, setDeploys] = useState(null)
@@ -139,8 +140,7 @@ export default function NowPage({ services = [], statusReady = false, statusLoad
     // Il filtro Account della barra in alto vale anche qui. Le righe senza account (un'anomalia porta
     // il NOME dell'account, non la sua chiave) restano visibili: nasconderle per un filtro che non le
     // riguarda toglierebbe fatti veri senza dirlo.
-    if (accountFilter === 'all') return all
-    return all.filter((s) => s.accountKey == null || s.accountKey === accountFilter)
+    return all.filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
   }, [services, deploys, waf, budgets, hours, accountFilter, t])
 
   const counts = useMemo(() => countByLevel(signals), [signals])

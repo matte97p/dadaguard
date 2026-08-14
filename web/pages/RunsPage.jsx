@@ -7,6 +7,7 @@ import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { familyPrefixes, splitFamily } from '../serviceName.js'
 import { levelColor, MONO, FONT, SPACE } from '../theme.js'
 import { OUTCOME_TAG, runElapsed, useTick } from '../components/runBits.jsx'
+import { matchesAny, isFiltering } from '../filters.js'
 import RunTimeline from '../components/RunTimeline.jsx'
 import RunLogsDrawer from '../components/RunLogsDrawer.jsx'
 import PollStatus from '../components/PollStatus.jsx'
@@ -215,7 +216,7 @@ export function runColumns({ t = (k) => k, onOpen = () => {}, onPickCron = null,
   ]
 }
 
-export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter = 'all' }) {
+export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   const [minutes, setMinutes] = useState(1440)
   // La vista scelta persiste: e' una preferenza di chi guarda, e riportarla a «timeline» a ogni
   // ricarica e' una piccola offesa quotidiana. Letta con la guardia perche' questo modulo viene reso
@@ -241,12 +242,12 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   )
 
   const crons = useMemo(
-    () => (data?.crons ?? []).filter((c) => accountFilter === 'all' || c.account === accountFilter),
+    () => (data?.crons ?? []).filter((c) => matchesAny(c.account, accountFilter)),
     [data, accountFilter],
   )
   // L'orchestratore non ha account AWS: con un filtro per account attivo le sue run non appartengono a
-  // quell'account e sparirebbero. Si nasconde tutta la sorgente, invece di mostrarla filtrata a metà.
-  const prefect = accountFilter === 'all' && !soloCron ? data?.prefect : null
+  // nessuno dei selezionati e sparirebbero. Si nasconde tutta la sorgente, invece di mostrarla a metà.
+  const prefect = !isFiltering(accountFilter) && !soloCron ? data?.prefect : null
 
   const tutti = useMemo(() => [...crons, ...prefectAsCrons(prefect, t)], [crons, prefect, t])
   const righe = useMemo(() => flattenRuns(crons, prefect), [crons, prefect])

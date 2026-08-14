@@ -24,6 +24,7 @@ import {
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import { antdTheme, SPACE, FONT } from './theme.js'
+import { asList, matchesAny, isFiltering } from './filters.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -158,7 +159,10 @@ export default function App() {
 
   // Filtri: account singolo (switch) + region/type/status multi. Lo stato vive qui e persiste
   // mentre si naviga tra le pagine; ogni pagina mostra solo il sottoinsieme di controlli sensato.
-  const [accountFilter, setAccountFilter] = useState('all')
+  // Elenco, non un valore singolo: «vuoto = tutti» (vedi web/filters.js). Regione, tipo e stato erano
+  // già così; l'account no, ed era l'unico filtro che non si potesse aprire su due ambienti insieme —
+  // che è la domanda normale qui (staging E produzione, non uno dei due).
+  const [accountFilter, setAccountFilter] = useState([])
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…
@@ -303,7 +307,8 @@ export default function App() {
       if (!seen.has(key)) seen.set(key, s.account?.label ?? t('filter.noAccount'))
     }
     return [
-      { value: 'all', label: t('filter.allAccounts') },
+      // Niente voce «Tutti»: in una select multipla sarebbe un valore selezionabile accanto agli altri
+      // («Tutti + Staging» non significa niente). Vuoto = tutti, e lo dice il placeholder.
       ...[...seen].map(([value, label]) => ({ value, label })),
     ]
   }, [services, t])
@@ -343,7 +348,7 @@ export default function App() {
     const filtered = services.filter((s) => {
       const cron = Boolean(s.checks?.runtime?.schedule)
       return (
-        (accountFilter === 'all' || (s.account?.key ?? '__none__') === accountFilter) &&
+        matchesAny(s.account?.key ?? '__none__', accountFilter) &&
         (regionFilter.length === 0 || regionFilter.includes(s.region)) &&
         (typeFilter.length === 0 || typeFilter.includes(s.type)) &&
         (statusFilter.length === 0 || statusFilter.includes(s.overall)) &&
@@ -393,14 +398,14 @@ export default function App() {
     if (all.length === 0) return null // nessuna lista da cui filtrare: meglio mostrare tutto che niente
     const out = new Set()
     for (const a of all) {
-      if (accountFilter !== 'all' && a.key !== accountFilter) continue
+      if (!matchesAny(a.key, accountFilter)) continue
       out.add(a.label)
     }
     return out
   }, [services, data, accountFilter, t])
 
   const filtersActive =
-    accountFilter !== 'all' ||
+    isFiltering(accountFilter) ||
     regionFilter.length > 0 ||
     typeFilter.length > 0 ||
     statusFilter.length > 0 ||
@@ -409,7 +414,7 @@ export default function App() {
     nameQuery.trim() !== '' ||
     problemsOnly
   const resetFilters = useCallback(() => {
-    setAccountFilter('all')
+    setAccountFilter([])
     setRegionFilter([])
     setTypeFilter([])
     setStatusFilter([])
@@ -434,10 +439,10 @@ export default function App() {
     localStorage.setItem('dadaguard-presets', JSON.stringify(next))
   }
   const applyPreset = (f) => {
-    setAccountFilter(f.accountFilter ?? 'all')
-    setRegionFilter(f.regionFilter ?? [])
-    setTypeFilter(f.typeFilter ?? [])
-    setStatusFilter(f.statusFilter ?? [])
+    setAccountFilter(asList(f.accountFilter))
+    setRegionFilter(asList(f.regionFilter))
+    setTypeFilter(asList(f.typeFilter))
+    setStatusFilter(asList(f.statusFilter))
     setScheduleFilter(f.scheduleFilter ?? 'all')
     setManagedFilter(f.managedFilter ?? 'all')
     setNameQuery(f.nameQuery ?? '')

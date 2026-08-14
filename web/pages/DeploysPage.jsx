@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
-import { shortActor, fmtAgo, awsErrorText } from '../format.js'
+import { shortActor, fmtAgo, awsErrorText, accountShort } from '../format.js'
 import { groupByService, isServiceRow } from '../deployRows.js'
 import { AZIONI_A_MANO, isManualRestart, isByHand, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
+import { FONT } from '../theme.js'
+import { matchesAny, isFiltering, asList } from '../filters.js'
 import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
@@ -495,7 +497,7 @@ function DeploysSkeleton() {
 // Pagina Deploy: build CodeBuild di deploy (`acme-*-*-deploy`) per account — cosa sta uscendo ora e
 // com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
 // (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
-export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = 'all' }) {
+export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
   // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
   const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(`/api/deploys?lang=${lang}`, {
@@ -512,10 +514,12 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   const [periodFilter, setPeriodFilter] = useState('7d')
   // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
   // arriveresti sui deploy di tutta la flotta da cercare a mano.
-  // Deep-link `?service=`: arriva dalla pagina dei servizi. La guardia su `window` serve alla prova di
-  // rendering senza browser (l'unico controllo automatico che questa UI puo' avere in questo repo).
+  // Deep-link `?service=`: arriva dalla pagina dei servizi, e ora accetta anche più nomi separati da
+  // virgola (`?service=backend,frontend`), che è la forma naturale ora che il filtro è multiplo.
+  // La guardia su `window` serve alla prova di rendering senza browser (l'unico controllo automatico che
+  // questa UI puo' avere in questo repo).
   const [serviceFilter, setServiceFilter] = useState(() =>
-    typeof window === 'undefined' ? 'all' : new URLSearchParams(window.location.search).get('service') ?? 'all',
+    typeof window === 'undefined' ? [] : asList((new URLSearchParams(window.location.search).get('service') ?? '').split(',')),
   )
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
@@ -536,7 +540,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // ignorava del tutto → selezionavi un account e non cambiava niente: il filtro sembrava rotto.
   const accounts = useMemo(() => {
     const all = data ? Object.entries(data) : []
-    const list = accountFilter === 'all' ? all : all.filter(([key]) => key === accountFilter)
+    const list = all.filter(([key]) => matchesAny(key, accountFilter))
     return list.sort(([, a], [, b]) => {
       const av = a.error || (a.builds?.length ?? 0) > 0 ? 0 : 1
       const bv = b.error || (b.builds?.length ?? 0) > 0 ? 0 : 1
@@ -589,23 +593,31 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
         dove.get(b.service).add(acc.label ?? '—')
       }
     }
-    if (serviceFilter !== 'all' && !dove.has(serviceFilter)) dove.set(serviceFilter, new Set()) // la scelta attiva non sparisce mai
+    for (const scelto of asList(serviceFilter)) if (!dove.has(scelto)) dove.set(scelto, new Set()) // le scelte attive non spariscono mai
     return [
-      { value: 'all', label: t('deploys.allServices') },
       ...[...dove.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([service, conti]) => ({
           value: service,
-          label: conti.size ? `${service} · ${[...conti].sort().join(', ')}` : service,
-          // Nella casella CHIUSA basta il nome: «backend · Management (payer), Production, Staging» a
-          // tendina chiusa viene troncato a metà, e un filtro attivo che non si legge è peggio di uno
-          // che dice meno. Gli account si leggono aprendo l'elenco, che è quando servono.
+          // Due pezzi con due pesi: il nome del servizio è quello che si cerca, gli account sono il
+          // contesto. Come testo di seguito («backend · Management (payer), Production, Staging»)
+          // diventava una riga da 48 caratteri che la tendina tagliava a metà.
+          label: (
+            <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+              <span>{service}</span>
+              {conti.size > 0 && (
+                <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{[...conti].map(accountShort).sort().join(' · ')}</span>
+              )}
+            </span>
+          ),
+          // Nella casella CHIUSA basta il nome: un filtro attivo che non si legge è peggio di uno che
+          // dice meno. Gli account si leggono aprendo l'elenco, che è quando servono.
           nomeCorto: service,
         })),
     ]
   }, [accounts, periodFilter, statusFilter, serviceFilter, t])
 
-  const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || serviceFilter !== 'all'
+  const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || isFiltering(serviceFilter)
   const toggleExpand = (key) =>
     setExpanded((prev) => {
       const n = new Set(prev)
@@ -618,7 +630,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
       list
         .filter((b) => matchStatus(b, statusFilter))
         .filter((b) => matchPeriod(b, periodFilter))
-        .filter((b) => serviceFilter === 'all' || b.service === serviceFilter),
+        .filter((b) => matchesAny(b.service, serviceFilter)),
     [statusFilter, periodFilter, serviceFilter],
   )
 
@@ -650,11 +662,19 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
             <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
             <Select
               size="small"
+              mode="multiple"
+              allowClear
+              maxTagCount="responsive"
+              placeholder={t('deploys.allServices')}
               value={serviceFilter}
               onChange={setServiceFilter}
               options={serviceOptions}
               optionLabelProp="nomeCorto"
-              style={{ minWidth: 160 }}
+              // La tendina si allarga sul CONTENUTO, non sul controllo: legata alla larghezza del
+              // controllo (160px) tagliava ogni voce a «agentic-chat · Prod…», cioè nascondeva proprio
+              // l'informazione appena aggiunta.
+              popupMatchSelectWidth={false}
+              style={{ minWidth: 150 }}
             />
           </Space>
         }
