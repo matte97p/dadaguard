@@ -3,6 +3,8 @@ import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skelet
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
 import { shortActor, fmtAgo, awsErrorText } from '../format.js'
+import { groupByService, isServiceRow } from '../deployRows.js'
+import { AZIONI_A_MANO, isManualRestart, isByHand, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 
@@ -19,23 +21,9 @@ const STATUS = {
   STOPPED: { color: '#8c8c8c', tag: 'default', key: 'deploys.stopped' },
 }
 const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
-const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
 // Colore dell'etichetta di avvio. `hotfix` è rosso perché è l'unico valore che significa "in
 // produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
 const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
-// Le azioni che NON sono build: un riavvio forzato, l'apertura o la chiusura a mano di una porta su un
-// security group (break-glass), una shell aperta dentro a un container. Nessuna ha fasi, durata, log né
-// tasso di successo da calcolare, e ognuna ha una frase sua: senza, cadevano tutte nel ramo del riavvio
-// e la pagina diceva «stessa immagine, nessuna build» sopra un break-glass.
-const AZIONI_A_MANO = {
-  restart: { tag: 'blue', frase: 'deploys.sameImage' },
-  'sg-open': { tag: 'error', frase: 'deploys.sgOpen' },
-  'sg-close': { tag: 'success', frase: 'deploys.sgClose' },
-  exec: { tag: 'warning', frase: 'deploys.exec' },
-}
-const isManualRestart = (b) => Boolean(AZIONI_A_MANO[b?.kind])
-// Azione fatta a mano = una di quelle sopra, o una build lanciata fuori dalla CI.
-const isByHand = (b) => isManualRestart(b) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
 
@@ -63,39 +51,6 @@ function matchStatus(b, f) {
 function matchPeriod(b, f) {
   if (f === 'all' || !PERIOD_MS[f] || !b.startedAt) return true
   return Date.now() - new Date(b.startedAt).getTime() <= PERIOD_MS[f]
-}
-
-// Raggruppa le build per servizio, dal più recente. Per ogni servizio calcola l'ultima build,
-// i conteggi ok/fallito e la lista (per il trend). In-corso prima, poi ordine alfabetico.
-function groupByService(builds) {
-  const map = new Map()
-  for (const b of builds) {
-    const svc = b.service || b.project || '—'
-    if (!map.has(svc)) map.set(svc, [])
-    map.get(svc).push(b)
-  }
-  const groups = []
-  for (const [service, arr] of map) {
-    const sorted = [...arr].sort((a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0))
-    // Tasso di successo e trend contano solo le BUILD: un riavvio riuscito non dice niente
-    // sull'affidabilità dei rilasci, e mescolarlo gonfierebbe il rapporto proprio quando un
-    // servizio va male (ogni riavvio per rimetterlo in piedi lo farebbe sembrare più sano).
-    const onlyBuilds = sorted.filter((x) => !isManualRestart(x))
-    groups.push({
-      service,
-      builds: sorted,
-      trend: onlyBuilds,
-      latest: sorted[0],
-      ok: onlyBuilds.filter((x) => x.status === 'SUCCEEDED').length,
-      failed: onlyBuilds.filter((x) => FAILED_STATUSES.includes(x.status)).length,
-    })
-  }
-  return groups.sort((a, b) => {
-    const ai = a.latest.inProgress ? 0 : 1
-    const bi = b.latest.inProgress ? 0 : 1
-    if (ai !== bi) return ai - bi
-    return a.service.localeCompare(b.service)
-  })
 }
 
 // Mini-trend: pallini colorati per stato, dal più vecchio (sx) al più recente (dx), ultime N.
@@ -266,7 +221,7 @@ function ServiceRow({ g, onOpen, t }) {
   const isCf = b.provider === 'cloudflare'
   return (
     <ClickableRow b={b} onOpen={onOpen} t={t}>
-      <BuildInfo b={b} name={g.service} t={t} />
+      <BuildInfo b={b} name={g.sgGroup ? t('deploys.sgGroup', { n: g.builds.length }) : g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
         {!isCf && <DeployTrend builds={g.trend ?? g.builds} onOpen={onOpen} t={t} />}
         {!isCf && decided > 0 && (
@@ -614,9 +569,21 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // servizi di un altro account: sceglierli svuotava la pagina senza motivo apparente).
   const serviceOptions = useMemo(() => {
     const set = new Set()
-    for (const [, acc] of accounts) for (const b of acc.builds ?? []) if (b.service) set.add(b.service)
+    for (const [, acc] of accounts) {
+      for (const b of acc.builds ?? []) {
+        // Un id di security group non e' un servizio: filtrarci sopra non ha senso, e in mezzo ai nomi
+        // veri sono sette righe di rumore in una tendina che si legge a colpo d'occhio.
+        if (!b.service || !isServiceRow(b)) continue
+        // Solo chi ha righe nella finestra e nello stato scelti: offrire un servizio che poi svuota la
+        // pagina fa sembrare rotto il filtro (ed e' il difetto che questa app evita altrove, vedi la
+        // barra dei filtri che nasconde i campi inerti).
+        if (!matchPeriod(b, periodFilter) || !matchStatus(b, statusFilter)) continue
+        set.add(b.service)
+      }
+    }
+    if (serviceFilter !== 'all') set.add(serviceFilter) // la scelta attiva non sparisce mai
     return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
-  }, [accounts, t])
+  }, [accounts, periodFilter, statusFilter, serviceFilter, t])
 
   const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || serviceFilter !== 'all'
   const toggleExpand = (key) =>
