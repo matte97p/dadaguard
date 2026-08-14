@@ -567,22 +567,42 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   )
   // Servizi selezionabili = quelli degli account VISIBILI (se filtri per account, non ti offro
   // servizi di un altro account: sceglierli svuotava la pagina senza motivo apparente).
+  // La tendina dice anche DOVE vive il servizio. `kong`, `supabase`, `backend` esistono in più account,
+  // e il nome da solo non identifica niente (è la stessa ragione per cui l'identità di un servizio, in
+  // questa app, è account + nome): letta così, la voce `kong` non diceva se stavi guardando staging o
+  // produzione. Il filtro resta CROSS-ACCOUNT di proposito — serve a confrontare lo stesso servizio nei
+  // due ambienti, ed è dove atterra il deep-link `?service=` dalla pagina Servizi — quindi l'account non
+  // è una scelta da fare qui: è un'informazione da leggere. Per restringere a un ambiente c'è il filtro
+  // Account della barra in alto, che vale su tutta la pagina.
   const serviceOptions = useMemo(() => {
-    const set = new Set()
+    const dove = new Map() // servizio → etichette degli account in cui compare
     for (const [, acc] of accounts) {
       for (const b of acc.builds ?? []) {
-        // Un id di security group non e' un servizio: filtrarci sopra non ha senso, e in mezzo ai nomi
+        // Un id di security group non è un servizio: filtrarci sopra non ha senso, e in mezzo ai nomi
         // veri sono sette righe di rumore in una tendina che si legge a colpo d'occhio.
         if (!b.service || !isServiceRow(b)) continue
         // Solo chi ha righe nella finestra e nello stato scelti: offrire un servizio che poi svuota la
-        // pagina fa sembrare rotto il filtro (ed e' il difetto che questa app evita altrove, vedi la
+        // pagina fa sembrare rotto il filtro (ed è il difetto che questa app evita altrove, vedi la
         // barra dei filtri che nasconde i campi inerti).
         if (!matchPeriod(b, periodFilter) || !matchStatus(b, statusFilter)) continue
-        set.add(b.service)
+        if (!dove.has(b.service)) dove.set(b.service, new Set())
+        dove.get(b.service).add(acc.label ?? '—')
       }
     }
-    if (serviceFilter !== 'all') set.add(serviceFilter) // la scelta attiva non sparisce mai
-    return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
+    if (serviceFilter !== 'all' && !dove.has(serviceFilter)) dove.set(serviceFilter, new Set()) // la scelta attiva non sparisce mai
+    return [
+      { value: 'all', label: t('deploys.allServices') },
+      ...[...dove.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([service, conti]) => ({
+          value: service,
+          label: conti.size ? `${service} · ${[...conti].sort().join(', ')}` : service,
+          // Nella casella CHIUSA basta il nome: «backend · Management (payer), Production, Staging» a
+          // tendina chiusa viene troncato a metà, e un filtro attivo che non si legge è peggio di uno
+          // che dice meno. Gli account si leggono aprendo l'elenco, che è quando servono.
+          nomeCorto: service,
+        })),
+    ]
   }, [accounts, periodFilter, statusFilter, serviceFilter, t])
 
   const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || serviceFilter !== 'all'
@@ -628,7 +648,14 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
             <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
             <Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
             <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
-            <Select size="small" value={serviceFilter} onChange={setServiceFilter} options={serviceOptions} style={{ minWidth: 150 }} />
+            <Select
+              size="small"
+              value={serviceFilter}
+              onChange={setServiceFilter}
+              options={serviceOptions}
+              optionLabelProp="nomeCorto"
+              style={{ minWidth: 160 }}
+            />
           </Space>
         }
       />
