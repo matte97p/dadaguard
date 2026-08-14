@@ -547,7 +547,14 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     intervalMs: 15000,
   })
   const [statusFilter, setStatusFilter] = useState('all')
-  const [periodFilter, setPeriodFilter] = useState('all')
+  // 7 giorni, non «sempre» e non 24h. «Sempre» prometteva tutto lo storico e ne consegnava due
+  // orizzonti diversi nella stessa lista: le build sono le ultime 15 per progetto (che su un servizio
+  // che rilascia spesso sono tre giorni, su uno fermo sono mesi) mentre le azioni a mano arrivano da
+  // CloudTrail con una finestra di 7 giorni. Effetto: nella parte vecchia della lista non può comparire
+  // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte» — che non è
+  // un fatto, è il fatto che non abbiamo guardato. 24h invece taglia troppo: si rilascia qualche volta
+  // a settimana, e la pagina sarebbe vuota il lunedì mattina.
+  const [periodFilter, setPeriodFilter] = useState('7d')
   // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
   // arriveresti sui deploy di tutta la flotta da cercare a mano.
   // Deep-link `?service=`: arriva dalla pagina dei servizi. La guardia su `window` serve alla prova di
@@ -593,12 +600,13 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     ],
     [t],
   )
+  // Niente «sempre» e niente 30 giorni: oltre i 7 le due sorgenti non sono più allineate (vedi il
+  // commento sul default). Per andare più indietro davvero servirebbe allargare la finestra CloudTrail
+  // lato server, non un'opzione in più che mostra metà dei fatti.
   const periodOptions = useMemo(
     () => [
-      { value: 'all', label: t('deploys.period.all') },
       { value: '24h', label: t('deploys.period.24h') },
       { value: '7d', label: t('deploys.period.7d') },
-      { value: '30d', label: t('deploys.period.30d') },
     ],
     [t],
   )
@@ -610,7 +618,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
   }, [accounts, t])
 
-  const anyFilter = statusFilter !== 'all' || periodFilter !== 'all' || serviceFilter !== 'all'
+  const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || serviceFilter !== 'all'
   const toggleExpand = (key) =>
     setExpanded((prev) => {
       const n = new Set(prev)
