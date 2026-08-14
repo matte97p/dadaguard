@@ -480,6 +480,11 @@ const STRINGS = {
     'topo.hubTargets': '{n} {n#servizio#servizi}',
     'topo.ghosts':
       '{n} {n#vicino#vicini} {n#è#sono} fuori dal filtro: {n#resta#restano} tratteggiati perché una dipendenza non si legge a metà.',
+    'topo.lane.ingress': 'Ingresso',
+    'topo.lane.app': 'Applicazioni',
+    'topo.lane.data': 'Dati',
+    'topo.lane.ops': 'Cron e strumenti',
+    'topo.focusHint': 'clic su un nodo: resta in primo piano il suo vicinato',
     'topo.tab.deps': 'Dipendenze',
     'topo.tab.net': 'Rete',
     'topo.desc':
@@ -1133,6 +1138,11 @@ const STRINGS = {
     'topo.hubTargets': '{n} {n#service#services}',
     'topo.ghosts':
       '{n} {n#neighbour#neighbours} {n#is#are} outside the filter: {n#it stays#they stay} dashed, because half a dependency reads as none.',
+    'topo.lane.ingress': 'Ingress',
+    'topo.lane.app': 'Applications',
+    'topo.lane.data': 'Data',
+    'topo.lane.ops': 'Crons and tooling',
+    'topo.focusHint': 'click a node: its neighbourhood stays in the foreground',
     'topo.tab.deps': 'Dependencies',
     'topo.tab.net': 'Network',
     'topo.desc':

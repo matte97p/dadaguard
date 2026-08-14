@@ -6,6 +6,22 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **La topologia era illeggibile per costruzione, non per come era disegnata.** Sui dati veri erano 78
+  nodi e 104 archi in una tela sola, con staging e produzione sovrapposti: due architetture identiche
+  una sopra l'altra, più una corsia da 13 nodi in fila (3100px, e dopo l'inquadratura le etichette a sei
+  pixel). Ora: **un ambiente per volta** (23 nodi in produzione, 30 in staging), le corsie **vanno a
+  capo** ogni 6 così la tela resta un rettangolo da ~1450px invece di una striscia, e ogni livello
+  dell'architettura ha la sua **fascia** con il nome (Ingresso, Applicazioni, Dati, Cron e strumenti).
+  I nodi non sono più rettangoli con una stringa dentro ma **card**: icona per tipo di risorsa (l'occhio
+  legge «un database, due lambda, un load balancer» prima di leggere un nome), accento a sinistra col
+  colore dello stato, testa del nome compattata e coda in evidenza. Gli archi sono curve morbide, sottili
+  e mute; **al clic su un nodo** si accendono i suoi e il resto si smorza, che è la risposta a «se questo
+  va giù, chi ne soffre» — su cento archi tutti uguali non si leggeva.
+  La costruzione del grafo è uscita dal `.jsx` in `web/topoGraph.js` con 8 test, perché ReactFlow non
+  disegna i nodi fuori dal browser: la prova di rendering senza DOM vedeva una tela vuota e non poteva
+  dire niente su corsie, vicini e collassi.
+
+### Changed
 - **Passata di interfaccia su tutta l'app, e la timeline delle esecuzioni.** Il difetto non era una
   pagina brutta: era che ogni pagina aveva deciso da sola: `marginBottom: 16` qui e `12` là, quattro
   grigi diversi per lo stesso bordo, «nessun dato» a tre altezze differenti, l'intestazione di tabella
