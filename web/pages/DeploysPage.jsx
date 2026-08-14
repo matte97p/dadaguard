@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
-import { shortActor, fmtAgo } from '../format.js'
+import { shortActor, fmtAgo, awsErrorText } from '../format.js'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 
@@ -137,11 +137,19 @@ function DeployTrend({ builds, onOpen, t }) {
 function BuildInfo({ b, name, t }) {
   const isCf = b.provider === 'cloudflare'
   const restart = isManualRestart(b)
+  // Un'azione su un security group si chiamava con l'id del gruppo (`sg-0046fdc5fa3522a28`): quattro
+  // righe così, una sotto l'altra, sono quattro stringhe illeggibili dove dovrebbe stare la notizia.
+  // In testa va la PORTA, che è la cosa di cui si parla; l'id scende nella riga sotto, perché serve per
+  // richiudere e quindi non si nasconde.
+  const sg = b.kind === 'sg-open' || b.kind === 'sg-close'
+  const titolo = sg ? t('deploys.sgPort', { porte: (b.porte ?? []).join(', ') || '?' }) : name
   // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
   // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
   // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
   const sub = restart
-    ? t(AZIONI_A_MANO[b.kind].frase, { porte: (b.porte ?? []).join(', ') || '?' })
+    ? [t(AZIONI_A_MANO[b.kind].frase, { porte: (b.porte ?? []).join(', ') || '?' }), sg ? b.service : null]
+        .filter(Boolean)
+        .join(' · ')
     : [
         b.commit,
         b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
@@ -156,9 +164,12 @@ function BuildInfo({ b, name, t }) {
       <Space size={8} wrap style={{ rowGap: 2 }}>
         {b.inProgress && <Badge status="processing" />}
         <Text strong style={{ whiteSpace: 'nowrap' }}>
-          {name}
+          {titolo}
         </Text>
-        {st.key && (
+        {/* Lo stato della BUILD non si mostra sulle azioni a mano riuscite: non c'era nessuna build, e
+            un «ok» accanto a «porta aperta a mano, è drift» dice la cosa sbagliata (la chiamata è
+            andata a buon fine, la situazione no). Sui tentativi RESPINTI invece si mostra: è la notizia. */}
+        {st.key && (!restart || failed) && (
           <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
             {t(st.key)}
           </Tag>
@@ -204,7 +215,10 @@ function BuildInfo({ b, name, t }) {
           <Tooltip title={b.failReason || undefined}>
             <Text style={{ fontSize: 12, color: '#ff7875', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
-              {b.failReason ? `: ${b.failReason}` : ''}
+              {/* Il messaggio di AWS tradotto in «cosa è andato storto»: `ClusterNotFoundException` su
+                  una riga dell'account payer vuol dire che la chiamata è finita nell'account sbagliato,
+                  ed è quello che va scritto. L'originale sta nel tooltip. */}
+              {b.failReason ? `: ${awsErrorText(b.failReason, t)}` : ''}
             </Text>
           </Tooltip>
         </div>

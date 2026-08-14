@@ -144,14 +144,15 @@ test('apertura di un security group: riga di break-glass, con porta e con chi', 
   assert.equal(r.kind, 'sg-open')
   assert.equal(r.service, 'sg-0abc')
   assert.deepEqual(r.porte, [5432])
-  assert.equal(r.trigger, 'break-glass APERTO')
+  // Il trigger è una CHIAVE, non una frase: la frase (tradotta) la scrive la UI.
+  assert.equal(r.trigger, 'sg-open')
   assert.equal(r.forcedBy, 'persona')
   assert.equal(r.status, 'SUCCEEDED')
 })
 
 test('chiusura: la riga gemella, così le due insieme dicono se è ancora aperta', () => {
   assert.equal(sgRow(eventoSg('RevokeSecurityGroupIngress')).kind, 'sg-close')
-  assert.equal(sgRow(eventoSg('RevokeSecurityGroupIngress')).trigger, 'break-glass chiuso')
+  assert.equal(sgRow(eventoSg('RevokeSecurityGroupIngress')).trigger, 'sg-close')
 })
 
 test('security group: la forma senza `items` (altro SDK) non diventa «porta ignota»', () => {
@@ -172,11 +173,28 @@ test('shell dentro a un container: tracciata, perché vede tutti i segreti del s
     CloudTrailEvent: JSON.stringify({
       eventName: 'ExecuteCommand',
       userIdentity: { arn: 'arn:aws:sts::1:assumed-role/teleport-restart-production/persona' },
-      requestParameters: { cluster: 'acme-production', task: 'abc' },
+      requestParameters: { cluster: 'acme-production', container: 'backend', task: 'abc' },
     }),
   })
   assert.equal(r.kind, 'exec')
-  assert.equal(r.trigger, 'shell nel container')
+  assert.equal(r.trigger, 'exec')
+  // Il nome della riga è il CONTAINER in cui si è entrati, non l'ambiente: sei shell nello stesso
+  // cluster sono sei righe identiche se ci si mette il cluster, e non si capisce dove sia entrato chi.
+  assert.equal(r.service, 'backend')
+  assert.equal(r.cluster, 'acme-production')
   assert.equal(r.viaTeleport, true, 'passata da Teleport: sessione registrata')
   assert.equal(r.forcedBy, 'persona')
+})
+
+test('shell senza il container nell’evento: si ricade sul cluster invece di lasciare la riga senza nome', () => {
+  const r = execRow({
+    EventId: 'e3',
+    EventTime: '2026-08-13T19:00:00Z',
+    CloudTrailEvent: JSON.stringify({
+      eventName: 'ExecuteCommand',
+      userIdentity: { arn: 'arn:aws:sts::1:assumed-role/ruolo/persona' },
+      requestParameters: { cluster: 'acme-production', task: 'abc' },
+    }),
+  })
+  assert.ok(r.service, 'una riga senza nome non si mostra a nessuno')
 })

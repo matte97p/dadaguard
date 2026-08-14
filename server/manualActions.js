@@ -124,7 +124,7 @@ export function sgRow(event = {}) {
     cluster: null,
     status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
     inProgress: false,
-    trigger: chiuso ? 'break-glass chiuso' : 'break-glass APERTO',
+    trigger: chiuso ? 'sg-close' : 'sg-open',
     forcedBy: principalName(arn),
     viaTeleport: viaTeleportRole(arn),
     porte,
@@ -148,11 +148,15 @@ export function execRow(event = {}) {
     id: `exec:${event.EventId ?? `${req.task}:${at}`}`,
     kind: 'exec',
     provider: 'ecs',
-    service: serviceFromEcs(req.cluster ?? ''),
+    // Il servizio è il CONTAINER in cui si è entrati (`backend`), non il cluster: prendendo il cluster
+    // la riga si chiamava col nome dell'ambiente (`acme-production`), quindi sei righe di shell
+    // sembravano sei volte la stessa cosa e non si capiva DOVE fosse entrato qualcuno. CloudTrail lo
+    // dà in `requestParameters.container`; il cluster resta nel campo suo.
+    service: req.container || serviceFromEcs(req.cluster ?? ''),
     cluster: req.cluster ?? null,
     status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
     inProgress: false,
-    trigger: 'shell nel container',
+    trigger: 'exec',
     forcedBy: principalName(arn),
     viaTeleport: viaTeleportRole(arn),
     startedAt: at,

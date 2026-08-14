@@ -203,3 +203,36 @@ export function compactBuildReason(reason, { max = 150, cmd = 56 } = {}) {
   }
   return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw
 }
+
+// ERRORE AWS in una frase che dice cosa fare. Ritorna una CHIAVE i18n (+ parametri), non del testo:
+// la frase la compone chi disegna, tradotta. `raw` resta sempre, per il tooltip e per chi vuole
+// l'originale.
+//
+// Perché non si mostra il messaggio grezzo: quello che AWS restituisce è preciso e inutile a chi legge.
+// `ClusterNotFoundException: Cluster not found.` su una riga dell'account payer non dice la cosa che
+// conta, cioè che quel cluster non vive lì e quindi la chiamata è finita nell'account sbagliato. E
+// `User: arn:aws:sts::…:assumed-role/ruolo-lunghissimo/persona is not authorized to perform:
+// ecs:ExecuteCommand` è una riga di 140 caratteri per dire «a quel ruolo manca quel permesso».
+// Pura/testabile.
+export function explainAwsError(reason) {
+  const raw = String(reason ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return null
+  if (/ClusterNotFound/i.test(raw)) return { key: 'aws.err.clusterNotFound', params: {}, raw }
+  if (/ServiceNotFound|ServiceNotActive/i.test(raw)) return { key: 'aws.err.serviceNotFound', params: {}, raw }
+  // «not authorized to perform: <azione>» è la parte che risolve: l'azione manca al ruolo.
+  const azione = /not authorized to perform:?\s*([a-zA-Z0-9:*-]+)/.exec(raw)?.[1]
+  if (azione) return { key: 'aws.err.denied', params: { action: azione }, raw }
+  if (/^AccessDenied/i.test(raw)) return { key: 'aws.err.deniedPlain', params: {}, raw }
+  if (/RequestLimitExceeded|Throttling/i.test(raw)) return { key: 'aws.err.throttled', params: {}, raw }
+  if (/ExpiredToken|InvalidClientTokenId/i.test(raw)) return { key: 'aws.err.expired', params: {}, raw }
+  return { key: null, params: {}, raw }
+}
+
+// Come sopra ma già risolto in testo, per chi ha una `t` sotto mano: chiave tradotta se c'è, altrimenti
+// il messaggio grezzo accorciato (che è meglio di niente, ma peggio di una frase).
+export function awsErrorText(reason, t = (k) => k, { max = 120 } = {}) {
+  const e = explainAwsError(reason)
+  if (!e) return ''
+  if (e.key) return t(e.key, e.params)
+  return e.raw.length > max ? `${e.raw.slice(0, max - 1)}…` : e.raw
+}

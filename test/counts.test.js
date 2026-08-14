@@ -3,7 +3,7 @@
 // sparisca — nemmeno uno introdotto dal server dopo questo codice.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { countByStatus, compactBuildReason } from '../web/format.js'
+import { countByStatus, compactBuildReason, explainAwsError, awsErrorText } from '../web/format.js'
 
 const svc = (overall) => ({ overall })
 
@@ -66,4 +66,34 @@ test('compactBuildReason: un messaggio che NON è un comando passa (accorciato s
   assert.equal(compactBuildReason(''), '')
   assert.equal(compactBuildReason(null), '')
   assert.equal(compactBuildReason('y'.repeat(300)).length, 150)
+})
+
+// explainAwsError: il messaggio di AWS è preciso e inutile a chi legge. Questi casi sono quelli visti
+// sulla pagina vera, uno per uno.
+test('explainAwsError: cluster inesistente = chiamata finita nell’account sbagliato', () => {
+  const e = explainAwsError('ClusterNotFoundException: Cluster not found.')
+  assert.equal(e.key, 'aws.err.clusterNotFound')
+  assert.equal(e.raw, 'ClusterNotFoundException: Cluster not found.') // l’originale non si perde
+})
+
+test('explainAwsError: permesso negato porta con sé l’AZIONE che manca', () => {
+  const raw =
+    'AccessDenied: User: arn:aws:sts::000000000000:assumed-role/ruolo-hotfix/persona is not authorized to perform: ecs:ExecuteCommand on resource: arn:aws:ecs:eu-central-1:000000000000:task/x'
+  const e = explainAwsError(raw)
+  assert.equal(e.key, 'aws.err.denied')
+  assert.equal(e.params.action, 'ecs:ExecuteCommand')
+})
+
+test('explainAwsError: throttling, credenziali scadute, e ciò che non si sa spiegare resta grezzo', () => {
+  assert.equal(explainAwsError('RequestLimitExceeded').key, 'aws.err.throttled')
+  assert.equal(explainAwsError('ExpiredTokenException: token scaduto').key, 'aws.err.expired')
+  assert.equal(explainAwsError('InvalidParameterException: qualcosa di strano').key, null)
+  assert.equal(explainAwsError(null), null)
+})
+
+test('awsErrorText: senza chiave torna il grezzo accorciato, non una frase inventata', () => {
+  const t = (k, p) => (p?.action ? `${k}:${p.action}` : k)
+  assert.equal(awsErrorText('ClusterNotFoundException: x', t), 'aws.err.clusterNotFound')
+  assert.equal(awsErrorText('z'.repeat(300), t).length, 120)
+  assert.equal(awsErrorText(null, t), '')
 })
