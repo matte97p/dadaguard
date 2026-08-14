@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Space, Tag, Tooltip, Alert, Empty, Skeleton, Segmented } from 'antd'
+import { Typography, Space, Tag, Tooltip, Alert, Skeleton, Segmented } from 'antd'
 import {
   ClockCircleOutlined,
   SyncOutlined,
@@ -11,11 +11,11 @@ import {
   DollarOutlined,
   LineChartOutlined,
 } from '@ant-design/icons'
-import { PageIntro, HeroRow, HeroStat } from './pageKit.jsx'
+import { PageIntro, HeroRow, HeroStat, Section, EmptyState } from './pageKit.jsx'
 import { buildSignals, countByLevel } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
-import { levelColor, SURFACE } from '../theme.js'
+import { levelColor, FONT, SPACE } from '../theme.js'
 
 const { Text } = Typography
 
@@ -43,16 +43,8 @@ function SignalRow({ s, t, onOpen }) {
       data-signal={s.kind}
       onClick={() => onOpen(s)}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s))}
-      style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 12,
-        padding: '9px 12px',
-        borderRadius: 8,
-        borderLeft: `3px solid ${color}`,
-        background: SURFACE.rowBg,
-        cursor: 'pointer',
-      }}
+      className="dg-signal"
+      style={{ borderInlineStart: `3px solid ${color}` }}
     >
       <span style={{ color, flex: 'none', opacity: 0.85 }}>{KIND_ICON[s.kind] ?? null}</span>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -196,25 +188,26 @@ export default function NowPage({ services = [], statusReady = false, statusLoad
       {/* Niente da segnalare è un ESITO, non un vuoto: si dice cosa è stato guardato, altrimenti una
           pagina vuota si legge come "non funziona". */}
       {!waiting && signals.length === 0 && (
-        <Empty
+        <EmptyState
           description={
             <Space direction="vertical" size={2}>
               <Text>{t('now.allQuiet', { h: hours })}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: FONT.small }}>
                 {t('now.checked', { n: services.length })}
               </Text>
             </Space>
           }
-          style={{ marginTop: 24 }}
         />
       )}
 
       {signals.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {signals.map((s) => (
-            <SignalRow key={s.id} s={s} t={t} onOpen={(x) => navigate(x.to)} />
-          ))}
-        </div>
+        <Section title={t('now.listTitle', { n: signals.length })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.xs }}>
+            {signals.map((s) => (
+              <SignalRow key={s.id} s={s} t={t} onOpen={(x) => navigate(x.to)} />
+            ))}
+          </div>
+        </Section>
       )}
 
       {signals.length > 0 && (

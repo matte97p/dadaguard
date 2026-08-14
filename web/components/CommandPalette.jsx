@@ -66,7 +66,7 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
           setIdx(0)
         }}
         onKeyDown={onKeyDown}
-        style={{ padding: '12px 16px', borderBottom: '1px solid rgba(128,128,128,0.18)' }}
+        style={{ padding: '12px 16px', borderBottom: '1px solid var(--dg-line)' }}
       />
       <List
         size="small"
@@ -77,7 +77,7 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
           <List.Item
             onMouseEnter={() => setIdx(i)}
             onClick={() => choose(item)}
-            style={{ cursor: 'pointer', padding: '8px 16px', background: i === idx ? 'rgba(128,128,128,0.12)' : undefined }}
+            style={{ cursor: 'pointer', padding: '8px 16px', background: i === idx ? 'var(--dg-line)' : undefined }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
               <Badge status={STATUS[item.overall] ?? 'default'} />

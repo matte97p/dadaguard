@@ -74,7 +74,7 @@ export function LogLines({ events = [], prefix = null, maxHeight = '58vh' }) {
             key={i}
             style={{
               padding: '3px 2px',
-              borderBottom: '1px solid rgba(127,127,127,0.08)',
+              borderBottom: '1px solid var(--dg-row)',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}

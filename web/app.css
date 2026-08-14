@@ -1,3 +1,162 @@
+/* ══ STRATO BASE ══════════════════════════════════════════════════════════════════════════════════
+   Le decisioni che valgono per TUTTA l'app, e che prima non stavano da nessuna parte: le pagine si
+   arrangiavano ognuna coi suoi pixel a mano. Qui ci sono solo cose che i token antd non esprimono.
+
+   La variabile `--dg-*` esiste per un motivo pratico: il tema si cambia in JS (algoritmo antd), quindi
+   il CSS non "sa" se è chiaro o scuro. La classe `.dg-dark` sulla radice (la mette App) ribalta le
+   neutre in un posto solo, invece di due valori duplicati in ogni regola. */
+:root {
+  --dg-line: rgba(15, 23, 42, 0.09);
+  --dg-line-strong: rgba(15, 23, 42, 0.16);
+  --dg-row: rgba(15, 23, 42, 0.028);
+  --dg-track: rgba(15, 23, 42, 0.08);
+  --dg-brand: #7c3aed;
+  --dg-brand-soft: rgba(124, 58, 237, 0.07);
+  --dg-ink-mute: rgba(15, 23, 42, 0.6);
+  --dg-ink-faint: rgba(15, 23, 42, 0.42);
+  --dg-space: 16px;
+}
+.dg-dark {
+  --dg-line: rgba(255, 255, 255, 0.12);
+  --dg-line-strong: rgba(255, 255, 255, 0.2);
+  --dg-row: rgba(255, 255, 255, 0.045);
+  --dg-track: rgba(255, 255, 255, 0.12);
+  --dg-brand-soft: rgba(124, 58, 237, 0.22);
+  --dg-ink-mute: rgba(255, 255, 255, 0.62);
+  --dg-ink-faint: rgba(255, 255, 255, 0.42);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* CIFRE A LARGHEZZA FISSA in tutta l'app, non solo dove qualcuno si è ricordato di metterle. Su una
+   colonna di durate o di importi, le cifre proporzionali spostano i numeri di qualche pixel a ogni
+   riga: sembra allineata e non lo è, e il confronto a occhio — che è il motivo per cui li si incolonna
+   — non funziona. */
+.ant-table,
+.ant-statistic-content,
+.dg-num,
+.dg-stat-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Messa a fuoco VISIBILE, e col colore del marchio: si naviga questa app da tastiera (⌘K, frecce
+   nella lista dei servizi) e l'anello di serie del browser su fondo scuro non si vede. */
+:where(a, button, [tabindex], .ant-table-row, summary):focus-visible {
+  outline: 2px solid var(--dg-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Barre di scorrimento discrete: qui si scorrono tabelle lunghe e pannelli di log, e la barra di
+   sistema (larga, grigio pieno) è la cosa più vistosa dello schermo per essere la meno importante. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dg-track) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--dg-track);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--dg-line-strong);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Struttura di pagina ──────────────────────────────────────────────────────────────────────────
+   Larghezza massima del contenuto: su un monitor da 27" una tabella larga 2000px diventa illeggibile
+   (l'occhio perde la riga fra la prima e l'ultima colonna), e le pagine non tabellari diventano
+   distese di vuoto. Il contenuto respira e resta centrato. */
+.dg-page {
+  max-width: 1560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Intestazione dell'app: sottile, appiccicata in alto e separata da una linea, non da un'ombra. Resta
+   visibile mentre si scorre — è dove stanno «Aggiorna» e lo stato di salute, cioè le due cose che si
+   cercano proprio quando si è in fondo a una lista lunga. */
+.dg-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: saturate(1.4) blur(8px);
+}
+.dg-header .ant-btn-text {
+  color: var(--dg-ink-mute);
+}
+.dg-header .ant-btn-text:hover {
+  color: var(--dg-brand);
+}
+
+/* Titolo di pagina e sua descrizione: il rapporto fra i due è ciò che rende una pagina "curata".
+   Il titolo stretto di spaziatura, la descrizione muta e su una riga di misura leggibile (non larga
+   quanto lo schermo: oltre i ~90 caratteri l'occhio perde il capo della riga successiva). */
+.dg-page-title {
+  letter-spacing: -0.01em;
+}
+.dg-page-desc {
+  max-width: 78ch;
+  color: var(--dg-ink-mute);
+}
+
+/* SEZIONE: il contenitore che prima ogni pagina si disegnava a mano (bordo, raggio, padding, titolino
+   in grassetto). Uno solo, così due blocchi affiancati hanno lo stesso respiro. */
+.dg-section {
+  border: 1px solid var(--dg-line);
+  border-radius: 12px;
+  background: var(--dg-row);
+  padding: 14px 16px;
+}
+.dg-section + .dg-section {
+  margin-top: 16px;
+}
+.dg-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.dg-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dg-ink-faint);
+}
+/* Sezione che PORTA un segnale (le run in corso): il colore sta sul bordo sinistro, non sul fondo —
+   un pannello colorato pieno urla, una fascia laterale indica. */
+.dg-section-live {
+  border-inline-start: 3px solid var(--dg-brand);
+  background: var(--dg-brand-soft);
+}
+
+/* Intestazione di tabella appiccicata: su una lista di trenta righe, scorrere e non sapere più cosa
+   sia la terza colonna è il difetto più comune di queste pagine. */
+.dg-sticky .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+}
+/* Etichette di colonna: minuscole, spaziate, mute. Devono etichettare, non competere coi dati. */
+.ant-table-thead > tr > th {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Titolo delle card: va a capo invece di troncare i nomi lunghi (es. cato-production-cron-…).
    antd di default mette ellipsis su .ant-card-head-title; qui lo lasciamo andare su 2 righe. */
 .ant-card-head-title {
@@ -110,27 +269,27 @@
    spezza la riga in due blocchi e dà all'occhio un punto di riferimento a metà strada. */
 .dg-table .ant-table-tbody > tr > .ant-table-cell:nth-child(4),
 .dg-table .ant-table-thead > tr > .ant-table-cell:nth-child(4) {
-  border-inline-start: 1px solid rgba(128, 128, 128, 0.16);
+  border-inline-start: 1px solid var(--dg-line);
 }
 
 /* Righe alternate + bordo sottile: su una tabella larga è ciò che tiene la riga sotto l'occhio
    mentre lo sguardo attraversa 1500px (senza, si salta di riga a metà strada). Tinta bassissima:
    deve dare il ritmo, non disegnare una scacchiera. */
 .dg-table .dg-zebra > .ant-table-cell {
-  background: rgba(128, 128, 128, 0.075);
+  background: var(--dg-row);
 }
 .dg-table .ant-table-tbody > tr > .ant-table-cell {
-  border-bottom-color: rgba(128, 128, 128, 0.14) !important;
+  border-bottom-color: var(--dg-line) !important;
 }
 /* Riga sotto il puntatore: evidenziazione più netta di quella di serie, sempre per non perdere la riga. */
 .dg-table .ant-table-tbody > tr:hover > .ant-table-cell,
 .dg-table .dg-zebra:hover > .ant-table-cell {
-  background: rgba(124, 58, 237, 0.09) !important;
+  background: var(--dg-brand-soft) !important;
 }
 /* Intestazione: un filo più leggibile e con lo stacco dal corpo. */
 .dg-table .ant-table-thead .ant-table-cell {
   background: transparent;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.28) !important;
+  border-bottom: 1px solid var(--dg-line-strong) !important;
 }
 /* Numeri in colonna: cifre a larghezza fissa, così le latenze si incolonnano e le confronti a occhio
    (tabular-nums serve QUI, non sui numeri grandi isolati). */
@@ -173,7 +332,7 @@
   align-items: center;
   gap: 6px;
   padding: 3px 9px;
-  border: 1px solid rgba(128, 128, 128, 0.28);
+  border: 1px solid var(--dg-line-strong);
   border-radius: 999px;
   background: transparent;
   color: inherit;
@@ -183,7 +342,7 @@
 }
 .dg-chip:hover {
   border-color: rgba(124, 58, 237, 0.55);
-  background: rgba(124, 58, 237, 0.08);
+  background: var(--dg-brand-soft);
 }
 .dg-chip:focus-visible {
   outline: 2px solid #7c3aed;
@@ -249,7 +408,7 @@ details[open] > .dg-summary .dg-chev {
   letter-spacing: 0.4px;
   opacity: 0.55;
   text-align: start;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.28);
+  border-bottom: 1px solid var(--dg-line-strong);
   white-space: nowrap;
 }
 .dg-bt thead th button {
@@ -277,7 +436,7 @@ details[open] > .dg-summary .dg-chev {
 }
 .dg-bt tbody td {
   padding: 5px 6px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  border-bottom: 1px solid var(--dg-line);
   vertical-align: middle;
 }
 .dg-bt tbody tr:last-child td {
@@ -287,7 +446,7 @@ details[open] > .dg-summary .dg-chev {
    riga mentre l'occhio va dall'etichetta all'importo. Solo sulle righe apribili: su una riga che
    non fa niente, l'evidenziazione promette un clic che non c'è. */
 .dg-bt tbody tr.dg-bt-open:hover td {
-  background: rgba(124, 58, 237, 0.09);
+  background: var(--dg-brand-soft);
 }
 .dg-bt tbody td:first-child button {
   all: unset;
@@ -372,4 +531,132 @@ details[open] > .dg-summary .dg-chev {
    chiude visivamente invece di incollarsi alla riga dopo. */
 .dg-bt tbody tr.dg-bt-detail:last-of-type td {
   padding-bottom: 5px;
+}
+
+/* ── Timeline delle esecuzioni (pagina Esecuzioni) ────────────────────────────────────────────────
+   Una riga per cron, e dentro la riga le sue ultime corse come blocchi: la FORMA dice quello che una
+   tabella di numeri fa dire solo dopo averla letta — chi sta girando, chi è più lento del solito, dove
+   c'è un buco. La larghezza del blocco è la durata (radice quadrata, sennò una corsa da 4 secondi
+   accanto a una da sei ore sarebbe invisibile), il colore è l'esito, il bordo sinistro della riga è lo
+   stato dell'ultima corsa. */
+.dg-tl-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.dg-tl-row + .dg-tl-row {
+  border-top: 1px solid var(--dg-line);
+}
+.dg-tl-row:hover {
+  background: var(--dg-row);
+}
+@media (max-width: 720px) {
+  /* Su schermo stretto la colonna dei nomi si mangia la striscia: una sopra l'altra si legge, due
+     colonne da 90px no. */
+  .dg-tl-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+/* La striscia: i blocchi si appoggiano a destra, perché il presente sta a destra e l'occhio parte da
+   lì. La linea di base dice che è un asse del tempo e non una fila di pastiglie. */
+.dg-tl-strip {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 30px;
+  position: relative;
+  padding-bottom: 5px;
+  overflow: hidden;
+}
+.dg-tl-strip::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--dg-line);
+}
+
+.dg-tl-block {
+  border: 0;
+  padding: 0;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+  flex: none;
+}
+.dg-tl-block:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.12);
+}
+
+/* La corsa IN CORSO: rigata e in movimento verso destra, cioè "sta ancora scrivendo". È l'unico
+   elemento animato della pagina — se si muovesse anche altro, questo non direbbe più niente. */
+.dg-tl-block-live {
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.42) 0 6px,
+    rgba(255, 255, 255, 0) 6px 12px
+  );
+  animation: dg-tl-slide 1.1s linear infinite;
+}
+@keyframes dg-tl-slide {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 24px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dg-tl-block-live {
+    animation: none;
+  }
+}
+
+/* Estremi dell'asse ("3g fa" … "ora"): piccoli, muti, e presenti — senza, la striscia è una fila di
+   blocchi senza tempo. */
+.dg-tl-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--dg-ink-faint);
+  margin-top: 2px;
+}
+
+/* Riga-segnale della pagina «Adesso»: è un elenco di cose cliccabili, quindi deve rispondere al
+   puntatore. Prima era un blocco con fondo grigio fisso e nessun ritorno: sembrava testo, e nessuno
+   scopriva che ci si clicca sopra. */
+.dg-signal {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--dg-row);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.12s ease;
+}
+.dg-signal:hover {
+  background: var(--dg-brand-soft);
+  transform: translateX(2px);
+}
+
+/* Una tabella dentro una sezione non deve disegnare un secondo riquadro: la cornice la dà la sezione,
+   e due bordi concentrici a 12px di distanza sono la cosa che fa sembrare una pagina "impilata". */
+.dg-section .ant-table,
+.dg-section .ant-table-container,
+.dg-section .ant-table-content {
+  background: transparent !important;
 }

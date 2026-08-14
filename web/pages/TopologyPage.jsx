@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
+import { Segmented, Typography, Spin, Space, Alert } from 'antd'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { PageIntro } from './pageKit.jsx'
+import { PageIntro, EmptyState } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -405,7 +405,7 @@ function Legend({ usedVias, t }) {
 const CANVAS = {
   height: 'calc(100vh - 280px)',
   minHeight: 420,
-  border: '1px solid rgba(128,128,128,0.2)',
+  border: '1px solid var(--dg-line-strong)',
   borderRadius: 8,
   position: 'relative',
 }
@@ -495,7 +495,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
             </div>
           ) : services.length === 0 ? (
             <div style={CANVAS}>
-              <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
+              <EmptyState description={t('topo.noServices')} />
             </div>
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
@@ -514,7 +514,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                     <Controls showInteractive={false} />
                   </ReactFlow>
                 ) : (
-                  <Empty style={{ paddingTop: 80 }} description={t('topo.noRelations')} />
+                  <EmptyState description={t('topo.noRelations')} />
                 )}
               </div>
               {orphans.length > 0 && (
@@ -522,7 +522,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                   style={{
                     width: 250,
                     flexShrink: 0,
-                    borderLeft: '1px solid rgba(128,128,128,0.2)',
+                    borderLeft: '1px solid var(--dg-line-strong)',
                     overflowY: 'auto',
                     padding: '8px 4px 8px 12px',
                   }}
@@ -584,7 +584,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                 <Spin tip={t('topo.netLoading')} />
               </div>
             ) : !netGraph.hasData ? (
-              <Empty style={{ paddingTop: 80 }} description={t('topo.netEmpty')} />
+              <EmptyState description={t('topo.netEmpty')} />
             ) : (
               <ReactFlow
                 nodes={netGraph.nodes}

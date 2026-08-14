@@ -70,7 +70,7 @@ export default function EventsPanel({ service, account, t = (k) => k, lang }) {
           ) : (
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               {events.map((e, i) => (
-                <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
+                <div key={i} style={{ borderBottom: '1px solid var(--dg-line)', paddingBottom: 6 }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {fmt(e.ts)}
                   </Text>
@@ -94,7 +94,7 @@ export default function EventsPanel({ service, account, t = (k) => k, lang }) {
           ) : (
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               {changes.map((c, i) => (
-                <div key={i} style={{ borderBottom: '1px solid rgba(127,127,127,0.12)', paddingBottom: 6 }}>
+                <div key={i} style={{ borderBottom: '1px solid var(--dg-line)', paddingBottom: 6 }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {fmt(c.ts)}
                   </Text>

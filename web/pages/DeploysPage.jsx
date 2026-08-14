@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
+import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
 import { shortActor, fmtAgo } from '../format.js'
 import { usePoll } from '../usePoll.js'
 
@@ -231,7 +231,7 @@ function ClickableRow({ b, onOpen, t, children }) {
         padding: '8px 12px',
         borderRadius: 8,
         borderLeft: `3px solid ${st.color}`,
-        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'rgba(128,128,128,0.05)',
+        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'var(--dg-row)',
         cursor: 'pointer',
       }}
     >
@@ -559,7 +559,11 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   const [periodFilter, setPeriodFilter] = useState('all')
   // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
   // arriveresti sui deploy di tutta la flotta da cercare a mano.
-  const [serviceFilter, setServiceFilter] = useState(() => new URLSearchParams(window.location.search).get('service') ?? 'all')
+  // Deep-link `?service=`: arriva dalla pagina dei servizi. La guardia su `window` serve alla prova di
+  // rendering senza browser (l'unico controllo automatico che questa UI puo' avere in questo repo).
+  const [serviceFilter, setServiceFilter] = useState(() =>
+    typeof window === 'undefined' ? 'all' : new URLSearchParams(window.location.search).get('service') ?? 'all',
+  )
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
 
@@ -665,7 +669,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
 
       {loading && !data && <DeploysSkeleton />}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-      {data && accounts.length === 0 && <Empty description={t('deploys.noAccounts')} style={{ marginTop: 24 }} />}
+      {data && accounts.length === 0 && <EmptyState description={t('deploys.noAccounts')} />}
 
       {accounts.length > 0 && (
         <>

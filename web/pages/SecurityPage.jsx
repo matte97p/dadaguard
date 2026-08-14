@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Spin, Alert, Empty, Typography, Tag, Segmented, Space } from 'antd'
-import { PageIntro } from './pageKit.jsx'
+import { Spin, Alert, Typography, Tag, Segmented, Space } from 'antd'
+import { PageIntro, EmptyState } from './pageKit.jsx'
 import WafPanel from '../components/WafPanel.jsx'
 
 const { Text } = Typography
@@ -59,7 +59,7 @@ export default function SecurityPage({ t = (k) => k, lang }) {
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}
-      {data && findings.length === 0 && <Empty description={t('sec.none')} style={{ marginTop: 24 }} />}
+      {data && findings.length === 0 && <EmptyState description={t('sec.none')} />}
 
       {shown.length > 0 && (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -70,7 +70,7 @@ export default function SecurityPage({ t = (k) => k, lang }) {
               data-finding={f.category}
               onClick={f.link ? () => openLink(f.link) : undefined}
               style={{
-                border: '1px solid rgba(128,128,128,0.18)',
+                border: '1px solid var(--dg-line)',
                 borderRadius: 10,
                 padding: '10px 14px',
                 display: 'flex',

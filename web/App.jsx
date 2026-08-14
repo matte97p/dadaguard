@@ -23,7 +23,7 @@ import {
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
-import { antdTheme } from './theme.js'
+import { antdTheme, SPACE, FONT } from './theme.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -42,7 +42,7 @@ import SecurityPage from './pages/SecurityPage.jsx'
 import logo from '../assets/logo.png'
 
 const { Header, Content, Sider } = Layout
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
 const QUICK_PRESETS = [
@@ -169,6 +169,10 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
+    // La classe sulla radice serve al foglio di stile: i token antd arrivano via JS, ma le neutre
+    // scritte a mano (bordi, righe alternate, tracce) non si possono derivare — in scuro un bordo al
+    // 6% sparisce. Senza questo aggancio, metà dell'app cambia tema e metà no.
+    document.documentElement.classList.toggle('dg-dark', dark)
   }, [dark])
 
   useEffect(() => {
@@ -449,7 +453,7 @@ export default function App() {
   }
   const deletePreset = (name) => persistPresets(presets.filter((p) => p.name !== name))
 
-  const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm)
+  const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm, dark)
 
   const activeNav = NAV_ITEMS.find((n) => n.to === location.pathname) ?? NAV_ITEMS[0]
   // `fields` può dipendere dalla scheda aperta (Spesa: Costi vs Sprechi) → può essere una funzione.
@@ -506,17 +510,18 @@ export default function App() {
     <ConfigProvider theme={themeConfig}>
       <Layout style={{ minHeight: '100vh' }}>
         <Header
+          className="dg-header"
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingInline: 24,
+            paddingInline: SPACE.xl,
             height: 'auto',
             lineHeight: 'normal',
-            paddingBlock: 10,
-            background: dark ? '#1f1f1f' : '#fff',
-            borderBottom: `1px solid ${dark ? '#303030' : '#f0f0f0'}`,
-            gap: 12,
+            paddingBlock: SPACE.sm,
+            background: dark ? 'rgba(27,27,31,0.86)' : 'rgba(255,255,255,0.86)',
+            borderBottom: '1px solid var(--dg-line)',
+            gap: SPACE.md,
             flexWrap: 'wrap',
           }}
         >
@@ -527,12 +532,10 @@ export default function App() {
               onClick={() => setCollapsed((c) => !c)}
               title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
             />
-            <img src={logo} alt="Dadaguard" style={{ width: 32, height: 32, borderRadius: 8, display: 'block' }} />
-            <div>
-              <Title level={5} style={{ margin: 0, lineHeight: 1.2 }}>
-                Dadaguard
-              </Title>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+            <img src={logo} alt="Dadaguard" style={{ width: 30, height: 30, borderRadius: 8, display: 'block' }} />
+            <div style={{ lineHeight: 1.15 }}>
+              <div style={{ fontSize: FONT.lead, fontWeight: 600, letterSpacing: '-0.01em' }}>Dadaguard</div>
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
                 {t('app.subtitle')}
               </Text>
             </div>
@@ -596,12 +599,12 @@ export default function App() {
             // sono metà della pagina, e questa è una dashboard che si guarda, non un menu.
             breakpoint="lg"
             onBreakpoint={(broken) => setCollapsed(broken)}
-            style={{ background: dark ? '#1f1f1f' : '#fff', borderInlineEnd: `1px solid ${dark ? '#303030' : '#f0f0f0'}` }}
+            style={{ background: 'transparent', borderInlineEnd: '1px solid var(--dg-line)', paddingTop: SPACE.sm }}
           >
             <SideNav groups={visibleNav} active={activeNav.to} onPick={(to) => navigate(to)} collapsed={collapsed} t={t} />
           </Sider>
 
-          <Content style={{ padding: 24, minWidth: 0 }}>
+          <Content className="dg-page" style={{ padding: `${SPACE.xl}px ${SPACE.xl}px ${SPACE.xxl}px`, minWidth: 0 }}>
             {data?.mode === 'demo' && (
               <Alert
                 type="warning"

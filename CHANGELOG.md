@@ -5,6 +5,30 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Passata di interfaccia su tutta l'app, e la timeline delle esecuzioni.** Il difetto non era una
+  pagina brutta: era che ogni pagina aveva deciso da sola: `marginBottom: 16` qui e `12` là, quattro
+  grigi diversi per lo stesso bordo, «nessun dato» a tre altezze differenti, l'intestazione di tabella
+  che in una vista era grigia e in un'altra bianca. Messe in fila, quelle micro-decisioni si leggono
+  come «fatto da cinque persone in cinque momenti». Ora le decisioni stanno in due posti: i **token**
+  (`web/theme.js`, che accorda i componenti antd — tabelle, menu, card, tag, drawer — quindi cambiano
+  anche le pagine che non ho toccato) e uno **strato base** (`web/app.css`: scala di spaziature, cifre
+  a larghezza fissa in tutta l'app, anello di messa a fuoco visibile col colore del marchio, barre di
+  scorrimento discrete, larghezza massima del contenuto). Le neutre non sono più rgba scritti a mano:
+  sono variabili che seguono il tema, così in scuro non sparisce più un bordo al 6%.
+  In più: intestazione appiccicata in alto (dove stanno «Aggiorna» e lo stato di salute, cioè le due
+  cose che si cercano quando sei in fondo a una lista), voce di navigazione selezionata piena invece di
+  una barretta laterale che non si vedeva, `PageIntro`/`Section`/`Toolbar`/`EmptyState` condivisi al
+  posto dei pannelli ridisegnati in ogni pagina, e i vuoti che dicono una frase invece di «nessun dato».
+- **Esecuzioni: la timeline al posto della tabella.** Una riga per cron, dentro la riga le ultime corse
+  come blocchi: la larghezza è la durata (in radice quadrata, sennò una corsa da 4 secondi accanto a una
+  da sei ore è un filo invisibile), il colore è l'esito, quella in corso è rigata e si muove — l'unica
+  cosa animata della pagina, così il movimento significa qualcosa. Si legge senza leggere: chi gira, chi
+  stanotte ha impiegato il triplo, dove c'è un buco. La vista **lista** resta a un clic, perché per
+  cercare una corsa precisa una tabella è meglio di un disegno. E i nomi dei cron mostrano la testa
+  condivisa (`<org>-<ambiente>-cron-`) piccola e muta con la coda in evidenza: troncando da destra si
+  perdeva esattamente la parte che distingue un cron dall'altro.
+
 ### Added
 - **«Sta girando adesso?» e «quella di stanotte com'è finita?», che nessuna card sapeva dire.** Il
   watchdog risponde «il cron va» o «il cron è saltato»; su un job LUNGO — uno scraper che macina un'ora —
