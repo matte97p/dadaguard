@@ -33,6 +33,22 @@ export function ecsStreamName({ streamPrefix, container }, taskId) {
   return `${streamPrefix}/${container}/${taskId}`
 }
 
+// Configurazione `awslogs` di una task definition → { logGroup, streamPrefix, container }. Pura.
+// `preferred` = il container che interessa quando la task-def ne dichiara più di uno (un sidecar
+// scrive sul suo stream, e prenderlo per il principale sposta i log su un altro flusso); senza,
+// vince il primo container che ha il driver awslogs.
+export function awslogsFromTaskDef(taskDefinition, preferred = null) {
+  const conts = taskDefinition?.containerDefinitions ?? []
+  const awslogs = conts.filter((c) => c.logConfiguration?.logDriver === 'awslogs')
+  const c = (preferred ? awslogs.find((x) => x.name === preferred) : null) ?? awslogs[0]
+  if (!c) return { logGroup: null }
+  return {
+    logGroup: c.logConfiguration.options?.['awslogs-group'] ?? null,
+    streamPrefix: c.logConfiguration.options?.['awslogs-stream-prefix'] ?? null,
+    container: c.name ?? null,
+  }
+}
+
 // Ritorna { logGroup, streamPrefix, container } — gli ultimi due solo per ECS, e servono a filtrare
 // per singola istanza. `logGroup` null = il tipo non ha log applicativi su CloudWatch.
 async function resolveLogGroup(service, aws) {
@@ -44,31 +60,13 @@ async function resolveLogGroup(service, aws) {
     const svc = (await ecs.send(new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }))).services?.[0]
     if (!svc?.taskDefinition) return { logGroup: null }
     const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: svc.taskDefinition }))).taskDefinition
-    for (const c of td?.containerDefinitions ?? []) {
-      if (c.logConfiguration?.logDriver === 'awslogs') {
-        return {
-          logGroup: c.logConfiguration.options?.['awslogs-group'] ?? null,
-          streamPrefix: c.logConfiguration.options?.['awslogs-stream-prefix'] ?? null,
-          container: c.name ?? null,
-        }
-      }
-    }
-    return { logGroup: null }
+    return awslogsFromTaskDef(td, cfg.container)
   }
   // cron su ECS RunTask: il log group sta nella task-def schedulata (nessun servizio da interrogare).
   if (cfg.type === 'ecs-scheduled' && cfg.taskDefinition) {
     const ecs = new ECSClient(clientOpts(aws))
     const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition
-    for (const c of td?.containerDefinitions ?? []) {
-      if (c.logConfiguration?.logDriver === 'awslogs') {
-        return {
-          logGroup: c.logConfiguration.options?.['awslogs-group'] ?? null,
-          streamPrefix: c.logConfiguration.options?.['awslogs-stream-prefix'] ?? null,
-          container: c.name ?? null,
-        }
-      }
-    }
-    return { logGroup: null }
+    return awslogsFromTaskDef(td, cfg.container)
   }
   return { logGroup: null } // tipo senza log applicativi su CloudWatch
 }
@@ -134,12 +132,48 @@ export async function readSlice(cw, params, need, budget, { skipHealth = true } 
   return { events, more: dropped || Boolean(nextToken), skipped }
 }
 
+// Le righe di UNA finestra chiusa da entrambi i lati, su uno stream preciso quando lo si conosce: è
+// così che si leggono i log di UNA esecuzione. `to` assente = run ancora in corso, si legge fino ad
+// adesso. Condivisa fra i log di servizio e quelli per-esecuzione (server/runs.js), così la lettura
+// resta una sola implementazione.
+export async function readWindow(cw, { logGroup, stream = null, from, to = null, limit = 200, errorsOnly = false, skipHealth = true }) {
+  const budget = { pages: 0 }
+  const slice = await readSlice(
+    cw,
+    {
+      logGroupName: logGroup,
+      startTime: Number(from),
+      // +1 min di coda: l'ultima riga di un traceback arriva dopo la fine dichiarata della run.
+      endTime: Number.isFinite(Number(to)) ? Number(to) + 60_000 : Date.now(),
+      ...(stream ? { logStreamNames: [stream] } : {}),
+      ...(errorsOnly ? { filterPattern: ERROR_PATTERN } : {}),
+    },
+    Math.min(Math.max(1, Number(limit) || 200), 500),
+    budget,
+    { skipHealth },
+  )
+  return {
+    logGroup,
+    events: slice.events,
+    truncated: slice.more,
+    healthSkipped: slice.skipped,
+    streams: [...new Set(slice.events.map((e) => e.stream).filter(Boolean))].sort(),
+  }
+}
+
 // Ritorna { logGroup, events:[{ts,message,stream}], truncated, healthSkipped, streams, task } |
 // { notApplicable } | { logGroup, error }. `task` = l'id del task a cui la lettura è stata ristretta.
+//
+// `stream` + `from`/`to` = i log di UNA SOLA ESECUZIONE (vedi server/runs.js). Perché così e non
+// filtrando per request id: su Lambda le righe dell'applicazione non contengono il request id — lo
+// stampa la piattaforma su START/REPORT, non un `print` — quindi cercarlo restituirebbe tre righe di
+// contorno e nessun log del lavoro. Lo stream invece serve UNA invocazione alla volta (è un ambiente
+// di esecuzione), e su ECS RunTask è addirittura un task solo: stream + intervallo = quella run e
+// nient'altro.
 export async function recentLogs(
   service,
   accounts,
-  { errorsOnly = false, minutes = 60, limit = 100, skipHealth = true, task = null, t = (k) => k } = {},
+  { errorsOnly = false, minutes = 60, limit = 100, skipHealth = true, task = null, stream: wantStream = null, from = null, to = null, t = (k) => k } = {},
 ) {
   const acct = service.account ? accounts[service.account] : null
   const aws = {
@@ -160,7 +194,7 @@ export async function recentLogs(
   // Il task chiesto diventa un nome di stream ESATTO. Se non si riesce a comporlo (prefisso o container
   // ignoti) si legge il servizio intero: meglio più righe del richiesto che una lista vuota senza
   // spiegazione — e `task` nella risposta dice al pannello se il filtro ha davvero attecchito.
-  const stream = task ? ecsStreamName(resolved, task) : null
+  const stream = wantStream ?? (task ? ecsStreamName(resolved, task) : null)
 
   const cw = new CloudWatchLogsClient(clientOpts(aws))
   const now = Date.now()
@@ -176,6 +210,12 @@ export async function recentLogs(
     let truncated = false
     let healthSkipped = 0
     const budget = { pages: 0 }
+    // Intervallo ESPLICITO (una singola esecuzione): niente fette a ritroso — la finestra è già quella
+    // giusta e chiuderla da entrambi i lati è ciò che tiene fuori la run precedente e la successiva.
+    if (Number.isFinite(Number(from))) {
+      const out = await readWindow(cw, { logGroup, stream, from, to, limit: cap, errorsOnly, skipHealth })
+      return { ...out, task: stream ? task : null }
+    }
     for (const [fromAgo, toAgo] of backwardSlices(windowMinutes)) {
       const need = cap - events.length
       if (need <= 0 || budget.pages >= MAX_PAGES_TOTAL) {

@@ -1033,6 +1033,128 @@ export function demoApplyType(costs, type) {
   return out
 }
 
+// Esecuzioni: la vista che dice «cosa sta girando ADESSO» e «com'è finita quella di stanotte».
+// Il dataset è scelto per mostrare i casi che contano e che le card non sanno raccontare: uno scraper
+// LUNGO a metà corsa, un cron che ha finito con exit code 0 ma con dei traceback dentro, uno ucciso
+// per memoria, uno andato in timeout, uno spento di proposito, e i job di un orchestratore esterno
+// che in AWS non comparirebbero affatto.
+export function demoRuns() {
+  const now = Date.now()
+  const min = 60_000
+  const run = (o) => ({ failedScanned: true, source: 'log', ...o })
+
+  const crawler = {
+    key: 'prod/catalog-crawler',
+    name: 'catalog-crawler',
+    type: 'ecs-scheduled',
+    account: 'prod',
+    accountLabel: 'Production',
+    color: '#cf1322',
+    region: 'eu-west-1',
+    cluster: 'arn:aws:ecs:eu-west-1:000000000000:cluster/demo-cluster',
+    family: 'demo-cron-catalog-crawler',
+    logGroup: '/ecs/demo/cron-catalog-crawler',
+    scheduleExpr: 'cron(0 3 * * ? *)',
+    scheduleMinutes: 1440,
+    scheduleTz: 'Europe/Rome',
+    enabled: true,
+    nextRunAt: now + 9 * 60 * min,
+    runs: [
+      // In corso: 22 minuti di lavoro, nessuna fine. È la riga per cui questa pagina esiste.
+      run({ id: '7c1d9e3fa5b24c08b9e6d1a4c7f30b52', startedAt: now - 22 * min, endedAt: null, running: true, outcome: 'running', source: 'both', stream: 'cron/crawler/7c1d9e3fa5b24c08b9e6d1a4c7f30b52' }),
+      // Finita "bene" per ECS (exit 0) ma con errori nei log: la card sarebbe verde, la run no.
+      run({ id: '2b8f47ac91d3405e8f7c2a6b0d94e138', startedAt: now - 1500 * min, endedAt: now - 1443 * min, running: false, exitCode: 0, outcome: 'failed', stream: 'cron/crawler/2b8f47ac91d3405e8f7c2a6b0d94e138' }),
+      // Uccisa per memoria: il log non lo dice, l'API ECS sì. Ecco perché servono due sorgenti.
+      run({ id: 'f0a3c85d7e19426bb2d8f60a1c53e947', startedAt: now - 2940 * min, endedAt: now - 2902 * min, running: false, exitCode: 137, stopCode: 'EssentialContainerExited', stopReason: 'OutOfMemoryError: Container killed due to memory usage', outcome: 'failed', source: 'both', stream: 'cron/crawler/f0a3c85d7e19426bb2d8f60a1c53e947' }),
+      run({ id: 'a5e2708c4b6d41f9ae30c8b52d71f064', startedAt: now - 4380 * min, endedAt: now - 4322 * min, running: false, exitCode: 0, outcome: 'ok', stream: 'cron/crawler/a5e2708c4b6d41f9ae30c8b52d71f064' }),
+    ],
+  }
+
+  const digest = {
+    key: 'prod/daily-digest',
+    name: 'daily-digest',
+    type: 'lambda',
+    account: 'prod',
+    accountLabel: 'Production',
+    color: '#cf1322',
+    region: 'eu-west-1',
+    function: 'daily-digest',
+    logGroup: '/aws/lambda/daily-digest',
+    scheduleExpr: 'cron(0 6 * * ? *)',
+    scheduleMinutes: 1440,
+    scheduleTz: 'Europe/Rome',
+    enabled: true,
+    nextRunAt: now + 12 * 60 * min,
+    runs: [
+      run({ id: '3f9c1a20-5d7e-4b81-9c02-6ad4e7f13b58', startedAt: now - 240 * min, endedAt: now - 240 * min + 4200, durationMs: 4187, billedMs: 4200, maxMemoryMb: 118, running: false, outcome: 'ok' }),
+      // Timeout: il REPORT c'è, ma la funzione non ha finito il lavoro.
+      run({ id: '8b04d7e1-93af-42c6-8e75-1c0b6a9d24f3', startedAt: now - 1680 * min, endedAt: now - 1680 * min + 300_000, durationMs: 300_020, billedMs: 300_000, maxMemoryMb: 204, timedOut: true, running: false, outcome: 'failed' }),
+      run({ id: 'c72e5a91-04bd-4f38-a6d1-9e28b7c05f4a', startedAt: now - 3120 * min, endedAt: now - 3120 * min + 3900, durationMs: 3902, billedMs: 3900, maxMemoryMb: 112, running: false, outcome: 'ok' }),
+    ],
+  }
+
+  const legacy = {
+    key: 'staging/invoice-retry',
+    name: 'invoice-retry',
+    type: 'lambda',
+    account: 'staging',
+    accountLabel: 'Staging',
+    color: '#1677ff',
+    region: 'eu-west-1',
+    function: 'invoice-retry',
+    scheduleExpr: 'rate(15 minutes)',
+    scheduleMinutes: 15,
+    enabled: false, // spento di proposito: resta in elenco, non diventa un allarme
+    nextRunAt: null,
+    runs: [],
+  }
+
+  const withSummary = (c) => ({
+    ...c,
+    running: c.runs.filter((r) => r.running).length,
+    failedShown: c.runs.filter((r) => r.outcome === 'failed').length,
+    lastOutcome: c.runs.find((r) => !r.running)?.outcome ?? (c.runs.length ? 'running' : null),
+    lastRunAt: c.runs[0]?.startedAt ?? null,
+  })
+
+  return {
+    window: 4320,
+    truncated: false,
+    crons: [crawler, digest, legacy].map(withSummary),
+    problems: [],
+    prefect: {
+      runs: [
+        { id: 'd41f8a62-7b30-4c95-8e12-5f0a9c3b7d64', cron: 'portal-scrape', runName: 'bold-hedgehog', startedAt: now - 47 * min, endedAt: null, durationMs: null, running: true, outcome: 'running', state: 'Running', failedScanned: true, source: 'prefect' },
+        { id: '9a25c703-1e48-4bd6-af91-3c72e0b58d14', cron: 'portal-scrape', runName: 'keen-otter', startedAt: now - 1490 * min, endedAt: now - 1436 * min, durationMs: 54 * min, running: false, outcome: 'failed', state: 'Crashed', failedScanned: true, source: 'prefect' },
+        { id: '5e7b0c48-92da-4f16-b703-8c1e5a9d2740', cron: 'attachment-fetch', runName: 'calm-lynx', startedAt: now - 2900 * min, endedAt: now - 2880 * min, durationMs: 20 * min, running: false, outcome: 'ok', state: 'Completed', failedScanned: true, source: 'prefect' },
+      ],
+    },
+    generatedAt: now,
+  }
+}
+
+// I log di una esecuzione, in demo: abbastanza righe da far vedere come si legge un fallimento.
+export function demoRunLogs(query = {}) {
+  const now = Date.now()
+  const errori = String(query.errorsOnly) === 'true'
+  const events = [
+    { ts: now - 1_320_000, message: JSON.stringify({ level: 'info', msg: 'run started', pages: 480 }) },
+    { ts: now - 1_200_000, message: JSON.stringify({ level: 'info', msg: 'page batch done', batch: 1, items: 120 }) },
+    { ts: now - 900_000, message: JSON.stringify({ level: 'warn', msg: 'rate limited, backing off', seconds: 30 }) },
+    { ts: now - 600_000, message: 'Traceback (most recent call last):' },
+    { ts: now - 600_000, message: '  File "crawler/fetch.py", line 214, in fetch_page' },
+    { ts: now - 600_000, message: 'TimeoutError: page load exceeded 60s' },
+    { ts: now - 480_000, message: JSON.stringify({ level: 'info', msg: 'page batch done', batch: 2, items: 118 }) },
+  ]
+  return {
+    logGroup: '/ecs/demo/cron-catalog-crawler',
+    events: errori ? events.filter((e) => /Traceback|Error|error/.test(e.message)) : events,
+    truncated: false,
+    healthSkipped: 0,
+    streams: ['cron/crawler/7c1d9e3fa5b24c08b9e6d1a4c7f30b52'],
+  }
+}
+
 export function demoApplyTypeComponents(comps, type) {
   if (!type || type === 'all') return comps
   const cats = demoCostCategories()

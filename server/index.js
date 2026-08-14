@@ -20,6 +20,10 @@ import { deduceTopology } from './topology/deduce.js'
 import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
+import { runsOverview } from './runsOverview.js'
+import { listCrons } from './crons.js'
+import { cronRunLogs } from './runs.js'
+import { prefectRunLogs } from './prefect.js'
 import { taskMetrics } from './taskMetrics.js'
 import { recentEvents } from './events.js'
 import { recentChanges } from './changes.js'
@@ -30,7 +34,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
@@ -504,6 +508,11 @@ app.get('/api/logs', async (req, res) => {
     res.json(
       await recentLogs(svc, accounts, {
         errorsOnly: req.query.errorsOnly === 'true',
+        // Log di UNA esecuzione: stream esatto + intervallo (vedi server/runs.js). Il pannello delle
+        // esecuzioni li passa, quello dei log di servizio no e continua a leggere la finestra recente.
+        stream: req.query.stream || null,
+        from: req.query.from || null,
+        to: req.query.to || null,
         // Health-check scartati per default: su un servizio HTTP sano sono ~90% del log e da soli
         // esaurirebbero il tetto di righe. Il pannello li rimette con un interruttore.
         skipHealth: req.query.skipHealth !== 'false',
@@ -512,6 +521,61 @@ app.get('/api/logs', async (req, res) => {
         // diventa NaN e il pannello risponde "nessun evento", che è la bugia peggiore possibile qui.
         minutes: Number.isFinite(Number(req.query.minutes)) ? Number(req.query.minutes) : 60,
         limit: Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : 100,
+        t: makeT(req.query.lang),
+      }),
+    )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ESECUZIONI dei cron: quali stanno girando adesso e com'è andata ognuna di quelle finite.
+// Senza `cron` = vista d'insieme (poche run per cron); con `cron=<account>/<nome>` = storico profondo
+// di quello. Read-only, TTL breve lato server (vedi runsOverview.js).
+app.get('/api/runs', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoRuns(req.query.lang))
+    const { accounts } = await resolveServices()
+    const num = (v, d, max) => (Number.isFinite(Number(v)) ? Math.min(Number(v), max) : d)
+    res.json(
+      await runsOverview(accounts, {
+        minutes: num(req.query.minutes, 1440, 43200), // fino a 30 giorni: è la retention dei log dei cron
+        limit: num(req.query.limit, req.query.cron ? 25 : 6, 50),
+        only: req.query.cron || null,
+        t: makeT(req.query.lang),
+      }),
+    )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// I log di UNA esecuzione. Il log group lo risolve il server dal cron: il client passa solo QUALE run.
+app.get('/api/runs/logs', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoRunLogs(req.query))
+    // Sorgente orchestratore: i log non stanno su CloudWatch (quel job può girare fuori da AWS).
+    if (req.query.source === 'prefect') {
+      const out = await prefectRunLogs(req.query.run, {})
+      return res.json(out ?? { notApplicable: true })
+    }
+    const { accounts } = await resolveServices()
+    const { crons } = await listCrons(accounts, { t: makeT(req.query.lang) })
+    const cron = crons.find((c) => c.key === req.query.cron)
+    if (!cron) return res.status(404).json({ error: 'cron non trovato' })
+    const a = accounts[cron.account] ?? {}
+    const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: cron.region ?? a.region }
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
+    res.json(
+      await cronRunLogs(cron, aws, {
+        runId: req.query.run || null,
+        stream: req.query.stream || null,
+        // Senza `from` si leggerebbe dall'epoca: la finestra di una run la conosce chi ha la riga, e
+        // in mancanza si ricade sull'ultima ora — non su «tutto».
+        from: num(req.query.from) ?? Date.now() - 3600_000,
+        to: num(req.query.to),
+        limit: num(req.query.limit) ?? 300,
+        errorsOnly: req.query.errorsOnly === 'true',
         t: makeT(req.query.lang),
       }),
     )

@@ -19,6 +19,7 @@ import {
   ThunderboltOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
@@ -31,6 +32,7 @@ import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
 import { displayName, serviceKey } from './serviceName.js'
 import DashboardPage from './pages/DashboardPage.jsx'
 import NowPage from './pages/NowPage.jsx'
+import RunsPage from './pages/RunsPage.jsx'
 import SpendPage from './pages/SpendPage.jsx'
 import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -64,6 +66,9 @@ const NAV = [
     group: 'runtime',
     items: [
       { to: '/servizi', key: 'services', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['dashboard'] },
+      // Esecuzioni: solo Account. Regione e tipo non filtrano una run (il cron ha già la sua regione),
+      // e una barra con filtri inerti fa dubitare di tutti gli altri.
+      { to: '/esecuzioni', key: 'runs', icon: <FieldTimeOutlined />, fields: ['account'], surfaces: [] },
       { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['topology'] },
     ],
   },
@@ -653,6 +658,10 @@ export default function App() {
                     t={t}
                   />
                 }
+              />
+              <Route
+                path="/esecuzioni"
+                element={<RunsPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />}
               />
               <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
               <Route
