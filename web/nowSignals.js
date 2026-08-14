@@ -107,6 +107,10 @@ function deploySignals(deploys = {}, opts, t) {
         level = 'warn'
         detail = t('now.hotfix', { who: b.forcedBy ?? '—' })
       } else if (restart) {
+        // Solo i riavvii di una PERSONA sono una notizia. Nei dati veri quasi tutti li fa CodeBuild (è il
+        // deploy che chiama `update-service`) o la lambda che sincronizza i segreti: metterli qui è
+        // raccontare due volte lo stesso rilascio, e spingere giù i fatti veri.
+        if (b.actorKind != null && b.actorKind !== 'human') continue
         level = 'info'
         detail = t('now.restart', { who: b.forcedBy ?? '—' })
       } else if (b.inProgress) {

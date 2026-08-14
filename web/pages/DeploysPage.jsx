@@ -4,7 +4,7 @@ import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
 import { shortActor, fmtAgo, awsErrorText, accountShort } from '../format.js'
 import { groupByService, isServiceRow } from '../deployRows.js'
-import { AZIONI_A_MANO, isManualRestart, isByHand, FAILED_STATUSES } from '../deployKinds.js'
+import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
 import { FONT } from '../theme.js'
 import { matchesAny, isFiltering, asList } from '../filters.js'
@@ -103,8 +103,16 @@ function BuildInfo({ b, name, t }) {
   // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
   // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
   // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
+  // Un riavvio della CI non è «stessa immagine, nessuna build»: la build c'è, è il deploy che sta
+  // uscendo. E uno di un servizio (la lambda che sincronizza i segreti) è manutenzione automatica.
+  const fraseRestart =
+    b.kind === 'restart' && !humanActor(b)
+      ? b.actorKind === 'ci'
+        ? 'deploys.restartOfDeploy'
+        : 'deploys.restartAuto'
+      : AZIONI_A_MANO[b.kind]?.frase
   const sub = restart
-    ? [t(AZIONI_A_MANO[b.kind].frase, { porte: (b.porte ?? []).join(', ') || '?' }), sg ? b.service : null]
+    ? [t(fraseRestart, { porte: (b.porte ?? []).join(', ') || '?' }), sg ? b.service : null]
         .filter(Boolean)
         .join(' · ')
     : [
@@ -149,7 +157,16 @@ function BuildInfo({ b, name, t }) {
             coincide con l'autore del commit, che è quello che la riga mostrava prima. */}
         {b.forcedBy && (
           <Tooltip title={b.viaTeleport ? `${b.forcedBy} · ${t('deploys.viaTeleport')}` : b.forcedBy}>
-            <Text style={{ fontSize: 11, fontWeight: 600 }}>{t('deploys.forcedBy', { who: shortActor(b.forcedBy) })}</Text>
+            {/* «Forzato da» solo se dietro c'è una PERSONA. Su una pipeline era la definizione del
+                contrario: «forzato da GitHub Actions» descrive esattamente un rilascio automatico, e chi
+                legge si mette a cercare un collega che non esiste. Per la CI e per i servizi si dice «da»,
+                e il peso del testo scende: non è un fatto da notare, è il contesto. */}
+            <Text
+              type={humanActor(b) ? undefined : 'secondary'}
+              style={{ fontSize: 11, fontWeight: humanActor(b) ? 600 : 400 }}
+            >
+              {t(humanActor(b) ? 'deploys.forcedBy' : 'deploys.byActor', { who: shortActor(b.forcedBy) })}
+            </Text>
           </Tooltip>
         )}
         {b.author && !restart && (

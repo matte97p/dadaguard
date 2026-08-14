@@ -13,6 +13,17 @@ export const AZIONI_A_MANO = {
   exec: { tag: 'warning', frase: 'deploys.exec' },
 }
 export const isManualRestart = (b) => Boolean(AZIONI_A_MANO[b?.kind])
-// Azione fatta a mano = una di quelle sopra, o una build lanciata fuori dalla CI.
-export const isByHand = (b) => isManualRestart(b) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
+
+// Dietro questa riga c'è una PERSONA? Il server lo dice con `actorKind` (vedi server/util/principal.js:
+// la sessione dell'ARN distingue una persona da CodeBuild, da GitHub Actions, da una lambda).
+// `unknown` non conta come persona: attribuire a un umano un'azione di cui non sappiamo l'autore è il
+// modo più rapido di far accusare qualcuno a torto. Righe vecchie senza il campo → si assume persona,
+// perché prima era l'unico caso previsto e togliere righe è peggio che tenerne una imprecisa.
+export const humanActor = (b) => b?.actorKind == null || b.actorKind === 'human'
+
+// Azione fatta A MANO = una di quelle sopra FATTA DA UNA PERSONA, o una build lanciata fuori dalla CI.
+// Senza il filtro sull'attore il contatore diceva «12 azioni a mano» dove undici erano `update-service`
+// del deploy: il numero esiste per far notare le poche volte in cui qualcuno tocca la produzione, e
+// gonfiarlo con l'automazione lo rende inutile.
+export const isByHand = (b) => (isManualRestart(b) && humanActor(b)) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
 export const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']

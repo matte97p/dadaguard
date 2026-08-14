@@ -66,7 +66,9 @@ test('startEntry: chiave = ARN della build, e riconosce l’hotfix dal ruolo', (
   })
   const [key, val] = startEntry(e)
   assert.equal(key, 'arn:aws:codebuild:eu-central-1:521:build/x:1')
-  assert.deepEqual(val, { forcedBy: 'matte97p', viaTeleport: true, hotfix: true })
+  // `actorKind` distingue una PERSONA da una pipeline: senza, la riga scriveva «forzato da GitHub
+  // Actions», che è la definizione di non-forzato.
+  assert.deepEqual(val, { forcedBy: 'matte97p', actorKind: 'human', viaTeleport: true, hotfix: true })
 })
 
 test('startEntry: tentativo respinto o senza build → nessuna attribuzione', () => {

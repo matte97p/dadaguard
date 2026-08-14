@@ -218,3 +218,31 @@ test('il motivo di una build fallita non trascina dentro tutto lo script del bui
   // ...ma il testo integrale resta disponibile per chi lo vuole (tooltip della riga, pagina Deploy).
   assert.equal(sig.full, muro)
 })
+
+test('un riavvio della CI non è un segnale: è il deploy, che ha già la sua riga', () => {
+  const deploys = {
+    prod: {
+      label: 'Production',
+      builds: [
+        // `update-service` fatto da CodeBuild durante il rilascio: automazione, non una notizia.
+        { id: 'ci', service: 'backend', kind: 'restart', status: 'SUCCEEDED', forcedBy: 'backend-codebuild', actorKind: 'ci', startedAt: hoursAgo(1) },
+        // La lambda che sincronizza i segreti riavvia i servizi: manutenzione automatica.
+        { id: 'svc', service: 'frontend', kind: 'restart', status: 'SUCCEEDED', forcedBy: 'doppler-ssm-sync', actorKind: 'service', startedAt: hoursAgo(2) },
+        // Una persona: questa sì.
+        { id: 'io', service: 'garanzia', kind: 'restart', status: 'SUCCEEDED', forcedBy: 'persona', actorKind: 'human', startedAt: hoursAgo(3) },
+      ],
+    },
+  }
+  const ids = buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).map((s) => s.id)
+  assert.deepEqual(ids, ['dep:io'])
+})
+
+test('un riavvio RESPINTO resta anche se lo ha tentato la CI: un permesso negato è un fatto', () => {
+  const deploys = {
+    prod: {
+      label: 'Production',
+      builds: [{ id: 'ko', service: 'backend', kind: 'restart', status: 'FAILED', forcedBy: 'backend-codebuild', actorKind: 'ci', failReason: 'AccessDenied', startedAt: hoursAgo(1) }],
+    },
+  }
+  assert.equal(buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).length, 1)
+})
