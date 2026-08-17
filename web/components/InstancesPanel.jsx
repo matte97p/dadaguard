@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Table, Typography, Alert, Empty, Space, Button, Tag, Progress, Tooltip } from 'antd'
 import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import Loading from './Loading.jsx'
+import { isTransientTargetState } from '../../shared/targetStates.js'
 
 const { Text, Link } = Typography
 
@@ -140,10 +141,13 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
       render: (_, r) => {
         if (r.target) {
           const ok = r.target.state === 'healthy'
-          const draining = r.target.state === 'draining'
+          // Grigio per TUTTI gli stati di transizione, non solo `draining`: la card sopra li conta
+          // come «in transizione», e un tag rosso sulla riga sotto darebbe due verdetti opposti sullo
+          // stesso target. L'elenco è quello condiviso, così le due parti non divergono più.
+          const transizione = isTransientTargetState(r.target.state)
           return (
             <Tooltip title={[r.target.reason, r.target.description].filter(Boolean).join(' · ') || undefined}>
-              <Tag color={ok ? 'success' : draining ? 'default' : 'error'}>{r.target.state}</Tag>
+              <Tag color={ok ? 'success' : transizione ? 'default' : 'error'}>{r.target.state}</Tag>
             </Tooltip>
           )
         }

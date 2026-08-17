@@ -7,6 +7,7 @@ import {
 import { clientOpts } from './awsClient.js'
 import { awsState } from '../i18n.js'
 import { truncateList } from '../util/format.js'
+import { isTransientTargetState } from '../../shared/targetStates.js'
 
 
 // I target NON sani, con il motivo che dà AWS (`Target.FailedHealthChecks`, `Target.Timeout`,
@@ -14,6 +15,40 @@ import { truncateList } from '../util/format.js'
 // stessa `DescribeTargetHealth` che serviva per contarli — zero chiamate in più. Pura/testabile.
 export function unhealthyList(bad) {
   return truncateList(bad.map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id)))
+}
+
+// Divide le `TargetHealthDescriptions` di un target group in sani / rotti / in transizione (l'elenco
+// degli stati di transizione sta in `shared/targetStates.js`, perché lo usa anche il web).
+//
+// I target in transizione escono da ENTRAMBI i conteggi, non solo dalla lista: lasciarli in `total`
+// terrebbe `healthy < total`, cioè il giallo, che è esattamente il falso allarme da togliere. Contarli
+// come guasti significava un ATTENZIONE a OGNI rilascio: visto il 15/08/2026 alle 04:56 su un ALB
+// interno di staging (2 target su 8 «non sani», entrambi `Target.DeregistrationInProgress`, con il
+// rilascio dei due servizi finito 50 secondi dopo). Il debounce di `diffStates` non basta: il draining
+// dura minuti, quindi regge due letture di fila.
+//
+// `registered` resta il numero VERO di target iscritti al target group, transizione compresa: è quello
+// che va detto in chat («2 su 8», non «2 su 1») ed è il denominatore su cui si misura `expectedHealthy`.
+// `total` invece è quanti target stanno davvero servendo o dovrebbero: è la base del colore. Pura/testabile.
+export function countTargets(descs) {
+  let healthy = 0
+  let total = 0
+  let transitioning = 0
+  const bad = []
+  for (const d of descs ?? []) {
+    const state = d.TargetHealth?.State
+    if (isTransientTargetState(state)) {
+      transitioning++
+      continue
+    }
+    total++
+    if (state === 'healthy') {
+      healthy++
+      continue
+    }
+    bad.push({ id: d.Target?.Id ?? '?', reason: d.TargetHealth?.Reason ?? state ?? null })
+  }
+  return { healthy, total, transitioning, registered: total + transitioning, bad }
 }
 
 // Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile
@@ -30,11 +65,37 @@ export function publicUrlOfLb(lb) {
 //
 // `atteso` non spegne il rosso: zero sani resta GIÙ anche se ne bastava uno. Un numero più alto dei
 // target registrati vale come «tutti» (config vecchia, cluster ridimensionato: non si inventa un guasto).
-export function albStatus(healthy, total, expected = null) {
-  if (total === 0) return 'unknown'
+//
+// `transitioning` è il caso limite in cui NESSUN target sta servendo perché stanno entrando o uscendo
+// tutti: capita per mezzo minuto quando si rilascia un servizio a una copia sola (vecchia in draining,
+// nuova ancora `initial`). Lì il load balancer risponde davvero 503, quindi non si può tacere, ma
+// nemmeno gridare GIÙ per una cosa che rientra da sé: giallo, e il giro di notifica lo conferma solo se
+// REGGE due letture (a 300s l'una fanno dieci minuti di traffico a vuoto, che non è più un rilascio).
+export function albStatus(healthy, total, expected = null, transitioning = 0) {
+  if (total === 0) return transitioning > 0 ? 'degraded' : 'unknown'
   if (healthy === 0) return 'down'
   const atteso = Math.min(Number.isFinite(expected) && expected > 0 ? expected : total, total)
   return healthy >= atteso ? 'up' : 'degraded'
+}
+
+// Quanti target sani ci si aspetta, misurati sui target REGISTRATI: `expectedHealthy` è un pavimento
+// dichiarato a mano («di questi quattro, due devono servire»), quindi schiacciarlo sul totale già
+// ridotto dalla transizione lo trasformerebbe in «basta quello che è rimasto», cioè verde a un target
+// solo su due voluti. Pura/testabile.
+export function expectedHealthyFloor(expected, registered) {
+  return Math.min(Number.isFinite(expected) && expected > 0 ? expected : registered, registered)
+}
+
+// La frase della card. Tre casi che è facile confondere, e confonderli manda a cercare la cosa
+// sbagliata: nessun target ISCRITTO (configurazione, o servizio spento), tutti i target in TRANSIZIONE
+// (rilascio in corso), e il caso normale. Pura/testabile: la composizione è dove si sbaglia il ramo.
+export function targetsSummary({ healthy, total, transitioning, registered, atteso }, t) {
+  if (total === 0) return transitioning > 0 ? t('alb.alltransitioning', { n: transitioning }) : t('alb.notarget')
+  return (
+    t('alb.targets', { healthy, total }) +
+    (atteso < registered ? t('alb.expected', { n: atteso }) : '') +
+    (transitioning > 0 ? t('alb.transitioning', { n: transitioning }) : '')
+  )
 }
 
 // RuntimeProvider per ALB: stato del LB + target healthy / totali (su tutti i target group).
@@ -63,6 +124,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
   // il LB è comunque `active`, quindi degrada con un messaggio chiaro invece di sollevare.
   let healthy = 0
   let total = 0
+  let transitioning = 0 // target che entrano o escono: non sono né sani né rotti (vedi countTargets)
   const bad = [] // chi è fuori e perché: la notizia è il target FUORI, non quelli dentro
   try {
     // paginazione target group (Marker/NextMarker): senza loop si ignorano i TG oltre la prima pagina.
@@ -79,35 +141,38 @@ export async function albRuntime(cfg, aws, opts = {}) {
       const th =
         (await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })))
           .TargetHealthDescriptions ?? []
-      total += th.length
-      healthy += th.filter((x) => x.TargetHealth?.State === 'healthy').length
-      for (const x of th) {
-        if (x.TargetHealth?.State === 'healthy') continue
-        bad.push({ id: x.Target?.Id ?? '?', reason: x.TargetHealth?.Reason ?? x.TargetHealth?.State ?? null })
-      }
+      const c = countTargets(th)
+      total += c.total
+      healthy += c.healthy
+      transitioning += c.transitioning
+      bad.push(...c.bad)
     }
   } catch {
     return { status: 'degraded', summary: t('alb.healthUnreachable'), url }
   }
 
-  const atteso = Number.isFinite(cfg.expectedHealthy) ? Math.min(cfg.expectedHealthy, total) : total
-  const status = albStatus(healthy, total, cfg.expectedHealthy)
+  const registered = total + transitioning
+  const atteso = expectedHealthyFloor(cfg.expectedHealthy, registered)
+  const status = albStatus(healthy, total, cfg.expectedHealthy, transitioning)
   // In chat il conteggio da solo non basta: `alert` dice quanti sono fuori (non quanti sono dentro),
   // quali e con che motivo. La card tiene il conteggio, che accanto alla metrica è più leggibile.
+  // Il denominatore è quello REGISTRATO: «nessuno dei 1 target è sano» con otto iscritti farebbe
+  // dimensionare il guasto sul numero sbagliato a chi legge in reperibilità.
   const alert = bad.length && status !== 'up'
     ? t(healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
         n: bad.length,
-        total,
+        total: registered,
         list: unhealthyList(bad),
       })
     : undefined
   return {
     status,
-    summary:
-      total === 0
-        ? t('alb.notarget')
-        : t('alb.targets', { healthy, total }) + (atteso < total ? t('alb.expected', { n: atteso }) : ''),
+    summary: targetsSummary({ healthy, total, transitioning, registered, atteso }, t),
     ...(alert ? { alert } : {}),
+    // I target in transizione escono dal COLORE ma non dalla risposta: senza questo campo l'unico posto
+    // dove esistono è una frase tradotta, e il prossimo che ne ha bisogno la rilegge con una regex.
+    ...(transitioning > 0 ? { transitioning } : {}),
+    registered,
     metrics:
       total === 0
         ? undefined
