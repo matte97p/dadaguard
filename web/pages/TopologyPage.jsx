@@ -217,7 +217,7 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
 // Pagina Topologia: due lenti. «Architettura» = la mappa a gruppi, con dentro le risorse.
 // «Rete» = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
-export default function TopologyPage({ services = [], accountLabels, dark, t = (k) => k }) {
+export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, t = (k) => k }) {
   const [view, setView] = useState('deps')
   // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
   const [conto, setConto] = useState(null)
@@ -269,23 +269,40 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
     [net, accountLabels],
   )
 
+  // I SERVIZI della mappa vengono dal grafo, non dallo stato della flotta. È la correzione che cambia
+  // l'attesa vera: `/api/status` fa gli otto check su tutti i servizi di tutti gli account e ci mette
+  // decine di secondi, e finché non tornava questa pagina scriveva «Nessun servizio» — che non è
+  // «non ce ne sono», è «non li ho ancora guardati», e sono due cose diverse.
+  //
+  // `topo.nodes` porta nome, account e tipo di ogni risorsa: basta a disegnare la mappa. Lo stato
+  // (problemi, task attivi, prossima esecuzione) arriva dopo e ARRICCHISCE i box, senza bloccarli.
+  const perChiave = useMemo(() => new Map(services.map((x) => [topologyNodeId(x), x])), [services])
+  const servizi = useMemo(() => {
+    if (!topo.nodes?.length) return services
+    return topo.nodes.map((n) => {
+      const vero = perChiave.get(n.id)
+      if (vero) return vero
+      return { name: n.name, type: n.type, account: { key: n.account, label: n.account }, overall: 'unknown' }
+    })
+  }, [topo, perChiave, services])
+
   const conti = useMemo(() => {
     const m = new Map()
-    for (const s of services) {
+    for (const s of servizi) {
       const k = acctKey(s)
       if (!m.has(k)) m.set(k, { key: k, label: acctLabel(s) ?? k, n: 0 })
       m.get(k).n += 1
     }
     return [...m.values()].sort((a, b) => b.n - a.n)
-  }, [services])
+  }, [servizi])
   const contoAttivo = conti.some((c) => c.key === conto) ? conto : conti[0]?.key ?? null
   useEffect(() => {
     if (conto !== contoAttivo) setConto(contoAttivo)
   }, [contoAttivo])
 
   const serviziAmbiente = useMemo(
-    () => (contoAttivo ? services.filter((s) => acctKey(s) === contoAttivo) : services),
-    [services, contoAttivo],
+    () => (contoAttivo ? servizi.filter((s) => acctKey(s) === contoAttivo) : servizi),
+    [servizi, contoAttivo],
   )
 
   const mappa = useMemo(() => buildMap(serviziAmbiente, topo, t), [serviziAmbiente, topo, t])
@@ -385,8 +402,12 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
               per tutto quel tempo e si leggeva come «carica all'infinito»: ora il disegno c'è subito e
               le frecce compaiono quando arrivano, con una riga che dice che stanno arrivando. */}
           {serviziAmbiente.length === 0 ? (
-            <div style={CANVAS}>
-              <EmptyState description={t('topo.noServices')} />
+            <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {loading || !statusReady ? (
+                <Loading text={t('topo.loading')} />
+              ) : (
+                <EmptyState description={t('topo.noServices')} />
+              )}
             </div>
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>

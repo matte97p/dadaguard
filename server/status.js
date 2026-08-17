@@ -85,12 +85,16 @@ export function applyHealthUrls(services, health, urls) {
 }
 
 const SEVERITY = { up: 0, idle: 1, disabled: 1, unknown: 1, degraded: 2, down: 3 }
-// Quanti servizi controllare in parallelo: evita di aprire 100+ chiamate AWS insieme (throttling).
-// 16 e non 8: il lavoro è attesa di rete (chiamate AWS), non calcolo. Misurato su 52 servizi e 4
-// account: 8 → 5.8s, 16 → 4.9s, 24 → 4.4s, 32 → 5.4s (peggiora). Si resta a 16 e non a 24 perché la
-// misura è su un portatile, mentre il task Fargate ha una frazione di vCPU: là il collo di bottiglia
-// si sposta sulla CPU prima. Alzabile con DADAGUARD_CONCURRENCY senza ricompilare.
-const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 16
+// Quanti servizi controllare in parallelo PER ACCOUNT. La parola che mancava è «per account», e non è
+// un dettaglio: le quote AWS sono per account e per regione (~10 richieste al secondo su CloudWatch
+// Logs, simili altrove), quindi un tetto GLOBALE di 16 permetteva sedici chiamate tutte sullo stesso
+// account, che sopra la quota non vanno più veloci: vengono messe in coda e ritentate con attesa
+// crescente. Misurato su questa flotta: 78 servizi × 8 check con tetto globale 16 = 2 minuti e 51
+// secondi per un giro.
+//
+// Con il tetto per account gli account restano paralleli fra loro (le loro quote sono separate) e
+// dentro ognuno si resta sotto la soglia. Alzabile con DADAGUARD_CONCURRENCY senza ricompilare.
+const CONCURRENCY = Number(process.env.DADAGUARD_CONCURRENCY) || 6
 
 // A parità di gravità, quale segnale nominare per primo nel badge (dal più "urgente da guardare").
 const CAUSE_PRIORITY = ['liveness', 'runtime', 'alarms', 'security', 'secrets', 'drift', 'version', 'backups']
@@ -364,8 +368,15 @@ export async function getStatus(lang) {
     }),
   )
 
-  // cap di concorrenza sui servizi (ogni servizio fa già più chiamate AWS in parallelo per i check)
-  const results = await mapLimit(services, CONCURRENCY, async (service) => {
+  // Un servizio alla volta per slot, e gli slot sono PER ACCOUNT: gli account vanno in parallelo fra
+  // loro (quote separate), dentro ognuno si resta sotto la sua quota.
+  const perAccount = new Map()
+  for (const s of services) {
+    const k = s.account ?? '__none__'
+    if (!perAccount.has(k)) perAccount.set(k, [])
+    perAccount.get(k).push(s)
+  }
+  const controlla = async (service) => {
       const acct = service.account ? accounts[service.account] : null
       const ctx = {
         profile: acct?.profile,
@@ -425,7 +436,11 @@ export async function getStatus(lang) {
         causes, // tutti i check allo stesso livello del peggiore
         checks,
       }
-  })
+  }
+
+  // `flat()` e non un accumulatore: dentro un account `mapLimit` preserva l'ordine, e fra account non
+  // conta — la UI riordina per gravità.
+  const results = (await Promise.all([...perAccount.values()].map((lista) => mapLimit(lista, CONCURRENCY, controlla)))).flat()
 
   // Cloudflare Worker come card-servizio (version + runtime). Se non c'è token → [] (nessuna card).
   // Costruiti a parte e appesi: NON entrano nella discovery AWS (costi/topologia/deploys restano intatti).

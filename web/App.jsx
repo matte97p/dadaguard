@@ -690,6 +690,10 @@ export default function App() {
                     services={flatServices}
                     accountLabels={visibleLabels}
                     dark={dark}
+                    // `data` presente = la flotta è stata letta almeno una volta. Serve a non scrivere
+                    // «Nessun servizio» mentre i check sono ancora in volo: è una bugia, e su questa
+                    // pagina si legge come «la topologia è vuota».
+                    statusReady={Boolean(data)}
                     t={t}
                   />
                 }

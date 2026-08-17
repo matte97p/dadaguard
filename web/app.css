@@ -15,6 +15,11 @@
   --dg-ink-mute: rgba(15, 23, 42, 0.6);
   --dg-ink-faint: rgba(15, 23, 42, 0.42);
   --dg-space: 16px;
+  /* Fondo delle superfici che stanno SOPRA la tela (box della mappa, pannello, pillole): deve stare
+     qui, non dentro un selettore. Definita solo su `.dg-topo-box` e `.dg-topo-panel`, chiunque altro la
+     usasse prendeva il ripiego `#fff`, e in tema scuro veniva un riquadro bianco con testo chiaro
+     dentro: invisibile. */
+  --dg-node-bg: #ffffff;
 }
 .dg-dark {
   --dg-line: rgba(255, 255, 255, 0.12);
@@ -24,6 +29,7 @@
   --dg-brand-soft: rgba(124, 58, 237, 0.22);
   --dg-ink-mute: rgba(255, 255, 255, 0.62);
   --dg-ink-faint: rgba(255, 255, 255, 0.42);
+  --dg-node-bg: #202027;
 }
 
 body {
@@ -688,7 +694,6 @@ details[open] > .dg-summary .dg-chev {
 }
 .dg-dark .dg-topo-box,
 .dg-dark .dg-topo-node {
-  --dg-node-bg: #202027;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 .dg-topo-box:hover {
@@ -847,7 +852,7 @@ details[open] > .dg-summary .dg-chev {
   background: var(--dg-node-bg, #fff);
 }
 .dg-dark .dg-topo-panel {
-  --dg-node-bg: #1b1b1f;
+  background: #1b1b1f;
 }
 .dg-topo-panel-title {
   font-size: 14px;
@@ -888,10 +893,16 @@ details[open] > .dg-summary .dg-chev {
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--dg-node-bg, #fff);
-  border: 1px solid var(--dg-line);
+  border: 1px solid var(--dg-brand);
   font-size: 11.5px;
-  color: var(--dg-ink-mute);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  font-weight: 600;
+  color: var(--dg-brand);
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.22);
+}
+.dg-dark .dg-topo-loading {
+  /* In scuro il viola del marchio su fondo quasi nero è poco leggibile: si alza. */
+  color: #c4a5ff;
+  border-color: #7c3aed;
 }
 
 /* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
