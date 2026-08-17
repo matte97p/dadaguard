@@ -26,6 +26,17 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Un ATTENZIONE a ogni rilascio: i target che stavano USCENDO erano contati come guasti.** Il conteggio
+  dei bersagli dietro un load balancer faceva `State === 'healthy'` per i sani e metteva tutto il resto
+  fra i rotti, `draining` compreso: a fine deploy la copia vecchia resta registrata per tutto il
+  `deregistration_delay` del target group (default 300s) mentre finisce le richieste già aperte, quindi
+  ogni rilascio produceva un «2 target su 8 non sani (`Target.DeregistrationInProgress`)» che si
+  richiudeva da solo un minuto dopo. Il debounce non poteva salvarlo: il draining dura più di due
+  letture. Ora `draining` e `initial` (la copia NUOVA che deve ancora passare i primi health check)
+  escono da entrambi i conteggi e vengono detti a parte («2/2 target sani · 1 in transizione»), mentre un
+  guasto vero (`Target.FailedHealthChecks`, `Target.Timeout`) resta rosso identico. Vale anche per le
+  card ECS, dove il flag «sto rilasciando» non bastava: il draining continua DOPO che ECS ha dichiarato
+  il deploy finito. Un allarme che suona per il funzionamento normale insegna a ignorare il canale.
 - **Nel pannello della topologia metà dei servizi era grigia, cioè «stato non letto», mentre stavano su.**
   Due cause, entrambe di lettura sbagliata e nessuna in AWS (i servizi erano tutti `up`). Il pannello
   teneva una COPIA della lista fatta al momento del clic: se lo si apriva prima che arrivasse lo stato

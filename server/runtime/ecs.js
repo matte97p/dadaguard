@@ -11,7 +11,7 @@ import {
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from './awsClient.js'
 import { cached } from '../util/ttlcache.js'
-import { publicUrlOfLb, unhealthyList } from './alb.js'
+import { publicUrlOfLb, unhealthyList, countTargets } from './alb.js'
 import { principalName } from '../util/principal.js'
 
 // Le stesse informazioni servivano a DUE check diversi (`runtime` e `version`), che girano in
@@ -144,19 +144,22 @@ async function targetHealth(svc, aws) {
       arns.map((TargetGroupArn) =>
         cached(`elb:health:${credKey(aws)}|${TargetGroupArn}`, HEALTH_TTL_MS, async () => {
           const out = await elb.send(new DescribeTargetHealthCommand({ TargetGroupArn }))
-          const desc = out.TargetHealthDescriptions ?? []
-          return {
-            total: desc.length,
-            healthy: desc.filter((d) => d.TargetHealth?.State === 'healthy').length,
-            // Chi è fuori e perché: la risposta ce l'ha già, e in una notifica è l'unica parte utile.
-            bad: desc
-              .filter((d) => d.TargetHealth?.State !== 'healthy')
-              .map((d) => ({ id: d.Target?.Id ?? '?', reason: d.TargetHealth?.Reason ?? d.TargetHealth?.State ?? null })),
-          }
+          // `countTargets` tiene fuori dai conteggi i target in transizione (draining, initial) e mette
+          // in `bad` solo quelli davvero rotti: il flag `deploying` qui non basta, perché il draining
+          // continua per tutto il `deregistration_delay` DOPO che ECS ha dichiarato il deploy finito.
+          return countTargets(out.TargetHealthDescriptions ?? [])
         }),
       ),
     )
-    return per.reduce((a, b) => ({ total: a.total + b.total, healthy: a.healthy + b.healthy, bad: [...a.bad, ...b.bad] }), { total: 0, healthy: 0, bad: [] })
+    return per.reduce(
+      (a, b) => ({
+        total: a.total + b.total,
+        healthy: a.healthy + b.healthy,
+        transitioning: a.transitioning + b.transitioning,
+        bad: [...a.bad, ...b.bad],
+      }),
+      { total: 0, healthy: 0, transitioning: 0, bad: [] },
+    )
   } catch {
     return null // permesso mancante o chiamata fallita: nessun segnale, non un falso allarme
   }

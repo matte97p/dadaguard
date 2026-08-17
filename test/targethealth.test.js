@@ -8,7 +8,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTargetHealth } from '../server/runtime/ecs.js'
-import { albStatus } from '../server/runtime/alb.js'
+import { albStatus, countTargets } from '../server/runtime/alb.js'
+
+// Comodità per scrivere i casi come li racconta AWS: stato + motivo, non la forma della risposta.
+const target = (id, State, Reason = null) => ({ Target: { Id: id }, TargetHealth: { State, ...(Reason ? { Reason } : {}) } })
 
 test('zero target sani con task voluti: GIÙ, anche se i container girano', () => {
   const out = applyTargetHealth({ status: 'up', desiredCount: 2 }, { total: 2, healthy: 0 })
@@ -71,4 +74,61 @@ test('albStatus: atteso più alto dei registrati vale «tutti», non un guasto i
 
 test('albStatus: nessun target registrato resta «non lo so»', () => {
   assert.equal(albStatus(0, 0, 1), 'unknown')
+})
+
+// --- countTargets: chi entra e chi esce non è chi è rotto ---
+// Il caso che ha costretto a introdurlo: 15/08/2026 04:56, un ALB interno di staging, «2 target su 8
+// non sani: 10.0.106.240 (Target.DeregistrationInProgress), 10.0.88.24 (Target.DeregistrationInProgress)».
+// Erano le copie vecchie di due servizi che finivano le richieste aperte a fine rilascio: il deploy si
+// è chiuso 50 secondi dopo. Un ATTENZIONE a ogni deploy insegna a ignorare il canale.
+test('countTargets: draining e initial non sono guasti, e non contano nel totale', () => {
+  const out = countTargets([
+    target('10.0.1.1', 'healthy'),
+    target('10.0.1.2', 'healthy'),
+    target('10.0.106.240', 'draining', 'Target.DeregistrationInProgress'),
+    target('10.0.88.24', 'draining', 'Target.DeregistrationInProgress'),
+  ])
+  assert.deepEqual(out, { healthy: 2, total: 2, transitioning: 2, bad: [] })
+  // e il verdetto che ne esce è VERDE: prima era 2 sani su 4, cioè giallo
+  assert.equal(albStatus(out.healthy, out.total), 'up')
+})
+
+test('countTargets: la copia nuova che si sta registrando non è un guasto', () => {
+  const out = countTargets([target('10.0.1.1', 'healthy'), target('10.0.1.9', 'initial', 'Elb.RegistrationInProgress')])
+  assert.deepEqual(out, { healthy: 1, total: 1, transitioning: 1, bad: [] })
+  assert.equal(albStatus(out.healthy, out.total), 'up')
+})
+
+test('countTargets: un target davvero rotto resta rotto, con il suo motivo', () => {
+  const out = countTargets([
+    target('10.0.1.1', 'healthy'),
+    target('10.0.1.2', 'unhealthy', 'Target.FailedHealthChecks'),
+    target('10.0.106.240', 'draining', 'Target.DeregistrationInProgress'),
+  ])
+  assert.deepEqual(out, {
+    healthy: 1,
+    total: 2,
+    transitioning: 1,
+    bad: [{ id: '10.0.1.2', reason: 'Target.FailedHealthChecks' }],
+  })
+  assert.equal(albStatus(out.healthy, out.total), 'degraded', 'il draining tace, il guasto no')
+})
+
+test('countTargets: un draining che non finisce più non deve diventare invisibile', () => {
+  // Se il draining resta appeso (WebSocket o SSE che non chiudono) i target sani calano davvero,
+  // e quello si vede lo stesso: qui la copia nuova non c'è, quindi zero sani su zero.
+  const out = countTargets([target('10.0.106.240', 'draining', 'Target.DeregistrationInProgress')])
+  assert.deepEqual(out, { healthy: 0, total: 0, transitioning: 1, bad: [] })
+  assert.equal(albStatus(out.healthy, out.total), 'unknown', 'non «giù»: durante un rilascio è normale')
+})
+
+test('countTargets: `unused` NON è transizione, è configurazione da guardare', () => {
+  // `Target.NotInUse` (target group non collegato a nessun LB, o AZ non abilitata) non si risolve da sé.
+  const out = countTargets([target('10.0.1.1', 'unused', 'Target.NotInUse')])
+  assert.deepEqual(out, { healthy: 0, total: 1, transitioning: 0, bad: [{ id: '10.0.1.1', reason: 'Target.NotInUse' }] })
+})
+
+test('countTargets: risposta vuota o assente non inventa niente', () => {
+  assert.deepEqual(countTargets([]), { healthy: 0, total: 0, transitioning: 0, bad: [] })
+  assert.deepEqual(countTargets(undefined), { healthy: 0, total: 0, transitioning: 0, bad: [] })
 })

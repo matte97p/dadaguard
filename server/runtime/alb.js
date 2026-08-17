@@ -16,6 +16,40 @@ export function unhealthyList(bad) {
   return truncateList(bad.map((b) => (b.reason ? `${b.id} (${b.reason})` : b.id)))
 }
 
+// Target che stanno ENTRANDO o USCENDO, non target rotti:
+//   · `draining` (`Target.DeregistrationInProgress`) = copia vecchia sfilata a fine deploy, finisce le
+//     richieste già aperte e sparisce dopo il `deregistration_delay` del target group (default 300s);
+//   · `initial` (`Elb.RegistrationInProgress`) = copia nuova che deve ancora passare i primi health check.
+// Entrambi sono `State !== 'healthy'`, e contarli come guasti significava un ATTENZIONE a OGNI rilascio:
+// visto il 15/08/2026 alle 04:56 su un ALB interno di staging (2 target su 8 «non sani», entrambi
+// `Target.DeregistrationInProgress`, con il rilascio dei due servizi finito 50 secondi dopo). Il
+// debounce di `diffStates` non basta: il draining dura minuti, quindi regge due letture di fila.
+const TRANSIENT_TARGET_STATES = new Set(['draining', 'initial'])
+
+// Divide le `TargetHealthDescriptions` di un target group in sani / rotti / in transizione. I target in
+// transizione escono da ENTRAMBI i conteggi, non solo dalla lista: lasciarli in `total` terrebbe
+// `healthy < total`, cioè il giallo, che è esattamente il falso allarme da togliere. Pura/testabile.
+export function countTargets(descs) {
+  let healthy = 0
+  let total = 0
+  let transitioning = 0
+  const bad = []
+  for (const d of descs ?? []) {
+    const state = d.TargetHealth?.State
+    if (TRANSIENT_TARGET_STATES.has(state)) {
+      transitioning++
+      continue
+    }
+    total++
+    if (state === 'healthy') {
+      healthy++
+      continue
+    }
+    bad.push({ id: d.Target?.Id ?? '?', reason: d.TargetHealth?.Reason ?? state ?? null })
+  }
+  return { healthy, total, transitioning, bad }
+}
+
 // Endpoint pubblico di un load balancer (per la card): il DNS name SE è internet-facing (raggiungibile
 // da fuori); interno → null (non lo mostro, non sarebbe cliccabile). Puro/testabile.
 export function publicUrlOfLb(lb) {
@@ -63,6 +97,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
   // il LB è comunque `active`, quindi degrada con un messaggio chiaro invece di sollevare.
   let healthy = 0
   let total = 0
+  let transitioning = 0 // target che entrano o escono: non sono né sani né rotti (vedi countTargets)
   const bad = [] // chi è fuori e perché: la notizia è il target FUORI, non quelli dentro
   try {
     // paginazione target group (Marker/NextMarker): senza loop si ignorano i TG oltre la prima pagina.
@@ -79,12 +114,11 @@ export async function albRuntime(cfg, aws, opts = {}) {
       const th =
         (await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })))
           .TargetHealthDescriptions ?? []
-      total += th.length
-      healthy += th.filter((x) => x.TargetHealth?.State === 'healthy').length
-      for (const x of th) {
-        if (x.TargetHealth?.State === 'healthy') continue
-        bad.push({ id: x.Target?.Id ?? '?', reason: x.TargetHealth?.Reason ?? x.TargetHealth?.State ?? null })
-      }
+      const c = countTargets(th)
+      total += c.total
+      healthy += c.healthy
+      transitioning += c.transitioning
+      bad.push(...c.bad)
     }
   } catch {
     return { status: 'degraded', summary: t('alb.healthUnreachable'), url }
@@ -101,12 +135,21 @@ export async function albRuntime(cfg, aws, opts = {}) {
         list: unhealthyList(bad),
       })
     : undefined
+  // «Nessun target collegato» e «tutti i target in transizione» sono due cose diverse: la prima è una
+  // configurazione (o un servizio spento), la seconda è il mezzo secondo di un rilascio su un servizio a
+  // una copia sola (vecchia in draining, nuova ancora `initial`). Dirle con la stessa frase manda a
+  // cercare un target group vuoto che non esiste.
+  const inTransizione = transitioning > 0
   return {
     status,
     summary:
       total === 0
-        ? t('alb.notarget')
-        : t('alb.targets', { healthy, total }) + (atteso < total ? t('alb.expected', { n: atteso }) : ''),
+        ? inTransizione
+          ? t('alb.alltransitioning', { n: transitioning })
+          : t('alb.notarget')
+        : t('alb.targets', { healthy, total }) +
+          (atteso < total ? t('alb.expected', { n: atteso }) : '') +
+          (inTransizione ? t('alb.transitioning', { n: transitioning }) : ''),
     ...(alert ? { alert } : {}),
     metrics:
       total === 0
