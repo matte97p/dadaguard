@@ -255,7 +255,7 @@ function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) 
 // Pagina Topologia: due lenti. «Architettura» = la mappa a gruppi, con dentro le risorse.
 // «Rete» = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
-export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, onApriServizio, t = (k) => k }) {
+export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, filtriAttivi = false, onApriServizio, t = (k) => k }) {
   const [view, setView] = useState('deps')
   // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
   const [conto, setConto] = useState(null)
@@ -374,13 +374,29 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
     setGruppoAperto(null)
     setScelto(null)
   }
+  // La selezione tiene solo CHI è stato scelto, non una copia dei suoi dati. Teneva l'oggetto: il
+  // pannello restava alla fotografia del momento del clic mentre la mappa si aggiornava, quindi cliccando
+  // prima che lo stato della flotta arrivasse i pallini restavano grigi per sempre, e sembrava che di
+  // quei servizi non si sapesse niente.
   const alClic = (n) => {
     if (n.type === 'gruppo') {
-      setScelto({ tipo: 'gruppo', key: n.data.key, titolo: n.data.titolo, membri: n.data.membri })
+      setScelto({ tipo: 'gruppo', key: n.data.key })
       return
     }
-    if (n.type === 'svc') setScelto({ tipo: 'risorsa', servizio: n.data.servizio })
+    if (n.type === 'svc') setScelto({ tipo: 'risorsa', chiave: n.id })
   }
+
+  // Il pannello si ricompone a ogni render dai dati VIVI, a partire dall'identità selezionata.
+  const vivo = useMemo(() => {
+    if (!scelto) return null
+    if (scelto.tipo === 'gruppo') {
+      const box = mappa.nodes.find((n) => n.data.key === scelto.key)
+      return box ? { tipo: 'gruppo', key: scelto.key, titolo: box.data.titolo, membri: box.data.membri } : null
+    }
+    const dentroLista = dentro?.nodes ?? []
+    const card = dentroLista.find((n) => n.id === scelto.chiave && n.type === 'svc')
+    return card ? { tipo: 'risorsa', servizio: card.data.servizio } : null
+  }, [scelto, mappa, dentro])
 
   return (
     <>
@@ -437,6 +453,14 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
             <Text type="secondary" style={{ fontSize: FONT.micro }}>
               {t('topo.edgeHint')}
             </Text>
+            {/* I filtri della barra restringono le altre pagine, non questa: qui il disegno è
+                l'ambiente intero, perché un'architettura con metà dei nodi via non è un'architettura.
+                Dirlo evita la domanda «perché vedo anche quello che ho filtrato». */}
+            {filtriAttivi && (
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t('topo.filtersIgnored')}
+              </Text>
+            )}
             <Space size={SPACE.xs}>
               <Switch size="small" checked={deboli} onChange={setDeboli} />
               <Text type="secondary" style={{ fontSize: FONT.micro }}>
@@ -495,9 +519,9 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
               {/* Il pannello prende larghezza SOLO quando c'è qualcosa da dire: a mappa non selezionata
                   quei 280px li usa il disegno, ed è la differenza fra una tela che ci sta e una che
                   `fitView` rimpicciolisce fino a rendere il testo di dieci pixel. */}
-              {scelto && (
+              {vivo && (
                 <Pannello
-                  scelto={scelto}
+                  scelto={vivo}
                   servizi={servizi}
                   topo={topo}
                   rischi={rischi}

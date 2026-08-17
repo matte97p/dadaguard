@@ -687,7 +687,12 @@ export default function App() {
                 path="/topologia"
                 element={
                   <TopologyPage
-                    services={flatServices}
+                    // La flotta INTERA, non quella filtrata dalla barra. La mappa disegna comunque tutto
+                    // l'ambiente (i nodi arrivano dal grafo), quindi passandole la lista filtrata i
+                    // servizi esclusi restavano sul disegno SENZA stato: pallino grigio e «stato non
+                    // letto», che si legge «non lo guardiamo» mentre la verità era «l'hai filtrato via».
+                    services={services}
+                    filtriAttivi={filtersActive}
                     accountLabels={visibleLabels}
                     dark={dark}
                     // `data` presente = la flotta è stata letta almeno una volta. Serve a non scrivere
