@@ -83,7 +83,10 @@ jobs:
             else
               # Patch-bump solo se è cambiato ciò che ENTRA nell'immagine (server + sorgenti frontend +
               # dipendenze) rispetto all'ultimo tag. Doc/test/CI/deploy non spediscono → niente.
-              SHIP='server web index.html vite.config.js package.json package-lock.json'
+              # `shared` è nella lista perché il server lo importa e il Dockerfile lo copia: senza,
+              # un cambio che tocca solo quella cartella non pubblicherebbe niente e l'immagine OSS
+              # resterebbe indietro rispetto al codice che spedisce davvero.
+              SHIP='server shared web index.html vite.config.js package.json package-lock.json'
               if git diff --quiet "v$LAST" HEAD -- $SHIP; then
                 echo "::notice::nessun file spedito cambiato da v$LAST — skip"
               else

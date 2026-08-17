@@ -26,6 +26,17 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Nessun deploy andava a buon fine da fine giugno, e i test erano verdi.** Lo stage di runtime del
+  Dockerfile copiava `server` e `dist`, non `shared/`, nata il 29/06/2026 per tenere in un posto solo il
+  codice che usano server e web. Il server la importa, quindi il container moriva all'avvio con
+  `ERR_MODULE_NOT_FOUND`, ECS riavviava il task all'infinito, il workflow di deploy si arrendeva dopo
+  undici minuti e in produzione restava il codice di prima: il rollback teneva su il servizio, ed è per
+  questo che non se n'era accorto nessuno per sette settimane. Il web non lo vedeva perché vite quei
+  file glieli impacchetta dentro `dist/`. Oltre alla riga mancante, adesso la CI **costruisce e avvia
+  l'immagine a ogni PR** (prima l'immagine nasceva solo dopo il merge, che è esattamente il motivo per
+  cui il guasto è vissuto così a lungo), un test elenca le cartelle importate dal server e pretende che
+  siano copiate nel posto giusto, e `shared/` è entrata nella lista dei file che fanno scattare un
+  rilascio pubblico: senza, un cambio solo lì non avrebbe pubblicato niente.
 - **Un ATTENZIONE a ogni rilascio: i target che stavano USCENDO erano contati come guasti.** Il conteggio
   dei bersagli dietro un load balancer faceva `State === 'healthy'` per i sani e metteva tutto il resto
   fra i rotti, `draining` compreso: a fine deploy la copia vecchia resta registrata per tutto il
