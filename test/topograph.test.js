@@ -1,189 +1,140 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGraph, classifyHubs, LANES } from '../web/topoGraph.js'
+import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId } from '../web/topoGraph.js'
+import { topologyNodeId as chiaveServer } from '../server/topology/deduce.js'
 
-// Il disegno dell'architettura. Prima queste decisioni vivevano dentro il .jsx e nessuno le provava:
-// `node --test` non carica JSX, e ReactFlow non disegna i nodi fuori dal browser — quindi la prova di
-// rendering vedeva una tela vuota e non poteva dire niente. Sono decisioni di prodotto: a che livello
-// vive una risorsa, chi resta fuori, cosa si collassa perché sennò il disegno diventa una nuvola.
+// La MAPPA dell'architettura. Queste sono decisioni di prodotto, non dettagli di resa: chi entra in
+// quale gruppo, cosa dice un box, quando una freccia è una freccia vera. E ReactFlow non disegna niente
+// fuori dal browser, quindi se non si provano qui non le prova nessuno.
 
-const t = (k, p) => (p?.n != null ? `${k}:${p.n}` : k)
-const svc = (name, account, type, overall = 'up') => ({ name, type, overall, account: { key: account, label: account } })
-const nodo = (name, account, type) => ({ id: `${account}::${name}`, name, account, type })
-const arco = (from, to, vias = ['env']) => ({ source: from, target: to, vias })
+const t = (k, p) => (p ? `${k}(${Object.values(p).join(',')})` : k)
+const svc = (name, type, extra = {}) => ({ name, type, overall: 'up', account: { key: 'prod', label: 'Prod' }, ...extra })
+const nodo = (name, type) => ({ id: `prod::${name}`, name, account: 'prod', type })
+const arco = (a, b, vias = ['env']) => ({ source: `prod::${a}`, target: `prod::${b}`, vias })
 
-test('le corsie sono l’architettura: ingresso → applicazioni → dati, e i cron a parte', () => {
-  const services = [svc('alb', 'prod', 'alb'), svc('backend', 'prod', 'ecs'), svc('db', 'prod', 'rds'), svc('nightly', 'prod', 'ecs-scheduled')]
-  const topo = {
-    nodes: [nodo('alb', 'prod', 'alb'), nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds'), nodo('nightly', 'prod', 'ecs-scheduled')],
-    edges: [arco('prod::alb', 'prod::backend', ['lb']), arco('prod::backend', 'prod::db', ['net']), arco('prod::nightly', 'prod::db', ['net'])],
-    extraNodes: [],
+test('PARTIZIONE TOTALE: ogni servizio finisce in un gruppo, anche i tipi che nessuno aveva previsto', () => {
+  // I tipi sono quelli veri della modalità demo, che è l'immagine pubblica del progetto: una whitelist
+  // chiusa la svuoterebbe, e nessuno se ne accorgerebbe finché non la lancia un estraneo.
+  const tipi = ['alb', 'ecs', 'lambda', 'rds', 'ec2', 's3', 'acm', 'elasticache', 'kinesis', 'sfn', 'ecs-scheduled', 'cloudflare-worker', 'bedrock', 'tipo-mai-visto']
+  const servizi = tipi.map((tp, i) => svc(`s${i}`, tp))
+  const chiavi = new Set(GRUPPI.map((g) => g.key))
+  for (const s of servizi) {
+    const g = groupOf(s)
+    assert.ok(chiavi.has(g), `${s.type} finito in un gruppo inesistente: ${g}`)
   }
-  const g = buildGraph(services, topo, false, t)
-  const y = (id) => g.nodes.find((n) => n.id === id).position.y
-  assert.ok(y('prod::alb') < y('prod::backend'), 'chi riceve la richiesta sta sopra a chi la serve')
-  assert.ok(y('prod::backend') < y('prod::db'), 'i dati stanno sotto alle applicazioni')
-  assert.ok(y('prod::db') < y('prod::nightly'), 'i cron sono l’ultima corsia')
-
-  // Ogni corsia usata porta la sua fascia, e le fascie stanno PRIMA dei nodi nell'array: in ReactFlow
-  // l'ordine è l'ordine di disegno, e una fascia aggiunta dopo coprirebbe le card.
-  const fasce = g.nodes.filter((n) => n.type === 'lane')
-  assert.equal(fasce.length, 4)
-  assert.deepEqual(
-    fasce.map((f) => f.id),
-    LANES.map((l) => `lane:${l}`),
-  )
-  assert.ok(g.nodes.findIndex((n) => n.type === 'svc') > g.nodes.findIndex((n) => n.type === 'lane'))
-  // La fascia è larga come la corsia più popolata, sennò le corte finiscono a metà del disegno.
-  assert.ok(fasce.every((f) => f.data.width === fasce[0].data.width))
-  assert.equal(fasce.every((f) => f.draggable === false && f.selectable === false), true)
+  const m = buildMap(servizi, { nodes: [], edges: [] }, t)
+  const somma = m.nodes.reduce((n, x) => n + x.data.rollup.membri, 0)
+  assert.equal(somma, servizi.length, 'nessun servizio può sparire dalla mappa')
+  assert.ok(m.nodes.some((n) => n.data.key === 'other'), 'i tipi non previsti hanno il loro box')
 })
 
-test('i nodi sono card con dati, non stringhe: nome, tipo, colore dello stato', () => {
-  const g = buildGraph([svc('backend', 'prod', 'ecs', 'down'), svc('db', 'prod', 'rds')], {
-    nodes: [nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
-    edges: [arco('prod::backend', 'prod::db', ['net'])],
-    extraNodes: [],
-  }, false, t)
-  const backend = g.nodes.find((n) => n.id === 'prod::backend')
-  assert.equal(backend.type, 'svc')
-  assert.equal(backend.data.name, 'backend')
-  assert.equal(backend.data.type, 'ecs')
-  assert.equal(backend.data.color, '#ff4d4f', 'un servizio giù porta il rosso nel suo accento')
-  assert.equal(backend.data.ghost, false)
+test('una lambda a ORARIO non sta con quelle a evento: il tipo AWS è lo stesso, il mestiere no', () => {
+  const aOrario = svc('nightly', 'lambda', { checks: { runtime: { schedule: '1440m', nextRunAt: Date.now() + 3600_000 } } })
+  const aEvento = svc('webhook', 'lambda')
+  assert.equal(haSchedule(aOrario), true)
+  assert.equal(groupOf(aOrario), 'sched')
+  assert.equal(groupOf(aEvento), 'event')
+  assert.equal(groupOf(svc('task', 'ecs-scheduled')), 'sched')
 })
 
-test('l’account nel meta SOLO quando lo stesso nome vive in due ambienti', () => {
-  const uno = buildGraph([svc('backend', 'prod', 'ecs'), svc('db', 'prod', 'rds')], {
-    nodes: [nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
-    edges: [arco('prod::backend', 'prod::db')],
-    extraNodes: [],
-  }, false, t)
-  assert.equal(uno.nodes.find((n) => n.id === 'prod::backend').data.meta, 'ecs')
-
-  // Stesso nome in due ambienti: il vicino dell'altro ambiente resta disegnato (è contesto), e allora
-  // l'account serve a distinguerli.
-  const due = buildGraph([svc('backend', 'prod', 'ecs')], {
-    nodes: [nodo('backend', 'prod', 'ecs'), nodo('backend', 'staging', 'ecs')],
-    edges: [arco('staging::backend', 'prod::backend')],
-    extraNodes: [],
-  }, false, t)
-  assert.ok(due.nodes.find((n) => n.id === 'prod::backend').data.meta.includes('prod'))
+test('il roll-up conta i PROBLEMI, non gli attivi: senza traffico non è un guasto', () => {
+  const r = rollup([
+    svc('a', 'ecs', { overall: 'up', checks: { runtime: { runningCount: 2, desiredCount: 2 } } }),
+    svc('b', 'ecs', { overall: 'down', checks: { runtime: { runningCount: 0, desiredCount: 1 } } }),
+    // Nove modelli mai invocati nella finestra: `idle`. Contarli fra i non-attivi direbbe «4 su 9»,
+    // che si legge come un guasto e non lo è.
+    ...Array.from({ length: 9 }, (_, i) => svc(`m${i}`, 'bedrock', { overall: 'idle' })),
+  ])
+  assert.equal(r.membri, 11)
+  assert.equal(r.problemi, 1)
+  assert.equal(r.primoProblema, 'b', 'su un box con dodici membri, «1 problema» senza il nome costringe ad aprire')
+  assert.equal(r.fermi, 9)
+  assert.deepEqual(r.task, { attivi: 2, voluti: 3, male: true })
 })
 
-test('un vicino fuori dal filtro resta, ma come contesto (ghost): togliendolo sparirebbe l’arco', () => {
-  const g = buildGraph([svc('backend', 'prod', 'ecs')], {
-    nodes: [nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
-    edges: [arco('prod::backend', 'prod::db', ['net'])],
-    extraNodes: [],
-  }, false, t)
-  assert.equal(g.nodes.find((n) => n.id === 'prod::db').data.ghost, true)
-  assert.equal(g.ghosts, 1)
-  assert.equal(g.edges.length, 1, 'l’arco verso il vicino non si perde')
+test('il roll-up non inventa i task dove i numeri non esistono', () => {
+  // `runningCount`/`desiredCount` stanno solo sui servizi ECS: su un gruppo di lambda la riga dei task
+  // sarebbe «0/0», che si legge come «nessuno gira».
+  assert.equal(rollup([svc('a', 'lambda'), svc('b', 'lambda')]).task, null)
 })
 
-test('un hub di configurazione si collassa: 9 archi che nessuno segue diventano un nodo che li conta', () => {
-  const bersagli = Array.from({ length: 6 }, (_, i) => `svc${i}`)
-  const services = [svc('doppler-sync', 'prod', 'lambda'), ...bersagli.map((b) => svc(b, 'prod', 'ecs'))]
-  const g = buildGraph(services, {
-    nodes: [nodo('doppler-sync', 'prod', 'lambda'), ...bersagli.map((b) => nodo(b, 'prod', 'ecs'))],
-    // Solo archi in uscita, e tutti dedotti dalle env var: è la forma di un sincronizzatore di
-    // configurazione, che nomina tutta la flotta e diventa il nodo più connesso senza servire nessuno.
-    edges: bersagli.map((b) => arco('prod::doppler-sync', `prod::${b}`, ['env'])),
-    extraNodes: [],
-  }, false, t)
-  assert.ok(g.nodes.some((n) => n.id === 'agg:prod::doppler-sync'), 'compare il nodo che conta i bersagli')
-  assert.equal(g.edges.filter((e) => e.source === 'prod::doppler-sync' && !e.target.startsWith('agg:')).length, 0, 'i 6 archi non si disegnano')
-  // I bersagli però restano nel disegno: dirli «senza relazioni» sarebbe dire il falso.
-  for (const b of bersagli) assert.ok(g.nodes.some((n) => n.id === `prod::${b}`))
-})
-
-test('classifyHubs: serve la FORMA (molti archi in uscita, nessuno in entrata, tutti deboli)', () => {
-  const molti = Array.from({ length: 5 }, (_, i) => arco('a', `t${i}`, ['env']))
-  assert.equal(classifyHubs(molti).has('a'), true)
-  // Pochi archi: è un servizio che ne chiama tre, non un hub.
-  assert.equal(classifyHubs(molti.slice(0, 3)).has('a'), false)
-  // Riceve anche traffico: è un servizio vero, non un elenco di nomi in una env var.
-  assert.equal(classifyHubs([...molti, arco('x', 'a', ['lb'])]).has('a'), false)
-  // Un arco FORTE (rete, load balancer) non si collassa: quello è traffico vero.
-  assert.equal(classifyHubs([...molti.slice(0, 4), arco('a', 't9', ['net'])]).has('a'), false)
-})
-
-test('chi non ha relazioni dedotte non sta nella tela: raggruppato per tipo, in un elenco a lato', () => {
-  const g = buildGraph(
-    [svc('backend', 'prod', 'ecs'), svc('db', 'prod', 'rds'), ...Array.from({ length: 3 }, (_, i) => svc(`modello${i}`, 'prod', 'bedrock'))],
-    { nodes: [nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')], edges: [arco('prod::backend', 'prod::db')], extraNodes: [] },
-    false,
-    t,
-  )
-  assert.deepEqual(
-    g.orphans.map((o) => [o.type, o.items.length]),
-    [['bedrock', 3]],
-  )
-  assert.equal(g.nodes.filter((n) => n.type === 'svc').length, 2, '21 modelli non devono coprire il disegno')
-})
-
-test('una corsia lunga VA A CAPO: la tela resta un rettangolo, non una striscia', () => {
-  // Tredici applicazioni è il caso vero (staging): in fila sarebbero ~3100px, e dopo l'inquadratura le
-  // etichette finiscono a sei pixel — il difetto per cui questa pagina «non si leggeva».
-  const molti = Array.from({ length: 13 }, (_, i) => `app${i}`)
-  const g = buildGraph(
-    [...molti.map((n) => svc(n, 'prod', 'ecs')), svc('db', 'prod', 'rds')],
-    {
-      nodes: [...molti.map((n) => nodo(n, 'prod', 'ecs')), nodo('db', 'prod', 'rds')],
-      edges: molti.map((n) => arco(`prod::${n}`, 'prod::db', ['net'])),
-      extraNodes: [],
-    },
-    false,
-    t,
-  )
-  const card = g.nodes.filter((n) => n.type === 'svc')
-  const xMax = Math.max(...card.map((n) => n.position.x))
-  const righe = new Set(card.filter((n) => n.data.type === 'ecs').map((n) => n.position.y)).size
-  assert.ok(xMax < 1400, `la tela non deve allargarsi: xMax=${xMax}`)
-  assert.equal(righe, 3, '13 nodi a 6 per riga = 3 righe')
-  // La fascia cresce con le righe, sennò le card della seconda riga escono dal riquadro.
-  const fasciaApp = g.nodes.find((n) => n.id === 'lane:app')
-  assert.ok(fasciaApp.data.height > 200, `la fascia deve contenere 3 righe: ${fasciaApp.data.height}`)
-  // E le corsie sotto scendono di conseguenza: non si sovrappongono a quella cresciuta.
-  const fasciaData = g.nodes.find((n) => n.id === 'lane:data')
-  assert.ok(fasciaData.position.y > fasciaApp.position.y + fasciaApp.data.height - 1)
-})
-
-test('di default si disegna il TRAFFICO: le frecce dedotte da env var e IAM sono a un clic', () => {
-  const services = [svc('alb', 'prod', 'alb'), svc('backend', 'prod', 'ecs'), svc('db', 'prod', 'rds')]
-  const topo = {
-    nodes: [nodo('alb', 'prod', 'alb'), nodo('backend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
-    edges: [
-      arco('prod::alb', 'prod::backend', ['lb']), // traffico vero: un load balancer instrada
-      arco('prod::backend', 'prod::db', ['env']), // il backend NOMINA il db in una env var
-      arco('prod::backend', 'prod::alb', ['iam']), // ...e ne ha il permesso
+test('gli archi fra gruppi si FONDONO in uno per coppia, e quelli interni spariscono dalla mappa', () => {
+  const gruppoDi = (id) => (id.includes('alb') ? 'ingress' : id.includes('db') ? 'data' : 'app')
+  const fusi = fondiArchi(
+    [
+      arco('alb', 'backend', ['lb']),
+      arco('alb', 'frontend', ['lb']),
+      arco('backend', 'db', ['env']),
+      arco('backend', 'frontend', ['env']), // interno al gruppo app: non si disegna sulla mappa
     ],
-    extraNodes: [],
-  }
-  const traffico = buildGraph(services, topo, false, t)
-  const tutte = buildGraph(services, topo, false, t, { deboli: true })
-  assert.equal(traffico.edges.length, 1, 'solo l’arco in cui passa traffico')
-  assert.equal(tutte.edges.length, 3)
-  // I NODI non cambiano: accendere le frecce non deve far apparire e sparire mezza architettura, e un
-  // servizio rimasto senza frecce non deve finire fra quelli «senza relazioni dedotte».
-  assert.equal(traffico.nodes.length, tutte.nodes.length)
-  assert.equal(traffico.orphans.length, 0)
+    gruppoDi,
+  )
+  assert.deepEqual(
+    fusi.map((f) => [f.source, f.target, f.n, f.forte]),
+    [
+      ['ingress', 'app', 2, true],
+      ['app', 'data', 1, false],
+    ],
+  )
 })
 
-test('le repliche arrivano dai NUMERI del check runtime, e 2/3 è rosso', () => {
-  const conRepliche = (name, running, desired) => ({
-    ...svc(name, 'prod', 'ecs'),
-    checks: { runtime: { runningCount: running, desiredCount: desired } },
-  })
-  const g = buildGraph([conRepliche('backend', 2, 3), conRepliche('frontend', 1, 1), svc('db', 'prod', 'rds')], {
-    nodes: [nodo('backend', 'prod', 'ecs'), nodo('frontend', 'prod', 'ecs'), nodo('db', 'prod', 'rds')],
-    edges: [arco('prod::backend', 'prod::db', ['net']), arco('prod::frontend', 'prod::db', ['net'])],
-    extraNodes: [],
-  }, false, t)
-  const rep = (id) => g.nodes.find((n) => n.id === id).data.repliche
-  assert.deepEqual(rep('prod::backend'), { testo: '2/3', male: true })
-  assert.deepEqual(rep('prod::frontend'), { testo: '1/1', male: false })
-  // Un servizio che non ha repliche (un database gestito) non deve mostrare «0/0».
-  assert.equal(rep('prod::db'), null)
+test('la freccia dice quanto ci si può credere: piena se c’è un puntatore vero, tratteggiata se dedotta', () => {
+  const servizi = [svc('alb', 'alb'), svc('backend', 'ecs'), svc('db', 'rds')]
+  const topo = {
+    nodes: [nodo('alb', 'alb'), nodo('backend', 'ecs'), nodo('db', 'rds')],
+    edges: [arco('alb', 'backend', ['lb']), arco('backend', 'db', ['env'])],
+  }
+  const m = buildMap(servizi, topo, t)
+  const piena = m.edges.find((e) => e.source === 'g:ingress')
+  const tratteggiata = m.edges.find((e) => e.source === 'g:app')
+  assert.equal(piena.style.strokeDasharray, undefined)
+  assert.ok(tratteggiata.style.strokeDasharray, 'una relazione dedotta da un nome non si disegna come un flusso')
+})
+
+test('la mappa emette la GEOMETRIA sui nodi: ReactFlow misura, e due misure diverse storcono gli archi', () => {
+  const m = buildMap([svc('alb', 'alb'), svc('backend', 'ecs')], { nodes: [], edges: [] }, t)
+  for (const n of m.nodes) {
+    assert.ok(n.style?.width > 0 && n.style?.height > 0, 'ogni box dichiara la sua misura')
+    assert.equal(n.type, 'gruppo')
+  }
+  // Colonne: l'ingresso a sinistra, le applicazioni dopo. Il verso è quello di un diagramma di flusso.
+  const x = (k) => m.nodes.find((n) => n.data.key === k).position.x
+  assert.ok(x('ingress') < x('app'))
+})
+
+test('dentro un gruppo: le risorse, e ai bordi gli STUB dei vicini (uno per gruppo, non per risorsa)', () => {
+  const servizi = [svc('alb', 'alb'), svc('backend', 'ecs'), svc('frontend', 'ecs'), svc('db', 'rds')]
+  const topo = {
+    nodes: [nodo('alb', 'alb'), nodo('backend', 'ecs'), nodo('frontend', 'ecs'), nodo('db', 'rds')],
+    edges: [arco('alb', 'backend', ['lb']), arco('alb', 'frontend', ['lb']), arco('backend', 'db', ['env'])],
+  }
+  const g = buildGroup('app', servizi, topo, t)
+  const risorse = g.nodes.filter((n) => n.type === 'svc')
+  const stub = g.nodes.filter((n) => n.type === 'stub')
+  assert.deepEqual(risorse.map((n) => n.data.name).sort(), ['backend', 'frontend'])
+  // Due archi in entrata dallo stesso gruppo → UNO stub, che li conta. Sennò il secondo livello
+  // ridiventa il grafo intero, che è la cosa da cui si sta scappando.
+  assert.deepEqual(
+    stub.map((n) => [n.id, n.data.n]),
+    [
+      ['stub:in:ingress', 2],
+      ['stub:out:data', 1],
+    ],
+  )
+  assert.ok(g.nodes.every((n) => n.style?.width > 0))
+})
+
+test('le maniglie del disegno sono coerenti col verso: chiave di nodo unica fra server e web', () => {
+  // Erano due funzioni omonime con firme diverse: due chiavi che divergono fondono o sdoppiano i nodi
+  // in silenzio. Ora il web importa quella del server, e questo test lo dimostra sulla stessa fixture.
+  const s = { name: 'backend', account: { key: 'prod', label: 'Prod' } }
+  assert.equal(topologyNodeId(s), chiaveServer('backend', 'prod'))
+  assert.equal(topologyNodeId(s), chiaveServer('backend', { key: 'prod' }))
+  assert.equal(topologyNodeId('prod::backend'), 'prod::backend')
+})
+
+test('un ambiente senza niente non esplode: mappa vuota, e lo dice', () => {
+  const m = buildMap([], { nodes: [], edges: [] }, t)
+  assert.deepEqual(m.nodes, [])
+  assert.equal(m.vuoto, true)
 })

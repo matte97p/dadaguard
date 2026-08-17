@@ -6,6 +6,7 @@ import {
   extractArns,
   collectResourceArns,
   topologyNodeId,
+  identifiers,
 } from '../server/topology/deduce.js'
 
 const idList = [
@@ -99,4 +100,55 @@ test('topologyNodeId: account come oggetto o come stringa danno la STESSA chiave
 test('topologyNodeId: senza account non collassa su chiavi diverse per nomi diversi', () => {
   assert.notEqual(topologyNodeId('a', null), topologyNodeId('b', null))
   assert.equal(topologyNodeId('a', null), topologyNodeId('a', undefined))
+})
+
+// --- I due difetti che rendevano falso l'84% del grafo (misurato: 87 archi su 104) ---
+
+test('il CLUSTER non è un identificativo del servizio: lo condividono tutti i membri', async () => {
+  const membro = (name) => ({ name, account: 'prod', aws: { type: 'ecs', cluster: 'acme-production', service: name } })
+  const ids = await identifiers(membro('backend'), {})
+  // Il nome del cluster da solo NON deve essere un identificativo: se lo fosse, ogni valore che lo
+  // nomina (una env var, un ARN in una policy) farebbe match con OGNI membro del cluster, e da una
+  // menzione sola nascerebbero nove archi. È esattamente ciò che accadeva.
+  assert.equal(ids.includes('acme-production'), false)
+  // La coppia cluster/servizio invece resta: quella è specifica, e compare negli ARN veri.
+  assert.equal(ids.includes('acme-production/backend'), true)
+  assert.equal(ids.includes('backend'), true)
+})
+
+test('lo stesso vale per un task schedulato, dove il cluster arriva come ARN', async () => {
+  const ids = await identifiers(
+    { name: 'nightly', account: 'prod', aws: { type: 'ecs-scheduled', cluster: 'arn:aws:ecs:eu-central-1:1:cluster/acme-production', taskDefinition: 'arn:aws:ecs:eu-central-1:1:task-definition/acme-nightly:3' } },
+    {},
+  )
+  // Né l'ARN del cluster né la sua coda: la coda è il NOME del cluster, cioè lo stesso identificativo
+  // condiviso da un'altra porta.
+  assert.equal(ids.some((i) => i.includes('cluster/acme-production')), false)
+  assert.equal(ids.includes('acme-production'), false)
+  assert.equal(ids.some((i) => i.includes('acme-nightly')), true, 'la task definition resta: quella è sua')
+})
+
+test('un ARN ambiguo non produce nessun arco, invece di produrne uno inventato', () => {
+  const idList = [
+    { name: 'agentic-chat', account: 'prod', key: 'prod::agentic-chat', ids: ['agentic-chat', 'acme-production'] },
+    { name: 'backend', account: 'prod', key: 'prod::backend', ids: ['backend', 'acme-production'] },
+  ]
+  const self = { name: 'lambda-x', account: 'prod' }
+  // Due candidati con lo stesso token: prima vinceva `[0]`, cioè il primo dell'elenco — e siccome
+  // l'elenco è ordinato allo stesso modo per ogni ARN, TUTTI gli ambigui di un account finivano sullo
+  // stesso servizio, che nel disegno diventava il centro dell'architettura per un artefatto di ordine.
+  assert.equal(matchByArn('arn:aws:ecs:eu-central-1:1:cluster/acme-production', idList, self), null)
+  // Un ARN che punta a UN solo candidato continua a funzionare.
+  assert.equal(matchByArn('arn:aws:ecs:eu-central-1:1:service/backend', idList, self)?.name, 'backend')
+})
+
+test('l’account proprio resta preferito, ma solo se lì il candidato è UNO', () => {
+  const idList = [
+    { name: 'coda', account: 'prod', key: 'prod::coda', ids: ['coda-lavori'] },
+    { name: 'coda', account: 'staging', key: 'staging::coda', ids: ['coda-lavori'] },
+  ]
+  // Due account, un candidato per account: vince il proprio, come prima.
+  assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'prod' })?.account, 'prod')
+  // Nessuno dei due è nel proprio account e sono due: ambiguo → niente arco.
+  assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'security' }), null)
 })

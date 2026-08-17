@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Typography, Space, Alert } from 'antd'
+import { Segmented, Typography, Space, Alert, Breadcrumb, Button, Tag } from 'antd'
 import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
-import { FONT, SPACE } from '../theme.js'
-import { buildGraph, topologyNodeId, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { ArrowLeftOutlined } from '@ant-design/icons'
+import { FONT, SPACE, MONO } from '../theme.js'
+import { buildMap, buildGroup, rollup, topologyNodeId, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
@@ -113,62 +114,115 @@ function buildNetworkGraph(net, dark, t) {
   return { nodes, hasData: groups.length > 0 }
 }
 
-function Legend({ usedVias, t }) {
-  const keys = Object.keys(VIA).filter((k) => usedVias.has(k))
-  if (!keys.length) return null
-  return (
-    <Space size={12} wrap style={{ marginBottom: 8 }}>
-      {keys.map((k) => (
-        <Space key={k} size={4}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 18,
-              height: 0,
-              borderTop: `2px ${k === 'net' ? 'dashed' : 'solid'} ${VIA[k].color}`,
-            }}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t(`topo.legend.${k}`)}
-          </Text>
-        </Space>
-      ))}
-      <Space size={4}>
-        <span style={{ display: 'inline-block', width: 18, height: 0, borderTop: '2px solid #ff4d4f' }} />
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('topo.legend.down')}
+const CANVAS = {
+  height: 'calc(100vh - 300px)',
+  minHeight: 440,
+  border: '1px solid var(--dg-line)',
+  borderRadius: 12,
+  position: 'relative',
+  background: 'var(--dg-row)',
+}
+
+// Il PANNELLO a destra: cosa si sa di ciò che è selezionato. È l'innesto che tutti gli strumenti seri
+// hanno (Kiali, Datadog, Workload Discovery) e che qui mancava: senza, tutto quello che si vuole dire
+// deve stare sulla card, e una card che dice tutto non si legge.
+function Pannello({ scelto, servizi, topo, t, onApri }) {
+  if (!scelto) {
+    return (
+      <div className="dg-topo-panel">
+        <Text type="secondary" style={{ fontSize: FONT.small }}>
+          {t('topo.panel.hint')}
         </Text>
-      </Space>
-    </Space>
+      </div>
+    )
+  }
+  if (scelto.tipo === 'gruppo') {
+    const r = rollup(scelto.membri)
+    return (
+      <div className="dg-topo-panel">
+        <div className="dg-topo-panel-title">{scelto.titolo}</div>
+        <Text type="secondary" style={{ fontSize: FONT.small }}>
+          {t('topo.panel.members', { n: r.membri })}
+          {r.problemi ? ` · ${t('topo.panel.problems', { n: r.problemi })}` : ''}
+        </Text>
+        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApri(scelto.key)}>
+          {t('topo.panel.open')}
+        </Button>
+        <div className="dg-topo-panel-list">
+          {scelto.membri.map((s) => (
+            <div key={topologyNodeId(s)} className="dg-topo-panel-row">
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown }} />
+              <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>{s.name}</span>
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {s.type}
+              </Text>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Una RISORSA: lo stato, e le relazioni dedotte con la loro provenienza. La provenienza si dice
+  // sempre, perché «citato in una env var» e «un load balancer instrada qui» sono due cose diverse e
+  // solo una delle due è un flusso.
+  const s = scelto.servizio
+  const chiave = topologyNodeId(s)
+  const entranti = (topo.edges ?? []).filter((e) => e.target === chiave)
+  const uscenti = (topo.edges ?? []).filter((e) => e.source === chiave)
+  const nomeDi = new Map((topo.nodes ?? []).map((n) => [n.id, n.name]))
+  const riga = (e, verso) => {
+    const altro = verso === 'in' ? e.source : e.target
+    return (
+      <div key={`${verso}${e.source}${e.target}`} className="dg-topo-panel-row">
+        <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>
+          {nomeDi.get(altro) ?? altro.split('::').pop()}
+        </span>
+        {(e.vias ?? []).map((v) => (
+          <Tag key={v} bordered={false} style={{ marginInlineEnd: 0, fontSize: 10 }} color={VIA[v]?.forte ? 'orange' : 'default'}>
+            {t(`topo.legend.${v}`)}
+          </Tag>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="dg-topo-panel">
+      <div className="dg-topo-panel-title" style={{ fontFamily: MONO }}>
+        {s.name}
+      </div>
+      <Text type="secondary" style={{ fontSize: FONT.small }}>
+        {[s.type, acctLabel(s)].filter(Boolean).join(' · ')}
+      </Text>
+      {s.checks?.runtime?.summary && (
+        <div style={{ marginTop: SPACE.sm, fontSize: FONT.small }}>{s.checks.runtime.summary}</div>
+      )}
+      <div className="dg-topo-panel-list">
+        {entranti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.in', { n: entranti.length })}</div>}
+        {entranti.map((e) => riga(e, 'in'))}
+        {uscenti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.out', { n: uscenti.length })}</div>}
+        {uscenti.map((e) => riga(e, 'out'))}
+        {entranti.length + uscenti.length === 0 && (
+          <Text type="secondary" style={{ fontSize: FONT.micro }}>
+            {t('topo.panel.none')}
+          </Text>
+        )}
+      </div>
+    </div>
   )
 }
 
-const CANVAS = {
-  height: 'calc(100vh - 280px)',
-  minHeight: 420,
-  border: '1px solid var(--dg-line-strong)',
-  borderRadius: 8,
-  position: 'relative',
-}
-
-// Pagina Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/flow/lb/SG).
-// "Rete" = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
+// Pagina Topologia: due lenti. «Architettura» = la mappa a gruppi, con dentro le risorse.
+// «Rete» = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
 export default function TopologyPage({ services = [], accountLabels, dark, t = (k) => k }) {
   const [view, setView] = useState('deps')
-  // UN AMBIENTE PER VOLTA. È la decisione che rende leggibile questa pagina: sui dati veri il grafo
-  // completo era 78 nodi e 104 archi con staging e produzione mescolati, cioè due architetture identiche
-  // sovrapposte — illeggibile per costruzione, non per come era disegnato. Un ambiente sono ~30 nodi, e
-  // sono l'architettura che si vuole guardare.
+  // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
   const [conto, setConto] = useState(null)
-  // Nodo a fuoco: il suo vicinato resta in primo piano, il resto si smorza. È la risposta a «se questo
-  // va giù, chi ne soffre», che su cento archi tutti uguali non si legge.
-  const [fuoco, setFuoco] = useState(null)
-  // Quali FRECCE disegnare. Di default il traffico: sui dati veri gli archi sono 62 per ambiente, di cui
-  // 55 dicono «questo servizio nomina quest'altro in una env var o ne ha il permesso IAM». Vere, ma non
-  // sono un flusso, e disegnate insieme seppelliscono i sette archi che il flusso lo raccontano — è la
-  // ragione per cui «le frecce sono troppo intasate».
-  const [frecce, setFrecce] = useState('traffico')
+  // Il LIVELLO: la mappa dei gruppi, oppure dentro un gruppo. È la tesi C4 — un diagramma, un livello —
+  // ed è ciò che fa scendere un ambiente vero da 30-38 card a 6-8 box.
+  const [gruppoAperto, setGruppoAperto] = useState(null)
+  const [scelto, setScelto] = useState(null)
   const [topo, setTopo] = useState({ edges: [], extraNodes: [], nodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -176,7 +230,6 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
 
-  // Dipendenze: fetch al mount della pagina.
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -187,7 +240,6 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
       .finally(() => setLoading(false))
   }, [])
 
-  // Rete: fetch pigro la prima volta che apri la tab (più chiamate AWS → solo se serve).
   useEffect(() => {
     if (view !== 'net' || net) return
     setNetLoading(true)
@@ -204,74 +256,52 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
     [net, accountLabels],
   )
 
-  // Gli ambienti presenti fra i servizi visibili, con quanti servizi ognuno: la scelta di default è
-  // quello più popolato, non il primo in ordine alfabetico.
   const conti = useMemo(() => {
     const m = new Map()
     for (const s of services) {
-      const k = typeof s.account === 'string' ? s.account : s.account?.key
-      if (!k) continue
+      const k = acctKey(s)
       if (!m.has(k)) m.set(k, { key: k, label: acctLabel(s) ?? k, n: 0 })
       m.get(k).n += 1
     }
     return [...m.values()].sort((a, b) => b.n - a.n)
   }, [services])
-
-  // La scelta si ADATTA a quello che c'è: cambiando il filtro Account in alto, un ambiente selezionato
-  // che non esiste più lascerebbe la tela vuota senza spiegazione.
   const contoAttivo = conti.some((c) => c.key === conto) ? conto : conti[0]?.key ?? null
   useEffect(() => {
     if (conto !== contoAttivo) setConto(contoAttivo)
   }, [contoAttivo])
 
   const serviziAmbiente = useMemo(
-    () => (contoAttivo ? services.filter((s) => (typeof s.account === 'string' ? s.account : s.account?.key) === contoAttivo) : services),
+    () => (contoAttivo ? services.filter((s) => acctKey(s) === contoAttivo) : services),
     [services, contoAttivo],
   )
 
-  const { nodes, edges, usedVias, orphans, ghosts } = useMemo(
-    () => buildGraph(serviziAmbiente, topo, dark, t, { deboli: frecce === 'tutte' }),
-    [serviziAmbiente, topo, dark, t, frecce],
+  const mappa = useMemo(() => buildMap(serviziAmbiente, topo, t), [serviziAmbiente, topo, t])
+  const dentro = useMemo(
+    () => (gruppoAperto ? buildGroup(gruppoAperto, serviziAmbiente, topo, t) : null),
+    [gruppoAperto, serviziAmbiente, topo, t],
   )
 
-  // Vicinato del nodo a fuoco: un salto in entrambe le direzioni. Due salti su questo grafo tornano a
-  // illuminare mezza tela, e allora il fuoco non serve più a niente.
-  const vicini = useMemo(() => {
-    if (!fuoco) return null
-    const set = new Set([fuoco])
-    for (const e of edges) {
-      if (e.source === fuoco) set.add(e.target)
-      if (e.target === fuoco) set.add(e.source)
+  const nodes = dentro ? dentro.nodes : mappa.nodes
+  const edges = dentro ? dentro.edges : mappa.edges
+  // `fitView` inquadra solo al mount: cambiando livello o ambiente l'insieme cambia e la vista
+  // resterebbe dov'era, spesso fuori dal disegno. Rimontando su una firma si reinquadra.
+  const firma = useMemo(() => `${contoAttivo}|${gruppoAperto}|${nodes.map((n) => n.id).join(',')}`, [contoAttivo, gruppoAperto, nodes])
+
+  const apriGruppo = (key) => {
+    setGruppoAperto(key)
+    setScelto(null)
+  }
+  const risali = () => {
+    setGruppoAperto(null)
+    setScelto(null)
+  }
+  const alClic = (n) => {
+    if (n.type === 'gruppo') {
+      setScelto({ tipo: 'gruppo', key: n.data.key, titolo: n.data.titolo, membri: n.data.membri })
+      return
     }
-    return set
-  }, [fuoco, edges])
-
-  const nodiDisegnati = useMemo(
-    () =>
-      nodes.map((n) =>
-        n.type === 'lane' || !vicini
-          ? n
-          : { ...n, selected: n.id === fuoco, data: { ...n.data, dim: !vicini.has(n.id) } },
-      ),
-    [nodes, vicini, fuoco],
-  )
-  const archiDisegnati = useMemo(
-    () =>
-      edges.map((e) => {
-        if (!vicini) return e
-        const tocca = e.source === fuoco || e.target === fuoco
-        return { ...e, className: tocca ? 'dg-topo-edge-on' : 'dg-topo-edge-off', animated: tocca || e.animated }
-      }),
-    [edges, vicini, fuoco],
-  )
-  const hasEdges = nodes.length > 0
-  // `fitView` di ReactFlow inquadra solo al mount: cambiando filtro l'insieme dei nodi cambia e la
-  // vista restava dov'era, spesso fuori dal disegno. Rimontando su una firma dei nodi si reinquadra.
-  const graphSignature = useMemo(() => nodes.map((n) => n.id).join('|'), [nodes])
-  const netGraph = useMemo(
-    () => (shownNet ? buildNetworkGraph(shownNet, dark, t) : { nodes: [], hasData: false }),
-    [shownNet, dark, t],
-  )
+    if (n.type === 'svc') setScelto({ tipo: 'risorsa', servizio: n.data.servizio })
+  }
 
   return (
     <>
@@ -280,24 +310,13 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
         desc={t('topo.desc')}
         extra={
           <Toolbar>
-            {view === 'deps' && (
-              <Segmented
-                size="small"
-                value={frecce}
-                onChange={setFrecce}
-                options={[
-                  { value: 'traffico', label: t('topo.edges.traffic') },
-                  { value: 'tutte', label: t('topo.edges.all') },
-                ]}
-              />
-            )}
             {view === 'deps' && conti.length > 1 && (
               <Segmented
                 size="small"
                 value={contoAttivo}
                 onChange={(v) => {
                   setConto(v)
-                  setFuoco(null)
+                  risali()
                 }}
                 options={conti.map((c) => ({ value: c.key, label: `${c.label} · ${c.n}` }))}
               />
@@ -319,101 +338,60 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
         <>
           {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
           <Space size={SPACE.md} wrap style={{ marginBottom: SPACE.sm }}>
-            <Legend usedVias={usedVias} t={t} />
+            {gruppoAperto ? (
+              <Breadcrumb
+                items={[
+                  { title: <a onClick={risali}>{t('topo.crumb.map')}</a> },
+                  { title: t(`topo.g.${gruppoAperto}`) },
+                ]}
+              />
+            ) : (
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t('topo.mapHint')}
+              </Text>
+            )}
+            {gruppoAperto && (
+              <Button size="small" icon={<ArrowLeftOutlined />} onClick={risali}>
+                {t('topo.crumb.back')}
+              </Button>
+            )}
             <Text type="secondary" style={{ fontSize: FONT.micro }}>
-              {t('topo.focusHint')}
+              {t('topo.edgeHint')}
             </Text>
           </Space>
-          {ghosts > 0 && (
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
-              {t('topo.ghosts', { n: ghosts })}
-            </Text>
-          )}
+
           {loading ? (
             <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Loading text={t('topo.loading')} />
             </div>
-          ) : services.length === 0 ? (
+          ) : serviziAmbiente.length === 0 ? (
             <div style={CANVAS}>
               <EmptyState description={t('topo.noServices')} />
             </div>
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
-                {hasEdges ? (
-                  <ReactFlow
-                    key={graphSignature}
-                    nodes={nodiDisegnati}
-                    edges={archiDisegnati}
-                    nodeTypes={TIPI_NODO}
-                    fitView
-                    fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
-                    minZoom={0.25}
-                    colorMode={dark ? 'dark' : 'light'}
-                    proOptions={{ hideAttribution: true }}
-                    nodesConnectable={false}
-                    onNodeClick={(_, n) => setFuoco((f) => (f === n.id ? null : n.id))}
-                    onPaneClick={() => setFuoco(null)}
-                  >
-                    <Background variant="dots" gap={20} size={1} />
-                    <Controls showInteractive={false} />
-                  </ReactFlow>
-                ) : (
-                  <EmptyState description={t('topo.noRelations')} />
-                )}
-              </div>
-              {orphans.length > 0 && (
-                <div
-                  style={{
-                    width: 250,
-                    flexShrink: 0,
-                    borderLeft: '1px solid var(--dg-line-strong)',
-                    overflowY: 'auto',
-                    padding: '8px 4px 8px 12px',
-                  }}
+                <ReactFlow
+                  key={firma}
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={TIPI_NODO}
+                  fitView
+                  fitViewOptions={{ padding: 0.16, maxZoom: 1 }}
+                  minZoom={0.3}
+                  colorMode={dark ? 'dark' : 'light'}
+                  proOptions={{ hideAttribution: true }}
+                  nodesConnectable={false}
+                  nodesDraggable={false}
+                  onNodeClick={(_, n) => alClic(n)}
+                  onNodeDoubleClick={(_, n) => n.type === 'gruppo' && apriGruppo(n.data.key)}
+                  onPaneClick={() => setScelto(null)}
                 >
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {t('topo.orphans', { n: orphans.reduce((a, g) => a + g.items.length, 0) })}
-                  </Text>
-                  {/* Raggruppati per tipo: la chiave è `account::nome`, non il nome — con i nomi
-                      duplicati tra ambienti React non sostituiva le righe, le impilava. */}
-                  {orphans.map((group) => (
-                    <div key={group.type} style={{ marginTop: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                        {group.type} · {group.items.length}
-                      </Text>
-                      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {group.items.map((s) => (
-                          <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12 }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                width: 8,
-                                height: 8,
-                                borderRadius: 4,
-                                marginTop: 4,
-                                background: STATUS_COLOR[s.status] ?? '#8c8c8c',
-                                flexShrink: 0,
-                              }}
-                            />
-                            {/* Il nome va a capo invece di essere troncato: i nomi dei cron si
-                                distinguono nella coda, che l'ellissi mangiava per prima. */}
-                            <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
-                              {s.name}
-                              {s.account && (
-                                <Text type="secondary" style={{ fontSize: 10 }}>
-                                  {' '}
-                                  · {s.account}
-                                </Text>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                  <Background variant="dots" gap={20} size={1} />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </div>
+              <Pannello scelto={scelto} servizi={serviziAmbiente} topo={topo} t={t} onApri={apriGruppo} />
             </div>
           )}
         </>

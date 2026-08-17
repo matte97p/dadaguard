@@ -661,17 +661,68 @@ details[open] > .dg-summary .dg-chev {
   background: transparent !important;
 }
 
-/* ── Disegno dell'architettura (pagina Topologia) ─────────────────────────────────────────────────
-   Un diagramma di architettura si legge per forma: icona (che cos'è), accento a sinistra (come sta),
-   posizione (a che livello vive). Il testo distingue due cose dello stesso tipo, non porta il peso del
-   messaggio. Prima erano rettangoli con una stringa dentro, tutti identici: su settanta nodi era un
-   muro di riquadri. */
+/* ── Mappa dell'architettura (pagina Topologia) ───────────────────────────────────────────────────
+   Tre pezzi: il BOX di un gruppo (livello 1), la CARD di una risorsa (livello 2), lo STUB di un vicino
+   fuori dal gruppo. Il disegno scorre in orizzontale, quindi le maniglie stanno ai lati: con quelle in
+   alto e in basso gli archi uscivano dal fondo di un box per rientrare in cima a quello accanto, e il
+   risultato erano cappi. */
+
+/* BOX di gruppo: grande, con tre righe di testo. È il nodo che si guarda per primo, e deve reggere il
+   confronto con la card piccola senza sembrare la stessa cosa più grossa. */
+.dg-topo-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--dg-line);
+  border-inline-start: 4px solid var(--dg-topo-accent, var(--dg-line-strong));
+  border-radius: 14px;
+  background: var(--dg-node-bg, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07);
+  cursor: pointer;
+  transition:
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+.dg-dark .dg-topo-box,
+.dg-dark .dg-topo-node {
+  --dg-node-bg: #202027;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.dg-topo-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+}
+.dg-topo-box-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.dg-topo-box-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.dg-topo-box-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--dg-ink-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* CARD di una risorsa. */
 .dg-topo-node {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 9px;
   align-items: center;
-  width: 208px;
+  width: 100%;
+  height: 100%;
   padding: 8px 11px 8px 9px;
   border: 1px solid var(--dg-line);
   border-inline-start: 3px solid var(--dg-topo-accent, var(--dg-line-strong));
@@ -683,28 +734,20 @@ details[open] > .dg-summary .dg-chev {
     transform 0.14s ease,
     opacity 0.14s ease;
 }
-.dg-dark .dg-topo-node {
-  --dg-node-bg: #202027;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-}
 .dg-topo-node:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
 }
-/* Nodo scelto: anello viola. È il fuoco della lettura, e i suoi archi si accendono insieme (vedi
-   `dg-topo-edge-on`), così «chi dipende da chi» si vede senza inseguire le linee a occhio. */
+/* Nodo scelto: anello viola. È il fuoco della lettura, e il pannello a lato racconta lui. */
 .dg-topo-sel {
   box-shadow:
     0 0 0 2px var(--dg-brand),
     0 4px 14px rgba(124, 58, 237, 0.25);
 }
-/* Vicino fuori dal filtro: c'è, ma è contesto. Tratteggio e opacità bassa, non un colore diverso —
-   un colore in più su una tela con quattro corsie diventa un quinto significato da ricordare. */
 .dg-topo-ghost {
   border-style: dashed;
   opacity: 0.5;
 }
-/* Smorzato perché non è nel vicinato del nodo scelto: resta leggibile, ma esce dal primo piano. */
 .dg-topo-dim {
   opacity: 0.25;
 }
@@ -733,50 +776,46 @@ details[open] > .dg-summary .dg-chev {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* I pallini di aggancio: servono al motore del grafo, non a chi guarda. Piccoli e quasi invisibili
-   finché non passi sopra al nodo. */
+
+/* STUB: un vicino fuori dal gruppo aperto. Tratteggiato, perché non è qui. */
+.dg-topo-stub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 6px 10px;
+  border: 1px dashed var(--dg-line-strong);
+  border-radius: 999px;
+  background: var(--dg-row);
+  font-size: 11.5px;
+  color: var(--dg-ink-mute);
+}
+.dg-topo-stub-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Le maniglie servono al motore del grafo, non a chi guarda. */
 .dg-topo-handle {
   width: 6px !important;
   height: 6px !important;
   border: 0 !important;
   background: var(--dg-line-strong) !important;
   opacity: 0;
-  transition: opacity 0.14s ease;
-}
-.dg-topo-node:hover .dg-topo-handle {
-  opacity: 1;
 }
 
-/* Fascia di corsia: sotto ai nodi, con il nome del livello a sinistra. Trasforma la nuvola di riquadri
-   in un disegno che si legge dall'alto in basso. */
-.dg-topo-lane {
-  border-radius: 14px;
-  background: var(--dg-row);
-  border: 1px dashed var(--dg-line);
-  position: relative;
-}
-.dg-topo-lane-label {
-  position: absolute;
-  top: 8px;
-  inset-inline-start: 12px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dg-ink-faint);
-}
-
-/* Archi: sottili e muti per default, accesi (e in movimento) quando toccano il nodo scelto. Su cento
-   archi tutti dello stesso peso non si segue niente; accendendo solo il vicinato, la domanda «chi
-   soffre se questo va giù» si risponde con un clic. */
+/* Archi: sottili e muti; l'etichetta col numero delle relazioni fuse sta su una pillola leggibile. */
 .react-flow__edge-path {
-  stroke-width: 1.4;
+  stroke-width: 1.6;
 }
-.dg-topo-edge-on .react-flow__edge-path {
-  stroke-width: 2.4;
+.react-flow__edge-text {
+  font-size: 10px;
 }
-.dg-topo-edge-off .react-flow__edge-path {
-  opacity: 0.14;
+.react-flow__edge-textbg {
+  fill: var(--dg-node-bg, #fff);
 }
 
 /* Repliche sulla card: cifre a larghezza fissa, in un riquadro appena accennato. Rosse quando le
@@ -795,4 +834,43 @@ details[open] > .dg-summary .dg-chev {
 .dg-topo-rep-male {
   color: #ff4d4f;
   background: rgba(255, 77, 79, 0.12);
+}
+
+/* Il pannello a destra della mappa: cosa si sa di ciò che è selezionato. Senza, tutto quello che si
+   vuole dire deve stare sulla card, e una card che dice tutto non si legge. */
+.dg-topo-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border-inline-start: 1px solid var(--dg-line);
+  padding: 14px 14px 14px 16px;
+  overflow-y: auto;
+  background: var(--dg-node-bg, #fff);
+}
+.dg-dark .dg-topo-panel {
+  --dg-node-bg: #1b1b1f;
+}
+.dg-topo-panel-title {
+  font-size: 14px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.dg-topo-panel-sub {
+  margin-top: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dg-ink-faint);
+}
+.dg-topo-panel-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dg-topo-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }

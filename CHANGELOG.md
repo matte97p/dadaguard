@@ -5,6 +5,35 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **L'84% del grafo delle dipendenze era un artefatto, e si può contare.** Due righe: `identifiers()`
+  metteva il NOME DEL CLUSTER fra gli identificativi di ogni servizio ECS, quindi qualunque valore che
+  nominasse `<org>-production` (una env var, un ARN dentro una policy) faceva match con TUTTI i membri —
+  fanout esattamente 9 in produzione (6 servizi + 3 task schedulati) e 6 in staging, cioè il numero dei
+  membri, che è la firma di un identificativo condiviso e non di una dipendenza. E `matchByArn`
+  risolveva l'ambiguità prendendo il primo candidato dell'elenco: siccome quell'elenco è ordinato allo
+  stesso modo per ogni ARN, tutti gli ARN ambigui di un account finivano addosso allo stesso servizio,
+  che nel disegno risultava il centro dell'architettura (grado in entrata 10 in produzione, 11 in
+  staging) per un artefatto di ordinamento. Ora il cluster non identifica un membro e un ARN ambiguo non
+  produce nessun arco: **104 archi diventano 34**, e quel servizio passa da 10 archi in entrata a 2. Un
+  arco inventato è peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
+
+### Changed
+- **Topologia: la mappa a livelli, al posto del grafo di tutto.** Il difetto non era il layout — era
+  disegnare 38 risorse e 104 frecce insieme, per giunta in gran parte false. Ora vale la tesi del C4: un
+  diagramma, un livello. Il primo livello sono i GRUPPI (Ingresso, Applicazioni, Dati, A orario, A
+  evento, Modelli, Altre risorse) con dentro il conto dei membri e una riga di riassunto; le frecce fra
+  gruppi sono fuse in una per coppia, col numero sopra. Un ambiente vero passa da **38 card e decine di
+  frecce a 6 box e 3 frecce**. Le risorse si vedono entrando in un gruppo, e ai bordi restano gli stub
+  dei vicini per non perdere il contesto. Il pannello a destra dice cosa si sa di ciò che hai scelto,
+  incluse le relazioni dedotte CON la loro provenienza: una freccia piena è un puntatore vero (un target
+  group registra quel servizio), una tratteggiata è un nome trovato in una configurazione o in una
+  policy, e sono due cose diverse.
+  Tre regole che i test difendono: nessun servizio può sparire (c'è un gruppo catch-all, e la partizione
+  è verificata su tutti i tipi della modalità demo); il riassunto conta i PROBLEMI e non gli attivi (un
+  modello mai invocato è a riposo, non rotto); la chiave di un nodo è una sola funzione condivisa fra
+  server e web, perché due chiavi che divergono fondono o sdoppiano i nodi in silenzio.
+
 ### Changed
 - **La topologia era illeggibile per costruzione, non per come era disegnata.** Sui dati veri erano 78
   nodi e 104 archi in una tela sola, con staging e produzione sovrapposti: due architetture identiche

@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
 import {
   ApiOutlined,
+  AppstoreOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   FieldTimeOutlined,
@@ -15,15 +16,35 @@ import {
 import { splitFamily } from '../serviceName.js'
 import { FONT, MONO } from '../theme.js'
 
-// I nodi del disegno dell'architettura. Prima erano rettangoli con dentro una stringa
-// («nome · tipo»): leggibili a fatica, tutti uguali, e su settanta nodi diventavano un muro di
-// riquadri. Un diagramma di architettura si legge per FORMA prima che per testo — l'icona dice che
-// cos'è quella cosa, l'accento a sinistra come sta, la posizione a che livello vive — e il testo
-// serve solo a distinguere due cose dello stesso tipo.
+// I pezzi disegnati della mappa dell'architettura: il BOX di un gruppo (livello 1), la CARD di una
+// risorsa (livello 2), lo STUB di un vicino fuori dal gruppo.
+//
+// Un diagramma di architettura si legge per forma prima che per testo: l'icona dice che cos'è, la
+// colonna dice a che livello vive, l'accento dice se c'è un guasto. Il testo distingue due cose dello
+// stesso tipo, non porta il peso del messaggio.
 
-// Icona per tipo di risorsa. Non è decorazione: su una tela con trenta nodi è il primo canale che
-// l'occhio usa, e legge «un database, due lambda, un load balancer» prima di leggere un solo nome.
-const ICONA = {
+// Le maniglie stanno a SINISTRA e a DESTRA perché il disegno scorre in orizzontale (ingresso →
+// applicazioni → dati). Con le maniglie in alto e in basso gli archi uscivano dal fondo di un box per
+// rientrare in cima a quello accanto, disegnando cappi: è il difetto classico di ReactFlow quando la
+// posizione delle maniglie non segue la direzione del layout.
+const MANIGLIE = (
+  <>
+    <Handle type="target" position={Position.Left} className="dg-topo-handle" />
+    <Handle type="source" position={Position.Right} className="dg-topo-handle" />
+  </>
+)
+
+const ICONA_GRUPPO = {
+  ingress: GlobalOutlined,
+  app: CloudServerOutlined,
+  data: DatabaseOutlined,
+  sched: FieldTimeOutlined,
+  event: ThunderboltOutlined,
+  models: RobotOutlined,
+  other: AppstoreOutlined,
+}
+
+const ICONA_TIPO = {
   alb: GlobalOutlined,
   cloudfront: GlobalOutlined,
   apigateway: ApiOutlined,
@@ -42,8 +63,46 @@ const ICONA = {
   bedrock: RobotOutlined,
 }
 
+// BOX di gruppo: il nodo del primo livello. Titolo, una riga di riassunto, e il conto dei membri.
+export function TopoGroup({ data, selected }) {
+  const Icona = ICONA_GRUPPO[data.key] ?? AppstoreOutlined
+  const r = data.rollup
+  return (
+    <div
+      className={`dg-topo-box${selected ? ' dg-topo-sel' : ''}${data.dim ? ' dg-topo-dim' : ''}`}
+      style={{ '--dg-topo-accent': data.colore }}
+      title={data.titolo}
+    >
+      {MANIGLIE}
+      <div className="dg-topo-box-head">
+        <span className="dg-topo-icon">
+          <Icona />
+        </span>
+        <span className="dg-topo-box-title">{data.titolo}</span>
+        <span className="dg-topo-rep">{r.membri}</span>
+      </div>
+      <div className="dg-topo-box-body">
+        {/* PROBLEMI, non «X su N attivi»: un servizio senza traffico è `idle`, e contarlo fra i non
+            attivi trasforma «nessuno l'ha chiamato» in «è rotto». Zero problemi si dice, non si tace:
+            un box muto si legge come «non lo so». */}
+        <span style={{ color: r.problemi ? '#ff4d4f' : undefined, fontWeight: r.problemi ? 600 : 400 }}>
+          {r.problemi ? data.frasi.problemi : data.frasi.nessunProblema}
+        </span>
+        {r.task && (
+          <span className={r.task.male ? 'dg-topo-rep-male' : undefined}>
+            {r.task.attivi}/{r.task.voluti} {data.frasi.task}
+          </span>
+        )}
+        {r.prossimo && <span>{data.frasi.prossimo}</span>}
+        {r.fermi > 0 && <span style={{ opacity: 0.6 }}>{data.frasi.fermi}</span>}
+      </div>
+    </div>
+  )
+}
+
+// CARD di una risorsa: il nodo del secondo livello.
 export function TopoNode({ data, selected }) {
-  const Icona = ICONA[data.type] ?? QuestionOutlined
+  const Icona = ICONA_TIPO[data.type] ?? QuestionOutlined
   const { family, tail } = splitFamily(data.name, data.prefissi)
   return (
     <div
@@ -51,14 +110,14 @@ export function TopoNode({ data, selected }) {
       style={{ '--dg-topo-accent': data.color }}
       title={data.title}
     >
-      <Handle type="target" position={Position.Top} className="dg-topo-handle" />
+      {MANIGLIE}
       <span className="dg-topo-icon">
         <Icona />
       </span>
       <span style={{ minWidth: 0, flex: 1 }}>
         <span className="dg-topo-name" style={{ fontFamily: MONO }}>
-          {/* Testa condivisa muta, coda in evidenza: metà dei nomi qui iniziano con lo stesso
-              prefisso di ambiente, e su una card da 200px l'ellissi mangerebbe la parte che distingue. */}
+          {/* Testa condivisa muta, coda in evidenza: metà dei nomi qui iniziano con lo stesso prefisso
+              di ambiente, e su una card da 200px l'ellissi mangerebbe la parte che distingue. */}
           {family && <span style={{ opacity: 0.4, fontWeight: 400 }}>{family}</span>}
           {tail}
         </span>
@@ -68,27 +127,24 @@ export function TopoNode({ data, selected }) {
           </span>
         )}
       </span>
-      {/* Repliche attive/desiderate. Sta a destra e in cifre a larghezza fissa: «2/3» su una card è la
-          seconda cosa che si guarda dopo il colore, e quando le due cifre non coincidono va rosso —
-          «attivo» e «quante ne dovrebbero girare» sono due domande diverse, e il verde risponde solo
-          alla prima. */}
       {data.repliche && (
         <span className={`dg-topo-rep${data.repliche.male ? ' dg-topo-rep-male' : ''}`}>{data.repliche.testo}</span>
       )}
-      <Handle type="source" position={Position.Bottom} className="dg-topo-handle" />
     </div>
   )
 }
 
-// La FASCIA di una corsia: sta sotto ai nodi e dice a che livello dell'architettura sei (chi riceve la
-// richiesta, chi la serve, dove stanno i dati, cosa gira a orario). È il pezzo che trasforma una
-// nuvola di riquadri in un disegno che si legge dall'alto in basso.
-export function TopoLane({ data }) {
+// STUB: un vicino che sta FUORI dal gruppo aperto. Uno per gruppo, non uno per risorsa — sennò il
+// secondo livello ridiventa il grafo intero, che è la cosa da cui si sta scappando. Serve a non perdere
+// di vista con chi parla il gruppo mentre lo si guarda da dentro.
+export function TopoStub({ data }) {
   return (
-    <div className="dg-topo-lane" style={{ width: data.width, height: data.height }}>
-      <span className="dg-topo-lane-label">{data.label}</span>
+    <div className={`dg-topo-stub dg-topo-stub-${data.verso}`} title={data.nomi.join('\n')}>
+      {MANIGLIE}
+      <span className="dg-topo-stub-title">{data.titolo}</span>
+      <span className="dg-topo-rep">{data.n}</span>
     </div>
   )
 }
 
-export const TIPI_NODO = { svc: TopoNode, lane: TopoLane }
+export const TIPI_NODO = { gruppo: TopoGroup, svc: TopoNode, stub: TopoStub }

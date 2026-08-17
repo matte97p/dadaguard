@@ -68,15 +68,29 @@ function awsFor(service, accounts) {
 
 // Stringhe che, se trovate altrove, implicano "dipende da QUESTO servizio".
 // Token < 5 caratteri scartati: troppo corti → rischio di falso positivo nel substring match.
-async function identifiers(service, aws) {
+// Esportata per i test: su un servizio ECS non tocca AWS (solo `rds` chiede l'endpoint), quindi la
+// regola sugli identificativi condivisi si prova senza rete.
+export async function identifiers(service, aws) {
   const cfg = service.aws ?? {}
   // Identificativi generici: il nome del servizio + ogni nome/ARN/id di risorsa dichiarato nel cfg
   // (function, cluster, service, name, instanceId, arn, table, queue, stream, topic, domain, …).
   // Così il match "per ARN" (event source, Step Functions, IAM) copre tutti i tipi senza casistiche
   // per tipo. Dagli ARN estraiamo anche il nome-risorsa finale (dopo l'ultimo : o /).
   const ids = [service.name]
+  // Il CLUSTER non identifica un servizio: lo CONDIVIDE con tutti gli altri del cluster. Finché stava
+  // qui dentro, ogni valore che nominasse `acme-production` (una env var, un ARN in una policy) faceva
+  // match con OGNI membro, e da una sola menzione nascevano nove archi.
+  //
+  // Non e' una micro-ottimizzazione: sui dati veri erano 87 archi su 104. Il fanout era esattamente 9 in
+  // produzione (6 servizi ECS + 3 task schedulati del cluster) e 6 in staging, cioe' il numero dei
+  // membri — la firma di un identificativo condiviso, non di una dipendenza. Il grafo delle dipendenze
+  // era per l'84% il registro di chi nomina il cluster.
+  //
+  // La coppia `cluster/servizio` invece resta: quella e' specifica, e compare negli ARN veri.
+  const CONDIVISI = cfg.type === 'ecs' || cfg.type === 'ecs-scheduled' ? new Set(['cluster']) : new Set()
   for (const [k, v] of Object.entries(cfg)) {
     if (k === 'type' || k === 'region' || typeof v !== 'string') continue
+    if (CONDIVISI.has(k)) continue
     ids.push(v)
     if (v.startsWith('arn:')) {
       const tail = v.split(/[:/]/).pop()
@@ -185,24 +199,26 @@ export function matchByArn(arn, idList, self) {
   const arnTokens = new Set(String(arn).toLowerCase().split(/[\s:/]+/).filter(Boolean))
   const cands = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => arnTokens.has(tok)))
   const same = cands.filter((t) => t.account === self.account)
-  return (same.length ? same : cands)[0] ?? null
+  const scelti = same.length ? same : cands
+  // AMBIGUO = NESSUNA RISPOSTA. Prima si prendeva `[0]`, cioe' il primo dell'elenco: sui dati veri
+  // quell'elenco e' ordinato per servizio e il primo e' sempre lo stesso, quindi tutti gli ARN ambigui
+  // di un account finivano addosso al medesimo servizio — che nel disegno risultava il centro
+  // dell'architettura (grado in entrata 10 in produzione, 11 in staging) per un artefatto di ordinamento.
+  // Un arco inventato e' peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
+  return scelti.length === 1 ? scelti[0] : null
 }
 
-// Identificatore di un servizio nel grafo. NON è il nome: lo stesso nome esiste in più account
-// (`backend` sta in staging e in produzione, gli stessi modelli Bedrock stanno in ogni account).
-// Usare il nome fondeva due servizi in un nodo solo, con lo stato di quello letto per ultimo.
+// Identificatore di un servizio nel grafo: sta in ../../shared/nodeId.js, perché la stessa chiave la
+// costruisce anche il web quando disegna, e due implementazioni che divergono fondono o sdoppiano i
+// nodi in silenzio. Qui si ri-esporta per non cambiare l'API di questo modulo (e i suoi test).
+//
 // NB non è il `serviceKey` di autodiscover.js (identità della RISORSA aws, per il merge dichiarati/
 // scoperti) né quello di notify/diff.js: qui serve l'id di un NODO del grafo, e i tre non sono
 // interscambiabili — uno sbaglio di import passerebbe i test e fonderebbe i nodi come prima.
-//
-// `account` arriva come stringa dal risolutore dei servizi e come oggetto `{key,label,color}` nel
-// payload della UI: si normalizza qui, perché una chiave costruita su un oggetto diventa
-// "[object Object]" per tutti gli account e le collisioni tornano tutte insieme.
-export function topologyNodeId(name, account) {
-  const acct = (typeof account === 'string' ? account : account?.key) ?? '__none__'
-  return `${acct}::${name}`
-}
-const keyOf = (s) => topologyNodeId(s.name, s.account)
+export { topologyNodeId } from '../../shared/nodeId.js'
+import { topologyNodeId as nodeId } from '../../shared/nodeId.js'
+
+const keyOf = (s) => nodeId(s.name, s.account)
 
 // Estrae gli ARN dalle Resource degli statement Allow di un policy document IAM. Puro e testabile.
 export function collectResourceArns(policyDoc) {
