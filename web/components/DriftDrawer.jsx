@@ -117,7 +117,7 @@ export default function DriftDrawer({ open, onClose, t = (k) => k }) {
                 maxHeight: 420,
                 overflow: 'auto',
                 fontSize: 12,
-                background: 'rgba(127,127,127,0.08)',
+                background: 'var(--dg-row)',
                 padding: 10,
                 borderRadius: 6,
                 whiteSpace: 'pre-wrap',

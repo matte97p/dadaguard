@@ -19,10 +19,12 @@ import {
   ThunderboltOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons'
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
-import { antdTheme } from './theme.js'
+import { antdTheme, SPACE, FONT } from './theme.js'
+import { asList, matchesAny, isFiltering } from './filters.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -31,6 +33,7 @@ import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
 import { displayName, serviceKey } from './serviceName.js'
 import DashboardPage from './pages/DashboardPage.jsx'
 import NowPage from './pages/NowPage.jsx'
+import RunsPage from './pages/RunsPage.jsx'
 import SpendPage from './pages/SpendPage.jsx'
 import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
@@ -40,7 +43,7 @@ import SecurityPage from './pages/SecurityPage.jsx'
 import logo from '../assets/logo.png'
 
 const { Header, Content, Sider } = Layout
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
 const QUICK_PRESETS = [
@@ -64,7 +67,13 @@ const NAV = [
     group: 'runtime',
     items: [
       { to: '/servizi', key: 'services', icon: <AppstoreOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['dashboard'] },
-      { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['topology'] },
+      // Esecuzioni: solo Account. Regione e tipo non filtrano una run (il cron ha già la sua regione),
+      // e una barra con filtri inerti fa dubitare di tutti gli altri.
+      { to: '/esecuzioni', key: 'runs', icon: <FieldTimeOutlined />, fields: ['account'], surfaces: [] },
+      // Topologia: solo Account, e nemmeno quello serve granché, la pagina ha il suo selettore
+      // d'ambiente. Gli altri filtri (tipo, stato, nome) su una MAPPA fanno danno: nascondono membri di
+      // un gruppo senza dirlo, e il conteggio del box diventa una mezza verità.
+      { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: ['account'], surfaces: ['topology'] },
     ],
   },
   {
@@ -153,7 +162,10 @@ export default function App() {
 
   // Filtri: account singolo (switch) + region/type/status multi. Lo stato vive qui e persiste
   // mentre si naviga tra le pagine; ogni pagina mostra solo il sottoinsieme di controlli sensato.
-  const [accountFilter, setAccountFilter] = useState('all')
+  // Elenco, non un valore singolo: «vuoto = tutti» (vedi web/filters.js). Regione, tipo e stato erano
+  // già così; l'account no, ed era l'unico filtro che non si potesse aprire su due ambienti insieme —
+  // che è la domanda normale qui (staging E produzione, non uno dei due).
+  const [accountFilter, setAccountFilter] = useState([])
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…
@@ -164,6 +176,10 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
+    // La classe sulla radice serve al foglio di stile: i token antd arrivano via JS, ma le neutre
+    // scritte a mano (bordi, righe alternate, tracce) non si possono derivare: in scuro un bordo al
+    // 6% sparisce. Senza questo aggancio, metà dell'app cambia tema e metà no.
+    document.documentElement.classList.toggle('dg-dark', dark)
   }, [dark])
 
   useEffect(() => {
@@ -294,7 +310,8 @@ export default function App() {
       if (!seen.has(key)) seen.set(key, s.account?.label ?? t('filter.noAccount'))
     }
     return [
-      { value: 'all', label: t('filter.allAccounts') },
+      // Niente voce «Tutti»: in una select multipla sarebbe un valore selezionabile accanto agli altri
+      // («Tutti + Staging» non significa niente). Vuoto = tutti, e lo dice il placeholder.
       ...[...seen].map(([value, label]) => ({ value, label })),
     ]
   }, [services, t])
@@ -334,7 +351,7 @@ export default function App() {
     const filtered = services.filter((s) => {
       const cron = Boolean(s.checks?.runtime?.schedule)
       return (
-        (accountFilter === 'all' || (s.account?.key ?? '__none__') === accountFilter) &&
+        matchesAny(s.account?.key ?? '__none__', accountFilter) &&
         (regionFilter.length === 0 || regionFilter.includes(s.region)) &&
         (typeFilter.length === 0 || typeFilter.includes(s.type)) &&
         (statusFilter.length === 0 || statusFilter.includes(s.overall)) &&
@@ -384,14 +401,14 @@ export default function App() {
     if (all.length === 0) return null // nessuna lista da cui filtrare: meglio mostrare tutto che niente
     const out = new Set()
     for (const a of all) {
-      if (accountFilter !== 'all' && a.key !== accountFilter) continue
+      if (!matchesAny(a.key, accountFilter)) continue
       out.add(a.label)
     }
     return out
   }, [services, data, accountFilter, t])
 
   const filtersActive =
-    accountFilter !== 'all' ||
+    isFiltering(accountFilter) ||
     regionFilter.length > 0 ||
     typeFilter.length > 0 ||
     statusFilter.length > 0 ||
@@ -400,7 +417,7 @@ export default function App() {
     nameQuery.trim() !== '' ||
     problemsOnly
   const resetFilters = useCallback(() => {
-    setAccountFilter('all')
+    setAccountFilter([])
     setRegionFilter([])
     setTypeFilter([])
     setStatusFilter([])
@@ -425,10 +442,10 @@ export default function App() {
     localStorage.setItem('dadaguard-presets', JSON.stringify(next))
   }
   const applyPreset = (f) => {
-    setAccountFilter(f.accountFilter ?? 'all')
-    setRegionFilter(f.regionFilter ?? [])
-    setTypeFilter(f.typeFilter ?? [])
-    setStatusFilter(f.statusFilter ?? [])
+    setAccountFilter(asList(f.accountFilter))
+    setRegionFilter(asList(f.regionFilter))
+    setTypeFilter(asList(f.typeFilter))
+    setStatusFilter(asList(f.statusFilter))
     setScheduleFilter(f.scheduleFilter ?? 'all')
     setManagedFilter(f.managedFilter ?? 'all')
     setNameQuery(f.nameQuery ?? '')
@@ -444,7 +461,7 @@ export default function App() {
   }
   const deletePreset = (name) => persistPresets(presets.filter((p) => p.name !== name))
 
-  const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm)
+  const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm, dark)
 
   const activeNav = NAV_ITEMS.find((n) => n.to === location.pathname) ?? NAV_ITEMS[0]
   // `fields` può dipendere dalla scheda aperta (Spesa: Costi vs Sprechi) → può essere una funzione.
@@ -501,17 +518,18 @@ export default function App() {
     <ConfigProvider theme={themeConfig}>
       <Layout style={{ minHeight: '100vh' }}>
         <Header
+          className="dg-header"
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingInline: 24,
+            paddingInline: SPACE.xl,
             height: 'auto',
             lineHeight: 'normal',
-            paddingBlock: 10,
-            background: dark ? '#1f1f1f' : '#fff',
-            borderBottom: `1px solid ${dark ? '#303030' : '#f0f0f0'}`,
-            gap: 12,
+            paddingBlock: SPACE.sm,
+            background: dark ? 'rgba(27,27,31,0.86)' : 'rgba(255,255,255,0.86)',
+            borderBottom: '1px solid var(--dg-line)',
+            gap: SPACE.md,
             flexWrap: 'wrap',
           }}
         >
@@ -522,12 +540,10 @@ export default function App() {
               onClick={() => setCollapsed((c) => !c)}
               title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
             />
-            <img src={logo} alt="Dadaguard" style={{ width: 32, height: 32, borderRadius: 8, display: 'block' }} />
-            <div>
-              <Title level={5} style={{ margin: 0, lineHeight: 1.2 }}>
-                Dadaguard
-              </Title>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+            <img src={logo} alt="Dadaguard" style={{ width: 30, height: 30, borderRadius: 8, display: 'block' }} />
+            <div style={{ lineHeight: 1.15 }}>
+              <div style={{ fontSize: FONT.lead, fontWeight: 600, letterSpacing: '-0.01em' }}>Dadaguard</div>
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
                 {t('app.subtitle')}
               </Text>
             </div>
@@ -591,12 +607,12 @@ export default function App() {
             // sono metà della pagina, e questa è una dashboard che si guarda, non un menu.
             breakpoint="lg"
             onBreakpoint={(broken) => setCollapsed(broken)}
-            style={{ background: dark ? '#1f1f1f' : '#fff', borderInlineEnd: `1px solid ${dark ? '#303030' : '#f0f0f0'}` }}
+            style={{ background: 'transparent', borderInlineEnd: '1px solid var(--dg-line)', paddingTop: SPACE.sm }}
           >
             <SideNav groups={visibleNav} active={activeNav.to} onPick={(to) => navigate(to)} collapsed={collapsed} t={t} />
           </Sider>
 
-          <Content style={{ padding: 24, minWidth: 0 }}>
+          <Content className="dg-page" style={{ padding: `${SPACE.xl}px ${SPACE.xl}px ${SPACE.xxl}px`, minWidth: 0 }}>
             {data?.mode === 'demo' && (
               <Alert
                 type="warning"
@@ -654,6 +670,10 @@ export default function App() {
                   />
                 }
               />
+              <Route
+                path="/esecuzioni"
+                element={<RunsPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />}
+              />
               <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
               <Route
                 path="/spesa"
@@ -670,6 +690,13 @@ export default function App() {
                     services={flatServices}
                     accountLabels={visibleLabels}
                     dark={dark}
+                    // `data` presente = la flotta è stata letta almeno una volta. Serve a non scrivere
+                    // «Nessun servizio» mentre i check sono ancora in volo: è una bugia, e su questa
+                    // pagina si legge come «la topologia è vuota».
+                    statusReady={Boolean(data)}
+                    // Dalla mappa al servizio: la topologia dice DOVE guardare, e il passo dopo è
+                    // guardarci. Senza questo salto si finiva a ricopiare il nome nella pagina Servizi.
+                    onApriServizio={(s) => openDetail(s)}
                     t={t}
                   />
                 }

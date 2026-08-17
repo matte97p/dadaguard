@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Spin, Alert, Empty, Typography, Space, Progress } from 'antd'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
+import { Alert, Typography, Space, Progress } from 'antd'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
@@ -31,13 +32,13 @@ export default function FreeTierPage({ t = (k) => k, lang, embedded = false }) {
       <PageIntro title={embedded ? null : t('freetier.title')} desc={t('freetier.desc')} />
       {loading && (
         <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin tip={t('freetier.loading')} />
+          <Loading text={t('freetier.loading')} />
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
       {data?.error && <Alert type="warning" showIcon message={data.error} style={{ marginTop: 8 }} />}
       {data && !data.error && items.length === 0 && !loading && (
-        <Empty description={t('freetier.none')} style={{ marginTop: 24 }} />
+        <EmptyState description={t('freetier.none')} />
       )}
 
       {items.length > 0 && (

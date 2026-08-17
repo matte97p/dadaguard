@@ -42,6 +42,41 @@ export function shortActor(who) {
   return s.slice(0, at).replace(/^\d+\+/, '') || s
 }
 
+// CHI ha fatto l'azione: una PERSONA, una pipeline, o un servizio AWS?
+//
+// Serve a non dire il falso in tre parole. La pagina dei rilasci scriveva «forzato da GitHub Actions», che
+// è la definizione di NON forzato: GitHub Actions è l'automazione. Lo stesso vale per i riavvii, che nei
+// dati veri arrivano quasi tutti da CodeBuild (è il deploy che fa `update-service`) o da una lambda di
+// sincronizzazione dei segreti: chiamarli «a mano» e contarli fra le azioni umane gonfia un numero che
+// esiste per far notare le poche volte in cui qualcuno tocca la produzione a mano.
+//
+// Il discriminante è la SESSIONE dell'ARN assunto, non una lista di nomi di ruolo:
+//   assumed-role/AWSReservedSSO_Admin_x/MatteoPerino          → human   (sessione = persona)
+//   assumed-role/acme-prod-backend-codebuild/AWSCodeBuild-uuid → ci      (sessione di CodeBuild)
+//   assumed-role/acme-prod-gha-deploy/GitHubActions            → ci      (sessione di GitHub Actions)
+//   assumed-role/acme-prod-doppler-ssm-sync/acme-prod-doppler-ssm-sync → service
+//                                                              (una lambda assume il PROPRIO ruolo, e la
+//                                                               sessione è identica al nome del ruolo)
+//   assumed-role/AWSServiceRoleForECS/...                      → service (ruolo di servizio AWS)
+// Pura/testabile.
+export function actorKind(arn) {
+  const s = String(arn ?? '')
+  if (!s) return 'unknown'
+  const m = /:assumed-role\/([^/]+)\/(.+)$/.exec(s)
+  if (!m) return /:(user|federated-user)\//.test(s) ? 'human' : 'unknown'
+  const [, role, session] = m
+  if (/^AWSCodeBuild-/i.test(session) || /codebuild|codepipeline/i.test(role)) return 'ci'
+  if (/^GitHubActions?$/i.test(session) || /(^|[-_])gha([-_]|$)|github/i.test(role)) return 'ci'
+  if (/^AWSServiceRoleFor/i.test(role)) return 'service'
+  if (session === role) return 'service'
+  return 'human'
+}
+
+// Scorciatoia: l'azione è stata FATTA DA UNA PERSONA? Solo in quel caso ha senso dire «forzato da», e
+// solo in quel caso è un'azione a mano. `unknown` non conta come persona: attribuire a un umano
+// un'azione di cui non sappiamo l'autore è il modo più rapido di far accusare qualcuno a torto.
+export const isHumanActor = (arn) => actorKind(arn) === 'human'
+
 export function principalName(arn) {
   if (!arn) return null
   const s = String(arn)

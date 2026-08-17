@@ -221,24 +221,27 @@ export function story(lang = 'en') {
       },
       { type: 'highlightHide' },
 
-      // ── Topologia: le dipendenze non le dichiara nessuno ─────────────────────────────────────
+      // ── Topologia: la mappa dell'architettura, un livello per volta ──────────────────────────
       { type: 'click', selector: nav('/topologia') },
-      { type: 'wait', selector: '.react-flow__node' },
+      { type: 'wait', selector: '.dg-topo-box' },
       {
         type: 'caption',
         text: say(
-          'Dependencies are inferred from AWS — env vars, event sources, load balancers.',
-          'Le dipendenze sono dedotte da AWS — variabili d’ambiente, event source, load balancer.',
+          'One diagram, one level: who takes the request, who serves it, where the data is.',
+          'Un diagramma, un livello: chi riceve la richiesta, chi la serve, dove stanno i dati.',
         ),
         duration: 3600,
       },
-      // Il grafo sta in fondo alla pagina: senza portarlo al centro, lo zoom (che apre attorno al
-      // nodo) inquadra soprattutto la griglia vuota sopra le scatole.
-      { type: 'scroll', selector: '[data-id="prod::image-resizer"]', duration: 500 },
-      { type: 'zoom', selector: '[data-id="prod::image-resizer"]', scale: 2.2 },
+      // Il selettore punta alla CLASSE del box, non all'id di una risorsa: gli id dipendono dal dataset
+      // e il primo livello non ne contiene nessuno (i box sono gruppi). Un video che si aggancia a un id
+      // continua a girare inquadrando il vuoto quando quel nodo cambia nome.
+      { type: 'zoom', selector: '.dg-topo-box', scale: 1.8 },
       {
         type: 'caption',
-        text: say('A red arrow means that dependency is down.', 'Una freccia rossa vuol dire che quella dipendenza è giù.'),
+        text: say(
+          'A solid arrow is a real pointer; a dashed one is inferred from a name in a config.',
+          'Freccia piena = un puntatore vero; tratteggiata = dedotta da un nome in una configurazione.',
+        ),
         duration: 2800,
       },
       { type: 'zoomReset' },

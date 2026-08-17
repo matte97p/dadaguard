@@ -1,50 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Switch, Segmented, Alert, Empty, Spin, Typography, Space, Button, Select } from 'antd'
+import { Switch, Segmented, Alert, Empty, Typography, Space, Button, Select } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { taskOfStream, instanceOptions } from '../format.js'
+import { NOISE, LogLines } from '../logline.jsx'
+import Loading from './Loading.jsx'
 
 const { Text } = Typography
-
-const LEVEL_COLOR = {
-  error: '#ff4d4f',
-  fatal: '#ff4d4f',
-  critical: '#ff4d4f',
-  err: '#ff4d4f',
-  warn: '#faad14',
-  warning: '#faad14',
-  info: '#52c41a',
-  debug: '#8c8c8c',
-  trace: '#8c8c8c',
-}
-// righe di piattaforma Lambda (rumore: START/END/REPORT/INIT) — nascoste di default
-const NOISE = /^(START|END|REPORT|INIT_START|XRAY) RequestId/
-
-// Prova a interpretare un evento come log JSON strutturato → { level, msg }. Altrimenti riga grezza.
-function parseEvent(message) {
-  const s = (message ?? '').trim()
-  if (s.startsWith('{')) {
-    try {
-      const o = JSON.parse(s)
-      const level = String(o.level ?? o.severity ?? o.lvl ?? o.levelname ?? '').toLowerCase()
-      const msg = o.message ?? o.msg ?? o.error ?? o.event ?? null
-      if (msg != null) return { level, msg: String(msg) }
-    } catch {
-      /* non è JSON valido */
-    }
-  }
-  return { level: '', msg: message ?? '' }
-}
-
-// Classifica una riga di log grezza (non-JSON) per la resa: 'error' = la riga che dice DAVVERO cosa
-// è andato storto (`XxxError:`/`Exception:` / `Traceback` / FATAL/CRITICAL); 'frame' = rumore del
-// traceback (`File "..."`, frame interni indentati) da smorzare → l'errore vero salta all'occhio.
-function lineKind(msg) {
-  const s = (msg ?? '').trim()
-  if (!s) return ''
-  if (/^Traceback\b/.test(s) || /^[\w.]+(Error|Exception)\b[^:]*:/.test(s) || /\b(FATAL|CRITICAL)\b/.test(s)) return 'error'
-  if (/^File ["']/.test(s) || /^(self\.|raise |return |await |async |with |for |if )/.test(s) || /^[A-Za-z_][\w.]*\([^)]*\)\s*$/.test(s)) return 'frame'
-  return ''
-}
 
 // Pannello "Log recenti" di un servizio: snapshot on-demand (ultima finestra), niente tail live.
 // Read-only/zero storage.
@@ -144,8 +105,6 @@ export default function LogsPanel({
     }
   }, [service, account, errorsOnly, showHealth, task, minutes, reloadKey, lang])
 
-  const fmtTs = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '')
-
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -202,7 +161,7 @@ export default function LogsPanel({
 
       {loading ? (
         <div style={{ textAlign: 'center', paddingTop: 80 }}>
-          <Spin tip={t('logs.loading')} />
+          <Loading text={t('logs.loading')} />
         </div>
       ) : data?.notApplicable ? (
         <Empty style={{ paddingTop: 60 }} description={t('logs.notApplicable')} />
@@ -233,52 +192,16 @@ export default function LogsPanel({
                   {hidden > 0 ? ` · ${t('logs.hidden', { n: hidden })}` : ''}
                   {data.healthSkipped > 0 ? ` · ${t('logs.healthHidden', { n: data.healthSkipped })}` : ''}
                 </div>
-                <div
-                  style={{
-                    maxHeight: '58vh',
-                    overflow: 'auto',
-                    fontSize: 12,
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                    background: 'rgba(127,127,127,0.06)',
-                    padding: 8,
-                    borderRadius: 6,
-                  }}
-                >
-                  {rows.map((e, i) => {
-                    const p = parseEvent(e.message)
-                    const kind = p.level ? '' : lineKind(p.msg) // JSON → usa il level; testo grezzo → tipo riga
-                    const msgStyle =
-                      kind === 'error'
-                        ? { color: '#ff4d4f', fontWeight: 600 }
-                        : kind === 'frame'
-                          ? { opacity: 0.45 }
-                          : undefined
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          padding: '3px 2px',
-                          borderBottom: '1px solid rgba(127,127,127,0.08)',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        <span style={{ opacity: 0.5 }}>{fmtTs(e.ts)}</span>{' '}
-                        {/* Da quale istanza arriva la riga. Solo quando ne stai leggendo più di una:
-                            con un filtro attivo sarebbe lo stesso valore ripetuto su ogni riga. */}
-                        {!task && knownTasks.length > 1 && e.stream && (
-                          <span style={{ opacity: 0.4 }}>{shortTask(taskOfStream(e.stream))}</span>
-                        )}{' '}
-                        {p.level && (
-                          <span style={{ color: LEVEL_COLOR[p.level] ?? undefined, fontWeight: 700 }}>
-                            {p.level.toUpperCase()}
-                          </span>
-                        )}{' '}
-                        <span style={msgStyle}>{p.msg}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+                <LogLines
+                  events={rows}
+                  // Da quale istanza arriva la riga. Solo quando ne stai leggendo più di una: con un
+                  // filtro attivo sarebbe lo stesso valore ripetuto su ogni riga.
+                  prefix={
+                    !task && knownTasks.length > 1
+                      ? (e) => (e.stream ? <span style={{ opacity: 0.4 }}>{shortTask(taskOfStream(e.stream))}</span> : null)
+                      : null
+                  }
+                />
               </>
             )
           })()}

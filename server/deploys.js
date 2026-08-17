@@ -104,6 +104,9 @@ export function mapBuild(b = {}, starter = null) {
     // Chi ha PREMUTO, che su un hotfix non è l'autore del commit. Solo per le build non-auto: sulle
     // altre il "chi" è la pipeline, e stamparlo accanto a "auto" non aggiunge niente.
     forcedBy: starter?.forcedBy ?? null,
+    // Chi ha premuto E CHE COSA E': una persona, la CI, un servizio. «forzato da GitHub Actions» era la
+    // definizione di non-forzato, e la parola sbagliata qui fa cercare una persona che non esiste.
+    actorKind: starter?.actorKind ?? null,
     viaTeleport: starter?.viaTeleport ?? false,
     startedAt: started,
     endedAt: ended,

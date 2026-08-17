@@ -177,3 +177,72 @@ export function shortActor(who) {
   if (at <= 0) return s
   return s.slice(0, at).replace(/^\d+\+/, '') || s
 }
+
+// MOTIVO di una build fallita, in una riga leggibile.
+//
+// CodeBuild, quando una fase muore, restituisce come "messaggio" il COMANDO INTERO che stava eseguendo:
+// su un buildspec con un `if` di venti righe (attesa del rollout ECS, describe-services, echo dei
+// messaggi) esce un muro di shell in cui la parte utile (l'esito, e il nome della fase) sta in fondo.
+// Nella pagina «Adesso» quel muro occupa mezzo schermo per una riga di elenco.
+//
+// Qui si tiene ciò che risponde alla domanda: com'è morto, e quale comando era. Lo script si butta; il
+// testo integrale resta nel dettaglio della build (pagina Deploy) e nel `title` della riga, quindi non
+// si perde niente. Pura/testabile.
+export function compactBuildReason(reason, { max = 150, cmd = 56 } = {}) {
+  const raw = String(reason ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ''
+  // Forma tipica: `[CODICE:] Error while executing command: <script>. Reason: exit status 1`
+  const m = /Error while executing command:\s*([\s\S]*?)\.?\s*Reason:\s*(.+)$/i.exec(raw)
+  if (m) {
+    const script = m[1].trim()
+    const primo = script.split(/;|&&|\|\|/)[0].trim()
+    // I puntini si mettono solo se si è tagliato per davvero: metterli sempre fa sembrare troncato un
+    // comando che era intero (`npm test…`), e allora non significano più niente.
+    const testa = primo.length > cmd ? `${primo.slice(0, cmd)}…` : primo !== script ? `${primo}…` : primo
+    return [m[2].trim(), testa].filter(Boolean).join(' · ')
+  }
+  return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw
+}
+
+// ERRORE AWS in una frase che dice cosa fare. Ritorna una CHIAVE i18n (+ parametri), non del testo:
+// la frase la compone chi disegna, tradotta. `raw` resta sempre, per il tooltip e per chi vuole
+// l'originale.
+//
+// Perché non si mostra il messaggio grezzo: quello che AWS restituisce è preciso e inutile a chi legge.
+// `ClusterNotFoundException: Cluster not found.` su una riga dell'account payer non dice la cosa che
+// conta, cioè che quel cluster non vive lì e quindi la chiamata è finita nell'account sbagliato. E
+// `User: arn:aws:sts::…:assumed-role/ruolo-lunghissimo/persona is not authorized to perform:
+// ecs:ExecuteCommand` è una riga di 140 caratteri per dire «a quel ruolo manca quel permesso».
+// Pura/testabile.
+export function explainAwsError(reason) {
+  const raw = String(reason ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return null
+  if (/ClusterNotFound/i.test(raw)) return { key: 'aws.err.clusterNotFound', params: {}, raw }
+  if (/ServiceNotFound|ServiceNotActive/i.test(raw)) return { key: 'aws.err.serviceNotFound', params: {}, raw }
+  // «not authorized to perform: <azione>» è la parte che risolve: l'azione manca al ruolo.
+  const azione = /not authorized to perform:?\s*([a-zA-Z0-9:*-]+)/.exec(raw)?.[1]
+  if (azione) return { key: 'aws.err.denied', params: { action: azione }, raw }
+  if (/^AccessDenied/i.test(raw)) return { key: 'aws.err.deniedPlain', params: {}, raw }
+  if (/RequestLimitExceeded|Throttling/i.test(raw)) return { key: 'aws.err.throttled', params: {}, raw }
+  if (/ExpiredToken|InvalidClientTokenId/i.test(raw)) return { key: 'aws.err.expired', params: {}, raw }
+  return { key: null, params: {}, raw }
+}
+
+// Come sopra ma già risolto in testo, per chi ha una `t` sotto mano: chiave tradotta se c'è, altrimenti
+// il messaggio grezzo accorciato (che è meglio di niente, ma peggio di una frase).
+export function awsErrorText(reason, t = (k) => k, { max = 120 } = {}) {
+  const e = explainAwsError(reason)
+  if (!e) return ''
+  if (e.key) return t(e.key, e.params)
+  return e.raw.length > max ? `${e.raw.slice(0, max - 1)}…` : e.raw
+}
+
+// Nome dell'account in forma CORTA, per stare accanto a un altro dato senza rubargli la riga:
+// «Management (payer)» → «Management». La parentesi spiega cos'è quell'account e serve dove l'account è
+// il soggetto (la sua sezione, il filtro Account); in una voce di tendina accanto al nome di un servizio
+// è rumore che spinge il resto fuori dallo schermo. Pura/testabile.
+export function accountShort(label) {
+  return String(label ?? '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .trim()
+}

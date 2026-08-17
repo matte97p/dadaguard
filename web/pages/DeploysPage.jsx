@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Empty, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
-import { ClockCircleOutlined, SyncOutlined } from '@ant-design/icons'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
-import { shortActor, fmtAgo } from '../format.js'
+import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
+import { ClockCircleOutlined } from '@ant-design/icons'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import { shortActor, fmtAgo, awsErrorText, accountShort } from '../format.js'
+import { groupByService, isServiceRow } from '../deployRows.js'
+import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
+import { FONT } from '../theme.js'
+import { matchesAny, isFiltering, asList } from '../filters.js'
+import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
 const MONO = 'ui-monospace, SFMono-Regular, monospace'
@@ -18,23 +23,9 @@ const STATUS = {
   STOPPED: { color: '#8c8c8c', tag: 'default', key: 'deploys.stopped' },
 }
 const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
-const FAILED_STATUSES = ['FAILED', 'FAULT', 'TIMED_OUT']
 // Colore dell'etichetta di avvio. `hotfix` è rosso perché è l'unico valore che significa "in
 // produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
 const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
-// Le azioni che NON sono build: un riavvio forzato, l'apertura o la chiusura a mano di una porta su un
-// security group (break-glass), una shell aperta dentro a un container. Nessuna ha fasi, durata, log né
-// tasso di successo da calcolare, e ognuna ha una frase sua: senza, cadevano tutte nel ramo del riavvio
-// e la pagina diceva «stessa immagine, nessuna build» sopra un break-glass.
-const AZIONI_A_MANO = {
-  restart: { tag: 'blue', frase: 'deploys.sameImage' },
-  'sg-open': { tag: 'error', frase: 'deploys.sgOpen' },
-  'sg-close': { tag: 'success', frase: 'deploys.sgClose' },
-  exec: { tag: 'warning', frase: 'deploys.exec' },
-}
-const isManualRestart = (b) => Boolean(AZIONI_A_MANO[b?.kind])
-// Azione fatta a mano = una di quelle sopra, o una build lanciata fuori dalla CI.
-const isByHand = (b) => isManualRestart(b) || b?.trigger === 'hotfix' || b?.trigger === 'manuale'
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
 
@@ -62,39 +53,6 @@ function matchStatus(b, f) {
 function matchPeriod(b, f) {
   if (f === 'all' || !PERIOD_MS[f] || !b.startedAt) return true
   return Date.now() - new Date(b.startedAt).getTime() <= PERIOD_MS[f]
-}
-
-// Raggruppa le build per servizio, dal più recente. Per ogni servizio calcola l'ultima build,
-// i conteggi ok/fallito e la lista (per il trend). In-corso prima, poi ordine alfabetico.
-function groupByService(builds) {
-  const map = new Map()
-  for (const b of builds) {
-    const svc = b.service || b.project || '—'
-    if (!map.has(svc)) map.set(svc, [])
-    map.get(svc).push(b)
-  }
-  const groups = []
-  for (const [service, arr] of map) {
-    const sorted = [...arr].sort((a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0))
-    // Tasso di successo e trend contano solo le BUILD: un riavvio riuscito non dice niente
-    // sull'affidabilità dei rilasci, e mescolarlo gonfierebbe il rapporto proprio quando un
-    // servizio va male (ogni riavvio per rimetterlo in piedi lo farebbe sembrare più sano).
-    const onlyBuilds = sorted.filter((x) => !isManualRestart(x))
-    groups.push({
-      service,
-      builds: sorted,
-      trend: onlyBuilds,
-      latest: sorted[0],
-      ok: onlyBuilds.filter((x) => x.status === 'SUCCEEDED').length,
-      failed: onlyBuilds.filter((x) => FAILED_STATUSES.includes(x.status)).length,
-    })
-  }
-  return groups.sort((a, b) => {
-    const ai = a.latest.inProgress ? 0 : 1
-    const bi = b.latest.inProgress ? 0 : 1
-    if (ai !== bi) return ai - bi
-    return a.service.localeCompare(b.service)
-  })
 }
 
 // Mini-trend: pallini colorati per stato, dal più vecchio (sx) al più recente (dx), ultime N.
@@ -136,11 +94,27 @@ function DeployTrend({ builds, onOpen, t }) {
 function BuildInfo({ b, name, t }) {
   const isCf = b.provider === 'cloudflare'
   const restart = isManualRestart(b)
+  // Un'azione su un security group si chiamava con l'id del gruppo (`sg-0046fdc5fa3522a28`): quattro
+  // righe così, una sotto l'altra, sono quattro stringhe illeggibili dove dovrebbe stare la notizia.
+  // In testa va la PORTA, che è la cosa di cui si parla; l'id scende nella riga sotto, perché serve per
+  // richiudere e quindi non si nasconde.
+  const sg = b.kind === 'sg-open' || b.kind === 'sg-close'
+  const titolo = sg ? t('deploys.sgPort', { porte: (b.porte ?? []).join(', ') || '?' }) : name
   // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
   // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
   // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
+  // Un riavvio della CI non è «stessa immagine, nessuna build»: la build c'è, è il deploy che sta
+  // uscendo. E uno di un servizio (la lambda che sincronizza i segreti) è manutenzione automatica.
+  const fraseRestart =
+    b.kind === 'restart' && !humanActor(b)
+      ? b.actorKind === 'ci'
+        ? 'deploys.restartOfDeploy'
+        : 'deploys.restartAuto'
+      : AZIONI_A_MANO[b.kind]?.frase
   const sub = restart
-    ? t(AZIONI_A_MANO[b.kind].frase, { porte: (b.porte ?? []).join(', ') || '?' })
+    ? [t(fraseRestart, { porte: (b.porte ?? []).join(', ') || '?' }), sg ? b.service : null]
+        .filter(Boolean)
+        .join(' · ')
     : [
         b.commit,
         b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
@@ -155,9 +129,12 @@ function BuildInfo({ b, name, t }) {
       <Space size={8} wrap style={{ rowGap: 2 }}>
         {b.inProgress && <Badge status="processing" />}
         <Text strong style={{ whiteSpace: 'nowrap' }}>
-          {name}
+          {titolo}
         </Text>
-        {st.key && (
+        {/* Lo stato della BUILD non si mostra sulle azioni a mano riuscite: non c'era nessuna build, e
+            un «ok» accanto a «porta aperta a mano, è drift» dice la cosa sbagliata (la chiamata è
+            andata a buon fine, la situazione no). Sui tentativi RESPINTI invece si mostra: è la notizia. */}
+        {st.key && (!restart || failed) && (
           <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
             {t(st.key)}
           </Tag>
@@ -180,7 +157,16 @@ function BuildInfo({ b, name, t }) {
             coincide con l'autore del commit, che è quello che la riga mostrava prima. */}
         {b.forcedBy && (
           <Tooltip title={b.viaTeleport ? `${b.forcedBy} · ${t('deploys.viaTeleport')}` : b.forcedBy}>
-            <Text style={{ fontSize: 11, fontWeight: 600 }}>{t('deploys.forcedBy', { who: shortActor(b.forcedBy) })}</Text>
+            {/* «Forzato da» solo se dietro c'è una PERSONA. Su una pipeline era la definizione del
+                contrario: «forzato da GitHub Actions» descrive esattamente un rilascio automatico, e chi
+                legge si mette a cercare un collega che non esiste. Per la CI e per i servizi si dice «da»,
+                e il peso del testo scende: non è un fatto da notare, è il contesto. */}
+            <Text
+              type={humanActor(b) ? undefined : 'secondary'}
+              style={{ fontSize: 11, fontWeight: humanActor(b) ? 600 : 400 }}
+            >
+              {t(humanActor(b) ? 'deploys.forcedBy' : 'deploys.byActor', { who: shortActor(b.forcedBy) })}
+            </Text>
           </Tooltip>
         )}
         {b.author && !restart && (
@@ -203,7 +189,10 @@ function BuildInfo({ b, name, t }) {
           <Tooltip title={b.failReason || undefined}>
             <Text style={{ fontSize: 12, color: '#ff7875', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
-              {b.failReason ? `: ${b.failReason}` : ''}
+              {/* Il messaggio di AWS tradotto in «cosa è andato storto»: `ClusterNotFoundException` su
+                  una riga dell'account payer vuol dire che la chiamata è finita nell'account sbagliato,
+                  ed è quello che va scritto. L'originale sta nel tooltip. */}
+              {b.failReason ? `: ${awsErrorText(b.failReason, t)}` : ''}
             </Text>
           </Tooltip>
         </div>
@@ -231,7 +220,7 @@ function ClickableRow({ b, onOpen, t, children }) {
         padding: '8px 12px',
         borderRadius: 8,
         borderLeft: `3px solid ${st.color}`,
-        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'rgba(128,128,128,0.05)',
+        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'var(--dg-row)',
         cursor: 'pointer',
       }}
     >
@@ -251,7 +240,7 @@ function ServiceRow({ g, onOpen, t }) {
   const isCf = b.provider === 'cloudflare'
   return (
     <ClickableRow b={b} onOpen={onOpen} t={t}>
-      <BuildInfo b={b} name={g.service} t={t} />
+      <BuildInfo b={b} name={g.sgGroup ? t('deploys.sgGroup', { n: g.builds.length }) : g.service} t={t} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
         {!isCf && <DeployTrend builds={g.trend ?? g.builds} onOpen={onOpen} t={t} />}
         {!isCf && decided > 0 && (
@@ -522,44 +511,33 @@ function DeploysSkeleton() {
   )
 }
 
-// Indicatore di freschezza: "aggiornato Ns fa" che scorre in tempo reale + icona che gira durante il
-// refresh in background. Rende visibile che la vista si aggiorna da sola (niente più tab fermo a uno
-// snapshot vecchio senza accorgersene, che era la causa dello sfasamento con la notifica Slack).
-function PollStatus({ lastUpdated, refreshing, t }) {
-  const [, force] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-  let label = ''
-  if (refreshing) label = t('poll.updating')
-  else if (lastUpdated) {
-    const s = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000))
-    label = s < 5 ? t('poll.justNow') : s < 60 ? t('poll.secAgo', { s }) : t('poll.minAgo', { m: Math.floor(s / 60) })
-  }
-  if (!label) return null
-  return (
-    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-      <SyncOutlined spin={refreshing} style={{ marginInlineEnd: 5, opacity: 0.7 }} />
-      {label}
-    </Text>
-  )
-}
-
 // Pagina Deploy: build CodeBuild di deploy (`acme-*-*-deploy`) per account — cosa sta uscendo ora e
 // com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
 // (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
-export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = 'all' }) {
+export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
   // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
   const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(`/api/deploys?lang=${lang}`, {
     intervalMs: 15000,
   })
   const [statusFilter, setStatusFilter] = useState('all')
-  const [periodFilter, setPeriodFilter] = useState('all')
+  // 7 giorni, non «sempre» e non 24h. «Sempre» prometteva tutto lo storico e ne consegnava due
+  // orizzonti diversi nella stessa lista: le build sono le ultime 15 per progetto (che su un servizio
+  // che rilascia spesso sono tre giorni, su uno fermo sono mesi) mentre le azioni a mano arrivano da
+  // CloudTrail con una finestra di 7 giorni. Effetto: nella parte vecchia della lista non può comparire
+  // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte»: che non è
+  // un fatto, è il fatto che non abbiamo guardato. 24h invece taglia troppo: si rilascia qualche volta
+  // a settimana, e la pagina sarebbe vuota il lunedì mattina.
+  const [periodFilter, setPeriodFilter] = useState('7d')
   // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
   // arriveresti sui deploy di tutta la flotta da cercare a mano.
-  const [serviceFilter, setServiceFilter] = useState(() => new URLSearchParams(window.location.search).get('service') ?? 'all')
+  // Deep-link `?service=`: arriva dalla pagina dei servizi, e ora accetta anche più nomi separati da
+  // virgola (`?service=backend,frontend`), che è la forma naturale ora che il filtro è multiplo.
+  // La guardia su `window` serve alla prova di rendering senza browser (l'unico controllo automatico che
+  // questa UI puo' avere in questo repo).
+  const [serviceFilter, setServiceFilter] = useState(() =>
+    typeof window === 'undefined' ? [] : asList((new URLSearchParams(window.location.search).get('service') ?? '').split(',')),
+  )
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
 
@@ -579,7 +557,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // ignorava del tutto → selezionavi un account e non cambiava niente: il filtro sembrava rotto.
   const accounts = useMemo(() => {
     const all = data ? Object.entries(data) : []
-    const list = accountFilter === 'all' ? all : all.filter(([key]) => key === accountFilter)
+    const list = all.filter(([key]) => matchesAny(key, accountFilter))
     return list.sort(([, a], [, b]) => {
       const av = a.error || (a.builds?.length ?? 0) > 0 ? 0 : 1
       const bv = b.error || (b.builds?.length ?? 0) > 0 ? 0 : 1
@@ -598,24 +576,65 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     ],
     [t],
   )
+  // Niente «sempre» e niente 30 giorni: oltre i 7 le due sorgenti non sono più allineate (vedi il
+  // commento sul default). Per andare più indietro davvero servirebbe allargare la finestra CloudTrail
+  // lato server, non un'opzione in più che mostra metà dei fatti.
   const periodOptions = useMemo(
     () => [
-      { value: 'all', label: t('deploys.period.all') },
       { value: '24h', label: t('deploys.period.24h') },
       { value: '7d', label: t('deploys.period.7d') },
-      { value: '30d', label: t('deploys.period.30d') },
     ],
     [t],
   )
   // Servizi selezionabili = quelli degli account VISIBILI (se filtri per account, non ti offro
   // servizi di un altro account: sceglierli svuotava la pagina senza motivo apparente).
+  // La tendina dice anche DOVE vive il servizio. `kong`, `supabase`, `backend` esistono in più account,
+  // e il nome da solo non identifica niente (è la stessa ragione per cui l'identità di un servizio, in
+  // questa app, è account + nome): letta così, la voce `kong` non diceva se stavi guardando staging o
+  // produzione. Il filtro resta CROSS-ACCOUNT di proposito: serve a confrontare lo stesso servizio nei
+  // due ambienti, ed è dove atterra il deep-link `?service=` dalla pagina Servizi, quindi l'account non
+  // è una scelta da fare qui: è un'informazione da leggere. Per restringere a un ambiente c'è il filtro
+  // Account della barra in alto, che vale su tutta la pagina.
   const serviceOptions = useMemo(() => {
-    const set = new Set()
-    for (const [, acc] of accounts) for (const b of acc.builds ?? []) if (b.service) set.add(b.service)
-    return [{ value: 'all', label: t('deploys.allServices') }, ...[...set].sort().map((s) => ({ value: s, label: s }))]
-  }, [accounts, t])
+    const dove = new Map() // servizio → etichette degli account in cui compare
+    for (const [, acc] of accounts) {
+      for (const b of acc.builds ?? []) {
+        // Un id di security group non è un servizio: filtrarci sopra non ha senso, e in mezzo ai nomi
+        // veri sono sette righe di rumore in una tendina che si legge a colpo d'occhio.
+        if (!b.service || !isServiceRow(b)) continue
+        // Solo chi ha righe nella finestra e nello stato scelti: offrire un servizio che poi svuota la
+        // pagina fa sembrare rotto il filtro (ed è il difetto che questa app evita altrove, vedi la
+        // barra dei filtri che nasconde i campi inerti).
+        if (!matchPeriod(b, periodFilter) || !matchStatus(b, statusFilter)) continue
+        if (!dove.has(b.service)) dove.set(b.service, new Set())
+        dove.get(b.service).add(acc.label ?? '—')
+      }
+    }
+    for (const scelto of asList(serviceFilter)) if (!dove.has(scelto)) dove.set(scelto, new Set()) // le scelte attive non spariscono mai
+    return [
+      ...[...dove.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([service, conti]) => ({
+          value: service,
+          // Due pezzi con due pesi: il nome del servizio è quello che si cerca, gli account sono il
+          // contesto. Come testo di seguito («backend · Management (payer), Production, Staging»)
+          // diventava una riga da 48 caratteri che la tendina tagliava a metà.
+          label: (
+            <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+              <span>{service}</span>
+              {conti.size > 0 && (
+                <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{[...conti].map(accountShort).sort().join(' · ')}</span>
+              )}
+            </span>
+          ),
+          // Nella casella CHIUSA basta il nome: un filtro attivo che non si legge è peggio di uno che
+          // dice meno. Gli account si leggono aprendo l'elenco, che è quando servono.
+          nomeCorto: service,
+        })),
+    ]
+  }, [accounts, periodFilter, statusFilter, serviceFilter, t])
 
-  const anyFilter = statusFilter !== 'all' || periodFilter !== 'all' || serviceFilter !== 'all'
+  const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || isFiltering(serviceFilter)
   const toggleExpand = (key) =>
     setExpanded((prev) => {
       const n = new Set(prev)
@@ -628,7 +647,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
       list
         .filter((b) => matchStatus(b, statusFilter))
         .filter((b) => matchPeriod(b, periodFilter))
-        .filter((b) => serviceFilter === 'all' || b.service === serviceFilter),
+        .filter((b) => matchesAny(b.service, serviceFilter)),
     [statusFilter, periodFilter, serviceFilter],
   )
 
@@ -658,14 +677,29 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
             <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
             <Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
             <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
-            <Select size="small" value={serviceFilter} onChange={setServiceFilter} options={serviceOptions} style={{ minWidth: 150 }} />
+            <Select
+              size="small"
+              mode="multiple"
+              allowClear
+              maxTagCount="responsive"
+              placeholder={t('deploys.allServices')}
+              value={serviceFilter}
+              onChange={setServiceFilter}
+              options={serviceOptions}
+              optionLabelProp="nomeCorto"
+              // La tendina si allarga sul CONTENUTO, non sul controllo: legata alla larghezza del
+              // controllo (160px) tagliava ogni voce a «agentic-chat · Prod…», cioè nascondeva proprio
+              // l'informazione appena aggiunta.
+              popupMatchSelectWidth={false}
+              style={{ minWidth: 150 }}
+            />
           </Space>
         }
       />
 
       {loading && !data && <DeploysSkeleton />}
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-      {data && accounts.length === 0 && <Empty description={t('deploys.noAccounts')} style={{ marginTop: 24 }} />}
+      {data && accounts.length === 0 && <EmptyState description={t('deploys.noAccounts')} />}
 
       {accounts.length > 0 && (
         <>

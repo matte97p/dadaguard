@@ -32,7 +32,7 @@ function fmtDur(min, t = identityT) {
 // usiamo il pacchetto cron condiviso: su eccezione fa crash-alert e RILANCIA → l'eccezione non catturata stampa
 // `Traceback (most recent call last):` su stderr → CloudWatch. `ERROR:`/`CRITICAL:` coprono i log di
 // livello error (formato logging `LEVEL:logger:msg`). Il successo logga `Done: ...`, nessuno di questi.
-const FAILURE_PATTERN = '?Traceback ?"ERROR:" ?"CRITICAL:"'
+export const FAILURE_PATTERN = '?Traceback ?"ERROR:" ?"CRITICAL:"'
 
 // Classifica l'esito di un cron ECS dai due segnali di log. Pura/testabile.
 //   ran=false           → 'missed'  (dead-man: nessun log nella finestra = non è partito)

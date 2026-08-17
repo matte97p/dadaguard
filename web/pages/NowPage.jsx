@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Space, Tag, Tooltip, Alert, Empty, Skeleton, Segmented } from 'antd'
+import { Typography, Space, Tag, Tooltip, Alert, Skeleton, Segmented } from 'antd'
 import {
   ClockCircleOutlined,
   SyncOutlined,
@@ -11,11 +11,12 @@ import {
   DollarOutlined,
   LineChartOutlined,
 } from '@ant-design/icons'
-import { PageIntro, HeroRow, HeroStat } from './pageKit.jsx'
+import { PageIntro, HeroRow, HeroStat, Section, EmptyState } from './pageKit.jsx'
 import { buildSignals, countByLevel } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
-import { levelColor, SURFACE } from '../theme.js'
+import { levelColor, FONT, SPACE } from '../theme.js'
+import { matchesAny } from '../filters.js'
 
 const { Text } = Typography
 
@@ -30,7 +31,11 @@ const KIND_ICON = {
   anomaly: <LineChartOutlined />,
 }
 
-const WINDOWS = [24, 72, 168]
+// Finestre: 1h e 6h ci sono perché è dentro un incidente che si apre questa pagina, e lì la domanda è
+// «cos'è cambiato nell'ultima ora», non «cos'è successo oggi». Partono da 24h: la finestra di chi
+// arriva la mattina, e le due corte si scelgono quando servono. Il WAF le sopporta tutte (l'endpoint
+// prende `hours` e la sua cache è per finestra), gli altri due dati non hanno finestra: si filtra qui.
+const WINDOWS = [1, 6, 24, 72, 168]
 
 function SignalRow({ s, t, onOpen }) {
   const color = levelColor(s.level)
@@ -38,21 +43,13 @@ function SignalRow({ s, t, onOpen }) {
     <div
       role="button"
       tabIndex={0}
-      title={t('now.open')}
+      title={s.full ?? t('now.open')}
       // data-signal: ancora per il video demo, vedi pageKit.jsx.
       data-signal={s.kind}
       onClick={() => onOpen(s)}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s))}
-      style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 12,
-        padding: '9px 12px',
-        borderRadius: 8,
-        borderLeft: `3px solid ${color}`,
-        background: SURFACE.rowBg,
-        cursor: 'pointer',
-      }}
+      className="dg-signal"
+      style={{ borderInlineStart: `3px solid ${color}` }}
     >
       <span style={{ color, flex: 'none', opacity: 0.85 }}>{KIND_ICON[s.kind] ?? null}</span>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -100,7 +97,7 @@ function SignalRow({ s, t, onOpen }) {
 // finestra in cui la flotta era vuota e nessuno stava ancora caricando — e questa pagina scriveva
 // «niente da segnalare · controllati 0 servizi», che è un ESITO, mentre i servizi non li aveva
 // nemmeno guardati. Cinque secondi dopo comparivano, giù e degradati, in cima all'elenco.
-export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = 'all', t = (k) => k, lang }) {
+export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = [], t = (k) => k, lang }) {
   const navigate = useNavigate()
   const [hours, setHours] = useState(24)
   const [deploys, setDeploys] = useState(null)
@@ -143,8 +140,7 @@ export default function NowPage({ services = [], statusReady = false, statusLoad
     // Il filtro Account della barra in alto vale anche qui. Le righe senza account (un'anomalia porta
     // il NOME dell'account, non la sua chiave) restano visibili: nasconderle per un filtro che non le
     // riguarda toglierebbe fatti veri senza dirlo.
-    if (accountFilter === 'all') return all
-    return all.filter((s) => s.accountKey == null || s.accountKey === accountFilter)
+    return all.filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
   }, [services, deploys, waf, budgets, hours, accountFilter, t])
 
   const counts = useMemo(() => countByLevel(signals), [signals])
@@ -196,25 +192,26 @@ export default function NowPage({ services = [], statusReady = false, statusLoad
       {/* Niente da segnalare è un ESITO, non un vuoto: si dice cosa è stato guardato, altrimenti una
           pagina vuota si legge come "non funziona". */}
       {!waiting && signals.length === 0 && (
-        <Empty
+        <EmptyState
           description={
             <Space direction="vertical" size={2}>
               <Text>{t('now.allQuiet', { h: hours })}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: FONT.small }}>
                 {t('now.checked', { n: services.length })}
               </Text>
             </Space>
           }
-          style={{ marginTop: 24 }}
         />
       )}
 
       {signals.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {signals.map((s) => (
-            <SignalRow key={s.id} s={s} t={t} onOpen={(x) => navigate(x.to)} />
-          ))}
-        </div>
+        <Section title={t('now.listTitle', { n: signals.length })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.xs }}>
+            {signals.map((s) => (
+              <SignalRow key={s.id} s={s} t={t} onOpen={(x) => navigate(x.to)} />
+            ))}
+          </div>
+        </Section>
       )}
 
       {signals.length > 0 && (

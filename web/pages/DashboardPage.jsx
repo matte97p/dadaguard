@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Row, Col, Divider, Badge, Typography, Space, Alert, Empty, Card, Skeleton, Segmented } from 'antd'
+import { Row, Col, Divider, Badge, Typography, Space, Alert, Card, Skeleton, Segmented } from 'antd'
+import { EmptyState } from './pageKit.jsx'
 import { TableOutlined, AppstoreOutlined } from '@ant-design/icons'
 import ServiceCard from '../components/ServiceCard.jsx'
 import ServicesTable from '../components/ServicesTable.jsx'
@@ -125,7 +126,7 @@ export default function DashboardPage({ data, groups, allServices, statusFilter,
           ))}
         </Row>
       )}
-      {data && groups.length === 0 && <Empty description={t('content.noServices')} style={{ marginTop: 48 }} />}
+      {data && groups.length === 0 && <EmptyState description={t('content.noServices')} />}
 
       {data && view === 'table' && groups.length > 0 && (
         <ServicesTable

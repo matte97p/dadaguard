@@ -65,10 +65,17 @@ export default function FilterBar({
       {has('account') && (
         <Select
           size="small"
+          mode="multiple"
+          allowClear
+          maxTagCount="responsive"
+          placeholder={t('filter.allAccounts')}
           value={accountFilter}
           onChange={setAccountFilter}
           options={accountOptions}
-          style={{ minWidth: 140 }}
+          // La tendina si allarga sul contenuto: le etichette degli account sono scritte da chi
+          // configura («Management (payer)»), quindi non c'è una larghezza giusta da indovinare.
+          popupMatchSelectWidth={false}
+          style={{ minWidth: 150 }}
           suffixIcon={<TeamOutlined />}
         />
       )}
