@@ -66,3 +66,16 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+      # L'immagine si costruiva SOLO dopo il merge (deploy.yml, release.yml), quindi un guasto che vive
+      # solo dentro al container passava tutti i controlli e si scopriva in produzione: è così che dal
+      # 29/06/2026 al 17/08/2026 nessun deploy è andato a buon fine, con `npm test` sempre verde
+      # (mancava `COPY shared ./shared`, e il server moriva all'avvio con ERR_MODULE_NOT_FOUND).
+      # Costruire e AVVIARE l'immagine qui prova la cosa vera: che il server parta davvero.
+      - name: Costruisci l'immagine
+        run: docker build -t dadaguard-ci .
+
+      - name: Il server parte dentro al container (import di tutti i moduli)
+        run: |
+          docker run --rm --entrypoint node dadaguard-ci \
+            -e "import('/app/server/index.js').then(()=>{console.log('server: import ok');process.exit(0)}).catch(e=>{console.error('server: import FALLITO',e);process.exit(1)})"
