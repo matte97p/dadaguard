@@ -1,273 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Empty, Typography, Spin, Space, Alert } from 'antd'
-import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
+import { Segmented, Typography, Space, Alert, Breadcrumb, Button, Tag, Switch } from 'antd'
+import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { PageIntro } from './pageKit.jsx'
+import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
+import { TIPI_NODO } from '../components/TopoNode.jsx'
+import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
+import { FONT, SPACE, MONO } from '../theme.js'
+import { buildMap, buildGroup, rollup, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { rischi as calcolaRischi, usiDiretti, impatto } from '../topoImpact.js'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
-
-const STATUS_COLOR = {
-  up: '#52c41a',
-  degraded: '#faad14',
-  down: '#ff4d4f',
-  idle: '#8c8c8c',
-  disabled: '#8c8c8c',
-  unknown: '#8c8c8c',
-}
-
-// Provenienza dell'arco (come l'abbiamo dedotto): colore + etichetta per la legenda.
-const VIA = {
-  declared: { color: '#8c8c8c' },
-  env: { color: '#1677ff' },
-  event: { color: '#7c3aed' },
-  flow: { color: '#eb2f96' },
-  iam: { color: '#08979c' },
-  lb: { color: '#fa8c16' },
-  net: { color: '#13c2c2' },
-}
-
-// Chiave di un servizio nel grafo, gemella di `topologyNodeId` in server/topology/deduce.js — dove gli
-// archi nascono già con questa forma. NON è il nome: `backend` esiste in staging e in produzione, e i
-// modelli Bedrock stanno in ogni account. Usare il nome fondeva due servizi in un nodo solo (con lo
-// stato di quello letto per ultimo) e duplicava le `key` React della lista laterale, che così
-// accumulava righe morte invece di sostituirle.
-export function topologyNodeId(s) {
-  const acct = (typeof s.account === 'string' ? s.account : s.account?.key) ?? '__none__'
-  return `${acct}::${s.name}`
-}
-const acctLabel = (s) => (typeof s.account === 'string' ? s.account : s.account?.label) ?? null
-
-// Corsia di un nodo: il disegno deve avere una spina dorsale (chi riceve la richiesta → chi la serve
-// → dove stanno i dati), altrimenti dagre appiattisce tutto su due livelli e ne esce una fila larga
-// 1700px che, dopo il fitView, ha le etichette a 6px.
-const LANE_OF_TYPE = {
-  alb: 'ingress',
-  'cloudflare-worker': 'ingress',
-  cloudfront: 'ingress',
-  apigateway: 'ingress',
-  ecs: 'app',
-  ec2: 'app',
-  lambda: 'app',
-  sfn: 'app',
-  'ecs-scheduled': 'ops',
-  rds: 'data',
-  elasticache: 'data',
-  kinesis: 'data',
-  sqs: 'data',
-  s3: 'data',
-  dynamodb: 'data',
-}
-const LANES = ['ingress', 'app', 'data', 'ops']
-
-// Un hub è un nodo che punta a molti servizi SOLO perché li nomina nelle env var: i sincronizzatori
-// di configurazione citano tutta la flotta, quindi diventano i nodi più connessi del disegno pur non
-// servendo nessuna richiesta. Si riconosce dalla forma (molti archi in uscita, nessuno in entrata),
-// non dal nome, così un tool nuovo ci ricade dentro senza toccare una lista.
-const HUB_MIN_FANOUT = 4
-const WEAK_VIAS = new Set(['env', 'iam'])
-
-function classifyHubs(edges) {
-  const out = new Map()
-  const incoming = new Set(edges.map((e) => e.target))
-  for (const e of edges) {
-    if (!out.has(e.source)) out.set(e.source, [])
-    out.get(e.source).push(e)
-  }
-  const hubs = new Set()
-  for (const [source, list] of out) {
-    if (incoming.has(source)) continue
-    if (list.length < HUB_MIN_FANOUT) continue
-    if (!list.every((e) => (e.vias ?? []).every((v) => WEAK_VIAS.has(v)))) continue
-    hubs.add(source)
-  }
-  return hubs
-}
-
-// --- Vista "Dipendenze": corsie per ruolo, nodi colorati per stato, archi per provenienza. ---
-// `services` arriva già filtrato; `topo.nodes` porta la flotta INTERA. Serve la differenza: filtrando
-// per un nome, il servizio all'altro capo dell'arco spariva e con esso ogni arco, così cercare un
-// servizio nella vista che ne mostra le dipendenze le cancellava. I vicini fuori dal filtro restano
-// disegnati, ma smorzati: sono contesto, non risultato.
-function buildGraph(services, topo, dark, t) {
-  const universe = new Map((topo.nodes ?? []).map((n) => [n.id, n]))
-  const selected = new Map(services.map((s) => [topologyNodeId(s), s]))
-  const external = new Map((topo.extraNodes ?? []).map((n) => [n.id, n]))
-  const known = (id) => selected.has(id) || universe.has(id) || external.has(id)
-
-  const allEdges = (topo.edges ?? []).filter((e) => known(e.source) && known(e.target))
-  // Un arco entra nel disegno se almeno un estremo è dentro al filtro: l'altro diventa un vicino.
-  const edges = allEdges.filter((e) => selected.has(e.source) || selected.has(e.target))
-  const hubs = classifyHubs(edges)
-
-  const nameOf = (id) => selected.get(id)?.name ?? universe.get(id)?.name ?? external.get(id)?.label ?? id
-  const typeOf = (id) => selected.get(id)?.type ?? universe.get(id)?.type ?? external.get(id)?.type ?? null
-  const statusOf = (id) => selected.get(id)?.overall ?? null
-  // `topo.nodes` porta la CHIAVE dell'account ('production'), i servizi la sua etichetta
-  // ('Production'): senza tradurla, un vicino fuori dal filtro finiva accanto a un servizio dentro al
-  // filtro con lo stesso account scritto in due modi, che si legge come un errore.
-  const accountLabels = new Map(services.map((s) => [topologyNodeId(s).split('::')[0], acctLabel(s)]).filter(([, l]) => l))
-  const accountOf = (id) => {
-    const s = selected.get(id)
-    if (s) return acctLabel(s)
-    const raw = universe.get(id)?.account ?? null
-    return raw ? accountLabels.get(raw) ?? raw : null
-  }
-
-  // Il nome si ripete tra ambienti: l'etichetta porta l'account solo quando serve a distinguerli.
-  const nameCount = new Map()
-  for (const id of new Set([...selected.keys(), ...allEdges.flatMap((e) => [e.source, e.target])])) {
-    const n = nameOf(id)
-    nameCount.set(n, (nameCount.get(n) ?? 0) + 1)
-  }
-
-  // Ogni estremo di un arco resta nel disegno, hub compresi: il collasso toglie le LINEE, non i nodi.
-  // Togliere anche i bersagli farebbe finire un servizio vero fra quelli «senza relazioni dedotte»,
-  // cioè direbbe «nessuna relazione» per dire «relazione collassata» — la confusione che questa
-  // pagina esiste per evitare.
-  const inGraph = new Set()
-  for (const e of edges) {
-    inGraph.add(e.source)
-    inGraph.add(e.target)
-  }
-  const collapsed = []
-  for (const id of hubs) {
-    const list = edges.filter((e) => e.source === id)
-    collapsed.push({ source: id, targets: list.map((e) => e.target), vias: [...new Set(list.flatMap((e) => e.vias ?? []))] })
-  }
-  const drawnEdges = edges.filter((e) => !hubs.has(e.source))
-
-  const laneOf = (id) => (hubs.has(id) ? 'ops' : external.has(id) ? 'data' : LANE_OF_TYPE[typeOf(id)] ?? 'app')
-  const byLane = new Map(LANES.map((l) => [l, []]))
-  for (const id of inGraph) byLane.get(laneOf(id))?.push(id)
-  for (const id of hubs) if (!byLane.get('ops').includes(id)) byLane.get('ops').push(id)
-  for (const list of byLane.values()) list.sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
-
-  // Le corsie danno i livelli, ma dentro un livello l'ordine alfabetico fa attraversare la tela agli
-  // archi. Ordinamento a baricentro (Sugiyama): ogni nodo si sposta verso la media delle posizioni dei
-  // suoi vicini nella corsia adiacente, una passata in giù e una in su. È quello che faceva dagre e
-  // che si perde imponendo i livelli a mano.
-  const neighboursIn = (id, laneList, dir) =>
-    drawnEdges
-      .filter((e) => (dir === 'up' ? e.target === id : e.source === id))
-      .map((e) => laneList.indexOf(dir === 'up' ? e.source : e.target))
-      .filter((i) => i >= 0)
-  const sweep = (from, to, dir) => {
-    const anchor = byLane.get(from) ?? []
-    const list = byLane.get(to) ?? []
-    if (!anchor.length || list.length < 2) return
-    const bary = new Map(
-      list.map((id) => {
-        const idx = neighboursIn(id, anchor, dir)
-        return [id, idx.length ? idx.reduce((a, b) => a + b, 0) / idx.length : Number.POSITIVE_INFINITY]
-      }),
-    )
-    list.sort((a, b) => bary.get(a) - bary.get(b) || nameOf(a).localeCompare(nameOf(b)))
-  }
-  sweep('ingress', 'app', 'up')
-  sweep('app', 'data', 'up')
-  sweep('data', 'app', 'down')
-  sweep('app', 'ingress', 'down')
-
-  const NODE_W = 190
-  const NODE_H = 46
-  const GAP_X = 26
-  const LANE_H = 150
-  const nodes = []
-  LANES.forEach((lane) => {
-    const list = byLane.get(lane) ?? []
-    if (!list.length) return
-    const y = LANES.indexOf(lane) * LANE_H
-    list.forEach((id, i) => {
-      const ghost = !selected.has(id) && !external.has(id)
-      const color = external.has(id) ? '#bfbfbf' : STATUS_COLOR[statusOf(id)] ?? '#8c8c8c'
-      const label =
-        nameCount.get(nameOf(id)) > 1 && accountOf(id) ? `${nameOf(id)} · ${accountOf(id)}` : nameOf(id)
-      nodes.push({
-        id,
-        position: { x: i * (NODE_W + GAP_X), y },
-        data: { label: `${label}${typeOf(id) ? ` · ${typeOf(id)}` : ''}` },
-        style: {
-          border: `2px ${external.has(id) || ghost ? 'dashed' : 'solid'} ${color}`,
-          borderRadius: 8,
-          padding: '6px 10px',
-          fontSize: 12,
-          width: NODE_W,
-          opacity: ghost ? 0.45 : 1,
-          background: dark ? '#1f1f1f' : '#fff',
-          color: dark ? '#e6e6e6' : '#000',
-        },
-      })
-    })
-  })
-
-  // Nodo sintetico per ogni hub collassato: dice QUANTI servizi tocca, e quali nel tooltip.
-  collapsed.forEach((c, i) => {
-    const id = `agg:${c.source}`
-    nodes.push({
-      id,
-      position: { x: i * (NODE_W + GAP_X), y: LANES.indexOf('ops') * LANE_H + 60 },
-      data: { label: t('topo.hubTargets', { n: c.targets.length }) },
-      style: {
-        border: `1.5px dotted ${VIA.env.color}`,
-        borderRadius: 8,
-        padding: '4px 8px',
-        fontSize: 11,
-        width: NODE_W,
-        background: 'transparent',
-        color: dark ? '#a6a6a6' : '#595959',
-      },
-    })
-  })
-
-  const rfEdges = drawnEdges.map((e) => {
-    const broken = ['down', 'degraded'].includes(statusOf(e.target))
-    const primary = e.vias?.[0] ?? 'declared'
-    const color = broken ? '#ff4d4f' : VIA[primary]?.color ?? '#888'
-    return {
-      id: `${e.source}->${e.target}`,
-      source: e.source,
-      target: e.target,
-      type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, color },
-      animated: broken,
-      style: {
-        stroke: color,
-        strokeWidth: broken ? 2 : 1.5,
-        strokeDasharray: primary === 'net' && !broken ? '5 5' : undefined,
-      },
-      label: broken ? `⚠ ${t('topo.edge.down')}` : undefined,
-    }
-  })
-  collapsed.forEach((c) => {
-    rfEdges.push({
-      id: `${c.source}->agg`,
-      source: c.source,
-      target: `agg:${c.source}`,
-      type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, color: VIA.env.color },
-      style: { stroke: VIA.env.color, strokeWidth: 1.5, strokeDasharray: '2 3' },
-      label: `×${c.targets.length}`,
-      labelStyle: { fontSize: 10 },
-    })
-  })
-
-  // Chi resta fuori dal grafo, raggruppato per tipo: 21 modelli e 8 worker non sono «servizi orfani»,
-  // e in un elenco piatto di 52 righe coprivano il disegno invece di completarlo.
-  const orphanByType = new Map()
-  for (const s of services) {
-    if (inGraph.has(topologyNodeId(s))) continue
-    const type = s.type ?? '—'
-    if (!orphanByType.has(type)) orphanByType.set(type, [])
-    orphanByType.get(type).push({ key: topologyNodeId(s), name: s.name, status: s.overall, account: acctLabel(s) })
-  }
-  const orphans = [...orphanByType.entries()]
-    .map(([type, items]) => ({ type, items: items.sort((a, b) => a.name.localeCompare(b.name)) }))
-    .sort((a, b) => b.items.length - a.items.length)
-
-  const usedVias = new Set(drawnEdges.flatMap((e) => e.vias ?? []).concat(collapsed.length ? ['env'] : []))
-  const ghosts = [...inGraph].filter((id) => !selected.has(id) && !external.has(id)).length
-  return { nodes, edges: rfEdges, usedVias, orphans, ghosts }
-}
 
 // --- Vista "Rete": box VPC che contengono i servizi, più un bucket "Senza VPC". ---
 function buildNetworkGraph(net, dark, t) {
@@ -372,49 +115,157 @@ function buildNetworkGraph(net, dark, t) {
   return { nodes, hasData: groups.length > 0 }
 }
 
-function Legend({ usedVias, t }) {
-  const keys = Object.keys(VIA).filter((k) => usedVias.has(k))
-  if (!keys.length) return null
-  return (
-    <Space size={12} wrap style={{ marginBottom: 8 }}>
-      {keys.map((k) => (
-        <Space key={k} size={4}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 18,
-              height: 0,
-              borderTop: `2px ${k === 'net' ? 'dashed' : 'solid'} ${VIA[k].color}`,
-            }}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t(`topo.legend.${k}`)}
-          </Text>
-        </Space>
-      ))}
-      <Space size={4}>
-        <span style={{ display: 'inline-block', width: 18, height: 0, borderTop: '2px solid #ff4d4f' }} />
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('topo.legend.down')}
+const CANVAS = {
+  // Alta quanto basta: a `calc(100vh - 300px)` su uno schermo grande erano 1200px per un disegno alto
+  // 300, e la mappa galleggiava in mezzo al vuoto con i box piccoli in un angolo.
+  height: 'min(calc(100vh - 320px), 620px)',
+  minHeight: 420,
+  border: '1px solid var(--dg-line)',
+  borderRadius: 12,
+  position: 'relative',
+  background: 'var(--dg-row)',
+}
+
+// Il PANNELLO a destra: cosa si sa di ciò che è selezionato. È l'innesto che tutti gli strumenti seri
+// hanno (Kiali, Datadog, Workload Discovery) e che qui mancava: senza, tutto quello che si vuole dire
+// deve stare sulla card, e una card che dice tutto non si legge.
+function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) {
+  if (!scelto) {
+    return (
+      <div className="dg-topo-panel">
+        <Text type="secondary" style={{ fontSize: FONT.small }}>
+          {t('topo.panel.hint')}
         </Text>
-      </Space>
-    </Space>
+      </div>
+    )
+  }
+  if (scelto.tipo === 'gruppo') {
+    const r = rollup(scelto.membri, Date.now(), rischi)
+    return (
+      <div className="dg-topo-panel">
+        <div className="dg-topo-panel-title">{scelto.titolo}</div>
+        <Text type="secondary" style={{ fontSize: FONT.small }}>
+          {t('topo.panel.members', { n: r.membri })}
+          {r.problemi ? ` · ${t('topo.panel.problems', { n: r.problemi })}` : ''}
+        </Text>
+        {r.aRischio > 0 && (
+          <div style={{ fontSize: FONT.small, color: '#d48806' }}>
+            {t('topo.g.risk', { n: r.aRischio })}: {r.causa}
+          </div>
+        )}
+        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApri(scelto.key)}>
+          {t('topo.panel.open')}
+        </Button>
+        <div className="dg-topo-panel-list">
+          {scelto.membri.map((s) => (
+            <div key={chiaveDi(s)} className="dg-topo-panel-row">
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown }} />
+              <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>{s.name}</span>
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {s.type}
+              </Text>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Una RISORSA: lo stato, e le relazioni dedotte con la loro provenienza. La provenienza si dice
+  // sempre, perché «citato in una env var» e «un load balancer instrada qui» sono due cose diverse e
+  // solo una delle due è un flusso.
+  const s = scelto.servizio
+  const chiave = chiaveDi(s)
+  const entranti = (topo.edges ?? []).filter((e) => e.target === chiave)
+  const uscenti = (topo.edges ?? []).filter((e) => e.source === chiave)
+  // Anche i nodi che non sono servizi nostri (un sistema di terzi, una coda non dichiarata) hanno un
+  // nome: senza, nel pannello delle relazioni compariva l'identificativo grezzo `ext:host:…`.
+  const nomeDi = new Map([
+    ...(topo.nodes ?? []).map((n) => [n.id, n.name]),
+    ...(topo.extraNodes ?? []).map((n) => [n.id, n.label ?? n.id]),
+  ])
+  const imp = impatto(chiave, servizi, topo.edges ?? [])
+  const colpe = rischi.get(chiave) ?? null
+  const riga = (e, verso) => {
+    const altro = verso === 'in' ? e.source : e.target
+    return (
+      <div key={`${verso}${e.source}${e.target}`} className="dg-topo-panel-row">
+        <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>
+          {nomeDi.get(altro) ?? altro.split('::').pop()}
+        </span>
+        {(e.vias ?? []).map((v) => (
+          <Tag key={v} bordered={false} style={{ marginInlineEnd: 0, fontSize: 10 }} color={VIA[v]?.forte ? 'orange' : 'default'}>
+            {t(`topo.legend.${v}`)}
+          </Tag>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="dg-topo-panel">
+      <div className="dg-topo-panel-title" style={{ fontFamily: MONO }}>
+        {s.name}
+      </div>
+      <Text type="secondary" style={{ fontSize: FONT.small }}>
+        {s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · ')}
+      </Text>
+      {/* Il salto al dettaglio del servizio (check, log, eventi): la mappa dice dove guardare, e il passo
+          dopo è guardarci. Di un sistema fuori da AWS non abbiamo un dettaglio, quindi lì non si offre. */}
+      {!s.esterno && onApriServizio && s.overall !== 'unknown' && (
+        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApriServizio(s)}>
+          {t('topo.panel.openService')}
+        </Button>
+      )}
+      {s.checks?.runtime?.summary && (
+        <div style={{ marginTop: SPACE.sm, fontSize: FONT.small }}>{s.checks.runtime.summary}</div>
+      )}
+      {/* LE DUE RISPOSTE per cui questa pagina esiste (vedi web/topoImpact.js): chi ne soffre se si
+          ferma, e da cosa dipende lui, che è dove si guarda quando è lui a non funzionare. Contano
+          anche i rimbalzi: la dipendenza indiretta è proprio quella che a mente non si ricostruisce. */}
+      <div className="dg-topo-panel-impact">
+        <div>
+          <strong>{t('topo.panel.blast', { n: imp.aValle.length })}</strong>
+          {imp.aValle.length > 0 && (
+            <span style={{ opacity: 0.75 }}> {imp.aValle.slice(0, 6).join(', ')}{imp.aValle.length > 6 ? '…' : ''}</span>
+          )}
+        </div>
+        <div>
+          <strong>{t('topo.panel.dependsOn', { n: imp.dipendenze.length })}</strong>
+          {imp.dipendenze.length > 0 && (
+            <span style={{ opacity: 0.75 }}> {imp.dipendenze.slice(0, 6).join(', ')}{imp.dipendenze.length > 6 ? '…' : ''}</span>
+          )}
+        </div>
+        {colpe && <div style={{ color: '#d48806' }}>{t('topo.panel.riskWhy', { names: colpe.join(', ') })}</div>}
+      </div>
+      <div className="dg-topo-panel-list">
+        {entranti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.in', { n: entranti.length })}</div>}
+        {entranti.map((e) => riga(e, 'in'))}
+        {uscenti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.out', { n: uscenti.length })}</div>}
+        {uscenti.map((e) => riga(e, 'out'))}
+        {entranti.length + uscenti.length === 0 && (
+          <Text type="secondary" style={{ fontSize: FONT.micro }}>
+            {t('topo.panel.none')}
+          </Text>
+        )}
+      </div>
+    </div>
   )
 }
 
-const CANVAS = {
-  height: 'calc(100vh - 280px)',
-  minHeight: 420,
-  border: '1px solid rgba(128,128,128,0.2)',
-  borderRadius: 8,
-  position: 'relative',
-}
-
-// Pagina Topologia: due lenti. "Dipendenze" = relazioni dedotte da AWS (env/event/flow/lb/SG).
-// "Rete" = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
+// Pagina Topologia: due lenti. «Architettura» = la mappa a gruppi, con dentro le risorse.
+// «Rete» = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
-export default function TopologyPage({ services = [], accountLabels, dark, t = (k) => k }) {
+export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, onApriServizio, t = (k) => k }) {
   const [view, setView] = useState('deps')
+  // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
+  const [conto, setConto] = useState(null)
+  // Il LIVELLO: la mappa dei gruppi, oppure dentro un gruppo. È la tesi C4, un diagramma un livello,
+  // ed è ciò che fa scendere un ambiente vero da 30-38 card a 6-8 box.
+  const [gruppoAperto, setGruppoAperto] = useState(null)
+  // Le relazioni dedotte da permessi IAM e security group: 61 secondi di chiamate AWS per due archi in
+  // più. Spente finché non le si chiede.
+  const [deboli, setDeboli] = useState(false)
+  const [scelto, setScelto] = useState(null)
   const [topo, setTopo] = useState({ edges: [], extraNodes: [], nodes: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -422,18 +273,24 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
 
-  // Dipendenze: fetch al mount della pagina.
+  // Di default si chiede il giro VELOCE, e non è una scorciatoia: misurato sulla flotta vera, il giro
+  // completo costa 66,5 secondi contro 5,5 e porta DUE archi in più su 34. Quei 61 secondi stanno tutti
+  // nelle passate IAM e security group, che deducono relazioni da un permesso o da una regola di rete —
+  // vere, ma non sono un flusso. Chi le vuole le chiede con l'interruttore, sapendo cosa costano.
   useEffect(() => {
+    let vivo = true
     setLoading(true)
     setError(null)
-    fetch('/api/topology')
+    fetch(`/api/topology?deboli=${deboli ? '1' : '0'}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [], nodes: d.nodes ?? [] }))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
+      .then((d) => vivo && setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [], nodes: d.nodes ?? [] }))
+      .catch((e) => vivo && setError(e.message))
+      .finally(() => vivo && setLoading(false))
+    return () => {
+      vivo = false
+    }
+  }, [deboli])
 
-  // Rete: fetch pigro la prima volta che apri la tab (più chiamate AWS → solo se serve).
   useEffect(() => {
     if (view !== 'net' || net) return
     setNetLoading(true)
@@ -449,19 +306,81 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
     () => (!net || !accountLabels ? net : { accounts: (net.accounts ?? []).filter((a) => accountLabels.has(a.label)) }),
     [net, accountLabels],
   )
+  // Era un riferimento a una variabile che non esiste più: aprire la scheda «Rete» buttava giù la pagina
+  // con un ReferenceError, cioè schermo bianco.
+  const netGraph = useMemo(() => buildNetworkGraph(shownNet ?? {}, dark, t), [shownNet, dark, t])
 
-  const { nodes, edges, usedVias, orphans, ghosts } = useMemo(
-    () => buildGraph(services, topo, dark, t),
-    [services, topo, dark, t],
+  // I SERVIZI della mappa vengono dal grafo, non dallo stato della flotta. È la correzione che cambia
+  // l'attesa vera: `/api/status` fa gli otto check su tutti i servizi di tutti gli account e ci mette
+  // decine di secondi, e finché non tornava questa pagina scriveva «Nessun servizio»: che non è
+  // «non ce ne sono», è «non li ho ancora guardati», e sono due cose diverse.
+  //
+  // `topo.nodes` porta nome, account e tipo di ogni risorsa: basta a disegnare la mappa. Lo stato
+  // (problemi, task attivi, prossima esecuzione) arriva dopo e ARRICCHISCE i box, senza bloccarli.
+  const perChiave = useMemo(() => new Map(services.map((x) => [topologyNodeId(x), x])), [services])
+  const servizi = useMemo(() => {
+    if (!topo.nodes?.length) return services
+    return topo.nodes.map((n) => {
+      const vero = perChiave.get(n.id)
+      if (vero) return vero
+      return { name: n.name, type: n.type, account: { key: n.account, label: n.account }, overall: 'unknown' }
+    })
+  }, [topo, perChiave, services])
+
+  const conti = useMemo(() => {
+    const m = new Map()
+    for (const s of servizi) {
+      const k = acctKey(s)
+      if (!m.has(k)) m.set(k, { key: k, label: acctLabel(s) ?? k, n: 0 })
+      m.get(k).n += 1
+    }
+    return [...m.values()].sort((a, b) => b.n - a.n)
+  }, [servizi])
+  const contoAttivo = conti.some((c) => c.key === conto) ? conto : conti[0]?.key ?? null
+  useEffect(() => {
+    if (conto !== contoAttivo) setConto(contoAttivo)
+  }, [contoAttivo])
+
+  const serviziAmbiente = useMemo(
+    () => (contoAttivo ? servizi.filter((s) => acctKey(s) === contoAttivo) : servizi),
+    [servizi, contoAttivo],
   )
-  const hasEdges = nodes.length > 0
-  // `fitView` di ReactFlow inquadra solo al mount: cambiando filtro l'insieme dei nodi cambia e la
-  // vista restava dov'era, spesso fuori dal disegno. Rimontando su una firma dei nodi si reinquadra.
-  const graphSignature = useMemo(() => nodes.map((n) => n.id).join('|'), [nodes])
-  const netGraph = useMemo(
-    () => (shownNet ? buildNetworkGraph(shownNet, dark, t) : { nodes: [], hasData: false }),
-    [shownNet, dark, t],
+
+  // Il rischio si calcola sulla flotta INTERA, non sull'ambiente mostrato: le dipendenze cross-account
+  // esistono (una lambda di staging che legge il database di produzione) e tagliarle fuori nasconderebbe
+  // proprio i casi per cui si guarda un disegno invece di un elenco.
+  const rischi = useMemo(() => calcolaRischi(servizi, topo.edges ?? []), [servizi, topo])
+  const usi = useMemo(() => usiDiretti(topo.edges ?? []), [topo])
+  const mappa = useMemo(
+    () => buildMap(serviziAmbiente, topo, t, { rischi, usi, statoPronto: statusReady }),
+    [serviziAmbiente, topo, t, rischi, usi, statusReady],
   )
+  const dentro = useMemo(
+    () => (gruppoAperto ? buildGroup(gruppoAperto, serviziAmbiente, topo, t, { rischi, usi }) : null),
+    [gruppoAperto, serviziAmbiente, topo, t, rischi, usi],
+  )
+
+  const nodes = dentro ? dentro.nodes : mappa.nodes
+  const edges = dentro ? dentro.edges : mappa.edges
+  // `fitView` inquadra solo al mount: cambiando livello o ambiente l'insieme cambia e la vista
+  // resterebbe dov'era, spesso fuori dal disegno. Rimontando su una firma si reinquadra.
+  const firma = useMemo(() => `${contoAttivo}|${gruppoAperto}|${nodes.map((n) => n.id).join(',')}`, [contoAttivo, gruppoAperto, nodes])
+
+  const apriGruppo = (key) => {
+    setGruppoAperto(key)
+    setScelto(null)
+  }
+  const risali = () => {
+    setGruppoAperto(null)
+    setScelto(null)
+  }
+  const alClic = (n) => {
+    if (n.type === 'gruppo') {
+      setScelto({ tipo: 'gruppo', key: n.data.key, titolo: n.data.titolo, membri: n.data.membri })
+      return
+    }
+    if (n.type === 'svc') setScelto({ tipo: 'risorsa', servizio: n.data.servizio })
+  }
 
   return (
     <>
@@ -469,105 +388,123 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
         title={t('topo.title')}
         desc={t('topo.desc')}
         extra={
-          <Segmented
-            options={[
-              { label: t('topo.tab.deps'), value: 'deps' },
-              { label: t('topo.tab.net'), value: 'net' },
-            ]}
-            value={view}
-            onChange={setView}
-          />
+          <Toolbar>
+            {view === 'deps' && conti.length > 1 && (
+              <Segmented
+                size="small"
+                value={contoAttivo}
+                onChange={(v) => {
+                  setConto(v)
+                  risali()
+                }}
+                options={conti.map((c) => ({ value: c.key, label: `${c.label} · ${c.n}` }))}
+              />
+            )}
+            <Segmented
+              size="small"
+              options={[
+                { label: t('topo.tab.deps'), value: 'deps' },
+                { label: t('topo.tab.net'), value: 'net' },
+              ]}
+              value={view}
+              onChange={setView}
+            />
+          </Toolbar>
         }
       />
 
       {view === 'deps' ? (
         <>
           {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
-          <Legend usedVias={usedVias} t={t} />
-          {ghosts > 0 && (
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
-              {t('topo.ghosts', { n: ghosts })}
+          <Space size={SPACE.md} wrap style={{ marginBottom: SPACE.sm }}>
+            {gruppoAperto ? (
+              <Breadcrumb
+                items={[
+                  { title: <a onClick={risali}>{t('topo.crumb.map')}</a> },
+                  { title: t(`topo.g.${gruppoAperto}`) },
+                ]}
+              />
+            ) : (
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t('topo.mapHint')}
+              </Text>
+            )}
+            {gruppoAperto && (
+              <Button size="small" icon={<ArrowLeftOutlined />} onClick={risali}>
+                {t('topo.crumb.back')}
+              </Button>
+            )}
+            <Text type="secondary" style={{ fontSize: FONT.micro }}>
+              {t('topo.edgeHint')}
             </Text>
-          )}
-          {loading ? (
+            <Space size={SPACE.xs}>
+              <Switch size="small" checked={deboli} onChange={setDeboli} />
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t(deboli ? 'topo.weak.on' : 'topo.weak.off')}
+              </Text>
+            </Space>
+          </Space>
+
+          {/* La mappa NON aspetta gli archi. I box vengono dai servizi, che la pagina ha già in mano;
+              le relazioni arrivano da /api/topology, che su una flotta vera è un giro di decine di
+              chiamate AWS (55 secondi a cache fredda, misurati). Prima la pagina restava sullo spinner
+              per tutto quel tempo e si leggeva come «carica all'infinito»: ora il disegno c'è subito e
+              le frecce compaiono quando arrivano, con una riga che dice che stanno arrivando. */}
+          {serviziAmbiente.length === 0 ? (
             <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Spin tip={t('topo.loading')} />
-            </div>
-          ) : services.length === 0 ? (
-            <div style={CANVAS}>
-              <Empty style={{ paddingTop: 80 }} description={t('topo.noServices')} />
+              {loading || !statusReady ? (
+                <Loading text={t('topo.loading')} />
+              ) : (
+                <EmptyState description={t('topo.noServices')} />
+              )}
             </div>
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
-                {hasEdges ? (
-                  <ReactFlow
-                    key={graphSignature}
-                    nodes={nodes}
-                    edges={edges}
-                    fitView
-                    fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
-                    colorMode={dark ? 'dark' : 'light'}
-                    proOptions={{ hideAttribution: true }}
-                  >
-                    <Background />
-                    <Controls showInteractive={false} />
-                  </ReactFlow>
-                ) : (
-                  <Empty style={{ paddingTop: 80 }} description={t('topo.noRelations')} />
+                {/* Due attese diverse, e si dice quale: le frecce arrivano da /api/topology, lo stato dei
+                    servizi da /api/status (decine di secondi sulla flotta vera). Senza dirlo, una mappa
+                    grigia con «stato non letto» su ogni riquadro si legge come un guasto del disegno. */}
+                {(loading || !statusReady) && (
+                  <div className="dg-topo-loading">
+                    <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
+                    {loading ? t(deboli ? 'topo.loadingWeak' : 'topo.loadingEdges') : t('topo.loadingState')}
+                  </div>
                 )}
-              </div>
-              {orphans.length > 0 && (
-                <div
-                  style={{
-                    width: 250,
-                    flexShrink: 0,
-                    borderLeft: '1px solid rgba(128,128,128,0.2)',
-                    overflowY: 'auto',
-                    padding: '8px 4px 8px 12px',
-                  }}
+                <ReactFlow
+                  key={firma}
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={TIPI_NODO}
+                  fitView
+                  // Può ingrandire fino a 1,6: con `maxZoom: 1` un disegno da 1028px in una tela da 1900
+                  // restava piccolo in mezzo al vuoto invece di riempirla.
+                  fitViewOptions={{ padding: 0.12, maxZoom: 1.6 }}
+                  minZoom={0.3}
+                  colorMode={dark ? 'dark' : 'light'}
+                  proOptions={{ hideAttribution: true }}
+                  nodesConnectable={false}
+                  nodesDraggable={false}
+                  onNodeClick={(_, n) => alClic(n)}
+                  onNodeDoubleClick={(_, n) => n.type === 'gruppo' && apriGruppo(n.data.key)}
+                  onPaneClick={() => setScelto(null)}
                 >
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {t('topo.orphans', { n: orphans.reduce((a, g) => a + g.items.length, 0) })}
-                  </Text>
-                  {/* Raggruppati per tipo: la chiave è `account::nome`, non il nome — con i nomi
-                      duplicati tra ambienti React non sostituiva le righe, le impilava. */}
-                  {orphans.map((group) => (
-                    <div key={group.type} style={{ marginTop: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                        {group.type} · {group.items.length}
-                      </Text>
-                      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {group.items.map((s) => (
-                          <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12 }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                width: 8,
-                                height: 8,
-                                borderRadius: 4,
-                                marginTop: 4,
-                                background: STATUS_COLOR[s.status] ?? '#8c8c8c',
-                                flexShrink: 0,
-                              }}
-                            />
-                            {/* Il nome va a capo invece di essere troncato: i nomi dei cron si
-                                distinguono nella coda, che l'ellissi mangiava per prima. */}
-                            <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
-                              {s.name}
-                              {s.account && (
-                                <Text type="secondary" style={{ fontSize: 10 }}>
-                                  {' '}
-                                  · {s.account}
-                                </Text>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                  <Background variant="dots" gap={20} size={1} />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </div>
+              {/* Il pannello prende larghezza SOLO quando c'è qualcosa da dire: a mappa non selezionata
+                  quei 280px li usa il disegno, ed è la differenza fra una tela che ci sta e una che
+                  `fitView` rimpicciolisce fino a rendere il testo di dieci pixel. */}
+              {scelto && (
+                <Pannello
+                  scelto={scelto}
+                  servizi={servizi}
+                  topo={topo}
+                  rischi={rischi}
+                  t={t}
+                  onApri={apriGruppo}
+                  onApriServizio={onApriServizio}
+                />
               )}
             </div>
           )}
@@ -581,10 +518,10 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
           <div style={CANVAS}>
             {netLoading ? (
               <div style={{ textAlign: 'center', paddingTop: 120 }}>
-                <Spin tip={t('topo.netLoading')} />
+                <Loading text={t('topo.netLoading')} />
               </div>
             ) : !netGraph.hasData ? (
-              <Empty style={{ paddingTop: 80 }} description={t('topo.netEmpty')} />
+              <EmptyState description={t('topo.netEmpty')} />
             ) : (
               <ReactFlow
                 nodes={netGraph.nodes}

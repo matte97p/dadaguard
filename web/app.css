@@ -1,3 +1,168 @@
+/* ══ STRATO BASE ══════════════════════════════════════════════════════════════════════════════════
+   Le decisioni che valgono per TUTTA l'app, e che prima non stavano da nessuna parte: le pagine si
+   arrangiavano ognuna coi suoi pixel a mano. Qui ci sono solo cose che i token antd non esprimono.
+
+   La variabile `--dg-*` esiste per un motivo pratico: il tema si cambia in JS (algoritmo antd), quindi
+   il CSS non "sa" se è chiaro o scuro. La classe `.dg-dark` sulla radice (la mette App) ribalta le
+   neutre in un posto solo, invece di due valori duplicati in ogni regola. */
+:root {
+  --dg-line: rgba(15, 23, 42, 0.09);
+  --dg-line-strong: rgba(15, 23, 42, 0.16);
+  --dg-row: rgba(15, 23, 42, 0.028);
+  --dg-track: rgba(15, 23, 42, 0.08);
+  --dg-brand: #7c3aed;
+  --dg-brand-soft: rgba(124, 58, 237, 0.07);
+  --dg-ink-mute: rgba(15, 23, 42, 0.6);
+  --dg-ink-faint: rgba(15, 23, 42, 0.42);
+  --dg-space: 16px;
+  /* Fondo delle superfici che stanno SOPRA la tela (box della mappa, pannello, pillole): deve stare
+     qui, non dentro un selettore. Definita solo su `.dg-topo-box` e `.dg-topo-panel`, chiunque altro la
+     usasse prendeva il ripiego `#fff`, e in tema scuro veniva un riquadro bianco con testo chiaro
+     dentro: invisibile. */
+  --dg-node-bg: #ffffff;
+}
+.dg-dark {
+  --dg-line: rgba(255, 255, 255, 0.12);
+  --dg-line-strong: rgba(255, 255, 255, 0.2);
+  --dg-row: rgba(255, 255, 255, 0.045);
+  --dg-track: rgba(255, 255, 255, 0.12);
+  --dg-brand-soft: rgba(124, 58, 237, 0.22);
+  --dg-ink-mute: rgba(255, 255, 255, 0.62);
+  --dg-ink-faint: rgba(255, 255, 255, 0.42);
+  --dg-node-bg: #202027;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* CIFRE A LARGHEZZA FISSA in tutta l'app, non solo dove qualcuno si è ricordato di metterle. Su una
+   colonna di durate o di importi, le cifre proporzionali spostano i numeri di qualche pixel a ogni
+   riga: sembra allineata e non lo è, e il confronto a occhio, che è il motivo per cui li si incolonna
+  : non funziona. */
+.ant-table,
+.ant-statistic-content,
+.dg-num,
+.dg-stat-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Messa a fuoco VISIBILE, e col colore del marchio: si naviga questa app da tastiera (⌘K, frecce
+   nella lista dei servizi) e l'anello di serie del browser su fondo scuro non si vede. */
+:where(a, button, [tabindex], .ant-table-row, summary):focus-visible {
+  outline: 2px solid var(--dg-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Barre di scorrimento discrete: qui si scorrono tabelle lunghe e pannelli di log, e la barra di
+   sistema (larga, grigio pieno) è la cosa più vistosa dello schermo per essere la meno importante. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dg-track) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--dg-track);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--dg-line-strong);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Struttura di pagina ──────────────────────────────────────────────────────────────────────────
+   Larghezza massima del contenuto: su un monitor da 27" una tabella larga 2000px diventa illeggibile
+   (l'occhio perde la riga fra la prima e l'ultima colonna), e le pagine non tabellari diventano
+   distese di vuoto. Il contenuto respira e resta centrato. */
+.dg-page {
+  max-width: 1560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Intestazione dell'app: sottile, appiccicata in alto e separata da una linea, non da un'ombra. Resta
+   visibile mentre si scorre: è dove stanno «Aggiorna» e lo stato di salute, cioè le due cose che si
+   cercano proprio quando si è in fondo a una lista lunga. */
+.dg-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: saturate(1.4) blur(8px);
+}
+.dg-header .ant-btn-text {
+  color: var(--dg-ink-mute);
+}
+.dg-header .ant-btn-text:hover {
+  color: var(--dg-brand);
+}
+
+/* Titolo di pagina e sua descrizione: il rapporto fra i due è ciò che rende una pagina "curata".
+   Il titolo stretto di spaziatura, la descrizione muta e su una riga di misura leggibile (non larga
+   quanto lo schermo: oltre i ~90 caratteri l'occhio perde il capo della riga successiva). */
+.dg-page-title {
+  letter-spacing: -0.01em;
+}
+.dg-page-desc {
+  max-width: 78ch;
+  color: var(--dg-ink-mute);
+}
+
+/* SEZIONE: il contenitore che prima ogni pagina si disegnava a mano (bordo, raggio, padding, titolino
+   in grassetto). Uno solo, così due blocchi affiancati hanno lo stesso respiro. */
+.dg-section {
+  border: 1px solid var(--dg-line);
+  border-radius: 12px;
+  background: var(--dg-row);
+  padding: 14px 16px;
+}
+.dg-section + .dg-section {
+  margin-top: 16px;
+}
+.dg-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.dg-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dg-ink-faint);
+}
+/* Sezione che PORTA un segnale (le run in corso): il colore sta sul bordo sinistro, non sul fondo —
+   un pannello colorato pieno urla, una fascia laterale indica. */
+.dg-section-live {
+  border-inline-start: 3px solid var(--dg-brand);
+  background: var(--dg-brand-soft);
+}
+
+/* Intestazione di tabella appiccicata: su una lista di trenta righe, scorrere e non sapere più cosa
+   sia la terza colonna è il difetto più comune di queste pagine. */
+.dg-sticky .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+}
+/* Etichette di colonna: minuscole, spaziate, mute. Devono etichettare, non competere coi dati. */
+.ant-table-thead > tr > th {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Titolo delle card: va a capo invece di troncare i nomi lunghi (es. cato-production-cron-…).
    antd di default mette ellipsis su .ant-card-head-title; qui lo lasciamo andare su 2 righe. */
 .ant-card-head-title {
@@ -110,27 +275,27 @@
    spezza la riga in due blocchi e dà all'occhio un punto di riferimento a metà strada. */
 .dg-table .ant-table-tbody > tr > .ant-table-cell:nth-child(4),
 .dg-table .ant-table-thead > tr > .ant-table-cell:nth-child(4) {
-  border-inline-start: 1px solid rgba(128, 128, 128, 0.16);
+  border-inline-start: 1px solid var(--dg-line);
 }
 
 /* Righe alternate + bordo sottile: su una tabella larga è ciò che tiene la riga sotto l'occhio
    mentre lo sguardo attraversa 1500px (senza, si salta di riga a metà strada). Tinta bassissima:
    deve dare il ritmo, non disegnare una scacchiera. */
 .dg-table .dg-zebra > .ant-table-cell {
-  background: rgba(128, 128, 128, 0.075);
+  background: var(--dg-row);
 }
 .dg-table .ant-table-tbody > tr > .ant-table-cell {
-  border-bottom-color: rgba(128, 128, 128, 0.14) !important;
+  border-bottom-color: var(--dg-line) !important;
 }
 /* Riga sotto il puntatore: evidenziazione più netta di quella di serie, sempre per non perdere la riga. */
 .dg-table .ant-table-tbody > tr:hover > .ant-table-cell,
 .dg-table .dg-zebra:hover > .ant-table-cell {
-  background: rgba(124, 58, 237, 0.09) !important;
+  background: var(--dg-brand-soft) !important;
 }
 /* Intestazione: un filo più leggibile e con lo stacco dal corpo. */
 .dg-table .ant-table-thead .ant-table-cell {
   background: transparent;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.28) !important;
+  border-bottom: 1px solid var(--dg-line-strong) !important;
 }
 /* Numeri in colonna: cifre a larghezza fissa, così le latenze si incolonnano e le confronti a occhio
    (tabular-nums serve QUI, non sui numeri grandi isolati). */
@@ -173,7 +338,7 @@
   align-items: center;
   gap: 6px;
   padding: 3px 9px;
-  border: 1px solid rgba(128, 128, 128, 0.28);
+  border: 1px solid var(--dg-line-strong);
   border-radius: 999px;
   background: transparent;
   color: inherit;
@@ -183,7 +348,7 @@
 }
 .dg-chip:hover {
   border-color: rgba(124, 58, 237, 0.55);
-  background: rgba(124, 58, 237, 0.08);
+  background: var(--dg-brand-soft);
 }
 .dg-chip:focus-visible {
   outline: 2px solid #7c3aed;
@@ -249,7 +414,7 @@ details[open] > .dg-summary .dg-chev {
   letter-spacing: 0.4px;
   opacity: 0.55;
   text-align: start;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.28);
+  border-bottom: 1px solid var(--dg-line-strong);
   white-space: nowrap;
 }
 .dg-bt thead th button {
@@ -277,7 +442,7 @@ details[open] > .dg-summary .dg-chev {
 }
 .dg-bt tbody td {
   padding: 5px 6px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  border-bottom: 1px solid var(--dg-line);
   vertical-align: middle;
 }
 .dg-bt tbody tr:last-child td {
@@ -287,7 +452,7 @@ details[open] > .dg-summary .dg-chev {
    riga mentre l'occhio va dall'etichetta all'importo. Solo sulle righe apribili: su una riga che
    non fa niente, l'evidenziazione promette un clic che non c'è. */
 .dg-bt tbody tr.dg-bt-open:hover td {
-  background: rgba(124, 58, 237, 0.09);
+  background: var(--dg-brand-soft);
 }
 .dg-bt tbody td:first-child button {
   all: unset;
@@ -372,4 +537,429 @@ details[open] > .dg-summary .dg-chev {
    chiude visivamente invece di incollarsi alla riga dopo. */
 .dg-bt tbody tr.dg-bt-detail:last-of-type td {
   padding-bottom: 5px;
+}
+
+/* ── Timeline delle esecuzioni (pagina Esecuzioni) ────────────────────────────────────────────────
+   Una riga per cron, e dentro la riga le sue ultime corse come blocchi: la FORMA dice quello che una
+   tabella di numeri fa dire solo dopo averla letta: chi sta girando, chi è più lento del solito, dove
+   c'è un buco. La larghezza del blocco è la durata (radice quadrata, sennò una corsa da 4 secondi
+   accanto a una da sei ore sarebbe invisibile), il colore è l'esito, il bordo sinistro della riga è lo
+   stato dell'ultima corsa. */
+.dg-tl-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.dg-tl-row + .dg-tl-row {
+  border-top: 1px solid var(--dg-line);
+}
+.dg-tl-row:hover {
+  background: var(--dg-row);
+}
+@media (max-width: 720px) {
+  /* Su schermo stretto la colonna dei nomi si mangia la striscia: una sopra l'altra si legge, due
+     colonne da 90px no. */
+  .dg-tl-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+/* La striscia: i blocchi si appoggiano a destra, perché il presente sta a destra e l'occhio parte da
+   lì. La linea di base dice che è un asse del tempo e non una fila di pastiglie. */
+.dg-tl-strip {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 30px;
+  position: relative;
+  padding-bottom: 5px;
+  overflow: hidden;
+}
+.dg-tl-strip::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--dg-line);
+}
+
+.dg-tl-block {
+  border: 0;
+  padding: 0;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+  flex: none;
+}
+.dg-tl-block:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.12);
+}
+
+/* La corsa IN CORSO: rigata e in movimento verso destra, cioè "sta ancora scrivendo". È l'unico
+   elemento animato della pagina: se si muovesse anche altro, questo non direbbe più niente. */
+.dg-tl-block-live {
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.42) 0 6px,
+    rgba(255, 255, 255, 0) 6px 12px
+  );
+  animation: dg-tl-slide 1.1s linear infinite;
+}
+@keyframes dg-tl-slide {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 24px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dg-tl-block-live {
+    animation: none;
+  }
+}
+
+/* Estremi dell'asse ("3g fa" … "ora"): piccoli, muti, e presenti, senza, la striscia è una fila di
+   blocchi senza tempo. */
+.dg-tl-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--dg-ink-faint);
+  margin-top: 2px;
+}
+
+/* Riga-segnale della pagina «Adesso»: è un elenco di cose cliccabili, quindi deve rispondere al
+   puntatore. Prima era un blocco con fondo grigio fisso e nessun ritorno: sembrava testo, e nessuno
+   scopriva che ci si clicca sopra. */
+.dg-signal {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--dg-row);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.12s ease;
+}
+.dg-signal:hover {
+  background: var(--dg-brand-soft);
+  transform: translateX(2px);
+}
+
+/* Una tabella dentro una sezione non deve disegnare un secondo riquadro: la cornice la dà la sezione,
+   e due bordi concentrici a 12px di distanza sono la cosa che fa sembrare una pagina "impilata". */
+.dg-section .ant-table,
+.dg-section .ant-table-container,
+.dg-section .ant-table-content {
+  background: transparent !important;
+}
+
+/* ── Mappa dell'architettura (pagina Topologia) ───────────────────────────────────────────────────
+   Tre pezzi: il BOX di un gruppo (livello 1), la CARD di una risorsa (livello 2), lo STUB di un vicino
+   fuori dal gruppo. Il disegno scorre in orizzontale, quindi le maniglie stanno ai lati: con quelle in
+   alto e in basso gli archi uscivano dal fondo di un box per rientrare in cima a quello accanto, e il
+   risultato erano cappi. */
+
+/* BOX di gruppo: grande, con tre righe di testo. È il nodo che si guarda per primo, e deve reggere il
+   confronto con la card piccola senza sembrare la stessa cosa più grossa. */
+.dg-topo-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--dg-line);
+  border-inline-start: 4px solid var(--dg-topo-accent, var(--dg-line-strong));
+  border-radius: 14px;
+  background: var(--dg-node-bg, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07);
+  cursor: pointer;
+  transition:
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+.dg-dark .dg-topo-box,
+.dg-dark .dg-topo-node {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.dg-topo-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+}
+.dg-topo-box-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.dg-topo-box-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.dg-topo-box-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--dg-ink-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* CARD di una risorsa. */
+.dg-topo-node {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 8px 11px 8px 9px;
+  border: 1px solid var(--dg-line);
+  border-inline-start: 3px solid var(--dg-topo-accent, var(--dg-line-strong));
+  border-radius: 10px;
+  background: var(--dg-node-bg, #fff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition:
+    box-shadow 0.14s ease,
+    transform 0.14s ease,
+    opacity 0.14s ease;
+}
+.dg-topo-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+/* Nodo scelto: anello viola. È il fuoco della lettura, e il pannello a lato racconta lui. */
+.dg-topo-sel {
+  box-shadow:
+    0 0 0 2px var(--dg-brand),
+    0 4px 14px rgba(124, 58, 237, 0.25);
+}
+.dg-topo-ghost {
+  border-style: dashed;
+  opacity: 0.5;
+}
+.dg-topo-dim {
+  opacity: 0.25;
+}
+.dg-topo-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--dg-row);
+  color: var(--dg-topo-accent, var(--dg-ink-mute));
+  font-size: 14px;
+}
+.dg-topo-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.dg-topo-meta {
+  display: block;
+  color: var(--dg-ink-faint);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* STUB: un vicino fuori dal gruppo aperto. Tratteggiato, perché non è qui. */
+.dg-topo-stub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 6px 10px;
+  border: 1px dashed var(--dg-line-strong);
+  border-radius: 999px;
+  background: var(--dg-row);
+  font-size: 11.5px;
+  color: var(--dg-ink-mute);
+}
+.dg-topo-stub-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Le maniglie servono al motore del grafo, non a chi guarda. */
+.dg-topo-handle {
+  width: 6px !important;
+  height: 6px !important;
+  border: 0 !important;
+  background: var(--dg-line-strong) !important;
+  opacity: 0;
+}
+
+/* Archi: sottili e muti; l'etichetta col numero delle relazioni fuse sta su una pillola leggibile. */
+.react-flow__edge-path {
+  stroke-width: 1.6;
+}
+.react-flow__edge-text {
+  font-size: 10px;
+}
+.react-flow__edge-textbg {
+  fill: var(--dg-node-bg, #fff);
+}
+
+/* Repliche sulla card: cifre a larghezza fissa, in un riquadro appena accennato. Rosse quando le
+   attive sono meno di quelle desiderate: «attivo» e «quante dovrebbero girare» sono due domande, e il
+   verde dello stato risponde solo alla prima. */
+.dg-topo-rep {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dg-ink-mute);
+  background: var(--dg-row);
+  border-radius: 6px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.dg-topo-rep-male {
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.12);
+}
+
+/* Il pannello a destra della mappa: cosa si sa di ciò che è selezionato. Senza, tutto quello che si
+   vuole dire deve stare sulla card, e una card che dice tutto non si legge. */
+.dg-topo-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border-inline-start: 1px solid var(--dg-line);
+  padding: 14px 14px 14px 16px;
+  overflow-y: auto;
+  background: var(--dg-node-bg, #fff);
+}
+.dg-dark .dg-topo-panel {
+  background: #1b1b1f;
+}
+.dg-topo-panel-title {
+  font-size: 14px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.dg-topo-panel-sub {
+  margin-top: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dg-ink-faint);
+}
+.dg-topo-panel-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dg-topo-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* «Sto leggendo le relazioni»: una riga sopra la tela, non uno spinner al posto del disegno. La mappa
+   esiste senza gli archi (i box vengono dai servizi, già in pagina) e farla aspettare un giro di decine
+   di chiamate AWS si legge come «carica all'infinito»: che è esattamente come è stata descritta. */
+.dg-topo-loading {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--dg-node-bg, #fff);
+  border: 1px solid var(--dg-brand);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dg-brand);
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.22);
+}
+.dg-dark .dg-topo-loading {
+  /* In scuro il viola del marchio su fondo quasi nero è poco leggibile: si alza. */
+  color: #c4a5ff;
+  border-color: #7c3aed;
+}
+
+/* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
+   una riga ciascuno e tagliati con l'ellissi: servono a riconoscere, non a leggere per intero (il nome
+   completo sta nel tooltip e nel pannello). */
+/* Le due risposte del pannello (raggio d'impatto, dipendenze): stanno sopra l'elenco delle relazioni
+   dirette, perché sono la conclusione e quello è il dettaglio. */
+.dg-topo-panel-impact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--dg-row);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.dg-topo-box-names {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--dg-ink-mute);
+}
+.dg-topo-box-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dg-topo-box-more {
+  font-size: 10px;
+  opacity: 0.55;
+}
+/* La testa condivisa dei nomi, in cima all'elenco e una volta sola. */
+.dg-topo-box-fam {
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--dg-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Righe del pannello: una riga per risorsa, non tre. I nomi qui sono lunghi (`cato-production-cron-…`)
+   e andando a capo si portavano dietro il pallino dello stato e il tipo, che finivano su righe loro: il
+   pannello diventava un elenco illeggibile di frammenti. */
+.dg-topo-panel-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+}
+.dg-topo-panel-row > span:nth-child(2) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -2,7 +2,7 @@ import { Drawer, Badge, Typography, Tag, Space, Empty } from 'antd'
 
 const { Text, Paragraph } = Typography
 
-const CARD = { border: '1px solid rgba(128,128,128,0.18)', borderRadius: 10, padding: 12 }
+const CARD = { border: '1px solid var(--dg-line)', borderRadius: 10, padding: 12 }
 
 // #6 Meta-salute: Dadaguard riesce a raggiungere/assumere ogni account? (sonda STS).
 // Diagnostica occasionale → drawer laterale (popup), non una pagina.

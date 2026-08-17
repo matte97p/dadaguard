@@ -37,6 +37,8 @@ import {
   DescribeLoadBalancersCommand,
   DescribeTargetGroupsCommand,
   DescribeTargetHealthCommand,
+  DescribeListenersCommand,
+  DescribeRulesCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import {
   IAMClient,
@@ -47,6 +49,13 @@ import {
   GetPolicyVersionCommand,
 } from '@aws-sdk/client-iam'
 import { clientOpts } from '../runtime/awsClient.js'
+import { mapLimit } from '../util/pool.js'
+
+// Tetto alle chiamate in volo. `Promise.all` su tutti i servizi ne apriva 78 insieme, e sopra ~10
+// richieste al secondo per account AWS non risponde più veloce: mette in coda e fa ritentare, quindi il
+// tetto rende il giro PIÙ rapido, non più lento (misurato altrove in questo repo: la stessa query passa
+// da 600ms a 4,8s con 26 richieste insieme).
+const LIMITE = 8
 
 // Credenziali/region per un servizio: dall'account, con override di region per-servizio.
 function awsFor(service, accounts) {
@@ -61,15 +70,29 @@ function awsFor(service, accounts) {
 
 // Stringhe che, se trovate altrove, implicano "dipende da QUESTO servizio".
 // Token < 5 caratteri scartati: troppo corti → rischio di falso positivo nel substring match.
-async function identifiers(service, aws) {
+// Esportata per i test: su un servizio ECS non tocca AWS (solo `rds` chiede l'endpoint), quindi la
+// regola sugli identificativi condivisi si prova senza rete.
+export async function identifiers(service, aws) {
   const cfg = service.aws ?? {}
   // Identificativi generici: il nome del servizio + ogni nome/ARN/id di risorsa dichiarato nel cfg
   // (function, cluster, service, name, instanceId, arn, table, queue, stream, topic, domain, …).
   // Così il match "per ARN" (event source, Step Functions, IAM) copre tutti i tipi senza casistiche
   // per tipo. Dagli ARN estraiamo anche il nome-risorsa finale (dopo l'ultimo : o /).
   const ids = [service.name]
+  // Il CLUSTER non identifica un servizio: lo CONDIVIDE con tutti gli altri del cluster. Finché stava
+  // qui dentro, ogni valore che nominasse `acme-production` (una env var, un ARN in una policy) faceva
+  // match con OGNI membro, e da una sola menzione nascevano nove archi.
+  //
+  // Non e' una micro-ottimizzazione: sui dati veri erano 87 archi su 104. Il fanout era esattamente 9 in
+  // produzione (6 servizi ECS + 3 task schedulati del cluster) e 6 in staging, cioe' il numero dei
+  // membri: la firma di un identificativo condiviso, non di una dipendenza. Il grafo delle dipendenze
+  // era per l'84% il registro di chi nomina il cluster.
+  //
+  // La coppia `cluster/servizio` invece resta: quella e' specifica, e compare negli ARN veri.
+  const CONDIVISI = cfg.type === 'ecs' || cfg.type === 'ecs-scheduled' ? new Set(['cluster']) : new Set()
   for (const [k, v] of Object.entries(cfg)) {
     if (k === 'type' || k === 'region' || typeof v !== 'string') continue
+    if (CONDIVISI.has(k)) continue
     ids.push(v)
     if (v.startsWith('arn:')) {
       const tail = v.split(/[:/]/).pop()
@@ -164,8 +187,68 @@ export function extractArns(text) {
 // "production") + disambiguazione per account. Se c'è un candidato nello STESSO account è quello
 // (uccide le collisioni di nomi tra ambienti); se il token è unico e vive in un altro account,
 // è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
+// I token di un valore di configurazione. Due passaggi, e il secondo è quello che mancava:
+//  1. si spezza sui separatori (spazi, virgole, `:`, `/`, `=`, `?`, `&`…), così un URL diventa i suoi
+//     pezzi e l'hostname resta INTERO, che è giusto: un endpoint RDS si riconosce per intero;
+//  2. ogni pezzo che contiene dei PUNTI viene spezzato anche lì, e le etichette diventano token loro.
+//     Senza questo passaggio `master.acme-production-redis.abc.euc1.cache.amazonaws.com` era un token
+//     unico e non uguagliava mai il servizio `acme-production-redis`: e' il motivo per cui nel grafo non
+//     c'era NESSUN data store (non Redis, non Bedrock, non i database) e la mappa mostrava solo
+//     l'idraulica di ingresso. Il punto non stava fra i separatori, e nessuno se n'era accorto.
+// Pura/testabile.
+export function envTokens(env) {
+  const grezzi = String(env || '').split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean)
+  const out = new Set(grezzi)
+  for (const g of grezzi) {
+    if (!g.includes('.')) continue
+    for (const etichetta of g.split('.')) if (etichetta) out.add(etichetta)
+  }
+  return out
+}
+
+// Hostname citati in un valore di configurazione: servono a riconoscere i sistemi ESTERNI (un progetto
+// Supabase, un cluster ClickHouse, un endpoint Elasticsearch), che non sono risorse AWS e quindi non
+// possono comparire fra i servizi tracciati. Prima venivano scartati in silenzio, e il disegno taceva su
+// metà dei dati dello stack. Pura/testabile.
+// Il dominio di primo livello va nell'elenco: senza, `eu.anthropic.claude-opus-5` (un id di modello)
+// passava per un hostname, e nel disegno sarebbe comparso un «sistema esterno» che non esiste.
+const TLD = 'com|net|org|io|co|dev|cloud|app|ai|sh|xyz|tech|info|eu|it|de|fr|uk|us'
+const HOST = new RegExp(`(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLD})(?![a-z0-9-])`, 'gi')
+export function extractHosts(env) {
+  return [...new Set([...String(env || '').matchAll(HOST)].map((m) => m[0].toLowerCase()))]
+}
+
+// ENDPOINT AWS citati in una configurazione, con la porta quando c'è: `http://internal-…elb.amazonaws.com:8000`.
+// È il modo in cui i servizi si chiamano fra loro qui dentro, e nessuna passata lo vedeva: quel valore non
+// uguaglia il nome del load balancer (che si chiama `<org>-staging-alb-int`), quindi tutto il traffico
+// interno era invisibile e la mappa mostrava servizi affiancati senza una freccia fra loro.
+// La porta serve perché su un load balancer interno ogni ascoltatore porta a un servizio diverso: `:8000`
+// è il Backend, `:8001` la chat. Senza la porta si collegherebbe chi chiama a TUTTI i servizi dietro quel
+// load balancer, che è il fanout falso già visto col nome del cluster.
+// Senza porta esplicita vale quella dello schema (http 80, https 443), che è la regola dei browser e dei
+// client HTTP: non è una convenzione nostra. Pura/testabile.
+const ENDPOINT = /(?:(https?|wss?):\/\/)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.amazonaws\.com)(?::(\d{2,5}))?/gi
+export function extractEndpoints(env) {
+  const out = new Map()
+  for (const m of String(env || '').matchAll(ENDPOINT)) {
+    const host = m[2].toLowerCase()
+    const porta = m[3] ? Number(m[3]) : m[1] ? (m[1] === 'https' || m[1] === 'wss' ? 443 : 80) : null
+    const k = `${host}|${porta ?? ''}`
+    if (!out.has(k)) out.set(k, { host, porta })
+  }
+  return [...out.values()]
+}
+
+// Chi risponde a quell'indirizzo: i servizi dietro l'ascoltatore su quella porta. Se la porta non si sa o
+// non è mappata, l'arco va al load balancer stesso, che è comunque vero e verificabile: «cita questo
+// indirizzo». Meglio un arco più corto del vero che un arco inventato verso sei servizi. Pura/testabile.
+export function chiRispondeA({ porta }, lb) {
+  const dietro = porta != null ? lb.porte.get(porta) : null
+  return dietro?.length ? dietro : [lb.key]
+}
+
 export function matchEnvTargets(env, self, idList) {
-  const tokens = new Set(String(env || '').split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean))
+  const tokens = envTokens(env)
   const candidates = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => tokens.has(tok)))
   const sameAcct = candidates.filter((t) => t.account === self.account)
   return sameAcct.length ? sameAcct : candidates
@@ -178,24 +261,26 @@ export function matchByArn(arn, idList, self) {
   const arnTokens = new Set(String(arn).toLowerCase().split(/[\s:/]+/).filter(Boolean))
   const cands = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => arnTokens.has(tok)))
   const same = cands.filter((t) => t.account === self.account)
-  return (same.length ? same : cands)[0] ?? null
+  const scelti = same.length ? same : cands
+  // AMBIGUO = NESSUNA RISPOSTA. Prima si prendeva `[0]`, cioe' il primo dell'elenco: sui dati veri
+  // quell'elenco e' ordinato per servizio e il primo e' sempre lo stesso, quindi tutti gli ARN ambigui
+  // di un account finivano addosso al medesimo servizio: che nel disegno risultava il centro
+  // dell'architettura (grado in entrata 10 in produzione, 11 in staging) per un artefatto di ordinamento.
+  // Un arco inventato e' peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
+  return scelti.length === 1 ? scelti[0] : null
 }
 
-// Identificatore di un servizio nel grafo. NON è il nome: lo stesso nome esiste in più account
-// (`backend` sta in staging e in produzione, gli stessi modelli Bedrock stanno in ogni account).
-// Usare il nome fondeva due servizi in un nodo solo, con lo stato di quello letto per ultimo.
+// Identificatore di un servizio nel grafo: sta in ../../shared/nodeId.js, perché la stessa chiave la
+// costruisce anche il web quando disegna, e due implementazioni che divergono fondono o sdoppiano i
+// nodi in silenzio. Qui si ri-esporta per non cambiare l'API di questo modulo (e i suoi test).
+//
 // NB non è il `serviceKey` di autodiscover.js (identità della RISORSA aws, per il merge dichiarati/
 // scoperti) né quello di notify/diff.js: qui serve l'id di un NODO del grafo, e i tre non sono
 // interscambiabili — uno sbaglio di import passerebbe i test e fonderebbe i nodi come prima.
-//
-// `account` arriva come stringa dal risolutore dei servizi e come oggetto `{key,label,color}` nel
-// payload della UI: si normalizza qui, perché una chiave costruita su un oggetto diventa
-// "[object Object]" per tutti gli account e le collisioni tornano tutte insieme.
-export function topologyNodeId(name, account) {
-  const acct = (typeof account === 'string' ? account : account?.key) ?? '__none__'
-  return `${acct}::${name}`
-}
-const keyOf = (s) => topologyNodeId(s.name, s.account)
+export { topologyNodeId } from '../../shared/nodeId.js'
+import { topologyNodeId as nodeId } from '../../shared/nodeId.js'
+
+const keyOf = (s) => nodeId(s.name, s.account)
 
 // Estrae gli ARN dalle Resource degli statement Allow di un policy document IAM. Puro e testabile.
 export function collectResourceArns(policyDoc) {
@@ -293,8 +378,7 @@ async function serviceSecurityGroups(service, aws) {
 // Se l'SG del servizio T ammette come sorgente l'SG del servizio A → A dipende da T.
 async function deduceBySecurityGroups(services, accounts, push) {
   const perAccount = new Map() // accountKey -> { sgToServices: Map<sgId, Set<name>>, aws }
-  await Promise.all(
-    services.map(async (s) => {
+  await mapLimit(services, LIMITE, async (s) => {
       const aws = awsFor(s, accounts)
       const sgs = await serviceSecurityGroups(s, aws)
       if (!sgs.length) return
@@ -305,8 +389,7 @@ async function deduceBySecurityGroups(services, accounts, push) {
         if (!m.has(sg)) m.set(sg, new Set())
         m.get(sg).add(keyOf(s))
       }
-    }),
-  )
+    })
 
   for (const { sgToServices, aws } of perAccount.values()) {
     const ids = [...sgToServices.keys()]
@@ -334,6 +417,82 @@ async function deduceBySecurityGroups(services, accounts, push) {
   }
 }
 
+// INDIRIZZI dei load balancer: DNS, scheme (esposto o interno) e, per ogni porta in ascolto, i servizi
+// dietro. Una `DescribeLoadBalancers` per account (elenca tutti i LB in una volta) più una
+// `DescribeListeners` e una `DescribeRules` per load balancer: i load balancer sono una manciata, e in
+// cambio si vede il traffico interno, che è la metà del disegno che mancava.
+// Lo `scheme` non serve a un arco ma alla LETTURA: un load balancer interno non è una porta d'ingresso,
+// e metterlo in prima colonna insieme a quelli pubblici racconta un perimetro che non esiste.
+async function lbAddresses(services, accounts, ecsData) {
+  const albs = services.filter((s) => s.aws?.type === 'alb' && (s.aws.arn || s.aws.name))
+  const perDns = new Map()
+  const schemi = new Map()
+  if (!albs.length) return { perDns, schemi }
+
+  const ecsByTg = new Map()
+  for (const s of services) {
+    if (s.aws?.type !== 'ecs') continue
+    for (const tg of ecsData.get(keyOf(s))?.tgArns ?? [])
+      ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, keyOf(s))
+  }
+
+  const perAccount = new Map()
+  for (const alb of albs) {
+    const acct = alb.account ?? '__none__'
+    if (!perAccount.has(acct)) perAccount.set(acct, [])
+    perAccount.get(acct).push(alb)
+  }
+
+  await mapLimit([...perAccount.entries()], LIMITE, async ([acct, lista]) => {
+    const client = new ElasticLoadBalancingV2Client(clientOpts(awsFor(lista[0], accounts)))
+    const trovati = []
+    try {
+      let marker
+      do {
+        const o = await client.send(new DescribeLoadBalancersCommand({ Marker: marker }))
+        trovati.push(...(o.LoadBalancers ?? []))
+        marker = o.NextMarker
+      } while (marker)
+    } catch {
+      return /* elasticloadbalancing:DescribeLoadBalancers assente → niente indirizzi, niente archi */
+    }
+    await mapLimit(lista, LIMITE, async (alb) => {
+      const lb = trovati.find((x) => (alb.aws.arn ? x.LoadBalancerArn === alb.aws.arn : x.LoadBalancerName === alb.aws.name))
+      if (!lb?.DNSName) return
+      schemi.set(keyOf(alb), lb.Scheme ?? null)
+      const porte = new Map()
+      try {
+        const lo = await client.send(new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn }))
+        for (const l of lo.Listeners ?? []) {
+          const tgs = new Set(arnDeiTarget(l.DefaultActions))
+          try {
+            const ro = await client.send(new DescribeRulesCommand({ ListenerArn: l.ListenerArn }))
+            for (const r of ro.Rules ?? []) for (const a of arnDeiTarget(r.Actions)) tgs.add(a)
+          } catch {
+            /* DescribeRules assente → restano le azioni di default dell'ascoltatore */
+          }
+          const dietro = [...tgs].map((tg) => ecsByTg.get(`${acct}|${tg}`)).filter(Boolean)
+          if (l.Port != null && dietro.length) porte.set(l.Port, [...new Set(dietro)])
+        }
+      } catch {
+        /* DescribeListeners assente → resta l'indirizzo, e l'arco andrà al load balancer stesso */
+      }
+      perDns.set(lb.DNSName.toLowerCase(), { key: keyOf(alb), scheme: lb.Scheme ?? null, porte })
+    })
+  })
+  return { perDns, schemi }
+}
+
+// I target group citati da un'azione di ascoltatore o di regola, forward multipli compresi. Pura.
+export function arnDeiTarget(actions = []) {
+  const out = []
+  for (const a of actions ?? []) {
+    if (a.TargetGroupArn) out.push(a.TargetGroupArn)
+    for (const t of a.ForwardConfig?.TargetGroups ?? []) if (t.TargetGroupArn) out.push(t.TargetGroupArn)
+  }
+  return [...new Set(out)]
+}
+
 // Pass load balancer: per ogni ALB risale ai target group e collega i servizi dietro (ECS via
 // il campo loadBalancers del servizio; EC2 via i target di tipo instance). ecsData porta già i
 // target group letti nel pass ECS, così non ri-descriviamo i servizi. Best effort.
@@ -352,8 +511,7 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
     if (s.aws?.type === 'ec2' && s.aws.instanceId)
       ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, keyOf(s))
 
-  await Promise.all(
-    albs.map(async (alb) => {
+  await mapLimit(albs, LIMITE, async (alb) => {
       const aws = awsFor(alb, accounts)
       const acct = alb.account ?? '__none__'
       try {
@@ -388,23 +546,47 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
       } catch {
         /* ALB non leggibile / permesso assente → niente archi lb per questo LB */
       }
-    }),
-  )
+    })
+}
+
+// Un hostname di terze parti → nodo esterno, raggruppato per DOMINIO REGISTRABILE. Un progetto Supabase
+// e un cluster ClickHouse non sono risorse AWS, quindi non possono comparire fra i servizi tracciati: e
+// prima venivano scartati in silenzio, cioè il disegno taceva su metà dei dati dello stack. Si raggruppa
+// per dominio e non per host perché tre bucket dello stesso provider sono un sistema, non tre.
+//
+// Gli host `*.amazonaws.com` restano fuori: quelli sono risorse AWS, e se non hanno fatto match con un
+// servizio tracciato vuol dire che quel servizio non lo stiamo guardando: dirlo «esterno» sarebbe
+// sbagliato. Pura/testabile.
+export function esterniDaHost(hosts = []) {
+  const out = new Map()
+  for (const h of hosts) {
+    if (h.endsWith('.amazonaws.com') || h.endsWith('.internal') || h === 'localhost') continue
+    const pezzi = h.split('.')
+    const dominio = pezzi.slice(-2).join('.')
+    if (!out.has(dominio)) out.set(dominio, { id: `ext:host:${dominio}`, type: 'esterno', label: dominio, hosts: [] })
+    if (!out.get(dominio).hosts.includes(h)) out.get(dominio).hosts.push(h)
+  }
+  return [...out.values()]
 }
 
 // Deduzione completa. Ritorna { edges, extraNodes, nodes }:
 //   edges      [{ source, target, vias[] }] — source/target sono CHIAVI (`account::nome`), non nomi
 //   extraNodes [{ id, type, label }]        — sorgenti evento non tracciate (code/stream), id già unico
 //   nodes      [{ id, name, account, type }] — chiave → servizio, per etichettare senza indovinare
-export async function deduceTopology(services, accounts) {
-  const idList = await Promise.all(
-    services.map(async (s) => ({
+// `deboli: false` salta le due passate LENTE (IAM e security group). Misurato sulla flotta vera:
+// identificativi 1ms · env+eventi 12,9s · load balancer 10,1s · IAM 43,2s · security group 17,5s, cioe'
+// 60 secondi su 84 stanno in due passate che producono SOLO archi tratteggiati: «questo ruolo ha il
+// permesso su quello», «questo security group ammette quell'altro». Sono veri, ma non sono un flusso, e
+// far aspettare un minuto per disegnarli è il motivo per cui la pagina sembrava rotta.
+//
+// La pagina li chiede dopo, con una seconda chiamata: prima il disegno con le frecce vere, poi le altre.
+export async function deduceTopology(services, accounts, { deboli = true } = {}) {
+  const idList = await mapLimit(services, LIMITE, async (s) => ({
       name: s.name,
       account: s.account ?? '__none__', // serve a disambiguare i match tra account diversi
       key: keyOf(s),
       ids: await identifiers(s, awsFor(s, accounts)),
-    })),
-  )
+    }))
   // Un `dependsOn` dichiarato cita un NOME, non una chiave: si risolve preferendo lo stesso account,
   // e resta ambiguo solo se quel nome esiste in più account e nessuno è il proprio.
   const resolveDeclared = (name, self) =>
@@ -433,15 +615,22 @@ export async function deduceTopology(services, accounts) {
 
   // ECS: leggo env + target group una volta sola per servizio (riusati dai pass env e lb).
   const ecsData = new Map()
-  await Promise.all(
-    services
-      .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service)
-      .map(async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts)))),
-  )
+  await mapLimit(services .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service), LIMITE, async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts))))
+
+  // Indirizzi dei load balancer PRIMA del giro sulle configurazioni: è lì che i servizi si citano.
+  const { perDns, schemi } = await lbAddresses(services, accounts, ecsData).catch(() => ({ perDns: new Map(), schemi: new Map() }))
+  // Chi chiama quell'indirizzo → chi risponde su quella porta. `route` è un puntatore vero come `lb`:
+  // l'indirizzo sta nella configurazione e la mappa degli ascoltatori la dà AWS.
+  const perEndpoint = (chiave, env) => {
+    for (const ep of extractEndpoints(env)) {
+      const lb = perDns.get(ep.host)
+      if (!lb) continue
+      for (const t of chiRispondeA(ep, lb)) if (t !== chiave) push(chiave, t, 'route')
+    }
+  }
 
   // env (Lambda + ECS) + event source (Lambda).
-  await Promise.all(
-    services.map(async (s) => {
+  await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
       const self = { name: s.name, account: s.account ?? '__none__' }
 
@@ -452,6 +641,13 @@ export async function deduceTopology(services, accounts) {
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
         for (const t of matchEnvTargets(env, self, idList)) push(keyOf(s), t.key, 'env')
+        perEndpoint(keyOf(s), env)
+        // Sistemi di terze parti nominati nella configurazione (Supabase, ClickHouse, un endpoint di
+        // ricerca…): non sono risorse AWS, quindi nessun match poteva riuscire, e finivano nel nulla.
+        for (const e of esterniDaHost(extractHosts(env))) {
+          if (!extra.has(e.id)) extra.set(e.id, e)
+          push(keyOf(s), e.id, 'env')
+        }
 
         for (const arn of sources) {
           const matched = matchByArn(arn, idList, self)
@@ -470,15 +666,16 @@ export async function deduceTopology(services, accounts) {
       } else if (type === 'ecs') {
         for (const t of matchEnvTargets(ecsData.get(keyOf(s))?.env ?? '', self, idList))
           push(keyOf(s), t.key, 'env')
+        perEndpoint(keyOf(s), ecsData.get(keyOf(s))?.env ?? '')
+        for (const e of esterniDaHost(extractHosts(ecsData.get(keyOf(s))?.env ?? ''))) {
+          if (!extra.has(e.id)) extra.set(e.id, e)
+          push(keyOf(s), e.id, 'env')
+        }
       }
-    }),
-  )
+    })
 
   // Step Functions → risorse citate nella definizione (i task orchestrati).
-  await Promise.all(
-    services
-      .filter((s) => s.aws?.type === 'sfn' && s.aws.arn)
-      .map(async (s) => {
+  await mapLimit(services .filter((s) => s.aws?.type === 'sfn' && s.aws.arn), LIMITE, async (s) => {
         const self = { name: s.name, account: s.account ?? '__none__' }
         try {
           const sfn = new SFNClient(clientOpts(awsFor(s, accounts)))
@@ -490,16 +687,15 @@ export async function deduceTopology(services, accounts) {
         } catch {
           /* states:DescribeStateMachine assente → niente archi 'flow' */
         }
-      }),
-  )
+      })
 
   // ALB → servizi dietro i target group.
   await deduceLoadBalancers(services, accounts, ecsData, push).catch(() => {})
 
   // IAM → risorse a cui il ruolo del servizio può accedere (dipendenza dedotta dai permessi).
   const roleCache = new Map()
-  await Promise.all(
-    services.map(async (s) => {
+  if (deboli) {
+  await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
       const roleArn =
         type === 'lambda' ? roleByService.get(keyOf(s)) : type === 'ecs' ? ecsData.get(keyOf(s))?.roleArn : null
@@ -510,11 +706,12 @@ export async function deduceTopology(services, accounts) {
         const matched = matchByArn(arn, idList, self)
         if (matched) push(keyOf(s), matched.key, 'iam')
       }
-    }),
-  ).catch(() => {})
+    }).catch(() => {})
 
   // rete (security group) — best effort, non blocca se manca il permesso.
-  await deduceBySecurityGroups(services, accounts, push).catch(() => {})
+  }
+
+  if (deboli) await deduceBySecurityGroups(services, accounts, push).catch(() => {})
 
   // `nodes` porta la corrispondenza chiave → servizio: la UI non deve ricostruirsi la convenzione
   // della chiave, che è l'errore da cui nasceva la fusione di due servizi omonimi in un nodo solo.
@@ -523,6 +720,8 @@ export async function deduceTopology(services, accounts) {
     name: s.name,
     account: s.account ?? null,
     type: s.aws?.type ?? s.type ?? null,
+    // Esposto o interno: lo dice AWS, e serve a disegnare il perimetro invece di supporlo.
+    ...(schemi.get(keyOf(s)) ? { scheme: schemi.get(keyOf(s)) } : {}),
   }))
   return { edges, extraNodes: [...extra.values()], nodes }
 }

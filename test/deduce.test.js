@@ -6,6 +6,13 @@ import {
   extractArns,
   collectResourceArns,
   topologyNodeId,
+  identifiers,
+  envTokens,
+  extractHosts,
+  esterniDaHost,
+  extractEndpoints,
+  chiRispondeA,
+  arnDeiTarget,
 } from '../server/topology/deduce.js'
 
 const idList = [
@@ -99,4 +106,147 @@ test('topologyNodeId: account come oggetto o come stringa danno la STESSA chiave
 test('topologyNodeId: senza account non collassa su chiavi diverse per nomi diversi', () => {
   assert.notEqual(topologyNodeId('a', null), topologyNodeId('b', null))
   assert.equal(topologyNodeId('a', null), topologyNodeId('a', undefined))
+})
+
+// --- I due difetti che rendevano falso l'84% del grafo (misurato: 87 archi su 104) ---
+
+test('il CLUSTER non è un identificativo del servizio: lo condividono tutti i membri', async () => {
+  const membro = (name) => ({ name, account: 'prod', aws: { type: 'ecs', cluster: 'acme-production', service: name } })
+  const ids = await identifiers(membro('backend'), {})
+  // Il nome del cluster da solo NON deve essere un identificativo: se lo fosse, ogni valore che lo
+  // nomina (una env var, un ARN in una policy) farebbe match con OGNI membro del cluster, e da una
+  // menzione sola nascerebbero nove archi. È esattamente ciò che accadeva.
+  assert.equal(ids.includes('acme-production'), false)
+  // La coppia cluster/servizio invece resta: quella è specifica, e compare negli ARN veri.
+  assert.equal(ids.includes('acme-production/backend'), true)
+  assert.equal(ids.includes('backend'), true)
+})
+
+test('lo stesso vale per un task schedulato, dove il cluster arriva come ARN', async () => {
+  const ids = await identifiers(
+    { name: 'nightly', account: 'prod', aws: { type: 'ecs-scheduled', cluster: 'arn:aws:ecs:eu-central-1:1:cluster/acme-production', taskDefinition: 'arn:aws:ecs:eu-central-1:1:task-definition/acme-nightly:3' } },
+    {},
+  )
+  // Né l'ARN del cluster né la sua coda: la coda è il NOME del cluster, cioè lo stesso identificativo
+  // condiviso da un'altra porta.
+  assert.equal(ids.some((i) => i.includes('cluster/acme-production')), false)
+  assert.equal(ids.includes('acme-production'), false)
+  assert.equal(ids.some((i) => i.includes('acme-nightly')), true, 'la task definition resta: quella è sua')
+})
+
+test('un ARN ambiguo non produce nessun arco, invece di produrne uno inventato', () => {
+  const idList = [
+    { name: 'agentic-chat', account: 'prod', key: 'prod::agentic-chat', ids: ['agentic-chat', 'acme-production'] },
+    { name: 'backend', account: 'prod', key: 'prod::backend', ids: ['backend', 'acme-production'] },
+  ]
+  const self = { name: 'lambda-x', account: 'prod' }
+  // Due candidati con lo stesso token: prima vinceva `[0]`, cioè il primo dell'elenco, e siccome
+  // l'elenco è ordinato allo stesso modo per ogni ARN, TUTTI gli ambigui di un account finivano sullo
+  // stesso servizio, che nel disegno diventava il centro dell'architettura per un artefatto di ordine.
+  assert.equal(matchByArn('arn:aws:ecs:eu-central-1:1:cluster/acme-production', idList, self), null)
+  // Un ARN che punta a UN solo candidato continua a funzionare.
+  assert.equal(matchByArn('arn:aws:ecs:eu-central-1:1:service/backend', idList, self)?.name, 'backend')
+})
+
+test('l’account proprio resta preferito, ma solo se lì il candidato è UNO', () => {
+  const idList = [
+    { name: 'coda', account: 'prod', key: 'prod::coda', ids: ['coda-lavori'] },
+    { name: 'coda', account: 'staging', key: 'staging::coda', ids: ['coda-lavori'] },
+  ]
+  // Due account, un candidato per account: vince il proprio, come prima.
+  assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'prod' })?.account, 'prod')
+  // Nessuno dei due è nel proprio account e sono due: ambiguo → niente arco.
+  assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'security' }), null)
+})
+
+
+test('il PUNTO è un separatore: senza, nel grafo non compariva NESSUN data store', () => {
+  // Il bug che teneva la mappa muta sulla metà destra dell'architettura: l'endpoint di un Redis o di un
+  // database è un hostname, e finché era UN token non uguagliava mai il nome del servizio che lo serve.
+  const env = 'REDIS_URL=rediss://master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com:6379'
+  const tok = envTokens(env)
+  assert.ok(tok.has('acme-production-redis'), 'il nome del servizio è una etichetta dell’hostname')
+  // L'hostname INTERO resta un token: un endpoint RDS si riconosce anche per intero.
+  assert.ok(tok.has('master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com'))
+  // Un servizio elasticache citato solo così ora fa match.
+  const lista = [{ name: 'acme-production-redis', account: 'prod', ids: ['acme-production-redis'] }]
+  assert.deepEqual(
+    matchEnvTargets(env, { name: 'backend', account: 'prod' }, lista).map((x) => x.name),
+    ['acme-production-redis'],
+  )
+})
+
+test('gli hostname si riconoscono per il DOMINIO finale, sennò un id di modello sembra un sito', () => {
+  // `eu.anthropic.claude-opus-5` ha la forma di un hostname e non lo è: senza l'elenco dei domini di
+  // primo livello, sulla mappa compariva un «sistema esterno» chiamato `anthropic.claude-opus-5`.
+  assert.deepEqual(extractHosts('MODEL_ID=eu.anthropic.claude-opus-5'), [])
+  assert.deepEqual(extractHosts('DB_URL=postgres://u:p@db.progetto.esempio.co/postgres'), ['db.progetto.esempio.co'])
+  // Maiuscole e ripetizioni non generano due nodi per la stessa cosa.
+  assert.deepEqual(extractHosts('A=https://API.Esempio.Com/v1 B=https://api.esempio.com/v2'), ['api.esempio.com'])
+})
+
+test('i sistemi esterni si raggruppano per dominio, e le risorse AWS non sono «esterne»', () => {
+  const out = esterniDaHost([
+    'db.progetto.esempio.co',
+    'api.progetto.esempio.co',
+    'eventi.altro-fornitore.io',
+    // Un host AWS che non ha fatto match vuol dire «servizio che non stiamo guardando», non «di terzi»:
+    // chiamarlo esterno sarebbe una bugia, e nel disegno un nodo che non esiste.
+    'master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com',
+    'kong.internal',
+    'localhost',
+  ])
+  assert.deepEqual(
+    out.map((x) => [x.id, x.hosts.length]),
+    [
+      ['ext:host:esempio.co', 2],
+      ['ext:host:altro-fornitore.io', 1],
+    ],
+  )
+  assert.equal(out[0].type, 'esterno')
+})
+
+
+test('i servizi si chiamano per INDIRIZZO del load balancer, e la porta dice chi risponde', () => {
+  // Era il buco più grande del disegno: `http://internal-…elb.amazonaws.com:8000` non uguaglia il nome
+  // del load balancer, quindi il traffico interno era invisibile e i servizi comparivano affiancati senza
+  // una freccia fra loro. La porta conta: su un load balancer interno ogni ascoltatore porta a un
+  // servizio diverso, e senza di lei si collegherebbe chi chiama a TUTTI quelli dietro.
+  const env = 'API=http://internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com:8000 WS=ws://internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com:8001/ws'
+  assert.deepEqual(extractEndpoints(env), [
+    { host: 'internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com', porta: 8000 },
+    { host: 'internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com', porta: 8001 },
+  ])
+  // Senza porta esplicita vale quella dello schema: è la regola dei client HTTP, non una nostra scelta.
+  assert.deepEqual(extractEndpoints('U=https://acme-prod-alb-9.eu-central-1.elb.amazonaws.com/health'), [
+    { host: 'acme-prod-alb-9.eu-central-1.elb.amazonaws.com', porta: 443 },
+  ])
+  // Un endpoint citato senza schema e senza porta resta senza porta: inventarne una sarebbe indovinare.
+  assert.deepEqual(extractEndpoints('H=master.acme-staging-cache.abc.euc1.cache.amazonaws.com'), [
+    { host: 'master.acme-staging-cache.abc.euc1.cache.amazonaws.com', porta: null },
+  ])
+
+  const lb = { key: 'staging::acme-staging-alb-int', scheme: 'internal', porte: new Map([[8000, ['staging::backend']], [8001, ['staging::chat']]]) }
+  assert.deepEqual(chiRispondeA({ porta: 8000 }, lb), ['staging::backend'])
+  assert.deepEqual(chiRispondeA({ porta: 8001 }, lb), ['staging::chat'])
+  // Porta non mappata (o assente): l'arco va al load balancer stesso, che è comunque vero e verificabile.
+  // Meglio un arco più corto del vero che un arco inventato verso tutto quello che gli sta dietro.
+  assert.deepEqual(chiRispondeA({ porta: 9999 }, lb), ['staging::acme-staging-alb-int'])
+  assert.deepEqual(chiRispondeA({ porta: null }, lb), ['staging::acme-staging-alb-int'])
+})
+
+test('i target group di un ascoltatore: anche quelli dietro un forward pesato', () => {
+  // Un deploy blu/verde o canary manda a due target group con un peso: guardando solo `TargetGroupArn`
+  // si perde metà del traffico, cioè si perde l'arco proprio mentre un rilascio è in corso.
+  assert.deepEqual(
+    arnDeiTarget([
+      { TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa' },
+      { ForwardConfig: { TargetGroups: [{ TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/due/bbb', Weight: 90 }, { TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa', Weight: 10 }] } },
+    ]),
+    [
+      'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa',
+      'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/due/bbb',
+    ],
+  )
+  assert.deepEqual(arnDeiTarget(), [])
 })

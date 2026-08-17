@@ -39,6 +39,10 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 </p>
 
 ## Segnali
+- **Esecuzioni dei cron**: quali stanno girando **adesso** (col tempo che cresce), com'è finita ogni
+  singola corsa, e i **log della singola esecuzione** invece dell'ultima ora del job. Cron su ECS RunTask
+  (due sorgenti: API ECS per le run vive e l'exit code, log per lo storico) · cron Lambda (coppie
+  `START`/`REPORT`) · opzionale un orchestratore **Prefect**, per i job lunghi che girano fuori da AWS
 - **Liveness** + latenza
 - **Versione** deployata vs attesa
 - **Runtime** AWS reale: ECS · ASG · Lambda (con dead-man switch per le cron) · RDS/Aurora · ALB · EC2

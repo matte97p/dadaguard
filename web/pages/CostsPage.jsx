@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Alert, Empty, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD } from './pageKit.jsx'
+import { Alert, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
+import { PageIntro, PANEL_GRID, PANEL_CARD, EmptyState } from './pageKit.jsx'
 import CostTrend from '../components/CostTrend.jsx'
 import BudgetsPanel from '../components/BudgetsPanel.jsx'
 import { mergeTrend } from '../format.js'
@@ -337,10 +337,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
       {/* Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli
           allo stesso modo manda a cercare un problema di configurazione che non esiste. */}
       {(show('summary') || show('breakdown')) && data && accounts.length === 0 && (
-        <Empty
-          description={Object.keys(data).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')}
-          style={{ marginTop: 24 }}
-        />
+        <EmptyState description={Object.keys(data).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')} />
       )}
 
       {show('summary') && accounts.length > 0 &&

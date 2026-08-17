@@ -17,7 +17,7 @@
 import { CloudTrailClient, LookupEventsCommand } from '@aws-sdk/client-cloudtrail'
 import { clientOpts } from './runtime/awsClient.js'
 import { cachedCall } from './util/cache.js'
-import { principalName } from './util/principal.js'
+import { actorKind, principalName } from './util/principal.js'
 import { log } from './log.js'
 import { stripOrgEnv } from './util/envToken.js'
 
@@ -92,6 +92,10 @@ export function restartRow(event = {}) {
     inProgress: false,
     trigger: 'restart',
     forcedBy: principalName(arn),
+    // Persona, pipeline o servizio AWS: nei dati veri i riavvii arrivano quasi tutti da CodeBuild (e' il
+    // deploy che fa `update-service`) o da una lambda. Chiamarli «a mano» e' falso, e li contava fra le
+    // azioni umane: un numero che esiste per far notare le poche volte in cui qualcuno tocca la produzione.
+    actorKind: actorKind(arn),
     viaTeleport: viaTeleportRole(arn),
     startedAt: at,
     endedAt: at,
@@ -124,8 +128,9 @@ export function sgRow(event = {}) {
     cluster: null,
     status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
     inProgress: false,
-    trigger: chiuso ? 'break-glass chiuso' : 'break-glass APERTO',
+    trigger: chiuso ? 'sg-close' : 'sg-open',
     forcedBy: principalName(arn),
+    actorKind: actorKind(arn),
     viaTeleport: viaTeleportRole(arn),
     porte,
     startedAt: at,
@@ -148,12 +153,17 @@ export function execRow(event = {}) {
     id: `exec:${event.EventId ?? `${req.task}:${at}`}`,
     kind: 'exec',
     provider: 'ecs',
-    service: serviceFromEcs(req.cluster ?? ''),
+    // Il servizio è il CONTAINER in cui si è entrati (`backend`), non il cluster: prendendo il cluster
+    // la riga si chiamava col nome dell'ambiente (`acme-production`), quindi sei righe di shell
+    // sembravano sei volte la stessa cosa e non si capiva DOVE fosse entrato qualcuno. CloudTrail lo
+    // dà in `requestParameters.container`; il cluster resta nel campo suo.
+    service: req.container || serviceFromEcs(req.cluster ?? ''),
     cluster: req.cluster ?? null,
     status: rec.errorCode ? 'FAILED' : 'SUCCEEDED',
     inProgress: false,
-    trigger: 'shell nel container',
+    trigger: 'exec',
     forcedBy: principalName(arn),
+    actorKind: actorKind(arn),
     viaTeleport: viaTeleportRole(arn),
     startedAt: at,
     endedAt: at,
@@ -172,7 +182,7 @@ export function startEntry(event = {}) {
   const key = build.arn || build.id
   if (!key) return null
   const arn = rec.userIdentity?.arn ?? null
-  return [key, { forcedBy: principalName(arn), viaTeleport: viaTeleportRole(arn), hotfix: isHotfixRole(arn) }]
+  return [key, { forcedBy: principalName(arn), actorKind: actorKind(arn), viaTeleport: viaTeleportRole(arn), hotfix: isHotfixRole(arn) }]
 }
 
 // Una lookup per nome-evento. CloudTrail è a 2 TPS per account: una chiamata per evento, cachata.

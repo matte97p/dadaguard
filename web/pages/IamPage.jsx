@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Spin, Alert, Empty, Typography, Tag, Badge, Space, Segmented, Select } from 'antd'
-import { PageIntro, PANEL_GRID } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID, EmptyState } from './pageKit.jsx'
+import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
-const CARD = { border: '1px solid rgba(128,128,128,0.18)', borderRadius: 10, padding: 16 }
+const CARD = { border: '1px solid var(--dg-line)', borderRadius: 10, padding: 16 }
 
 // Raggruppa le azioni per servizio (prefisso prima dei ':'): "s3:GetObject" → { s3: [GetObject] }.
 function actionsByService(actions) {
@@ -124,7 +125,7 @@ function PolicyView({ t, initialSel, data, error }) {
   const hasAny = accounts.some((a) => (a.policies ?? []).length || a.error)
 
   if (error) return <Alert type="error" showIcon message={error} />
-  if (data && !hasAny) return <Empty description={t('iam.none')} style={{ marginTop: 24 }} />
+  if (data && !hasAny) return <EmptyState description={t('iam.none')} />
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
@@ -148,7 +149,7 @@ function PolicyView({ t, initialSel, data, error }) {
                       style={{
                         textAlign: 'left',
                         cursor: 'pointer',
-                        border: `1px solid ${active ? '#7c3aed' : 'rgba(128,128,128,0.2)'}`,
+                        border: `1px solid ${active ? '#7c3aed' : 'var(--dg-line-strong)'}`,
                         background: active ? 'rgba(124,58,237,0.08)' : 'transparent',
                         borderRadius: 8,
                         padding: '6px 10px',
@@ -394,9 +395,9 @@ function ResourceView({ services, t, initialResource }) {
 // È il modo reale in cui gli umani hanno accesso (non IAM user/group). ---
 function SsoView({ t, data, error }) {
   if (error) return <Alert type="error" showIcon message={error} />
-  if (data && !data.available) return <Empty description={t('iam.ssoNone')} style={{ marginTop: 24 }} />
+  if (data && !data.available) return <EmptyState description={t('iam.ssoNone')} />
   const ps = data?.permissionSets ?? []
-  if (ps.length === 0) return <Empty description={t('iam.ssoEmpty')} style={{ marginTop: 24 }} />
+  if (ps.length === 0) return <EmptyState description={t('iam.ssoEmpty')} />
 
   return (
     <>
@@ -472,7 +473,7 @@ export default function IamPage({ services = [], t = (k) => k, lang }) {
       <>
         <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
         <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin tip={t('iam.loading')} />
+          <Loading text={t('iam.loading')} />
         </div>
       </>
     )
@@ -481,7 +482,7 @@ export default function IamPage({ services = [], t = (k) => k, lang }) {
     return (
       <>
         <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
-        <Empty description={t('iam.nothing')} style={{ marginTop: 24 }} />
+        <EmptyState description={t('iam.nothing')} />
       </>
     )
 

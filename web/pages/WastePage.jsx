@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { List, Tag, Alert, Space, Typography, Spin, Empty } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow } from './pageKit.jsx'
+import { List, Tag, Alert, Space, Typography, Spin } from 'antd'
+import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -90,7 +90,7 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, embedded 
       )}
       {error && <Alert type="error" message={error} showIcon />}
 
-      {data && entries.length === 0 && <Empty description={t('waste.noAccounts')} style={{ marginTop: 24 }} />}
+      {data && entries.length === 0 && <EmptyState description={t('waste.noAccounts')} />}
       {data && entries.length > 0 && (
         <HeroRow>
           <HeroStat label={t('waste.h.total')} value={`$${total.toFixed(2)}`} color={total > 0 ? '#faad14' : undefined} />

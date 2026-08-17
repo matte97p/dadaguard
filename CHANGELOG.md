@@ -6,6 +6,169 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **La topologia ha uno scopo dichiarato, e lo risponde: «se questo si ferma, chi ne soffre?» e «questo
+  è rotto, da cosa dipende?».** Un disegno che risponde solo a «com'è fatto» non serve: quello lo dice
+  meglio un documento, che non va tenuto in sincrono con AWS. La home elenca cosa è rotto; qui si vede
+  chi altro ne sta soffrendo e dove guardare, che è l'unica delle due cose che si legge da un grafo.
+  In concreto: i box e le card diventano gialli quando un membro sano dipende, anche di rimbalzo, da
+  qualcosa in difficoltà, e la riga dice da cosa (`2 a rischio: cache`); il pannello di una risorsa
+  apre con le due risposte (`Se si ferma: 7 a valle`, `Dipende da: 3`) e da lì si salta al dettaglio del
+  servizio, invece di ricopiare il nome nella pagina Servizi; sulle risorse condivise la card dice
+  quanti la usano, e i box mettono in cima i più usati invece dell'ordine alfabetico, perché un Redis da
+  cui dipendono cinque servizi e un bucket che nessuno cita non contano uguale.
+  Due scelte che i test difendono, perché sono la differenza fra un indicatore e del rumore: i permessi
+  IAM NON propagano il danno (`questo ruolo potrebbe scrivere su quel bucket` non è un uso, e contarlo
+  renderebbe a rischio qualunque servizio con una policy larga), e `unknown` non è un guasto (i nodi
+  arrivano dal grafo prima dello stato, e propagare «non l'ho ancora guardato» accenderebbe mezza mappa
+  a ogni apertura). Il calcolo gira sulla flotta intera e non sull'ambiente mostrato: le dipendenze
+  cross-account esistono, e sono proprio quelle che a mente non si ricostruiscono.
+
+### Fixed
+- **Il traffico interno non si vedeva: i servizi si chiamano per INDIRIZZO del load balancer.** Nelle
+  configurazioni c'è `http://internal-…elb.amazonaws.com:8000`, e quel valore non uguaglia il nome del
+  load balancer, quindi nessuna passata lo vedeva: la mappa mostrava otto servizi affiancati senza una
+  freccia fra loro. Ora si leggono gli indirizzi dei load balancer (una `DescribeLoadBalancers` per
+  account) e i loro ascoltatori, e la PORTA dice chi risponde: `:8000` è il Backend, `:8001` la chat.
+  Senza la porta si collegherebbe chi chiama a tutti i servizi dietro quel load balancer, che è lo stesso
+  fanout falso del nome del cluster. Sulla flotta vera arrivano **14 archi nuovi**, che sono il grafo
+  delle chiamate interne. Se la porta non è mappata l'arco va al load balancer stesso, che è comunque
+  vero e verificabile: meglio un arco più corto del vero che un arco inventato.
+- **Le colonne erano un elenco scritto nel codice, non una lettura dei dati.** Ora il livello di un nodo
+  è la sua distanza dal perimetro calcolata sugli archi, e un gruppo prende il livello del suo membro più
+  a monte. Fra due nodi vince la direzione prevalente (sette frecce contro una non sono un pareggio) e
+  due che si chiamano a vicenda sono PARI, quindi stanno nella stessa colonna con le due frecce fra loro
+  invece di essere messi in fila scegliendo un verso a caso. Chi non ha archi va in fondo e non in testa:
+  la prima colonna vuol dire «da qui entra il lavoro». Dentro un gruppo le risorse stanno in colonne per
+  livello e i vicini agli estremi, così nessuna freccia verso un vicino attraversa la fila delle card
+  facendo sembrare una catena fra servizi che non esiste.
+- **I riquadri erano più piccoli di quello che ci scrivevi dentro.** Altezza fissa a 138: un gruppo con
+  quattro nomi, la testa comune, il «+9» e due righe di riassunto finiva col testo scritto fuori dal
+  bordo. Ora l'altezza la calcola il contenuto, in entrambi i versi.
+- **Mentre i check erano in volo, la mappa dichiarava di non guardare niente.** I riquadri esistono già
+  appena arrivano le relazioni, ma lo stato della flotta ci mette decine di secondi: con una frase sola per
+  «non lo guardiamo» e «lo stiamo guardando adesso», all'apertura TUTTI i gruppi dicevano «stato non
+  letto», che è falso e si legge come un difetto del disegno. Ora sono tre frasi distinte, e una riga in
+  alto dice quale delle due attese è in corso (le relazioni o lo stato dei servizi). I sistemi fuori da AWS
+  restano «stato non letto» anche dopo, perché il loro stato non lo leggeremo mai.
+- **Le frecce non si capivano: giravano intorno alle card.** Le maniglie stavano solo a sinistra e a
+  destra, quindi un arco fra due riquadri della STESSA colonna (due servizi che si chiamano a vicenda)
+  doveva uscire a destra e rientrare a sinistra, disegnando rettangoli lunghi che passavano davanti alle
+  altre card: sembravano collegamenti fra chi non c'entrava niente. Ora ogni riquadro ha le maniglie sui
+  quattro lati e il lato lo scegliono le posizioni: destra verso sinistra se il bersaglio è più a destra,
+  sotto verso sopra se è nella stessa colonna, sinistra verso destra se l'arco torna indietro (e allora si
+  VEDE che va contro il verso di lettura). Due archi opposti fra gli stessi due nodi diventano **una
+  freccia con la punta alle due estremità**: «si chiamano a vicenda» è un fatto solo, e disegnarlo come due
+  linee sovrapposte non diceva niente. Gli archi tornano curvi: il tracciato ortogonale faceva confluire
+  sei frecce in un unico tronco verticale, dove non si distingueva più quale andasse dove.
+- **La scheda «Rete» buttava giù la pagina.** Restava un riferimento a una variabile cancellata col
+  vecchio grafo, quindi aprire quella scheda dava schermo bianco (`ReferenceError`). Il build non lo
+  vede: un identificativo non risolto passa per una globale.
+- **Nel grafo non compariva NESSUN data store, per un separatore mancante.** I valori di configurazione
+  si spezzavano su spazi, virgole e slash ma non sul PUNTO, quindi l'endpoint di un Redis o di un
+  database era un token unico e non uguagliava mai il servizio che lo serve: la mappa mostrava solo
+  l'idraulica di ingresso e taceva su dove finiscono i dati, che è la prima domanda che si fa a una
+  topologia. Ora ogni etichetta di un hostname è un token (l'hostname intero resta, un endpoint RDS si
+  riconosce anche così) e gli hostname di terze parti diventano nodi, raggruppati per dominio
+  registrabile: sulla flotta vera **34 archi diventano 61**, di cui 21 verso 7 sistemi fuori da AWS e 6
+  verso data store che prima non c'erano. Gli host `*.amazonaws.com` restano fuori, perché se non hanno
+  fatto match vuol dire che quel servizio non lo stiamo guardando e chiamarlo esterno sarebbe una bugia;
+  il dominio di primo livello sta in un elenco chiuso, sennò un id di modello (`eu.anthropic.claude-…`)
+  passava per un sito. Di un sistema fuori da AWS non conosciamo lo stato, e il box lo dice («stato non
+  letto») invece di dichiararlo sano. Costo invariato: sono regex su valori già letti, non chiamate in
+  più (passata veloce 5,9s).
+- **Una state machine non è un data store.** Step Functions stava nel gruppo «Dati», che risponde a
+  «dove stanno i dati»: orchestra dei passi, non li conserva, e ora sta con ciò che gira da solo.
+- **L'84% del grafo delle dipendenze era un artefatto, e si può contare.** Due righe: `identifiers()`
+  metteva il NOME DEL CLUSTER fra gli identificativi di ogni servizio ECS, quindi qualunque valore che
+  nominasse `<org>-production` (una env var, un ARN dentro una policy) faceva match con TUTTI i membri —
+  fanout esattamente 9 in produzione (6 servizi + 3 task schedulati) e 6 in staging, cioè il numero dei
+  membri, che è la firma di un identificativo condiviso e non di una dipendenza. E `matchByArn`
+  risolveva l'ambiguità prendendo il primo candidato dell'elenco: siccome quell'elenco è ordinato allo
+  stesso modo per ogni ARN, tutti gli ARN ambigui di un account finivano addosso allo stesso servizio,
+  che nel disegno risultava il centro dell'architettura (grado in entrata 10 in produzione, 11 in
+  staging) per un artefatto di ordinamento. Ora il cluster non identifica un membro e un ARN ambiguo non
+  produce nessun arco: **104 archi diventano 34**, e quel servizio passa da 10 archi in entrata a 2. Un
+  arco inventato è peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
+
+### Changed
+- **Topologia: la mappa a livelli, al posto del grafo di tutto.** Il difetto non era il layout, era
+  disegnare 38 risorse e 104 frecce insieme, per giunta in gran parte false. Ora vale la tesi del C4: un
+  diagramma, un livello. Il primo livello sono i GRUPPI (Ingresso, Applicazioni, Dati, A orario, A
+  evento, Modelli, Altre risorse) con dentro il conto dei membri e una riga di riassunto; le frecce fra
+  gruppi sono fuse in una per coppia, col numero sopra. Un ambiente vero passa da **38 card e decine di
+  frecce a 6 box e 3 frecce**. Le risorse si vedono entrando in un gruppo, e ai bordi restano gli stub
+  dei vicini per non perdere il contesto. Il pannello a destra dice cosa si sa di ciò che hai scelto,
+  incluse le relazioni dedotte CON la loro provenienza: una freccia piena è un puntatore vero (un target
+  group registra quel servizio), una tratteggiata è un nome trovato in una configurazione o in una
+  policy, e sono due cose diverse.
+  Tre regole che i test difendono: nessun servizio può sparire (c'è un gruppo catch-all, e la partizione
+  è verificata su tutti i tipi della modalità demo); il riassunto conta i PROBLEMI e non gli attivi (un
+  modello mai invocato è a riposo, non rotto); la chiave di un nodo è una sola funzione condivisa fra
+  server e web, perché due chiavi che divergono fondono o sdoppiano i nodi in silenzio.
+
+### Changed
+- **La topologia era illeggibile per costruzione, non per come era disegnata.** Sui dati veri erano 78
+  nodi e 104 archi in una tela sola, con staging e produzione sovrapposti: due architetture identiche
+  una sopra l'altra, più una corsia da 13 nodi in fila (3100px, e dopo l'inquadratura le etichette a sei
+  pixel). Ora: **un ambiente per volta** (23 nodi in produzione, 30 in staging), le corsie **vanno a
+  capo** ogni 6 così la tela resta un rettangolo da ~1450px invece di una striscia, e ogni livello
+  dell'architettura ha la sua **fascia** con il nome (Ingresso, Applicazioni, Dati, Cron e strumenti).
+  I nodi non sono più rettangoli con una stringa dentro ma **card**: icona per tipo di risorsa (l'occhio
+  legge «un database, due lambda, un load balancer» prima di leggere un nome), accento a sinistra col
+  colore dello stato, testa del nome compattata e coda in evidenza. Gli archi sono curve morbide, sottili
+  e mute; **al clic su un nodo** si accendono i suoi e il resto si smorza, che è la risposta a «se questo
+  va giù, chi ne soffre»: su cento archi tutti uguali non si leggeva.
+  La costruzione del grafo è uscita dal `.jsx` in `web/topoGraph.js` con 8 test, perché ReactFlow non
+  disegna i nodi fuori dal browser: la prova di rendering senza DOM vedeva una tela vuota e non poteva
+  dire niente su corsie, vicini e collassi.
+
+### Changed
+- **Passata di interfaccia su tutta l'app, e la timeline delle esecuzioni.** Il difetto non era una
+  pagina brutta: era che ogni pagina aveva deciso da sola: `marginBottom: 16` qui e `12` là, quattro
+  grigi diversi per lo stesso bordo, «nessun dato» a tre altezze differenti, l'intestazione di tabella
+  che in una vista era grigia e in un'altra bianca. Messe in fila, quelle micro-decisioni si leggono
+  come «fatto da cinque persone in cinque momenti». Ora le decisioni stanno in due posti: i **token**
+  (`web/theme.js`, che accorda i componenti antd (tabelle, menu, card, tag, drawer) quindi cambiano
+  anche le pagine che non ho toccato) e uno **strato base** (`web/app.css`: scala di spaziature, cifre
+  a larghezza fissa in tutta l'app, anello di messa a fuoco visibile col colore del marchio, barre di
+  scorrimento discrete, larghezza massima del contenuto). Le neutre non sono più rgba scritti a mano:
+  sono variabili che seguono il tema, così in scuro non sparisce più un bordo al 6%.
+  In più: intestazione appiccicata in alto (dove stanno «Aggiorna» e lo stato di salute, cioè le due
+  cose che si cercano quando sei in fondo a una lista), voce di navigazione selezionata piena invece di
+  una barretta laterale che non si vedeva, `PageIntro`/`Section`/`Toolbar`/`EmptyState` condivisi al
+  posto dei pannelli ridisegnati in ogni pagina, e i vuoti che dicono una frase invece di «nessun dato».
+- **Esecuzioni: la timeline al posto della tabella.** Una riga per cron, dentro la riga le ultime corse
+  come blocchi: la larghezza è la durata (in radice quadrata, sennò una corsa da 4 secondi accanto a una
+  da sei ore è un filo invisibile), il colore è l'esito, quella in corso è rigata e si muove: l'unica
+  cosa animata della pagina, così il movimento significa qualcosa. Si legge senza leggere: chi gira, chi
+  stanotte ha impiegato il triplo, dove c'è un buco. La vista **lista** resta a un clic, perché per
+  cercare una corsa precisa una tabella è meglio di un disegno. E i nomi dei cron mostrano la testa
+  condivisa (`<org>-<ambiente>-cron-`) piccola e muta con la coda in evidenza: troncando da destra si
+  perdeva esattamente la parte che distingue un cron dall'altro.
+
+### Added
+- **«Sta girando adesso?» e «quella di stanotte com'è finita?», che nessuna card sapeva dire.** Il
+  watchdog risponde «il cron va» o «il cron è saltato»; su un job LUNGO (uno scraper che macina un'ora)
+  quelle due domande restavano senza risposta, perché uno stato aggregato non distingue un cron fermo da
+  uno a metà corsa, e «l'ultima esecuzione» non è una lista. La pagina **Esecuzioni** è una tabella di
+  RUN, non di cron: in cima quelle in corso col tempo che cresce, sotto ogni singola corsa con durata ed
+  esito, e i log si aprono **sulla singola esecuzione** (stream del suo task e intervallo inizio→fine)
+  invece dell'ultima ora del job, dove la corsa di stanotte sta mescolata a quella di ieri. In fondo i
+  cron che nella finestra **non hanno corso**, distinguendo «spento di proposito» da «non è partito»:
+  è una risposta che una lista di esecuzioni, per definizione, non potrebbe dare.
+  Tre cose che sembrano dettagli e sono il senso della vista: su ECS RunTask servono **due sorgenti** (le
+  API ECS per le run vive e per l'exit code («uscito 137 · memoria esaurita») e i log per lo storico,
+  perché ECS dimentica i task fermati dopo un'ora); su Lambda la lista delle invocazioni **non esiste
+  come API** e si ricostruisce dalle coppie `START`/`REPORT`, con gli errori attribuiti all'invocazione
+  aperta in quello stream (dentro uno stream le invocazioni sono seriali, quindi non è un'euristica); e
+  una run finita con **exit code 0 ma dei traceback dentro** è marcata fallita, cioè il caso in cui la
+  card era verde. Sorgente **orchestratore Prefect** opzionale (`PREFECT_API_URL`), per i job che girano
+  fuori da AWS e che in nessuna API AWS comparirebbero. Nessun permesso IAM nuovo, e una sola chiamata
+  per cron: la finestra da leggere è dimensionata sulla **cadenza** del cron, perché il tetto vero è la
+  quota di CloudWatch Logs (~10 richieste/s per account: a ventisei chiamate insieme la stessa query
+  passa da 600ms a 4,8s, e la pagina d'insieme da 27 secondi a 5).
+
+### Added
 - **Le due azioni che non lasciavano traccia da nessuna parte.** La pagina dei rilasci mostrava i riavvii
   forzati e gli hotfix; restavano invisibili le due cose più invasive che si fanno a mano su AWS, e
   CloudTrail le sapeva da sempre. Ora compaiono accanto alle altre: l'**apertura a mano di una porta su
