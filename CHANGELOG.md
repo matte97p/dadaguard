@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Nel pannello della topologia metà dei servizi era grigia, cioè «stato non letto», mentre stavano su.**
+  Due cause, entrambe di lettura sbagliata e nessuna in AWS (i servizi erano tutti `up`). Il pannello
+  teneva una COPIA della lista fatta al momento del clic: se lo si apriva prima che arrivasse lo stato
+  della flotta (decine di secondi), quei pallini restavano grigi per sempre anche dopo che i riquadri
+  diventavano verdi. Ora tiene solo l'identità di ciò che è selezionato e ricompone le righe dai dati
+  vivi. E la pagina riceveva la lista dei servizi FILTRATA dalla barra in alto, mentre i nodi della mappa
+  arrivano dal grafo e ci sono sempre: un servizio escluso da un filtro restava disegnato senza stato,
+  con la stessa faccia di uno che non guardiamo. Ora lo stato arriva dalla flotta intera, e se un filtro
+  è attivo una riga lo dice, perché un'architettura con metà dei nodi via non è un'architettura.
+
 ### Added
 - **La topologia ha uno scopo dichiarato, e lo risponde: «se questo si ferma, chi ne soffre?» e «questo
   è rotto, da cosa dipende?».** Un disegno che risponde solo a «com'è fatto» non serve: quello lo dice
