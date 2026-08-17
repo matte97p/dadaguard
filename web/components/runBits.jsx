@@ -4,7 +4,7 @@ import { LEVEL } from '../theme.js'
 
 // Vocabolario visivo delle esecuzioni, in un posto solo: la pagina, il pannello dei log e (domani)
 // qualunque altra vista devono colorare 'failed' allo stesso modo, o il colore smette di essere un
-// segnale — è la ragione per cui esiste web/theme.js.
+// segnale: è la ragione per cui esiste web/theme.js.
 export const OUTCOME_LEVEL = {
   running: 'info',
   ok: 'ok',

@@ -182,7 +182,7 @@ export function shortActor(who) {
 //
 // CodeBuild, quando una fase muore, restituisce come "messaggio" il COMANDO INTERO che stava eseguendo:
 // su un buildspec con un `if` di venti righe (attesa del rollout ECS, describe-services, echo dei
-// messaggi) esce un muro di shell in cui la parte utile — l'esito, e il nome della fase — sta in fondo.
+// messaggi) esce un muro di shell in cui la parte utile (l'esito, e il nome della fase) sta in fondo.
 // Nella pagina «Adesso» quel muro occupa mezzo schermo per una riga di elenco.
 //
 // Qui si tiene ciò che risponde alla domanda: com'è morto, e quale comando era. Lo script si butta; il

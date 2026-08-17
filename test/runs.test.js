@@ -16,7 +16,7 @@ import { summarize, sortCrons } from '../server/runsOverview.js'
 import { ecsCron, lambdaCron, withNextRun, cronKey } from '../server/crons.js'
 
 // Le esecuzioni non si leggono da un'unica API: ECS le dimentica dopo un'ora, Lambda non le elenca
-// affatto. Questi test bloccano la parte che decide COS'È una run e COM'È andata — cioè tutto quello
+// affatto. Questi test bloccano la parte che decide COS'È una run e COM'È andata, cioè tutto quello
 // che non è una chiamata AWS.
 
 test('familyOfTaskDef: ARN, family:rev, spazzatura', () => {

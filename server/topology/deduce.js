@@ -85,7 +85,7 @@ export async function identifiers(service, aws) {
   //
   // Non e' una micro-ottimizzazione: sui dati veri erano 87 archi su 104. Il fanout era esattamente 9 in
   // produzione (6 servizi ECS + 3 task schedulati del cluster) e 6 in staging, cioe' il numero dei
-  // membri — la firma di un identificativo condiviso, non di una dipendenza. Il grafo delle dipendenze
+  // membri: la firma di un identificativo condiviso, non di una dipendenza. Il grafo delle dipendenze
   // era per l'84% il registro di chi nomina il cluster.
   //
   // La coppia `cluster/servizio` invece resta: quella e' specifica, e compare negli ARN veri.
@@ -188,12 +188,12 @@ export function extractArns(text) {
 // (uccide le collisioni di nomi tra ambienti); se il token è unico e vive in un altro account,
 // è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
 // I token di un valore di configurazione. Due passaggi, e il secondo è quello che mancava:
-//  1. si spezza sui separatori (spazi, virgole, `:`, `/`, `=`, `?`, `&`…) — così un URL diventa i suoi
+//  1. si spezza sui separatori (spazi, virgole, `:`, `/`, `=`, `?`, `&`…), così un URL diventa i suoi
 //     pezzi e l'hostname resta INTERO, che è giusto: un endpoint RDS si riconosce per intero;
 //  2. ogni pezzo che contiene dei PUNTI viene spezzato anche lì, e le etichette diventano token loro.
 //     Senza questo passaggio `master.acme-production-redis.abc.euc1.cache.amazonaws.com` era un token
 //     unico e non uguagliava mai il servizio `acme-production-redis`: e' il motivo per cui nel grafo non
-//     c'era NESSUN data store — non Redis, non Bedrock, non i database — e la mappa mostrava solo
+//     c'era NESSUN data store (non Redis, non Bedrock, non i database) e la mappa mostrava solo
 //     l'idraulica di ingresso. Il punto non stava fra i separatori, e nessuno se n'era accorto.
 // Pura/testabile.
 export function envTokens(env) {
@@ -264,7 +264,7 @@ export function matchByArn(arn, idList, self) {
   const scelti = same.length ? same : cands
   // AMBIGUO = NESSUNA RISPOSTA. Prima si prendeva `[0]`, cioe' il primo dell'elenco: sui dati veri
   // quell'elenco e' ordinato per servizio e il primo e' sempre lo stesso, quindi tutti gli ARN ambigui
-  // di un account finivano addosso al medesimo servizio — che nel disegno risultava il centro
+  // di un account finivano addosso al medesimo servizio: che nel disegno risultava il centro
   // dell'architettura (grado in entrata 10 in produzione, 11 in staging) per un artefatto di ordinamento.
   // Un arco inventato e' peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
   return scelti.length === 1 ? scelti[0] : null
@@ -555,7 +555,7 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
 // per dominio e non per host perché tre bucket dello stesso provider sono un sistema, non tre.
 //
 // Gli host `*.amazonaws.com` restano fuori: quelli sono risorse AWS, e se non hanno fatto match con un
-// servizio tracciato vuol dire che quel servizio non lo stiamo guardando — dirlo «esterno» sarebbe
+// servizio tracciato vuol dire che quel servizio non lo stiamo guardando: dirlo «esterno» sarebbe
 // sbagliato. Pura/testabile.
 export function esterniDaHost(hosts = []) {
   const out = new Map()
@@ -575,7 +575,7 @@ export function esterniDaHost(hosts = []) {
 //   nodes      [{ id, name, account, type }] — chiave → servizio, per etichettare senza indovinare
 // `deboli: false` salta le due passate LENTE (IAM e security group). Misurato sulla flotta vera:
 // identificativi 1ms · env+eventi 12,9s · load balancer 10,1s · IAM 43,2s · security group 17,5s, cioe'
-// 60 secondi su 84 stanno in due passate che producono SOLO archi tratteggiati — «questo ruolo ha il
+// 60 secondi su 84 stanno in due passate che producono SOLO archi tratteggiati: «questo ruolo ha il
 // permesso su quello», «questo security group ammette quell'altro». Sono veri, ma non sono un flusso, e
 // far aspettare un minuto per disegnarli è il motivo per cui la pagina sembrava rotta.
 //

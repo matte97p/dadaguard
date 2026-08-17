@@ -1,10 +1,10 @@
 // Il REGISTRO dei cron: chi sono, dove girano, con che cadenza, accesi o spenti. È la spina dorsale
-// della vista delle esecuzioni — prima di chiedere «com'è andata» bisogna sapere CHE COSA esiste.
+// della vista delle esecuzioni: prima di chiedere «com'è andata» bisogna sapere CHE COSA esiste.
 //
 // La lista non si dichiara: si deduce dagli schedule di EventBridge (Rules classiche + Scheduler
 // moderno, vedi server/schedules.js), esattamente come fa il dead-man switch dei check. Due
 // conseguenze volute:
-//   · un cron che nessuno ha messo in `services.yaml` compare comunque — ed è il caso in cui la
+//   · un cron che nessuno ha messo in `services.yaml` compare comunque, ed è il caso in cui la
 //     vista serve di più, perché è il job che nessuno guarda;
 //   · lo stato ENABLED/DISABLED e l'espressione arrivano dalla verità di AWS, non da un file che
 //     qualcuno deve ricordarsi di aggiornare.
@@ -69,7 +69,7 @@ export function withNextRun(cron, now = Date.now()) {
 }
 
 // Tutti i cron di tutti gli account interrogabili. Ritorna { crons, problems }: `problems` sono le
-// letture non riuscite (un account senza sessione SSO, un permesso mancante) — vanno DETTE, altrimenti
+// letture non riuscite (un account senza sessione SSO, un permesso mancante): vanno DETTE, altrimenti
 // «zero cron in questo account» sembra una risposta invece di una lettura fallita.
 export async function listCrons(accounts, { t = (k) => k } = {}) {
   const crons = []

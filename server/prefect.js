@@ -1,14 +1,14 @@
 // Sorgente OPZIONALE per le esecuzioni: un orchestratore Prefect.
 //
 // Perché sta qui, in un watchdog che per il resto legge solo AWS: i job più lunghi e più fragili di
-// uno stack — gli scraper — spesso NON sono cron di EventBridge. Li lancia un orchestratore, che può
+// uno stack (gli scraper) spesso NON sono cron di EventBridge. Li lancia un orchestratore, che può
 // girare fuori da AWS (una VM, un datacenter di casa) e che quindi non compare in nessuna API AWS: la
 // vista delle esecuzioni, senza, mostrerebbe i cron piccoli e non i job che davvero si vanno a
 // guardare. È l'unico modo di rispondere «sta girando adesso?» per quei job.
 //
 // Principi rispettati: read-only (solo `*/filter`, che nell'API di Prefect sono POST di sola lettura),
 // nessun LLM, zero storage. E come l'integrazione Cloudflare: senza configurazione la sorgente non
-// esiste e la sezione non compare — non è un errore, è spenta.
+// esiste e la sezione non compare: non è un errore, è spenta.
 //
 // Configurazione (env, come il token Cloudflare):
 //   PREFECT_API_URL          es. https://prefect.example.com/api  (anche senza `/api`: si aggiunge)
@@ -138,7 +138,7 @@ export async function prefectRuns({ minutes = 1440, limit = 40, env = process.en
 }
 
 // I log di UNA esecuzione, dall'orchestratore (non da CloudWatch: quel job può girare fuori da AWS).
-// Stessa forma degli eventi CloudWatch — { ts, message } — così il pannello log è uno solo.
+// Stessa forma degli eventi CloudWatch ({ ts, message }) così il pannello log è uno solo.
 export async function prefectRunLogs(runId, { limit = 300, env = process.env } = {}) {
   const cfg = prefectConfig(env)
   if (!cfg) return null

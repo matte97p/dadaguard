@@ -15,7 +15,7 @@ export const LEVEL_COLOR = {
   trace: '#8c8c8c',
 }
 
-// righe di piattaforma Lambda (rumore: START/END/REPORT/INIT) — nascoste di default
+// righe di piattaforma Lambda (rumore: START/END/REPORT/INIT), nascoste di default
 export const NOISE = /^(START|END|REPORT|INIT_START|XRAY) RequestId/
 
 // Prova a interpretare un evento come log JSON strutturato → { level, msg }. Altrimenti riga grezza.

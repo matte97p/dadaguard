@@ -145,8 +145,8 @@ export function mergeAccounts(discovered = {}, declared = {}) {
 // exceeded"). Cachiamo solo QUALI servizi esistono (cambia di rado); i CHECK restano freschi, li
 // rifà getStatus a ogni chiamata. Invalidata quando la watchlist viene modificata.
 let _resolveCache = null
-// La chiamata IN VOLO, non solo il risultato. Senza, due richieste che arrivano insieme — ed è il caso
-// normale: la pagina chiede stato e topologia nello stesso istante — fanno DUE auto-discovery complete
+// La chiamata IN VOLO, non solo il risultato. Senza, due richieste che arrivano insieme, ed è il caso
+// normale: la pagina chiede stato e topologia nello stesso istante, fanno DUE auto-discovery complete
 // da quattro secondi l'una, perché la cache si popola solo alla fine. Nel log si vedevano coppie di
 // «auto-discovery» a millisecondi di distanza, otto in due minuti. Chi arriva mentre il giro è già
 // partito aspetta quello, invece di lanciarne un altro.
@@ -454,7 +454,7 @@ export async function getStatus(lang) {
   }
 
   // `flat()` e non un accumulatore: dentro un account `mapLimit` preserva l'ordine, e fra account non
-  // conta — la UI riordina per gravità.
+  // conta: la UI riordina per gravità.
   const results = (await Promise.all([...perAccount.values()].map((lista) => mapLimit(lista, CONCURRENCY, controlla)))).flat()
 
   // Cloudflare Worker come card-servizio (version + runtime). Se non c'è token → [] (nessuna card).

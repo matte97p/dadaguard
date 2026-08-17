@@ -2,7 +2,7 @@
 // usano tutte e due le parti: il server che costruisce il grafo e il web che lo disegna.
 //
 // Perché non basta esportarla da server/topology/deduce.js, che è dove stava: quel file importa mezzo
-// SDK di AWS, e importarlo dal web lo trascina nel bundle del browser — il build si è rotto proprio
+// SDK di AWS, e importarlo dal web lo trascina nel bundle del browser: il build si è rotto proprio
 // così. E perché non due copie: erano già due funzioni omonime con firme diverse (una prendeva
 // `(name, account)`, l'altra l'oggetto servizio), e due chiavi che divergono fondono o sdoppiano i nodi
 // in silenzio, che è il modo peggiore di sbagliare.

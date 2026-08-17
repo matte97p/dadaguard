@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 //
 // Perché serve, con un esempio vero: il server mandava `trigger: 'break-glass APERTO'` (una frase
 // italiana) e la pagina ci costruiva sopra `t('deploys.trigger.' + trigger)`. La chiave non esisteva,
-// quindi in pagina compariva la CHIAVE — «deploys.trigger.break-glass APERTO» — e in inglese sarebbe
+// quindi in pagina compariva la CHIAVE («deploys.trigger.break-glass APERTO») e in inglese sarebbe
 // uscito italiano. Nessun test lo vedeva: la parità era a posto, e la chiave era dinamica.
 //
 // Due controlli, uno per ciascuna delle due forme:

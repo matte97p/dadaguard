@@ -410,7 +410,7 @@ app.get('/api/topology', async (req, res) => {
     // security group 17,5s. Le ultime due valgono 60 secondi su 84 e producono SOLO archi tratteggiati
     // («questo ruolo ha il permesso su quello»): veri, ma non sono un flusso, e non vale un minuto di
     // attesa prima di vedere qualcosa. La pagina chiede prima il giro veloce e poi, se serve, quello
-    // completo — che intanto riempie la sua cache.
+    // completo: che intanto riempie la sua cache.
     const deboli = req.query.deboli !== '0'
     const chiave = deboli ? 'topology' : 'topology:veloce'
     // Dieci minuti: la topologia cambia con un apply Terraform, non col traffico.
@@ -577,7 +577,7 @@ app.get('/api/runs/logs', async (req, res) => {
         runId: req.query.run || null,
         stream: req.query.stream || null,
         // Senza `from` si leggerebbe dall'epoca: la finestra di una run la conosce chi ha la riga, e
-        // in mancanza si ricade sull'ultima ora — non su «tutto».
+        // in mancanza si ricade sull'ultima ora: non su «tutto».
         from: num(req.query.from) ?? Date.now() - 3600_000,
         to: num(req.query.to),
         limit: num(req.query.limit) ?? 300,

@@ -17,7 +17,7 @@ const { Text } = Typography
 // Pagina ESECUZIONI: cosa sta girando adesso, e com'è finita ogni singola corsa di prima.
 //
 // Perché non basta la card di un cron: la card risponde «il cron va / è saltato», che è la domanda di
-// un watchdog. Su un job LUNGO — uno scraper che macina un'ora — le domande vere sono altre due, e
+// un watchdog. Su un job LUNGO (uno scraper che macina un'ora) le domande vere sono altre due, e
 // nessuna vista le copriva: *sta girando in questo momento, e da quanto?* e *quella di stanotte com'è
 // andata, e dove sono i suoi log?*. Uno stato aggregato non le distingue nemmeno: un cron «up» può
 // essere fermo, a metà corsa, o appena finito male con l'exit code a zero.
@@ -99,7 +99,7 @@ export function prefectAsCrons(prefect = null, t = (k) => k) {
 const TYPE_KEY = { lambda: 'runs.type.lambda', 'ecs-scheduled': 'runs.type.ecs', prefect: 'runs.type.prefect' }
 
 // Le colonne della tabella, in una funzione a parte: così si possono rendere (e quindi provare) fuori
-// dal browser, che in questo repo è l'unico modo di provare della UI — i test girano su `node --test`,
+// dal browser, che in questo repo è l'unico modo di provare della UI: i test girano su `node --test`,
 // senza DOM. Una colonna che lancia su una run senza durata è una pagina bianca, e va scoperta qui.
 export function runColumns({ t = (k) => k, onOpen = () => {}, onPickCron = null, prefissi = null } = {}) {
   return [

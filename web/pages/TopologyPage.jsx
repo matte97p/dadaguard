@@ -259,7 +259,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
   const [view, setView] = useState('deps')
   // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
   const [conto, setConto] = useState(null)
-  // Il LIVELLO: la mappa dei gruppi, oppure dentro un gruppo. È la tesi C4 — un diagramma, un livello —
+  // Il LIVELLO: la mappa dei gruppi, oppure dentro un gruppo. È la tesi C4, un diagramma un livello,
   // ed è ciò che fa scendere un ambiente vero da 30-38 card a 6-8 box.
   const [gruppoAperto, setGruppoAperto] = useState(null)
   // Le relazioni dedotte da permessi IAM e security group: 61 secondi di chiamate AWS per due archi in
@@ -312,7 +312,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
 
   // I SERVIZI della mappa vengono dal grafo, non dallo stato della flotta. È la correzione che cambia
   // l'attesa vera: `/api/status` fa gli otto check su tutti i servizi di tutti gli account e ci mette
-  // decine di secondi, e finché non tornava questa pagina scriveva «Nessun servizio» — che non è
+  // decine di secondi, e finché non tornava questa pagina scriveva «Nessun servizio»: che non è
   // «non ce ne sono», è «non li ho ancora guardati», e sono due cose diverse.
   //
   // `topo.nodes` porta nome, account e tipo di ogni risorsa: basta a disegnare la mappa. Lo stato

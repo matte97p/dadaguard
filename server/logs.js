@@ -165,8 +165,8 @@ export async function readWindow(cw, { logGroup, stream = null, from, to = null,
 // { notApplicable } | { logGroup, error }. `task` = l'id del task a cui la lettura è stata ristretta.
 //
 // `stream` + `from`/`to` = i log di UNA SOLA ESECUZIONE (vedi server/runs.js). Perché così e non
-// filtrando per request id: su Lambda le righe dell'applicazione non contengono il request id — lo
-// stampa la piattaforma su START/REPORT, non un `print` — quindi cercarlo restituirebbe tre righe di
+// filtrando per request id: su Lambda le righe dell'applicazione non contengono il request id, lo
+// stampa la piattaforma su START/REPORT, non un `print`, quindi cercarlo restituirebbe tre righe di
 // contorno e nessun log del lavoro. Lo stream invece serve UNA invocazione alla volta (è un ambiente
 // di esecuzione), e su ECS RunTask è addirittura un task solo: stream + intervallo = quella run e
 // nient'altro.
@@ -210,7 +210,7 @@ export async function recentLogs(
     let truncated = false
     let healthSkipped = 0
     const budget = { pages: 0 }
-    // Intervallo ESPLICITO (una singola esecuzione): niente fette a ritroso — la finestra è già quella
+    // Intervallo ESPLICITO (una singola esecuzione): niente fette a ritroso, la finestra è già quella
     // giusta e chiuderla da entrambi i lati è ciò che tiene fuori la run precedente e la successiva.
     if (Number.isFinite(Number(from))) {
       const out = await readWindow(cw, { logGroup, stream, from, to, limit: cap, errorsOnly, skipHealth })

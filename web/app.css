@@ -39,8 +39,8 @@ body {
 
 /* CIFRE A LARGHEZZA FISSA in tutta l'app, non solo dove qualcuno si è ricordato di metterle. Su una
    colonna di durate o di importi, le cifre proporzionali spostano i numeri di qualche pixel a ogni
-   riga: sembra allineata e non lo è, e il confronto a occhio — che è il motivo per cui li si incolonna
-   — non funziona. */
+   riga: sembra allineata e non lo è, e il confronto a occhio, che è il motivo per cui li si incolonna
+  : non funziona. */
 .ant-table,
 .ant-statistic-content,
 .dg-num,
@@ -89,7 +89,7 @@ body {
 }
 
 /* Intestazione dell'app: sottile, appiccicata in alto e separata da una linea, non da un'ombra. Resta
-   visibile mentre si scorre — è dove stanno «Aggiorna» e lo stato di salute, cioè le due cose che si
+   visibile mentre si scorre: è dove stanno «Aggiorna» e lo stato di salute, cioè le due cose che si
    cercano proprio quando si è in fondo a una lista lunga. */
 .dg-header {
   position: sticky;
@@ -541,7 +541,7 @@ details[open] > .dg-summary .dg-chev {
 
 /* ── Timeline delle esecuzioni (pagina Esecuzioni) ────────────────────────────────────────────────
    Una riga per cron, e dentro la riga le sue ultime corse come blocchi: la FORMA dice quello che una
-   tabella di numeri fa dire solo dopo averla letta — chi sta girando, chi è più lento del solito, dove
+   tabella di numeri fa dire solo dopo averla letta: chi sta girando, chi è più lento del solito, dove
    c'è un buco. La larghezza del blocco è la durata (radice quadrata, sennò una corsa da 4 secondi
    accanto a una da sei ore sarebbe invisibile), il colore è l'esito, il bordo sinistro della riga è lo
    stato dell'ultima corsa. */
@@ -606,7 +606,7 @@ details[open] > .dg-summary .dg-chev {
 }
 
 /* La corsa IN CORSO: rigata e in movimento verso destra, cioè "sta ancora scrivendo". È l'unico
-   elemento animato della pagina — se si muovesse anche altro, questo non direbbe più niente. */
+   elemento animato della pagina: se si muovesse anche altro, questo non direbbe più niente. */
 .dg-tl-block-live {
   background-image: repeating-linear-gradient(
     115deg,
@@ -629,7 +629,7 @@ details[open] > .dg-summary .dg-chev {
   }
 }
 
-/* Estremi dell'asse ("3g fa" … "ora"): piccoli, muti, e presenti — senza, la striscia è una fila di
+/* Estremi dell'asse ("3g fa" … "ora"): piccoli, muti, e presenti, senza, la striscia è una fila di
    blocchi senza tempo. */
 .dg-tl-axis {
   display: flex;
@@ -824,7 +824,7 @@ details[open] > .dg-summary .dg-chev {
 }
 
 /* Repliche sulla card: cifre a larghezza fissa, in un riquadro appena accennato. Rosse quando le
-   attive sono meno di quelle desiderate — «attivo» e «quante dovrebbero girare» sono due domande, e il
+   attive sono meno di quelle desiderate: «attivo» e «quante dovrebbero girare» sono due domande, e il
    verde dello stato risponde solo alla prima. */
 .dg-topo-rep {
   font-size: 11px;
@@ -882,7 +882,7 @@ details[open] > .dg-summary .dg-chev {
 
 /* «Sto leggendo le relazioni»: una riga sopra la tela, non uno spinner al posto del disegno. La mappa
    esiste senza gli archi (i box vengono dai servizi, già in pagina) e farla aspettare un giro di decine
-   di chiamate AWS si legge come «carica all'infinito» — che è esattamente come è stata descritta. */
+   di chiamate AWS si legge come «carica all'infinito»: che è esattamente come è stata descritta. */
 .dg-topo-loading {
   position: absolute;
   top: 10px;
@@ -906,7 +906,7 @@ details[open] > .dg-summary .dg-chev {
 }
 
 /* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
-   una riga ciascuno e tagliati con l'ellissi — servono a riconoscere, non a leggere per intero (il nome
+   una riga ciascuno e tagliati con l'ellissi: servono a riconoscere, non a leggere per intero (il nome
    completo sta nel tooltip e nel pannello). */
 /* Le due risposte del pannello (raggio d'impatto, dipendenze): stanno sopra l'elenco delle relazioni
    dirette, perché sono la conclusione e quello è il dettaglio. */

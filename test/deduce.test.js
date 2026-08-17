@@ -140,7 +140,7 @@ test('un ARN ambiguo non produce nessun arco, invece di produrne uno inventato',
     { name: 'backend', account: 'prod', key: 'prod::backend', ids: ['backend', 'acme-production'] },
   ]
   const self = { name: 'lambda-x', account: 'prod' }
-  // Due candidati con lo stesso token: prima vinceva `[0]`, cioè il primo dell'elenco — e siccome
+  // Due candidati con lo stesso token: prima vinceva `[0]`, cioè il primo dell'elenco, e siccome
   // l'elenco è ordinato allo stesso modo per ogni ARN, TUTTI gli ambigui di un account finivano sullo
   // stesso servizio, che nel disegno diventava il centro dell'architettura per un artefatto di ordine.
   assert.equal(matchByArn('arn:aws:ecs:eu-central-1:1:cluster/acme-production', idList, self), null)

@@ -4,7 +4,7 @@ import { asList, matchesAny, isFiltering } from '../web/filters.js'
 
 // Il modello dei filtri: ELENCO VUOTO = TUTTI. Sembra una sciocchezza, ma prima ogni pagina scriveva a
 // mano `x === 'all' || y === x`, in sei file, e ognuno poteva sbagliarlo a modo suo. Qui si fissa il
-// comportamento una volta — compreso quello con i preset SALVATI PRIMA, che contengono le forme vecchie.
+// comportamento una volta: compreso quello con i preset SALVATI PRIMA, che contengono le forme vecchie.
 
 test('asList: il sentinella «all» e i vuoti diventano nessun filtro', () => {
   assert.deepEqual(asList('all'), [])

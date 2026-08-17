@@ -97,7 +97,7 @@ export function TopoGroup({ data, selected }) {
         <span className="dg-topo-rep">{r.membri}</span>
       </div>
       {/* I nomi di cosa c'è dentro: è la differenza fra un contenitore e un'informazione. Testa di
-          famiglia compattata, come ovunque nell'app — qui i nomi condividono tutti lo stesso prefisso
+          famiglia compattata, come ovunque nell'app: qui i nomi condividono tutti lo stesso prefisso
           di ambiente e senza compattarli si legge otto volte la stessa parola. */}
       {data.nomi?.length > 0 && (
         <div className="dg-topo-box-names">
@@ -169,7 +169,7 @@ export function TopoNode({ data, selected }) {
   )
 }
 
-// STUB: un vicino che sta FUORI dal gruppo aperto. Uno per gruppo, non uno per risorsa — sennò il
+// STUB: un vicino che sta FUORI dal gruppo aperto. Uno per gruppo, non uno per risorsa, sennò il
 // secondo livello ridiventa il grafo intero, che è la cosa da cui si sta scappando. Serve a non perdere
 // di vista con chi parla il gruppo mentre lo si guarda da dentro.
 export function TopoStub({ data }) {

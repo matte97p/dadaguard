@@ -45,7 +45,7 @@ export const MONO = 'ui-monospace, SFMono-Regular, monospace'
 
 // SCALA DI SPAZIATURE. Non è pedanteria: prima ogni pagina scriveva i suoi `marginBottom: 16`,
 // `gap: 12`, `padding: '9px 12px'` a mano, e il risultato è che due blocchi affiancati respirano in
-// modo diverso — l'occhio lo legge come "fatto da due persone", che è esattamente l'impressione da
+// modo diverso: l'occhio lo legge come "fatto da due persone", che è esattamente l'impressione da
 // togliere. Quattro passi bastano a tutta l'app: dentro un elemento, fra elementi, fra blocchi, fra
 // sezioni.
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 }

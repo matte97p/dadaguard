@@ -10,13 +10,13 @@ import { livelli, colonne, altezzaBox, altezzaCard } from './topoLayout.js'
 // cosa falsa, e nessun layout salva un disegno in cui metà delle frecce non esiste.
 //
 // La tesi nuova è quella del C4: UN DIAGRAMMA = UN LIVELLO. Al primo livello non ci sono risorse, ci
-// sono GRUPPI — chi entra, chi serve, dove stanno i dati, cosa gira a orario — e gli archi fra gruppi
+// sono GRUPPI (chi entra, chi serve, dove stanno i dati, cosa gira a orario) e gli archi fra gruppi
 // sono fusi in uno solo per coppia. Le risorse si vedono scendendo dentro un gruppo. Un ambiente vero
 // passa così da 30-38 card a 6-8 box, che è ciò che rende la pagina leggibile: non un layout migliore.
 //
 // Due regole che valgono più delle altre, e che i test difendono:
 //  · PARTIZIONE TOTALE. Ogni servizio finisce in esattamente un gruppo, catch-all compreso. Una
-//    whitelist chiusa farebbe sparire dalla pagina i tipi non previsti — e la modalità demo, che è
+//    whitelist chiusa farebbe sparire dalla pagina i tipi non previsti, e la modalità demo, che è
 //    l'immagine pubblica del progetto, ha dodici tipi diversi.
 //  · L'ASSENZA NON È UN ALLARME. Il roll-up conta i PROBLEMI (giù, degradati), non «X su N attivi»:
 //    un modello Bedrock senza invocazioni nella finestra è `idle`, e chiamarlo «5 su 9 attivi» in
@@ -129,7 +129,7 @@ export function rollup(servizi = [], now = Date.now(), rischi = new Map()) {
 
 // La TESTA COMUNE di un elenco di nomi, tagliata al confine di un trattino. Serve a mostrarla una volta
 // sola in cima al box invece che su ogni riga: compattarla in grigio (come fanno le card) NON fa
-// risparmiare un pixel, e in un box da 224px i nomi dei cron finivano tagliati a metà — cioè proprio
+// risparmiare un pixel, e in un box da 224px i nomi dei cron finivano tagliati a metà, cioè proprio
 // sulla parte che li distingue. Si applica solo se toglie almeno sei caratteri a TUTTI: sotto quella
 // soglia si guadagna niente e si perde il nome intero. Pura/testabile.
 export function testaComune(nomi = [], minimo = 6) {
@@ -175,7 +175,7 @@ export const coloreGruppo = (r) =>
   r.problemi > 0 ? STATUS_COLOR.down : r.aRischio > 0 ? STATUS_COLOR.degraded : r.ignoto ? STATUS_COLOR.unknown : STATUS_COLOR.up
 
 // Archi FUSI fra gruppi: una sola freccia per coppia ordinata, con dentro il conto e le provenienze.
-// È il boxing di Kiali nella sua forma forte — il box assorbe gli archi — ed è ciò che fa scendere il
+// È il boxing di Kiali nella sua forma forte (il box assorbe gli archi) ed è ciò che fa scendere il
 // disegno da decine di frecce a una manciata. Pura/testabile.
 export function fondiArchi(edges = [], gruppoDi) {
   const per = new Map()
@@ -393,7 +393,7 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
   return { nodes, edges: archi, perGruppo, vuoto: nodes.length === 0 }
 }
 
-// LIVELLO 2: dentro un gruppo. Le risorse in griglia, e ai bordi gli STUB dei vicini — senza, scendendo
+// LIVELLO 2: dentro un gruppo. Le risorse in griglia, e ai bordi gli STUB dei vicini, senza, scendendo
 // si perde di vista con chi parla il gruppo, che è metà del motivo per cui ci si è scesi.
 const WR = 208
 

@@ -10,13 +10,13 @@ const { Text } = Typography
 // TIMELINE delle esecuzioni: una riga per cron, dentro la riga le sue ultime corse come blocchi.
 //
 // Perché non una tabella: la tabella è una lista di fatti, e per rispondere «questo job sta bene?»
-// bisogna leggerla riga per riga. Qui la risposta è la FORMA — un blocco che pulsa a destra è «sta
+// bisogna leggerla riga per riga. Qui la risposta è la FORMA: un blocco che pulsa a destra è «sta
 // girando adesso», un blocco molto più largo degli altri è «stanotte ha impiegato il triplo», uno rosso
 // in mezzo a dei verdi è la corsa da aprire. Sono tutte cose che si vedono senza leggere.
 //
 // La larghezza è la durata, in RADICE QUADRATA: su un cron che di solito fa 4 secondi e una volta ne
 // ha fatti 300, la scala lineare renderebbe le corse normali un filo invisibile. La radice comprime
-// gli estremi e tiene le differenze leggibili — non è precisione, è confronto a occhio, e il numero
+// gli estremi e tiene le differenze leggibili: non è precisione, è confronto a occhio, e il numero
 // esatto sta nel tooltip e nella vista lista.
 const W_MIN = 9
 const W_MAX = 96

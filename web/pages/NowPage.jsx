@@ -32,8 +32,8 @@ const KIND_ICON = {
 }
 
 // Finestre: 1h e 6h ci sono perché è dentro un incidente che si apre questa pagina, e lì la domanda è
-// «cos'è cambiato nell'ultima ora», non «cos'è successo oggi». Partono da 24h — la finestra di chi
-// arriva la mattina — e le due corte si scelgono quando servono. Il WAF le sopporta tutte (l'endpoint
+// «cos'è cambiato nell'ultima ora», non «cos'è successo oggi». Partono da 24h: la finestra di chi
+// arriva la mattina, e le due corte si scelgono quando servono. Il WAF le sopporta tutte (l'endpoint
 // prende `hours` e la sua cache è per finestra), gli altri due dati non hanno finestra: si filtra qui.
 const WINDOWS = [1, 6, 24, 72, 168]
 

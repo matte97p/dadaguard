@@ -2,30 +2,30 @@
 // finite. Read-only, zero storage, on-demand come tutto il resto.
 //
 // Perché serve una vista per-esecuzione: i check dicono «il cron va» o «il cron è saltato», che è la
-// domanda di un watchdog. Ma un job lungo — uno scraper che macina un'ora — ha altre due domande,
+// domanda di un watchdog. Ma un job lungo (uno scraper che macina un'ora) ha altre due domande,
 // che nessuna card sa rispondere: *sta girando in questo momento?* e *quella di stanotte com'è
 // finita?*. La prima non si deduce dallo stato aggregato (un cron «up» può essere fermo o a metà
 // corsa); la seconda vuole la lista delle run, non l'ultima.
 //
 // DA DOVE ARRIVA UNA RUN, per tipo di cron:
 //
-//  · ECS RunTask — DUE sorgenti che si completano, e servono entrambe:
+//  · ECS RunTask: DUE sorgenti che si completano, e servono entrambe:
 //      API ECS   `ListTasks` + `DescribeTasks`: le run VIVE (lastStatus ≠ STOPPED) e l'esito ESATTO
 //                di quelle appena finite (exit code, stopCode, «OutOfMemoryError»). Ma ECS dimentica
 //                i task fermati dopo ~1h: per un cron giornaliero, la mattina dopo qui non c'è più
 //                niente.
 //      LOG       un task = un log stream (`<prefisso>/<container>/<taskId>`), quindi lo stream È la
 //                run: `DescribeLogStreams` ne dà inizio e fine per quanto dura la retention (giorni).
-//                Non dà l'exit code — un task ucciso per OOM non scrive nulla — e per questo l'API
+//                Non dà l'exit code (un task ucciso per OOM non scrive nulla) e per questo l'API
 //                non è sostituibile: la si usa dove c'è, il log copre lo storico.
 //    Si uniscono per `taskId`, che le due sorgenti condividono.
 //
-//  · Lambda — una run è la coppia `START RequestId` / `REPORT RequestId` nel log group. Non esiste
+//  · Lambda: una run è la coppia `START RequestId` / `REPORT RequestId` nel log group. Non esiste
 //    un'API che elenchi le invocazioni (`Invocations` è un CONTATORE: dice quante, non quali), quindi
 //    il log è l'unica sorgente. Vive = START senza REPORT; oltre il timeout della funzione + grazia
 //    diventa 'unknown' invece di restare eternamente «in corso».
 //
-// Permessi: quelli che il ruolo read-only ha già — `ecs:ListTasks`, `ecs:DescribeTasks`,
+// Permessi: quelli che il ruolo read-only ha già, `ecs:ListTasks`, `ecs:DescribeTasks`,
 // `ecs:DescribeTaskDefinition`, `logs:DescribeLogStreams`, `logs:FilterLogEvents`. Nessun grant nuovo.
 import {
   ECSClient,
@@ -175,7 +175,7 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cfg.container)
   const family = familyOfTaskDef(cfg.taskDefinition)
 
-  // API ECS: le run vive e quelle finite nell'ultima ora, con l'esito esatto. Best-effort — senza
+  // API ECS: le run vive e quelle finite nell'ultima ora, con l'esito esatto. Best-effort, senza
   // `ecs:ListTasks` restano le run dal log, che è la maggior parte della lista.
   let apiRuns = []
   try {
@@ -281,7 +281,7 @@ const RE_TIMEOUT = /Task timed out after\s*([\d.]+)\s*seconds/i
 //
 // L'attribuzione degli errori si appoggia a un fatto del runtime, non a un'euristica: dentro UN log
 // stream le invocazioni sono SERIALI (uno stream = un ambiente di esecuzione, che serve una richiesta
-// alla volta). Quindi una riga di errore appartiene all'invocazione aperta in quello stream — e le
+// alla volta). Quindi una riga di errore appartiene all'invocazione aperta in quello stream, e le
 // invocazioni concorrenti, che stanno su stream diversi, non si mescolano.
 export function pairLambdaRuns(events = [], { now = Date.now(), timeoutSec = null, graceMs = 60_000 } = {}) {
   const byId = new Map()
@@ -357,7 +357,7 @@ export function pairLambdaRuns(events = [], { now = Date.now(), timeoutSec = nul
 //  · la quota di CloudWatch Logs è ~10 `FilterLogEvents` al secondo per account: con ventisei cron letti
 //    insieme la STESSA query passa da 600ms a 4,8 secondi di attesa e retry. Il costo dominante è il
 //    NUMERO di chiamate, non quanto log scansionano;
-//  · leggere «a fette» dal presente verso il passato costava 4-8 chiamate per cron — corretto per
+//  · leggere «a fette» dal presente verso il passato costava 4-8 chiamate per cron: corretto per
 //    l'ordinamento, disastroso per la quota (un cron giornaliero: 1,4s da solo, 18s in mezzo agli altri);
 //  · ma la CADENZA del cron dice già quanto indietro serve andare: per sei run di un job che gira ogni
 //    cinque minuti bastano 35 minuti; per sei run di un giornaliero servono sei giorni.
@@ -388,7 +388,7 @@ export function pickRecentStreams(streams = [], { since = 0, wanted = 20 } = {})
 
 // Run di un cron Lambda. Si legge A RITROSO: «le ultime N esecuzioni» chieste sulla finestra intera
 // darebbero le PIÙ VECCHIE (FilterLogEvents restituisce dal più vecchio), che è il contrario di quello
-// che si guarda — e su un cron ogni 5 minuti la finestra da 24h contiene 288 run.
+// che si guarda, e su un cron ogni 5 minuti la finestra da 24h contiene 288 run.
 export async function lambdaRuns(
   cfg,
   aws,
@@ -437,7 +437,7 @@ export async function lambdaRuns(
       token = out.nextToken
       pages += 1
       // Tetto di pagine: `FilterLogEvents` restituisce dal più VECCHIO, quindi fermarsi a metà lascia
-      // fuori le run recenti — cioè quelle che si stanno cercando. Succede solo se la finestra contiene
+      // fuori le run recenti, cioè quelle che si stanno cercando. Succede solo se la finestra contiene
       // molte più run del richiesto; lo si DICE (`truncated`), non si finge una lista completa.
       if (token && pages >= maxPages) truncated = true
     } while (token && pages < maxPages)
@@ -447,7 +447,7 @@ export async function lambdaRuns(
 
   let runs = pairLambdaRuns(events, { now })
   // Il timeout della funzione serve a UNA sola domanda: una run senza REPORT sta ancora girando o il
-  // REPORT non arriverà mai? Si chiede solo se quella domanda esiste — su venti cron che hanno tutti
+  // REPORT non arriverà mai? Si chiede solo se quella domanda esiste: su venti cron che hanno tutti
   // finito sarebbero venti `GetFunctionConfiguration` per non usarne nessuna.
   if (runs.some((r) => !r.endedAt)) {
     try {
@@ -473,7 +473,7 @@ export async function cronRuns(cron, aws, opts = {}) {
 // (task-def per ECS, nome della funzione per Lambda), così la lettura resta dentro i log dei cron
 // scoperti e non diventa «leggimi un log group qualunque di questo account».
 //
-// Lo `stream`, invece, il client lo passa: è quello della run che ha in mano. Non è un varco — un
+// Lo `stream`, invece, il client lo passa: è quello della run che ha in mano. Non è un varco, un
 // nome di stream vale solo DENTRO il log group già risolto qui, e uno sbagliato dà zero righe.
 export async function cronRunLogs(cron, aws, { runId = null, stream = null, from, to = null, limit = 300, errorsOnly = false, t = (k) => k } = {}) {
   let logGroup = null

@@ -525,7 +525,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // orizzonti diversi nella stessa lista: le build sono le ultime 15 per progetto (che su un servizio
   // che rilascia spesso sono tre giorni, su uno fermo sono mesi) mentre le azioni a mano arrivano da
   // CloudTrail con una finestra di 7 giorni. Effetto: nella parte vecchia della lista non può comparire
-  // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte» — che non è
+  // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte»: che non è
   // un fatto, è il fatto che non abbiamo guardato. 24h invece taglia troppo: si rilascia qualche volta
   // a settimana, e la pagina sarebbe vuota il lunedì mattina.
   const [periodFilter, setPeriodFilter] = useState('7d')
@@ -591,8 +591,8 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // La tendina dice anche DOVE vive il servizio. `kong`, `supabase`, `backend` esistono in più account,
   // e il nome da solo non identifica niente (è la stessa ragione per cui l'identità di un servizio, in
   // questa app, è account + nome): letta così, la voce `kong` non diceva se stavi guardando staging o
-  // produzione. Il filtro resta CROSS-ACCOUNT di proposito — serve a confrontare lo stesso servizio nei
-  // due ambienti, ed è dove atterra il deep-link `?service=` dalla pagina Servizi — quindi l'account non
+  // produzione. Il filtro resta CROSS-ACCOUNT di proposito: serve a confrontare lo stesso servizio nei
+  // due ambienti, ed è dove atterra il deep-link `?service=` dalla pagina Servizi, quindi l'account non
   // è una scelta da fare qui: è un'informazione da leggere. Per restringere a un ambiente c'è il filtro
   // Account della barra in alto, che vale su tutta la pagina.
   const serviceOptions = useMemo(() => {

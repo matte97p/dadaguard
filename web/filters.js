@@ -2,7 +2,7 @@
 // dell'app, e prima erano scritte in due modi diversi nello stesso file.
 //
 // Il modello è: **elenco vuoto = tutti**. Non esiste un valore sentinella `'all'` da confrontare in
-// venti punti — che era il difetto: `accountFilter === 'all' || x === accountFilter` compariva in sei
+// venti punti: che era il difetto: `accountFilter === 'all' || x === accountFilter` compariva in sei
 // file, e ognuno poteva sbagliarlo a modo suo. Con l'elenco, la domanda è sempre la stessa: «questo
 // valore è fra quelli scelti?», e se nessuno ha scelto niente la risposta è sì.
 //

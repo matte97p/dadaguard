@@ -1,6 +1,6 @@
 // La vista «esecuzioni»: il registro dei cron (server/crons.js) più le run di ognuno (server/runs.js),
 // più le run dell'orchestratore se configurato (server/prefect.js). È l'unico posto che mette insieme
-// le tre sorgenti, e lo fa con un vocabolario solo — `outcome` ∈ running|ok|failed|cancelled|unknown —
+// le tre sorgenti, e lo fa con un vocabolario solo (`outcome` ∈ running|ok|failed|cancelled|unknown),
 // perché chi guarda ha una domanda sola e non gliene importa da quale API arriva la risposta.
 //
 // Costo tenuto a bada, che qui è la differenza fra una vista utile e una che nessuno apre:
@@ -53,7 +53,7 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
     const lista = wanted.slice(0, MAX_CRONS)
 
     // Concorrenza 6, non 8: la quota di CloudWatch Logs è ~10 richieste al secondo per account, e sopra
-    // quel tetto ogni chiamata in più non è più veloce — è un retry con attesa (misurato: la stessa query
+    // quel tetto ogni chiamata in più non è più veloce: è un retry con attesa (misurato: la stessa query
     // passa da 600ms a 4,8s con ventisei richieste insieme).
     const righe = await mapLimit(lista, 6, async (cron) => {
       const a = accounts[cron.account] ?? {}
@@ -62,7 +62,7 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
       try {
         // Uno schedule DISABLED non si interroga: le sue run sono finite quando è stato spento, e
         // chiedere i log di un cron fermo è un giro di chiamate per una lista vuota. Resta in elenco,
-        // marcato spento — sapere che esiste ed è fermo è metà della risposta.
+        // marcato spento: sapere che esiste ed è fermo è metà della risposta.
         if (!cron.enabled) return summarize({ ...cron, accountLabel: label, color: a.color ?? null }, [])
         // Vista di UN cron: si è chiesto uno storico profondo, quindi budget di scavo più alto e
         // scansione dell'esito su tutte le run mostrate. Nella vista d'insieme sarebbe lo stesso

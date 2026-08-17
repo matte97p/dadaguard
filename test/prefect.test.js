@@ -4,7 +4,7 @@ import { prefectConfig, stateToOutcome, mapFlowRun, levelName } from '../server/
 
 // La sorgente orchestratore è OPZIONALE: la cosa più importante da bloccare è che senza
 // configurazione non esista affatto (niente sezione, niente errore) e che i suoi stati parlino lo
-// stesso vocabolario delle run AWS — altrimenti la pagina diventa due tabelle con due lingue.
+// stesso vocabolario delle run AWS: altrimenti la pagina diventa due tabelle con due lingue.
 
 test('prefectConfig: senza URL la sorgente NON esiste', () => {
   assert.equal(prefectConfig({}), null)

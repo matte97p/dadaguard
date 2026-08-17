@@ -12,7 +12,7 @@ const { Text } = Typography
 // I log di UNA esecuzione, non «gli ultimi log di quel job».
 //
 // È la differenza che rende utile la pagina: aprendo i log di un cron si legge quello che c'è ADESSO
-// nel log group, cioè — su un job giornaliero — l'esecuzione di stanotte mescolata a quella di ieri.
+// nel log group, cioè (su un job giornaliero) l'esecuzione di stanotte mescolata a quella di ieri.
 // Qui la finestra è quella della run (inizio → fine, +1 minuto di coda per l'ultima riga di un
 // traceback) e, dove esiste, lo stream è quello del suo task: nessuna riga di un'altra corsa.
 //

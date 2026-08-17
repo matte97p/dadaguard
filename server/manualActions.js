@@ -94,7 +94,7 @@ export function restartRow(event = {}) {
     forcedBy: principalName(arn),
     // Persona, pipeline o servizio AWS: nei dati veri i riavvii arrivano quasi tutti da CodeBuild (e' il
     // deploy che fa `update-service`) o da una lambda. Chiamarli «a mano» e' falso, e li contava fra le
-    // azioni umane — un numero che esiste per far notare le poche volte in cui qualcuno tocca la produzione.
+    // azioni umane: un numero che esiste per far notare le poche volte in cui qualcuno tocca la produzione.
     actorKind: actorKind(arn),
     viaTeleport: viaTeleportRole(arn),
     startedAt: at,

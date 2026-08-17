@@ -1,5 +1,5 @@
 // Come si RAGGRUPPANO le righe della pagina Deploy. Sta in un modulo a parte, e non dentro la pagina,
-// per una ragione pratica: qui i test girano con `node --test`, che non carica JSX — quindi la logica
+// per una ragione pratica: qui i test girano con `node --test`, che non carica JSX, quindi la logica
 // che decide cosa si vede accanto a cosa, dentro il .jsx, non poteva essere provata da nessuno. Ed è
 // logica di prodotto: un'apertura di porta non è un rilascio, un riavvio non conta nel tasso di
 // successo, e chi sta uscendo adesso va in cima.

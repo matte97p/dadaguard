@@ -91,7 +91,7 @@ All notable changes to Dadaguard are documented here. Format based on
   arco inventato è peggio di un arco mancante: il primo fa concludere il falso, il secondo si vede.
 
 ### Changed
-- **Topologia: la mappa a livelli, al posto del grafo di tutto.** Il difetto non era il layout — era
+- **Topologia: la mappa a livelli, al posto del grafo di tutto.** Il difetto non era il layout, era
   disegnare 38 risorse e 104 frecce insieme, per giunta in gran parte false. Ora vale la tesi del C4: un
   diagramma, un livello. Il primo livello sono i GRUPPI (Ingresso, Applicazioni, Dati, A orario, A
   evento, Modelli, Altre risorse) con dentro il conto dei membri e una riga di riassunto; le frecce fra
@@ -117,7 +117,7 @@ All notable changes to Dadaguard are documented here. Format based on
   legge «un database, due lambda, un load balancer» prima di leggere un nome), accento a sinistra col
   colore dello stato, testa del nome compattata e coda in evidenza. Gli archi sono curve morbide, sottili
   e mute; **al clic su un nodo** si accendono i suoi e il resto si smorza, che è la risposta a «se questo
-  va giù, chi ne soffre» — su cento archi tutti uguali non si leggeva.
+  va giù, chi ne soffre»: su cento archi tutti uguali non si leggeva.
   La costruzione del grafo è uscita dal `.jsx` in `web/topoGraph.js` con 8 test, perché ReactFlow non
   disegna i nodi fuori dal browser: la prova di rendering senza DOM vedeva una tela vuota e non poteva
   dire niente su corsie, vicini e collassi.
@@ -128,7 +128,7 @@ All notable changes to Dadaguard are documented here. Format based on
   grigi diversi per lo stesso bordo, «nessun dato» a tre altezze differenti, l'intestazione di tabella
   che in una vista era grigia e in un'altra bianca. Messe in fila, quelle micro-decisioni si leggono
   come «fatto da cinque persone in cinque momenti». Ora le decisioni stanno in due posti: i **token**
-  (`web/theme.js`, che accorda i componenti antd — tabelle, menu, card, tag, drawer — quindi cambiano
+  (`web/theme.js`, che accorda i componenti antd (tabelle, menu, card, tag, drawer) quindi cambiano
   anche le pagine che non ho toccato) e uno **strato base** (`web/app.css`: scala di spaziature, cifre
   a larghezza fissa in tutta l'app, anello di messa a fuoco visibile col colore del marchio, barre di
   scorrimento discrete, larghezza massima del contenuto). Le neutre non sono più rgba scritti a mano:
@@ -139,7 +139,7 @@ All notable changes to Dadaguard are documented here. Format based on
   posto dei pannelli ridisegnati in ogni pagina, e i vuoti che dicono una frase invece di «nessun dato».
 - **Esecuzioni: la timeline al posto della tabella.** Una riga per cron, dentro la riga le ultime corse
   come blocchi: la larghezza è la durata (in radice quadrata, sennò una corsa da 4 secondi accanto a una
-  da sei ore è un filo invisibile), il colore è l'esito, quella in corso è rigata e si muove — l'unica
+  da sei ore è un filo invisibile), il colore è l'esito, quella in corso è rigata e si muove: l'unica
   cosa animata della pagina, così il movimento significa qualcosa. Si legge senza leggere: chi gira, chi
   stanotte ha impiegato il triplo, dove c'è un buco. La vista **lista** resta a un clic, perché per
   cercare una corsa precisa una tabella è meglio di un disegno. E i nomi dei cron mostrano la testa
@@ -148,16 +148,16 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ### Added
 - **«Sta girando adesso?» e «quella di stanotte com'è finita?», che nessuna card sapeva dire.** Il
-  watchdog risponde «il cron va» o «il cron è saltato»; su un job LUNGO — uno scraper che macina un'ora —
+  watchdog risponde «il cron va» o «il cron è saltato»; su un job LUNGO (uno scraper che macina un'ora)
   quelle due domande restavano senza risposta, perché uno stato aggregato non distingue un cron fermo da
   uno a metà corsa, e «l'ultima esecuzione» non è una lista. La pagina **Esecuzioni** è una tabella di
   RUN, non di cron: in cima quelle in corso col tempo che cresce, sotto ogni singola corsa con durata ed
-  esito, e i log si aprono **sulla singola esecuzione** — stream del suo task e intervallo inizio→fine —
+  esito, e i log si aprono **sulla singola esecuzione** (stream del suo task e intervallo inizio→fine)
   invece dell'ultima ora del job, dove la corsa di stanotte sta mescolata a quella di ieri. In fondo i
   cron che nella finestra **non hanno corso**, distinguendo «spento di proposito» da «non è partito»:
   è una risposta che una lista di esecuzioni, per definizione, non potrebbe dare.
   Tre cose che sembrano dettagli e sono il senso della vista: su ECS RunTask servono **due sorgenti** (le
-  API ECS per le run vive e per l'exit code — «uscito 137 · memoria esaurita» — e i log per lo storico,
+  API ECS per le run vive e per l'exit code («uscito 137 · memoria esaurita») e i log per lo storico,
   perché ECS dimentica i task fermati dopo un'ora); su Lambda la lista delle invocazioni **non esiste
   come API** e si ricostruisce dalle coppie `START`/`REPORT`, con gli errori attribuiti all'invocazione
   aperta in quello stream (dentro uno stream le invocazioni sono seriali, quindi non è un'euristica); e

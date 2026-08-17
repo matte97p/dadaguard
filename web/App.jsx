@@ -70,7 +70,7 @@ const NAV = [
       // Esecuzioni: solo Account. Regione e tipo non filtrano una run (il cron ha già la sua regione),
       // e una barra con filtri inerti fa dubitare di tutti gli altri.
       { to: '/esecuzioni', key: 'runs', icon: <FieldTimeOutlined />, fields: ['account'], surfaces: [] },
-      // Topologia: solo Account, e nemmeno quello serve granché — la pagina ha il suo selettore
+      // Topologia: solo Account, e nemmeno quello serve granché, la pagina ha il suo selettore
       // d'ambiente. Gli altri filtri (tipo, stato, nome) su una MAPPA fanno danno: nascondono membri di
       // un gruppo senza dirlo, e il conteggio del box diventa una mezza verità.
       { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: ['account'], surfaces: ['topology'] },
@@ -177,7 +177,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('opsdash-dark', dark ? '1' : '0')
     // La classe sulla radice serve al foglio di stile: i token antd arrivano via JS, ma le neutre
-    // scritte a mano (bordi, righe alternate, tracce) non si possono derivare — in scuro un bordo al
+    // scritte a mano (bordi, righe alternate, tracce) non si possono derivare: in scuro un bordo al
     // 6% sparisce. Senza questo aggancio, metà dell'app cambia tema e metà no.
     document.documentElement.classList.toggle('dg-dark', dark)
   }, [dark])

@@ -74,7 +74,7 @@ export function lastSuccessBySvc(deploys = {}) {
 // facendo scorrere via le tre che contano.
 //
 // E un fallimento SUPERATO non ci sta: se dopo quella build ne è passata una riuscita per lo stesso
-// servizio, il problema non morde più adesso — e questa pagina risponde a «devo preoccuparmi in questo
+// servizio, il problema non morde più adesso, e questa pagina risponde a «devo preoccuparmi in questo
 // momento», non «cosa è andato storto oggi». Restava in cima per ore, sopra i guasti veri, e la prima
 // reazione di chi la legge è «ma quella poi è andata: che ci fa ancora qui?». Lo storico completo sta
 // nella pagina Deploy, che è il posto dove si scava.

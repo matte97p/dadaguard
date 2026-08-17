@@ -10,7 +10,7 @@ const { Text } = Typography
 // snapshot vecchio senza accorgersene, che era la causa dello sfasamento con la notifica Slack).
 //
 // Sta in un componente condiviso, e va messo NELLA BARRA DEI CONTROLLI: appeso in fondo alla pagina,
-// dopo le tabelle, sembra una riga avanzata da qualcos'altro — chi legge non lo collega alla vista che
+// dopo le tabelle, sembra una riga avanzata da qualcos'altro: chi legge non lo collega alla vista che
 // sta guardando, e infatti la prima reazione è stata «aggiorno… al fondo a caso». Accanto ai filtri
 // invece dice quello che deve dire: questi dati sono di adesso, e si rinfrescano da soli.
 export default function PollStatus({ lastUpdated, refreshing, t = (k) => k }) {
