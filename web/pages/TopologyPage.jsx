@@ -351,7 +351,10 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
   // proprio i casi per cui si guarda un disegno invece di un elenco.
   const rischi = useMemo(() => calcolaRischi(servizi, topo.edges ?? []), [servizi, topo])
   const usi = useMemo(() => usiDiretti(topo.edges ?? []), [topo])
-  const mappa = useMemo(() => buildMap(serviziAmbiente, topo, t, { rischi, usi }), [serviziAmbiente, topo, t, rischi, usi])
+  const mappa = useMemo(
+    () => buildMap(serviziAmbiente, topo, t, { rischi, usi, statoPronto: statusReady }),
+    [serviziAmbiente, topo, t, rischi, usi, statusReady],
+  )
   const dentro = useMemo(
     () => (gruppoAperto ? buildGroup(gruppoAperto, serviziAmbiente, topo, t, { rischi, usi }) : null),
     [gruppoAperto, serviziAmbiente, topo, t, rischi, usi],
@@ -458,10 +461,13 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
-                {loading && (
+                {/* Due attese diverse, e si dice quale: le frecce arrivano da /api/topology, lo stato dei
+                    servizi da /api/status (decine di secondi sulla flotta vera). Senza dirlo, una mappa
+                    grigia con «stato non letto» su ogni riquadro si legge come un guasto del disegno. */}
+                {(loading || !statusReady) && (
                   <div className="dg-topo-loading">
                     <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
-                    {t(deboli ? 'topo.loadingWeak' : 'topo.loadingEdges')}
+                    {loading ? t(deboli ? 'topo.loadingWeak' : 'topo.loadingEdges') : t('topo.loadingState')}
                   </div>
                 )}
                 <ReactFlow

@@ -297,3 +297,24 @@ test('«si chiamano a vicenda» è UN fatto: una freccia con due punte, non due 
   assert.equal(fuso.style.strokeDasharray, undefined)
   assert.equal(out.find((e) => e.id === 'a->c').markerStart, undefined)
 })
+
+
+test('«stato in arrivo» e «stato non letto» non sono la stessa frase', () => {
+  // All'apertura della pagina i riquadri esistono già (vengono dal grafo) ma i check sono in volo: con una
+  // frase sola TUTTI i gruppi dichiaravano di non essere guardati, che è falso, e una mappa grigia che si
+  // dichiara non guardata si legge come un difetto del disegno invece che come un'attesa.
+  const servizi = [{ name: 'backend', type: 'ecs', overall: 'unknown', account: { key: 'prod', label: 'Prod' } }]
+  const inVolo = buildMap(servizi, { nodes: [], edges: [] }, t, { statoPronto: false })
+  assert.equal(inVolo.nodes[0].data.frasi.nessunProblema, 'topo.g.stateComing')
+  // Con lo stato letto, uno `unknown` che resta è davvero «non letto»: un servizio senza check.
+  const letto = buildMap(servizi, { nodes: [], edges: [] }, t, { statoPronto: true })
+  assert.equal(letto.nodes[0].data.frasi.nessunProblema, 'topo.g.unknownState')
+  // Un sistema di terzi resta «non letto» anche mentre i check girano: il suo stato non lo leggeremo mai.
+  const topo = {
+    nodes: [nodo('backend', 'ecs')],
+    extraNodes: [{ id: 'ext:host:esempio.co', type: 'esterno', label: 'esempio.co' }],
+    edges: [{ source: 'prod::backend', target: 'ext:host:esempio.co', vias: ['env'] }],
+  }
+  const conEsterni = buildMap(servizi, topo, t, { statoPronto: false })
+  assert.equal(conEsterni.nodes.find((n) => n.data.key === 'ext').data.frasi.nessunProblema, 'topo.g.unknownState')
+})

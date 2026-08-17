@@ -116,6 +116,10 @@ export function rollup(servizi = [], now = Date.now(), rischi = new Map()) {
     // Tutto sconosciuto = non l'abbiamo guardato (i sistemi esterni). «Nessun problema» lì sarebbe
     // affermare il contrario di quello che sappiamo, cioè niente.
     ignoto: servizi.length > 0 && servizi.every((s) => s.overall === 'unknown'),
+    // Ma «non l'abbiamo guardato» e «lo stiamo guardando adesso» sono due cose diverse, e distinguerle
+    // serve solo se i membri sono ROBA NOSTRA: di un sistema di terzi non leggeremo lo stato nemmeno
+    // dopo, quindi lì la frase resta quella.
+    nostri: servizi.some((s) => !s.esterno),
     aRischio: aRischio.length,
     // Il NOME di ciò che li mette a rischio: «3 a rischio» senza dire da cosa costringe a cercare a
     // mano proprio la cosa che il disegno dovrebbe far vedere.
@@ -269,7 +273,7 @@ export function esterniDi(services = [], topo = {}) {
     .map((n) => ({ name: n.label ?? n.id, type: n.type ?? 'esterno', account: null, overall: 'unknown', esterno: n }))
 }
 
-export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now(), rischi = new Map(), usi = new Map() } = {}) {
+export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now(), rischi = new Map(), usi = new Map(), statoPronto = true } = {}) {
   // La testa condivisa dei nomi si conta su TUTTO l'ambiente: dev'essere la stessa in ogni box, sennò
   // l'occhio la rilegge ogni volta invece di saltarla.
   // `displayName` e non `name`: un modello Bedrock si chiama
@@ -322,7 +326,15 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
       problemi: r.primoProblema
         ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
         : t('topo.g.problems', { n: r.problemi }),
-      nessunProblema: r.ignoto ? t('topo.g.unknownState') : t('topo.g.noProblems'),
+      // Tre frasi, non due: «nessun problema» quando lo stato c'è, «stato in arrivo» mentre i check sono
+      // in volo, «stato non letto» per ciò che non guardiamo affatto. Con una frase sola per gli ultimi
+      // due casi, all'apertura della pagina TUTTI i gruppi dicevano di non essere guardati, che è falso:
+      // erano in lettura, e la differenza è fra un difetto e un'attesa.
+      nessunProblema: !r.ignoto
+        ? t('topo.g.noProblems')
+        : !statoPronto && r.nostri
+          ? t('topo.g.stateComing')
+          : t('topo.g.unknownState'),
       // «2 a rischio: dipende da backend»: è la riga per cui vale la pena avere un disegno invece
       // di un elenco, perché la dipendenza che la genera non si vede da nessun'altra parte.
       rischio: r.aRischio ? `${t('topo.g.risk', { n: r.aRischio })}: ${scorcia(r.causa, nomiBox.testa)}` : '',

@@ -44,6 +44,12 @@ All notable changes to Dadaguard are documented here. Format based on
 - **I riquadri erano più piccoli di quello che ci scrivevi dentro.** Altezza fissa a 138: un gruppo con
   quattro nomi, la testa comune, il «+9» e due righe di riassunto finiva col testo scritto fuori dal
   bordo. Ora l'altezza la calcola il contenuto, in entrambi i versi.
+- **Mentre i check erano in volo, la mappa dichiarava di non guardare niente.** I riquadri esistono già
+  appena arrivano le relazioni, ma lo stato della flotta ci mette decine di secondi: con una frase sola per
+  «non lo guardiamo» e «lo stiamo guardando adesso», all'apertura TUTTI i gruppi dicevano «stato non
+  letto», che è falso e si legge come un difetto del disegno. Ora sono tre frasi distinte, e una riga in
+  alto dice quale delle due attese è in corso (le relazioni o lo stato dei servizi). I sistemi fuori da AWS
+  restano «stato non letto» anche dopo, perché il loro stato non lo leggeremo mai.
 - **Le frecce non si capivano: giravano intorno alle card.** Le maniglie stavano solo a sinistra e a
   destra, quindi un arco fra due riquadri della STESSA colonna (due servizi che si chiamano a vicenda)
   doveva uscire a destra e rientrare a sinistra, disegnando rettangoli lunghi che passavano davanti alle
