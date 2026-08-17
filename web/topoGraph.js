@@ -59,8 +59,10 @@ export const isViaForte = (vias = []) => vias.some((v) => VIA[v]?.forte)
 export const GRUPPI = [
   { key: 'ingress', tipi: ['alb', 'cloudfront', 'apigateway', 'cloudflare-worker'] },
   { key: 'app', tipi: ['ecs', 'ec2'] },
-  { key: 'data', tipi: ['rds', 'elasticache', 'dynamodb', 's3', 'kinesis', 'sqs', 'opensearch', 'sfn'] },
-  { key: 'sched', match: (s) => s.type === 'ecs-scheduled' || (s.type === 'lambda' && haSchedule(s)) },
+  { key: 'data', tipi: ['rds', 'elasticache', 'dynamodb', 's3', 'kinesis', 'sqs', 'opensearch'] },
+  // Una state machine sta con ciò che gira da solo, non con i dati: orchestra dei passi, non li
+  // conserva. Sotto «dove stanno i dati» era una risposta sbagliata alla domanda del gruppo.
+  { key: 'sched', match: (s) => s.type === 'ecs-scheduled' || s.type === 'sfn' || (s.type === 'lambda' && haSchedule(s)) },
   { key: 'event', tipi: ['lambda'] },
   { key: 'models', tipi: ['bedrock'] },
   { key: 'ext', tipi: ['esterno'] },
@@ -88,12 +90,15 @@ export function groupOf(service) {
 // Il RIASSUNTO di un gruppo, che è la sua unica riga di testo oltre al titolo. Conta i problemi, non
 // gli attivi (vedi la regola in testa al file), e dice i task solo dove i numeri esistono davvero
 // (`runningCount`/`desiredCount` stanno solo sui servizi ECS). Pura/testabile.
-export function rollup(servizi = [], now = Date.now()) {
+export function rollup(servizi = [], now = Date.now(), rischi = new Map()) {
   const problemi = servizi.filter((s) => s.overall === 'down' || s.overall === 'degraded')
   const conTask = servizi.filter((s) => s.checks?.runtime?.desiredCount != null)
   const attivi = conTask.reduce((n, s) => n + (s.checks.runtime.runningCount ?? 0), 0)
   const voluti = conTask.reduce((n, s) => n + s.checks.runtime.desiredCount, 0)
   const prossimi = servizi.map((s) => s.checks?.runtime?.nextRunAt).filter((x) => Number.isFinite(x) && x > now)
+  // A RISCHIO: membri sani che dipendono da qualcosa in difficoltà (vedi web/topoImpact.js). È la cosa
+  // che la home NON sa dire: lei elenca chi è rotto, questa riga dice chi altro ne sta soffrendo.
+  const aRischio = servizi.filter((s) => rischi.has(chiaveDi(s)))
   return {
     membri: servizi.length,
     problemi: problemi.length,
@@ -107,6 +112,10 @@ export function rollup(servizi = [], now = Date.now()) {
     // Tutto sconosciuto = non l'abbiamo guardato (i sistemi esterni). «Nessun problema» lì sarebbe
     // affermare il contrario di quello che sappiamo, cioè niente.
     ignoto: servizi.length > 0 && servizi.every((s) => s.overall === 'unknown'),
+    aRischio: aRischio.length,
+    // Il NOME di ciò che li mette a rischio: «3 a rischio» senza dire da cosa costringe a cercare a
+    // mano proprio la cosa che il disegno dovrebbe far vedere.
+    causa: aRischio.length ? rischi.get(chiaveDi(aRischio[0]))[0] : null,
   }
 }
 
@@ -154,7 +163,8 @@ export const scorcia = (nome, testa) => (testa && String(nome).startsWith(testa)
 export const peso = (s) => (s.overall === 'down' ? 0 : s.overall === 'degraded' ? 1 : s.overall === 'idle' || s.overall === 'disabled' ? 3 : 2)
 
 // Colore dell'accento di un gruppo: solo i guasti lo colorano.
-export const coloreGruppo = (r) => (r.problemi > 0 ? STATUS_COLOR.down : STATUS_COLOR.up)
+export const coloreGruppo = (r) =>
+  r.problemi > 0 ? STATUS_COLOR.down : r.aRischio > 0 ? STATUS_COLOR.degraded : r.ignoto ? STATUS_COLOR.unknown : STATUS_COLOR.up
 
 // Archi FUSI fra gruppi: una sola freccia per coppia ordinata, con dentro il conto e le provenienze.
 // È il boxing di Kiali nella sua forma forte — il box assorbe gli archi — ed è ciò che fa scendere il
@@ -227,7 +237,7 @@ export function esterniDi(services = [], topo = {}) {
     .map((n) => ({ name: n.label ?? n.id, type: n.type ?? 'esterno', account: null, overall: 'unknown', esterno: n }))
 }
 
-export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now() } = {}) {
+export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now(), rischi = new Map(), usi = new Map() } = {}) {
   // La testa condivisa dei nomi si conta su TUTTO l'ambiente: dev'essere la stessa in ogni box, sennò
   // l'occhio la rilegge ogni volta invece di saltarla.
   // `displayName` e non `name`: un modello Bedrock si chiama
@@ -247,8 +257,16 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
   colonneUsate.forEach((col, x) => {
     col.forEach((key, y) => {
       const lista = perGruppo.get(key)
-      const r = rollup(lista, now)
-      const nomiBox = nomiDaMostrare([...lista].sort((a, b) => peso(a) - peso(b) || nomeDi(a).localeCompare(nomeDi(b))), nomeDi)
+      const r = rollup(lista, now, rischi)
+      // Ordine dentro al box: prima i guasti, POI i più usati. Su un gruppo di dati o di sistemi di
+      // terzi i guasti sono rari e l'ordine alfabetico li mette in fila come se contassero uguale: il
+      // Redis da cui dipendono cinque servizi e un bucket che nessuno cita non sono la stessa cosa.
+      const nomiBox = nomiDaMostrare(
+        [...lista].sort(
+          (a, b) => peso(a) - peso(b) || (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) || nomeDi(a).localeCompare(nomeDi(b)),
+        ),
+        nomeDi,
+      )
       nodes.push({
         id: `g:${key}`,
         type: 'gruppo',
@@ -281,6 +299,9 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
               ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
               : t('topo.g.problems', { n: r.problemi }),
             nessunProblema: r.ignoto ? t('topo.g.unknownState') : t('topo.g.noProblems'),
+            // «2 a rischio: dipende da backend»: è la riga per cui vale la pena avere un disegno invece
+            // di un elenco, perché la dipendenza che la genera non si vede da nessun'altra parte.
+            rischio: r.aRischio ? `${t('topo.g.risk', { n: r.aRischio })}: ${scorcia(r.causa, nomiBox.testa)}` : '',
             task: t('topo.g.task'),
             prossimo: r.prossimo ? t('topo.g.next', { in: fraTempo(r.prossimo - now, t) }) : '',
             fermi: t('topo.g.idle', { n: r.fermi }),
@@ -313,7 +334,7 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
 const WR = 208
 const HR = 52
 
-export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { now = Date.now(), perRiga = 4 } = {}) {
+export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { now = Date.now(), perRiga = 4, rischi = new Map(), usi = new Map() } = {}) {
   // Gli esterni entrano fra i membri come i servizi: sennò scendendo in «Applicazioni» le frecce verso
   // di loro sparivano in silenzio, perché il vicino non apparteneva a nessun gruppo.
   const tutti = [...services, ...esterniDi(services, topo)]
@@ -324,7 +345,7 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
 
   const nodes = dentro
     .slice()
-    .sort((a, b) => peso(a) - peso(b) || a.name.localeCompare(b.name))
+    .sort((a, b) => peso(a) - peso(b) || (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) || a.name.localeCompare(b.name))
     .map((s, i) => ({
       id: chiaveDi(s),
       type: 'svc',
@@ -334,11 +355,21 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
         name: displayName(s),
         prefissi: familyPrefixes(dentro.map((x) => x.name)),
         type: s.type,
-        color: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
+        // Una card gialla su un servizio sano non è una bugia: dice «dipende da qualcosa che non sta
+        // bene», ed è l'informazione per cui si è scesi dentro al gruppo.
+        color: rischi.has(chiaveDi(s)) && s.overall !== 'down' && s.overall !== 'degraded' ? STATUS_COLOR.degraded : STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
+        rischio: rischi.get(chiaveDi(s)) ?? null,
         repliche: repliche(s),
         // Di un sistema di terzi il tipo AWS non esiste: al suo posto gli host visti nella
         // configurazione, che sono l'unica cosa che ne sappiamo davvero.
-        meta: s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · '),
+        // «5 lo usano» sulla card: è la risposta alla prima delle due domande della pagina, e sulle
+        // risorse condivise (un Redis, un database) è l'unica cosa che ne dice il peso.
+        meta: [
+          s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · '),
+          usi.get(chiaveDi(s)) ? t('topo.usedBy', { n: usi.get(chiaveDi(s)) }) : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
         title: s.esterno
           ? [s.name, ...(s.esterno.hosts ?? [])].join('\n')
           : [s.name, s.type, acctLabel(s)].filter(Boolean).join(' · '),

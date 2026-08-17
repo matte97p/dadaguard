@@ -7,6 +7,7 @@ import { TIPI_NODO } from '../components/TopoNode.jsx'
 import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
 import { buildMap, buildGroup, rollup, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { rischi as calcolaRischi, usiDiretti, impatto } from '../topoImpact.js'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
@@ -128,7 +129,7 @@ const CANVAS = {
 // Il PANNELLO a destra: cosa si sa di ciò che è selezionato. È l'innesto che tutti gli strumenti seri
 // hanno (Kiali, Datadog, Workload Discovery) e che qui mancava: senza, tutto quello che si vuole dire
 // deve stare sulla card, e una card che dice tutto non si legge.
-function Pannello({ scelto, servizi, topo, t, onApri }) {
+function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) {
   if (!scelto) {
     return (
       <div className="dg-topo-panel">
@@ -139,7 +140,7 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
     )
   }
   if (scelto.tipo === 'gruppo') {
-    const r = rollup(scelto.membri)
+    const r = rollup(scelto.membri, Date.now(), rischi)
     return (
       <div className="dg-topo-panel">
         <div className="dg-topo-panel-title">{scelto.titolo}</div>
@@ -147,12 +148,17 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
           {t('topo.panel.members', { n: r.membri })}
           {r.problemi ? ` · ${t('topo.panel.problems', { n: r.problemi })}` : ''}
         </Text>
+        {r.aRischio > 0 && (
+          <div style={{ fontSize: FONT.small, color: '#d48806' }}>
+            {t('topo.g.risk', { n: r.aRischio })}: {r.causa}
+          </div>
+        )}
         <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApri(scelto.key)}>
           {t('topo.panel.open')}
         </Button>
         <div className="dg-topo-panel-list">
           {scelto.membri.map((s) => (
-            <div key={topologyNodeId(s)} className="dg-topo-panel-row">
+            <div key={chiaveDi(s)} className="dg-topo-panel-row">
               <span style={{ width: 7, height: 7, borderRadius: 2, background: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown }} />
               <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>{s.name}</span>
               <Text type="secondary" style={{ fontSize: FONT.micro }}>
@@ -178,6 +184,8 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
     ...(topo.nodes ?? []).map((n) => [n.id, n.name]),
     ...(topo.extraNodes ?? []).map((n) => [n.id, n.label ?? n.id]),
   ])
+  const imp = impatto(chiave, servizi, topo.edges ?? [])
+  const colpe = rischi.get(chiave) ?? null
   const riga = (e, verso) => {
     const altro = verso === 'in' ? e.source : e.target
     return (
@@ -201,9 +209,34 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
       <Text type="secondary" style={{ fontSize: FONT.small }}>
         {s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · ')}
       </Text>
+      {/* Il salto al dettaglio del servizio (check, log, eventi): la mappa dice dove guardare, e il passo
+          dopo è guardarci. Di un sistema fuori da AWS non abbiamo un dettaglio, quindi lì non si offre. */}
+      {!s.esterno && onApriServizio && s.overall !== 'unknown' && (
+        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApriServizio(s)}>
+          {t('topo.panel.openService')}
+        </Button>
+      )}
       {s.checks?.runtime?.summary && (
         <div style={{ marginTop: SPACE.sm, fontSize: FONT.small }}>{s.checks.runtime.summary}</div>
       )}
+      {/* LE DUE RISPOSTE per cui questa pagina esiste (vedi web/topoImpact.js): chi ne soffre se si
+          ferma, e da cosa dipende lui, che è dove si guarda quando è lui a non funzionare. Contano
+          anche i rimbalzi: la dipendenza indiretta è proprio quella che a mente non si ricostruisce. */}
+      <div className="dg-topo-panel-impact">
+        <div>
+          <strong>{t('topo.panel.blast', { n: imp.aValle.length })}</strong>
+          {imp.aValle.length > 0 && (
+            <span style={{ opacity: 0.75 }}> {imp.aValle.slice(0, 6).join(', ')}{imp.aValle.length > 6 ? '…' : ''}</span>
+          )}
+        </div>
+        <div>
+          <strong>{t('topo.panel.dependsOn', { n: imp.dipendenze.length })}</strong>
+          {imp.dipendenze.length > 0 && (
+            <span style={{ opacity: 0.75 }}> {imp.dipendenze.slice(0, 6).join(', ')}{imp.dipendenze.length > 6 ? '…' : ''}</span>
+          )}
+        </div>
+        {colpe && <div style={{ color: '#d48806' }}>{t('topo.panel.riskWhy', { names: colpe.join(', ') })}</div>}
+      </div>
       <div className="dg-topo-panel-list">
         {entranti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.in', { n: entranti.length })}</div>}
         {entranti.map((e) => riga(e, 'in'))}
@@ -222,7 +255,7 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
 // Pagina Topologia: due lenti. «Architettura» = la mappa a gruppi, con dentro le risorse.
 // «Rete» = dove vive ogni servizio (VPC → subnet) + egress. Entrambe read-only, on-demand.
 // `services` arriva GIÀ filtrato dai filtri globali; la vista Rete si restringe agli stessi account.
-export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, t = (k) => k }) {
+export default function TopologyPage({ services = [], accountLabels, dark, statusReady = true, onApriServizio, t = (k) => k }) {
   const [view, setView] = useState('deps')
   // UN AMBIENTE PER VOLTA: due ambienti insieme sono due architetture identiche sovrapposte.
   const [conto, setConto] = useState(null)
@@ -273,6 +306,9 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
     () => (!net || !accountLabels ? net : { accounts: (net.accounts ?? []).filter((a) => accountLabels.has(a.label)) }),
     [net, accountLabels],
   )
+  // Era un riferimento a una variabile che non esiste più: aprire la scheda «Rete» buttava giù la pagina
+  // con un ReferenceError, cioè schermo bianco.
+  const netGraph = useMemo(() => buildNetworkGraph(shownNet ?? {}, dark, t), [shownNet, dark, t])
 
   // I SERVIZI della mappa vengono dal grafo, non dallo stato della flotta. È la correzione che cambia
   // l'attesa vera: `/api/status` fa gli otto check su tutti i servizi di tutti gli account e ci mette
@@ -310,10 +346,15 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
     [servizi, contoAttivo],
   )
 
-  const mappa = useMemo(() => buildMap(serviziAmbiente, topo, t), [serviziAmbiente, topo, t])
+  // Il rischio si calcola sulla flotta INTERA, non sull'ambiente mostrato: le dipendenze cross-account
+  // esistono (una lambda di staging che legge il database di produzione) e tagliarle fuori nasconderebbe
+  // proprio i casi per cui si guarda un disegno invece di un elenco.
+  const rischi = useMemo(() => calcolaRischi(servizi, topo.edges ?? []), [servizi, topo])
+  const usi = useMemo(() => usiDiretti(topo.edges ?? []), [topo])
+  const mappa = useMemo(() => buildMap(serviziAmbiente, topo, t, { rischi, usi }), [serviziAmbiente, topo, t, rischi, usi])
   const dentro = useMemo(
-    () => (gruppoAperto ? buildGroup(gruppoAperto, serviziAmbiente, topo, t) : null),
-    [gruppoAperto, serviziAmbiente, topo, t],
+    () => (gruppoAperto ? buildGroup(gruppoAperto, serviziAmbiente, topo, t, { rischi, usi }) : null),
+    [gruppoAperto, serviziAmbiente, topo, t, rischi, usi],
   )
 
   const nodes = dentro ? dentro.nodes : mappa.nodes
@@ -448,7 +489,17 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
               {/* Il pannello prende larghezza SOLO quando c'è qualcosa da dire: a mappa non selezionata
                   quei 280px li usa il disegno, ed è la differenza fra una tela che ci sta e una che
                   `fitView` rimpicciolisce fino a rendere il testo di dieci pixel. */}
-              {scelto && <Pannello scelto={scelto} servizi={serviziAmbiente} topo={topo} t={t} onApri={apriGruppo} />}
+              {scelto && (
+                <Pannello
+                  scelto={scelto}
+                  servizi={servizi}
+                  topo={topo}
+                  rischi={rischi}
+                  t={t}
+                  onApri={apriGruppo}
+                  onApriServizio={onApriServizio}
+                />
+              )}
             </div>
           )}
         </>

@@ -5,7 +5,43 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **La topologia ha uno scopo dichiarato, e lo risponde: «se questo si ferma, chi ne soffre?» e «questo
+  è rotto, da cosa dipende?».** Un disegno che risponde solo a «com'è fatto» non serve: quello lo dice
+  meglio un documento, che non va tenuto in sincrono con AWS. La home elenca cosa è rotto; qui si vede
+  chi altro ne sta soffrendo e dove guardare, che è l'unica delle due cose che si legge da un grafo.
+  In concreto: i box e le card diventano gialli quando un membro sano dipende, anche di rimbalzo, da
+  qualcosa in difficoltà, e la riga dice da cosa (`2 a rischio: cache`); il pannello di una risorsa
+  apre con le due risposte (`Se si ferma: 7 a valle`, `Dipende da: 3`) e da lì si salta al dettaglio del
+  servizio, invece di ricopiare il nome nella pagina Servizi; sulle risorse condivise la card dice
+  quanti la usano, e i box mettono in cima i più usati invece dell'ordine alfabetico, perché un Redis da
+  cui dipendono cinque servizi e un bucket che nessuno cita non contano uguale.
+  Due scelte che i test difendono, perché sono la differenza fra un indicatore e del rumore: i permessi
+  IAM NON propagano il danno (`questo ruolo potrebbe scrivere su quel bucket` non è un uso, e contarlo
+  renderebbe a rischio qualunque servizio con una policy larga), e `unknown` non è un guasto (i nodi
+  arrivano dal grafo prima dello stato, e propagare «non l'ho ancora guardato» accenderebbe mezza mappa
+  a ogni apertura). Il calcolo gira sulla flotta intera e non sull'ambiente mostrato: le dipendenze
+  cross-account esistono, e sono proprio quelle che a mente non si ricostruiscono.
+
 ### Fixed
+- **La scheda «Rete» buttava giù la pagina.** Restava un riferimento a una variabile cancellata col
+  vecchio grafo, quindi aprire quella scheda dava schermo bianco (`ReferenceError`). Il build non lo
+  vede: un identificativo non risolto passa per una globale.
+- **Nel grafo non compariva NESSUN data store, per un separatore mancante.** I valori di configurazione
+  si spezzavano su spazi, virgole e slash ma non sul PUNTO, quindi l'endpoint di un Redis o di un
+  database era un token unico e non uguagliava mai il servizio che lo serve: la mappa mostrava solo
+  l'idraulica di ingresso e taceva su dove finiscono i dati, che è la prima domanda che si fa a una
+  topologia. Ora ogni etichetta di un hostname è un token (l'hostname intero resta, un endpoint RDS si
+  riconosce anche così) e gli hostname di terze parti diventano nodi, raggruppati per dominio
+  registrabile: sulla flotta vera **34 archi diventano 61**, di cui 21 verso 7 sistemi fuori da AWS e 6
+  verso data store che prima non c'erano. Gli host `*.amazonaws.com` restano fuori, perché se non hanno
+  fatto match vuol dire che quel servizio non lo stiamo guardando e chiamarlo esterno sarebbe una bugia;
+  il dominio di primo livello sta in un elenco chiuso, sennò un id di modello (`eu.anthropic.claude-…`)
+  passava per un sito. Di un sistema fuori da AWS non conosciamo lo stato, e il box lo dice («stato non
+  letto») invece di dichiararlo sano. Costo invariato: sono regex su valori già letti, non chiamate in
+  più (passata veloce 5,9s).
+- **Una state machine non è un data store.** Step Functions stava nel gruppo «Dati», che risponde a
+  «dove stanno i dati»: orchestra dei passi, non li conserva, e ora sta con ciò che gira da solo.
 - **L'84% del grafo delle dipendenze era un artefatto, e si può contare.** Due righe: `identifiers()`
   metteva il NOME DEL CLUSTER fra gli identificativi di ogni servizio ECS, quindi qualunque valore che
   nominasse `<org>-production` (una env var, un ARN dentro una policy) faceva match con TUTTI i membri —

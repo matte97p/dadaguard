@@ -908,6 +908,19 @@ details[open] > .dg-summary .dg-chev {
 /* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
    una riga ciascuno e tagliati con l'ellissi — servono a riconoscere, non a leggere per intero (il nome
    completo sta nel tooltip e nel pannello). */
+/* Le due risposte del pannello (raggio d'impatto, dipendenze): stanno sopra l'elenco delle relazioni
+   dirette, perché sono la conclusione e quello è il dettaglio. */
+.dg-topo-panel-impact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--dg-row);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .dg-topo-box-names {
   display: flex;
   flex-direction: column;

@@ -35,6 +35,9 @@ test('una lambda a ORARIO non sta con quelle a evento: il tipo AWS è lo stesso,
   assert.equal(groupOf(aOrario), 'sched')
   assert.equal(groupOf(aEvento), 'event')
   assert.equal(groupOf(svc('task', 'ecs-scheduled')), 'sched')
+  // Una state machine orchestra dei passi, non conserva dati: sotto «dove stanno i dati» rispondeva a
+  // una domanda che non era quella del gruppo.
+  assert.equal(groupOf(svc('order-flow', 'sfn')), 'sched')
 })
 
 test('il roll-up conta i PROBLEMI, non gli attivi: senza traffico non è un guasto', () => {
@@ -213,4 +216,33 @@ test('i sistemi di TERZI stanno sulla mappa, e di loro non si dice «nessun prob
   // E il gruppo dei terzi si apre, con gli host che sono l'unica cosa che ne sappiamo.
   const ge = buildGroup('ext', servizi, topo, t)
   assert.deepEqual(ge.nodes.filter((n) => n.type === 'svc').map((n) => [n.id, n.data.meta]), [['ext:host:esempio.co', 'db.esempio.co']])
+})
+
+
+test('il box dice CHI ALTRO ne sta soffrendo, e cede la riga meno utile per farlo', () => {
+  // È l'informazione per cui questa pagina esiste: la home elenca chi è rotto, il disegno dice chi
+  // dipende da lui. Giallo, non rosso: quei servizi funzionano ancora.
+  const servizi = [svc('backend', 'ecs'), svc('frontend', 'ecs')]
+  const rischi = new Map([['prod::backend', ['redis']]])
+  const m = buildMap(servizi, { nodes: [], edges: [] }, t, { rischi })
+  const box = m.nodes.find((n) => n.data.key === 'app')
+  assert.equal(box.data.rollup.aRischio, 1)
+  assert.equal(box.data.rollup.causa, 'redis')
+  // La frase nomina la CAUSA, non la vittima: «1 a rischio» senza dire da cosa costringe a cercare a
+  // mano proprio la cosa che il disegno dovrebbe far vedere.
+  assert.equal(box.data.frasi.rischio, 'topo.g.risk(1): redis')
+  // Nessuno è rotto, quindi l'accento non è rosso: è l'ambra di «dipende da qualcosa che non sta bene».
+  assert.equal(box.data.colore, '#faad14')
+  // Un guasto vero vince sul rischio: sono due fatti diversi e il primo è più urgente.
+  const conRotto = buildMap([svc('backend', 'ecs', { overall: 'down' }), svc('frontend', 'ecs')], { nodes: [], edges: [] }, t, { rischi })
+  assert.equal(conRotto.nodes.find((n) => n.data.key === 'app').data.colore, '#ff4d4f')
+})
+
+test('scendendo nel gruppo, la card di chi ne soffre è gialla e dice perché', () => {
+  const servizi = [svc('backend', 'ecs'), svc('frontend', 'ecs')]
+  const g = buildGroup('app', servizi, { nodes: [], edges: [] }, t, { rischi: new Map([['prod::backend', ['redis']]]) })
+  const card = g.nodes.find((n) => n.data.name === 'backend')
+  assert.equal(card.data.color, '#faad14')
+  assert.deepEqual(card.data.rischio, ['redis'])
+  assert.equal(g.nodes.find((n) => n.data.name === 'frontend').data.color, '#52c41a')
 })

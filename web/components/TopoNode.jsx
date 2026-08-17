@@ -106,13 +106,17 @@ export function TopoGroup({ data, selected }) {
         <span style={{ color: r.problemi ? '#ff4d4f' : undefined, fontWeight: r.problemi ? 600 : 400 }}>
           {r.problemi ? data.frasi.problemi : data.frasi.nessunProblema}
         </span>
+        {/* A rischio: giallo, e mai al posto della riga dei problemi: sono due fatti diversi («è
+            rotto» e «dipende da qualcosa di rotto») e accorparli perderebbe quello che si può ancora
+            salvare. */}
+        {data.frasi.rischio && <span style={{ color: '#d48806' }}>{data.frasi.rischio}</span>}
         {r.task && (
           <span className={r.task.male ? 'dg-topo-rep-male' : undefined}>
             {r.task.attivi}/{r.task.voluti} {data.frasi.task}
           </span>
         )}
         {r.prossimo && <span>{data.frasi.prossimo}</span>}
-        {r.fermi > 0 && <span style={{ opacity: 0.6 }}>{data.frasi.fermi}</span>}
+        {r.fermi > 0 && !data.frasi.rischio && <span style={{ opacity: 0.6 }}>{data.frasi.fermi}</span>}
       </div>
     </div>
   )
@@ -126,7 +130,7 @@ export function TopoNode({ data, selected }) {
     <div
       className={`dg-topo-node${data.ghost ? ' dg-topo-ghost' : ''}${data.dim ? ' dg-topo-dim' : ''}${selected ? ' dg-topo-sel' : ''}`}
       style={{ '--dg-topo-accent': data.color }}
-      title={data.title}
+      title={data.rischio ? `${data.title}\n${data.rischio.join(', ')}` : data.title}
     >
       {MANIGLIE}
       <span className="dg-topo-icon">

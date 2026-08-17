@@ -694,6 +694,9 @@ export default function App() {
                     // «Nessun servizio» mentre i check sono ancora in volo: è una bugia, e su questa
                     // pagina si legge come «la topologia è vuota».
                     statusReady={Boolean(data)}
+                    // Dalla mappa al servizio: la topologia dice DOVE guardare, e il passo dopo è
+                    // guardarci. Senza questo salto si finiva a ricopiare il nome nella pagina Servizi.
+                    onApriServizio={(s) => openDetail(s)}
                     t={t}
                   />
                 }
