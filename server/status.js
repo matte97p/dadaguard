@@ -145,9 +145,16 @@ export function mergeAccounts(discovered = {}, declared = {}) {
 // exceeded"). Cachiamo solo QUALI servizi esistono (cambia di rado); i CHECK restano freschi, li
 // rifà getStatus a ogni chiamata. Invalidata quando la watchlist viene modificata.
 let _resolveCache = null
+// La chiamata IN VOLO, non solo il risultato. Senza, due richieste che arrivano insieme — ed è il caso
+// normale: la pagina chiede stato e topologia nello stesso istante — fanno DUE auto-discovery complete
+// da quattro secondi l'una, perché la cache si popola solo alla fine. Nel log si vedevano coppie di
+// «auto-discovery» a millisecondi di distanza, otto in due minuti. Chi arriva mentre il giro è già
+// partito aspetta quello, invece di lanciarne un altro.
+let _resolveInFlight = null
 const RESOLVE_TTL_MS = Number(process.env.DADAGUARD_DISCOVERY_TTL_MS) || 300_000 // 5 min: la lista servizi cambia di rado
 export function invalidateServicesCache() {
   _resolveCache = null
+  _resolveInFlight = null
 }
 
 // Un servizio dalla lista risolta, per NOME + ACCOUNT. Il nome da solo non identifica niente:
@@ -165,6 +172,14 @@ export function findService(services, { service, account } = {}) {
 
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
+  if (_resolveInFlight) return _resolveInFlight
+  _resolveInFlight = _resolveServices().finally(() => {
+    _resolveInFlight = null
+  })
+  return _resolveInFlight
+}
+
+async function _resolveServices() {
   const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, expectedHealthy, people } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
