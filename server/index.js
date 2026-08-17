@@ -402,26 +402,24 @@ app.get('/api/budgets', async (req, res) => {
 // Topologia: dipendenze DEDOTTE dai segnali AWS (env Lambda, event source, security group),
 // senza config. On-demand (apertura del drawer) → non rallenta la dashboard. Read-only; i valori
 // delle env var sono usati solo per il match e non escono mai dal server.
-app.get('/api/topology', async (_req, res) => {
+app.get('/api/topology', async (req, res) => {
   try {
     if (isDemo) return res.json(demoTopology())
     const { accounts, services } = await resolveServices()
-    // CACHE lunga, e non è pigrizia: questo giro legge le env var di ogni Lambda, i target group di ogni
-    // ALB e i security group di ogni servizio — decine di chiamate, ~10 secondi sulla flotta vera. La
-    // topologia però cambia quando cambia l'INFRASTRUTTURA (un apply Terraform), non col traffico:
-    // rifarla a ogni apertura di pagina significa far aspettare dieci secondi per un disegno identico.
-    // Dieci minuti, e le aperture successive (anche di altre persone) sono immediate. A cache fredda il
-    // giro resta lungo (55 secondi misurati mentre la dashboard interroga AWS in parallelo), ma la
-    // pagina non lo aspetta più: disegna i box dai servizi che ha già e ci attacca le frecce quando
-    // arrivano.
-    res.json(await cached('topology', 600_000, () => deduceTopology(services, accounts)))
+    // DUE GIRI, non uno. Misurato sulla flotta vera: env+eventi 12,9s · load balancer 10,1s · IAM 43,2s ·
+    // security group 17,5s. Le ultime due valgono 60 secondi su 84 e producono SOLO archi tratteggiati
+    // («questo ruolo ha il permesso su quello»): veri, ma non sono un flusso, e non vale un minuto di
+    // attesa prima di vedere qualcosa. La pagina chiede prima il giro veloce e poi, se serve, quello
+    // completo — che intanto riempie la sua cache.
+    const deboli = req.query.deboli !== '0'
+    const chiave = deboli ? 'topology' : 'topology:veloce'
+    // Dieci minuti: la topologia cambia con un apply Terraform, non col traffico.
+    res.json(await cached(chiave, 600_000, () => deduceTopology(services, accounts, { deboli })))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// Topologia di RETE: VPC → subnet → servizio + egress (NAT/IGW). On-demand (tab "Rete").
-// Read-only; chi non sta in una VPC (es. Lambda non-VPC) finisce nel gruppo "senza VPC".
 app.get('/api/network', async (_req, res) => {
   try {
     if (isDemo) return res.json({})

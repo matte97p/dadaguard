@@ -188,11 +188,15 @@ const GAP_Y = 28
 // LIVELLO 1: la mappa. Colonne da sinistra a destra (ingresso → applicazioni → dati), e sotto la banda
 // di ciò che gira da solo. Il verso è quello che chi guarda si aspetta da un diagramma di flusso, ed è
 // anche il verso in cui i nomi lunghi hanno spazio.
+// Le colonne seguono il VERSO delle frecce: a sinistra chi fa partire il lavoro (chi riceve la
+// richiesta, chi gira a orario, chi reagisce a un evento), al centro chi lo esegue, a destra dove
+// finisce. Con i cron a destra, le loro frecce verso le applicazioni uscivano dal bordo destro e
+// tornavano indietro attraversando tutta la tela: sembravano un errore di disegno, ed erano solo un
+// ordine di colonne sbagliato.
 const COLONNE = [
-  ['ingress'],
+  ['ingress', 'sched', 'event'],
   ['app'],
-  ['data', 'models'],
-  ['sched', 'event', 'other'],
+  ['data', 'models', 'other'],
 ]
 
 export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now() } = {}) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Typography, Space, Alert, Breadcrumb, Button, Tag } from 'antd'
+import { Segmented, Typography, Space, Alert, Breadcrumb, Button, Tag, Switch } from 'antd'
 import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
@@ -115,8 +115,10 @@ function buildNetworkGraph(net, dark, t) {
 }
 
 const CANVAS = {
-  height: 'calc(100vh - 300px)',
-  minHeight: 440,
+  // Alta quanto basta: a `calc(100vh - 300px)` su uno schermo grande erano 1200px per un disegno alto
+  // 300, e la mappa galleggiava in mezzo al vuoto con i box piccoli in un angolo.
+  height: 'min(calc(100vh - 320px), 620px)',
+  minHeight: 420,
   border: '1px solid var(--dg-line)',
   borderRadius: 12,
   position: 'relative',
@@ -222,6 +224,9 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   // Il LIVELLO: la mappa dei gruppi, oppure dentro un gruppo. È la tesi C4 — un diagramma, un livello —
   // ed è ciò che fa scendere un ambiente vero da 30-38 card a 6-8 box.
   const [gruppoAperto, setGruppoAperto] = useState(null)
+  // Le relazioni dedotte da permessi IAM e security group: 61 secondi di chiamate AWS per due archi in
+  // più. Spente finché non le si chiede.
+  const [deboli, setDeboli] = useState(false)
   const [scelto, setScelto] = useState(null)
   const [topo, setTopo] = useState({ edges: [], extraNodes: [], nodes: [] })
   const [loading, setLoading] = useState(false)
@@ -230,15 +235,23 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
   const [netLoading, setNetLoading] = useState(false)
   const [netError, setNetError] = useState(null)
 
+  // Di default si chiede il giro VELOCE, e non è una scorciatoia: misurato sulla flotta vera, il giro
+  // completo costa 66,5 secondi contro 5,5 e porta DUE archi in più su 34. Quei 61 secondi stanno tutti
+  // nelle passate IAM e security group, che deducono relazioni da un permesso o da una regola di rete —
+  // vere, ma non sono un flusso. Chi le vuole le chiede con l'interruttore, sapendo cosa costano.
   useEffect(() => {
+    let vivo = true
     setLoading(true)
     setError(null)
-    fetch('/api/topology')
+    fetch(`/api/topology?deboli=${deboli ? '1' : '0'}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [], nodes: d.nodes ?? [] }))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
+      .then((d) => vivo && setTopo({ edges: d.edges ?? [], extraNodes: d.extraNodes ?? [], nodes: d.nodes ?? [] }))
+      .catch((e) => vivo && setError(e.message))
+      .finally(() => vivo && setLoading(false))
+    return () => {
+      vivo = false
+    }
+  }, [deboli])
 
   useEffect(() => {
     if (view !== 'net' || net) return
@@ -358,6 +371,12 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
             <Text type="secondary" style={{ fontSize: FONT.micro }}>
               {t('topo.edgeHint')}
             </Text>
+            <Space size={SPACE.xs}>
+              <Switch size="small" checked={deboli} onChange={setDeboli} />
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t(deboli ? 'topo.weak.on' : 'topo.weak.off')}
+              </Text>
+            </Space>
           </Space>
 
           {/* La mappa NON aspetta gli archi. I box vengono dai servizi, che la pagina ha già in mano;
@@ -375,7 +394,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                 {loading && (
                   <div className="dg-topo-loading">
                     <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
-                    {t('topo.loadingEdges')}
+                    {t(deboli ? 'topo.loadingWeak' : 'topo.loadingEdges')}
                   </div>
                 )}
                 <ReactFlow
@@ -384,7 +403,9 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                   edges={edges}
                   nodeTypes={TIPI_NODO}
                   fitView
-                  fitViewOptions={{ padding: 0.16, maxZoom: 1 }}
+                  // Può ingrandire fino a 1,6: con `maxZoom: 1` un disegno da 1028px in una tela da 1900
+                  // restava piccolo in mezzo al vuoto invece di riempirla.
+                  fitViewOptions={{ padding: 0.12, maxZoom: 1.6 }}
                   minZoom={0.3}
                   colorMode={dark ? 'dark' : 'light'}
                   proOptions={{ hideAttribution: true }}

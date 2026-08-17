@@ -415,7 +415,14 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
 //   edges      [{ source, target, vias[] }] — source/target sono CHIAVI (`account::nome`), non nomi
 //   extraNodes [{ id, type, label }]        — sorgenti evento non tracciate (code/stream), id già unico
 //   nodes      [{ id, name, account, type }] — chiave → servizio, per etichettare senza indovinare
-export async function deduceTopology(services, accounts) {
+// `deboli: false` salta le due passate LENTE (IAM e security group). Misurato sulla flotta vera:
+// identificativi 1ms · env+eventi 12,9s · load balancer 10,1s · IAM 43,2s · security group 17,5s, cioe'
+// 60 secondi su 84 stanno in due passate che producono SOLO archi tratteggiati — «questo ruolo ha il
+// permesso su quello», «questo security group ammette quell'altro». Sono veri, ma non sono un flusso, e
+// far aspettare un minuto per disegnarli è il motivo per cui la pagina sembrava rotta.
+//
+// La pagina li chiede dopo, con una seconda chiamata: prima il disegno con le frecce vere, poi le altre.
+export async function deduceTopology(services, accounts, { deboli = true } = {}) {
   const idList = await mapLimit(services, LIMITE, async (s) => ({
       name: s.name,
       account: s.account ?? '__none__', // serve a disambiguare i match tra account diversi
@@ -505,6 +512,7 @@ export async function deduceTopology(services, accounts) {
 
   // IAM → risorse a cui il ruolo del servizio può accedere (dipendenza dedotta dai permessi).
   const roleCache = new Map()
+  if (deboli) {
   await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
       const roleArn =
@@ -519,7 +527,9 @@ export async function deduceTopology(services, accounts) {
     }).catch(() => {})
 
   // rete (security group) — best effort, non blocca se manca il permesso.
-  await deduceBySecurityGroups(services, accounts, push).catch(() => {})
+  }
+
+  if (deboli) await deduceBySecurityGroups(services, accounts, push).catch(() => {})
 
   // `nodes` porta la corrispondenza chiave → servizio: la UI non deve ricostruirsi la convenzione
   // della chiave, che è l'errore da cui nasceva la fusione di due servizi omonimi in un nodo solo.

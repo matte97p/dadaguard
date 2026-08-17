@@ -924,3 +924,18 @@ details[open] > .dg-summary .dg-chev {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Righe del pannello: una riga per risorsa, non tre. I nomi qui sono lunghi (`cato-production-cron-…`)
+   e andando a capo si portavano dietro il pallino dello stato e il tipo, che finivano su righe loro: il
+   pannello diventava un elenco illeggibile di frammenti. */
+.dg-topo-panel-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+}
+.dg-topo-panel-row > span:nth-child(2) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
