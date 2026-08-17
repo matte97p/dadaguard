@@ -1,6 +1,8 @@
 # Cosa NON entra nel contesto di build Docker (il Dockerfile fa `COPY . .` nello stage di build).
 # Obiettivo: immagine più piccola e nessun leak di config/credenziali.
-# NB: non escludere ciò che serve al build del frontend (index.html, vite.config.js, web/, package*.json).
+# NB: non escludere ciò che serve al build del frontend (index.html, vite.config.js, web/, package*.json)
+# né `shared/`, che il server importa a runtime: escluderlo fa fallire `COPY shared ./shared` con
+# «failed to compute cache key», e prima del giro in CI col docker build il rosso arrivava solo dopo il merge.
 
 # dipendenze e artefatti: reinstallati/buildati dentro l'immagine
 node_modules

@@ -19,11 +19,12 @@ COPY package*.json ./
 RUN npm ci --omit=dev --legacy-peer-deps && npm cache clean --force
 COPY server ./server
 # `shared/` NON è un extra: il server ne importa (topology/deduce.js, runtime/alb.js), quindi senza
-# questa riga l'immagine si costruisce, passa i test in CI e poi muore all'avvio con
-# `ERR_MODULE_NOT_FOUND` su `/app/shared/nodeId.js`. È successo dal 29/06/2026, cioè da quando `shared/`
-# esiste: i deploy fallivano allo step «attendi che il servizio sia stabile» mentre ECS riavviava il
-# task all'infinito, e in produzione restava il codice vecchio. Il web non se ne accorge: vite gli
-# impacchetta quei file dentro `dist/`.
+# questa riga l'immagine si costruisce, passa i test e poi muore all'avvio con `ERR_MODULE_NOT_FOUND`
+# su `/app/shared/nodeId.js`. È successo dal 29/06/2026, cioè da quando `shared/` esiste: i deploy
+# fallivano allo step «attendi che il servizio sia stabile» mentre ECS riavviava il task all'infinito, e
+# in produzione restava il codice vecchio. Il web non se ne accorge: vite gli impacchetta quei file
+# dentro `dist/`. Se aggiungi un'altra cartella di primo livello importata dal server, va copiata qui:
+# lo pretendono `test/dockerfile-copies.test.js` e il giro in CI che avvia davvero l'immagine.
 COPY shared ./shared
 COPY --from=build /app/dist ./dist
 # services.yaml NON è nell'immagine: montalo a runtime (-v) o derivalo da Terraform.
