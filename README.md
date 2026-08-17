@@ -19,7 +19,7 @@
 
 <p align="center">
   <img src="assets/demo.gif" alt="Dadaguard in azione: cosa morde adesso, e un servizio su ma non coerente" width="700"><br>
-  <sub>I primi 29 secondi · <a href="assets/demo.mp4">▶ tour completo (80s)</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a> da <a href="demowright.story.js">uno script che vive qui</a>: cambia la UI, si ri-registra</sub>
+  <sub>I primi 29 secondi · <a href="assets/demo.mp4">▶ tour completo (93s)</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a> da <a href="demowright.story.js">uno script che vive qui</a>: cambia la UI, si ri-registra</sub>
 </p>
 
 **Provalo in 10 secondi, senza AWS** — immagine pubblica, dati finti, zero config:
@@ -53,7 +53,7 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
 - **Deploy fatti a mano**: riavvii forzati e hotfix lanciati fuori dalla CI, con chi ha premuto — azioni che non producono nessuna build e che nessuna vista mostrava
 - **WAF** (Cloudflare): richieste **fermate** per zona e per regola — traffico che non arriva ai servizi, quindi assente da ogni log applicativo
-- **Topologia** delle dipendenze tra servizi, **dedotta da AWS** (env Lambda · event source · security group) — niente da dichiarare a mano
+- **Topologia** che risponde a due domande, «se questo si ferma chi ne soffre?» e «questo è rotto da cosa dipende?»: le relazioni le **deduce da AWS** (configurazioni, event source, indirizzi dei load balancer con la porta, permessi IAM, security group) e le colonne vengono dagli archi, niente da dichiarare a mano
 
 ## Principi
 - **No LLM** — deterministico: niente costi, latenza o non-determinismo.

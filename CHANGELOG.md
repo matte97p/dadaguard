@@ -5,6 +5,26 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **La vista «Rete» parla la stessa lingua della mappa.** Disegnava i servizi come riquadri con stili
+  scritti a mano: senza icona, senza tipo e senza stato, quindi la stessa risorsa aveva due facce nella
+  stessa pagina. Il payload della rete ora porta il TIPO di ogni risorsa oltre al nome, e la vista usa le
+  card del secondo livello: icona per tipo, colore dai check, repliche, e il clic apre il dettaglio del
+  servizio. Restano due lenti separate perché sono due domande diverse («chi chiama chi» e «dove sta»),
+  ma il linguaggio visivo è uno. In modalità demo la rete c'è: prima quella scheda rispondeva «niente da
+  mostrare», cioè una pagina vuota su una funzione che esiste.
+- **Il video del README è ri-registrato, con la pagina Esecuzioni dentro.** Lo script è la fonte, e la
+  scena mancava: il tour saltava la vista nata con questo lavoro. Aggiunta anche la ragione della
+  Topologia («se questo si ferma, chi ne soffre?»), perché un video che mostra un disegno senza dire a
+  cosa serve vende un disegno. L'indirizzo del server demo ora si sovrascrive con `DADAGUARD_DEMO_URL`,
+  così registrare non costringe a spegnere il server di sviluppo che occupa la stessa porta.
+
+### Performance
+- **I load balancer si leggono in una passata sola.** Erano due giri sulle stesse risorse: uno per gli
+  archi dei target group e uno per gli indirizzi e gli ascoltatori, con una `DescribeLoadBalancers` per
+  load balancer invece di una per account. Stessa uscita esatta (75 archi, 14 `lb`, 14 `route`, 9 load
+  balancer classificati), 6,5s invece di 7,1s.
+
 ### Fixed
 - **Nel pannello della topologia metà dei servizi era grigia, cioè «stato non letto», mentre stavano su.**
   Due cause, entrambe di lettura sbagliata e nessuna in AWS (i servizi erano tutti `up`). Il pannello

@@ -104,21 +104,23 @@ async function accountNetwork(accountKey, services, accounts) {
     }
   }
 
-  // 3) raggruppa i servizi per VPC → subnet
-  const vpcs = new Map() // vpcId → { subnets: Map<subnetId, {services:Set}> }
+  // 3) raggruppa i servizi per VPC → subnet. Si porta dietro il TIPO, non solo il nome: la vista di rete
+  // disegna le stesse card della mappa (icona, tipo, colore dello stato), e senza il tipo restava una
+  // lista di stringhe che non si poteva rendere come il resto della pagina.
+  const vpcs = new Map() // vpcId → Map<subnetId, Map<nome, tipo>>
   const noVpc = []
   for (const p of placed) {
     const sub = p.subnetIds.map((id) => subnetInfo.get(id)).find((x) => x?.vpcId)
     if (!sub) {
-      noVpc.push(p.name)
+      noVpc.push({ name: p.name, type: p.type })
       continue
     }
     if (!vpcs.has(sub.vpcId)) vpcs.set(sub.vpcId, new Map())
     const subMap = vpcs.get(sub.vpcId)
     // metti il servizio nella sua prima subnet nota (per chiarezza visiva)
     const sid = p.subnetIds.find((id) => subnetInfo.get(id)?.vpcId === sub.vpcId)
-    if (!subMap.has(sid)) subMap.set(sid, new Set())
-    subMap.get(sid).add(p.name)
+    if (!subMap.has(sid)) subMap.set(sid, new Map())
+    subMap.get(sid).set(p.name, p.type)
   }
 
   // 4) nomi/CIDR VPC + egress
@@ -141,12 +143,12 @@ async function accountNetwork(accountKey, services, accounts) {
       cidr: vpcMeta.get(vpcId)?.cidr ?? null,
       nat: egress.nat,
       igw: egress.igw,
-      subnets: [...subMap].map(([id, set]) => ({
+      subnets: [...subMap].map(([id, mappa]) => ({
         id,
         name: subnetInfo.get(id)?.name ?? null,
         az: subnetInfo.get(id)?.az ?? null,
         public: subnetInfo.get(id)?.public ?? false,
-        services: [...set],
+        services: [...mappa].map(([name, type]) => ({ name, type })),
       })),
     })
   }
@@ -162,7 +164,9 @@ export async function networkTopology(services, accounts) {
     byAccount.get(k).push(s)
   }
   const out = await Promise.all(
-    [...byAccount].map(([k, svcs]) => (accounts[k] ? accountNetwork(k, svcs, accounts) : { account: k, label: k, vpcs: [], noVpc: svcs.map((s) => s.name) })),
+    [...byAccount].map(([k, svcs]) => (accounts[k]
+        ? accountNetwork(k, svcs, accounts)
+        : { account: k, label: k, vpcs: [], noVpc: svcs.map((s) => ({ name: s.name, type: s.aws?.type ?? s.type ?? null })) })),
   )
   return { accounts: out }
 }

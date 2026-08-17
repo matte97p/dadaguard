@@ -417,24 +417,33 @@ async function deduceBySecurityGroups(services, accounts, push) {
   }
 }
 
-// INDIRIZZI dei load balancer: DNS, scheme (esposto o interno) e, per ogni porta in ascolto, i servizi
-// dietro. Una `DescribeLoadBalancers` per account (elenca tutti i LB in una volta) più una
-// `DescribeListeners` e una `DescribeRules` per load balancer: i load balancer sono una manciata, e in
-// cambio si vede il traffico interno, che è la metà del disegno che mancava.
-// Lo `scheme` non serve a un arco ma alla LETTURA: un load balancer interno non è una porta d'ingresso,
-// e metterlo in prima colonna insieme a quelli pubblici racconta un perimetro che non esiste.
-async function lbAddresses(services, accounts, ecsData) {
+// I LOAD BALANCER, in una passata sola. Tre cose che vengono tutte dalla stessa lettura, e che prima
+// costavano due giri:
+//   · gli archi `lb`: chi sta dietro i target group di questo load balancer (ECS via il campo
+//     loadBalancers del servizio, EC2 via i target di tipo istanza);
+//   · l'INDIRIZZO (DNS) e la mappa porta → servizi dietro quell'ascoltatore, che serve al pass env: qui
+//     dentro i servizi si chiamano per indirizzo del load balancer interno, e senza questa mappa quel
+//     traffico era invisibile;
+//   · lo SCHEME (esposto o interno), che non fa archi ma serve alla lettura del disegno.
+// Una `DescribeLoadBalancers` per account (elenca tutti i load balancer in un colpo) invece di una per
+// load balancer, e le altre letture una volta ciascuna. Best effort in ogni punto: un permesso che manca
+// toglie un pezzo di informazione, non fa cadere la deduzione.
+async function loadBalancerPass(services, accounts, ecsData, push) {
   const albs = services.filter((s) => s.aws?.type === 'alb' && (s.aws.arn || s.aws.name))
   const perDns = new Map()
   const schemi = new Map()
   if (!albs.length) return { perDns, schemi }
 
-  const ecsByTg = new Map()
+  const ecsByTg = new Map() // `${account}|${targetGroupArn}` -> chiave servizio ECS
   for (const s of services) {
     if (s.aws?.type !== 'ecs') continue
     for (const tg of ecsData.get(keyOf(s))?.tgArns ?? [])
       ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, keyOf(s))
   }
+  const ec2ByInstance = new Map() // `${account}|${instanceId}` -> chiave servizio EC2
+  for (const s of services)
+    if (s.aws?.type === 'ec2' && s.aws.instanceId)
+      ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, keyOf(s))
 
   const perAccount = new Map()
   for (const alb of albs) {
@@ -454,12 +463,18 @@ async function lbAddresses(services, accounts, ecsData) {
         marker = o.NextMarker
       } while (marker)
     } catch {
-      return /* elasticloadbalancing:DescribeLoadBalancers assente → niente indirizzi, niente archi */
+      return /* elasticloadbalancing:DescribeLoadBalancers assente → niente archi lb, niente indirizzi */
     }
+
     await mapLimit(lista, LIMITE, async (alb) => {
-      const lb = trovati.find((x) => (alb.aws.arn ? x.LoadBalancerArn === alb.aws.arn : x.LoadBalancerName === alb.aws.name))
-      if (!lb?.DNSName) return
-      schemi.set(keyOf(alb), lb.Scheme ?? null)
+      const lb = trovati.find((x) =>
+        alb.aws.arn ? x.LoadBalancerArn === alb.aws.arn : x.LoadBalancerName === alb.aws.name,
+      )
+      if (!lb?.LoadBalancerArn) return
+      const albKey = keyOf(alb)
+      schemi.set(albKey, lb.Scheme ?? null)
+
+      // Ascoltatori: la porta dice CHI risponde a quell'indirizzo (`:8000` il Backend, `:8001` la chat).
       const porte = new Map()
       try {
         const lo = await client.send(new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn }))
@@ -477,7 +492,31 @@ async function lbAddresses(services, accounts, ecsData) {
       } catch {
         /* DescribeListeners assente → resta l'indirizzo, e l'arco andrà al load balancer stesso */
       }
-      perDns.set(lb.DNSName.toLowerCase(), { key: keyOf(alb), scheme: lb.Scheme ?? null, porte })
+      if (lb.DNSName) perDns.set(lb.DNSName.toLowerCase(), { key: albKey, scheme: lb.Scheme ?? null, porte })
+
+      // Archi `lb`: chi sta dietro i target group agganciati a questo load balancer.
+      try {
+        const tgo = await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn }))
+        for (const tg of tgo.TargetGroups ?? []) {
+          const ecsKey = ecsByTg.get(`${acct}|${tg.TargetGroupArn}`)
+          if (ecsKey && ecsKey !== albKey) {
+            push(albKey, ecsKey, 'lb')
+            continue
+          }
+          if (tg.TargetType !== 'instance') continue
+          try {
+            const th = await client.send(new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn }))
+            for (const d of th.TargetHealthDescriptions ?? []) {
+              const ec2Key = ec2ByInstance.get(`${acct}|${d.Target?.Id}`)
+              if (ec2Key && ec2Key !== albKey) push(albKey, ec2Key, 'lb')
+            }
+          } catch {
+            /* DescribeTargetHealth non concesso → niente archi lb via istanza */
+          }
+        }
+      } catch {
+        /* target group non leggibili → niente archi lb per questo load balancer */
+      }
     })
   })
   return { perDns, schemi }
@@ -491,62 +530,6 @@ export function arnDeiTarget(actions = []) {
     for (const t of a.ForwardConfig?.TargetGroups ?? []) if (t.TargetGroupArn) out.push(t.TargetGroupArn)
   }
   return [...new Set(out)]
-}
-
-// Pass load balancer: per ogni ALB risale ai target group e collega i servizi dietro (ECS via
-// il campo loadBalancers del servizio; EC2 via i target di tipo instance). ecsData porta già i
-// target group letti nel pass ECS, così non ri-descriviamo i servizi. Best effort.
-async function deduceLoadBalancers(services, accounts, ecsData, push) {
-  const albs = services.filter((s) => s.aws?.type === 'alb' && (s.aws.arn || s.aws.name))
-  if (!albs.length) return
-
-  const ecsByTg = new Map() // `${account}|${targetGroupArn}` -> chiave servizio ECS
-  for (const s of services) {
-    if (s.aws?.type !== 'ecs') continue
-    for (const tg of ecsData.get(keyOf(s))?.tgArns ?? [])
-      ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, keyOf(s))
-  }
-  const ec2ByInstance = new Map() // `${account}|${instanceId}` -> chiave servizio EC2
-  for (const s of services)
-    if (s.aws?.type === 'ec2' && s.aws.instanceId)
-      ec2ByInstance.set(`${s.account ?? '__none__'}|${s.aws.instanceId}`, keyOf(s))
-
-  await mapLimit(albs, LIMITE, async (alb) => {
-      const aws = awsFor(alb, accounts)
-      const acct = alb.account ?? '__none__'
-      try {
-        const client = new ElasticLoadBalancingV2Client(clientOpts(aws))
-        let lbArn = alb.aws.arn
-        if (!lbArn) {
-          const lo = await client.send(new DescribeLoadBalancersCommand({ Names: [alb.aws.name] }))
-          lbArn = lo.LoadBalancers?.[0]?.LoadBalancerArn
-        }
-        if (!lbArn) return
-        const tgo = await client.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lbArn }))
-        const albKey = keyOf(alb)
-        for (const tg of tgo.TargetGroups ?? []) {
-          const ecsKey = ecsByTg.get(`${acct}|${tg.TargetGroupArn}`)
-          if (ecsKey && ecsKey !== albKey) {
-            push(albKey, ecsKey, 'lb')
-            continue
-          }
-          if (tg.TargetType !== 'instance') continue
-          try {
-            const th = await client.send(
-              new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn }),
-            )
-            for (const d of th.TargetHealthDescriptions ?? []) {
-              const ec2Key = ec2ByInstance.get(`${acct}|${d.Target?.Id}`)
-              if (ec2Key && ec2Key !== albKey) push(albKey, ec2Key, 'lb')
-            }
-          } catch {
-            /* DescribeTargetHealth non concesso → niente archi lb via istanza */
-          }
-        }
-      } catch {
-        /* ALB non leggibile / permesso assente → niente archi lb per questo LB */
-      }
-    })
 }
 
 // Un hostname di terze parti → nodo esterno, raggruppato per DOMINIO REGISTRABILE. Un progetto Supabase
@@ -617,8 +600,11 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
   const ecsData = new Map()
   await mapLimit(services .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service), LIMITE, async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts))))
 
-  // Indirizzi dei load balancer PRIMA del giro sulle configurazioni: è lì che i servizi si citano.
-  const { perDns, schemi } = await lbAddresses(services, accounts, ecsData).catch(() => ({ perDns: new Map(), schemi: new Map() }))
+  // I load balancer PRIMA del giro sulle configurazioni: è lì che i servizi si citano per indirizzo.
+  const { perDns, schemi } = await loadBalancerPass(services, accounts, ecsData, push).catch(() => ({
+    perDns: new Map(),
+    schemi: new Map(),
+  }))
   // Chi chiama quell'indirizzo → chi risponde su quella porta. `route` è un puntatore vero come `lb`:
   // l'indirizzo sta nella configurazione e la mappa degli ascoltatori la dà AWS.
   const perEndpoint = (chiave, env) => {
@@ -688,9 +674,6 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
           /* states:DescribeStateMachine assente → niente archi 'flow' */
         }
       })
-
-  // ALB → servizi dietro i target group.
-  await deduceLoadBalancers(services, accounts, ecsData, push).catch(() => {})
 
   // IAM → risorse a cui il ruolo del servizio può accedere (dipendenza dedotta dai permessi).
   const roleCache = new Map()

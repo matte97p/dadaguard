@@ -6,55 +6,70 @@ import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
 import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
-import { buildMap, buildGroup, rollup, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { buildMap, buildGroup, rollup, repliche, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { familyPrefixes } from '../serviceName.js'
 import { rischi as calcolaRischi, usiDiretti, impatto } from '../topoImpact.js'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
 
-// --- Vista "Rete": box VPC che contengono i servizi, più un bucket "Senza VPC". ---
-function buildNetworkGraph(net, dark, t) {
-  const groups = []
+// --- Vista «Rete»: dove VIVE ogni risorsa (VPC → subnet → zona), con le stesse card della mappa. ---
+//
+// Sono due domande diverse e per questo restano due lenti: «chi chiama chi» (Dipendenze) e «dove sta»
+// (Rete). Ma il linguaggio visivo deve essere uno: prima questa vista disegnava i servizi come div con
+// stili scritti a mano, senza icona, senza tipo e senza stato, quindi la stessa risorsa aveva due facce
+// nella stessa pagina. Ora sono le card del secondo livello, e il colore è quello dei check.
+function buildNetworkGraph(net, dark, t, statoDi = new Map()) {
+  const gruppi = []
   for (const acc of net.accounts ?? []) {
     for (const v of acc.vpcs ?? []) {
       const egress = [v.igw ? 'IGW' : null, v.nat > 0 ? `NAT×${v.nat}` : null].filter(Boolean).join(' · ')
-      const services = (v.subnets ?? []).flatMap((s) =>
-        s.services.map((name) => ({
-          name,
-          sub: [s.name || s.id, s.az, t(s.public ? 'topo.subnetPublic' : 'topo.subnetPrivate')]
-            .filter(Boolean)
-            .join(' · '),
+      const risorse = (v.subnets ?? []).flatMap((sn) =>
+        (sn.services ?? []).map((x) => ({
+          // Il payload della rete portava solo i nomi: ora porta anche il tipo, che è quello che serve
+          // per l'icona e per non far sembrare tutto la stessa cosa.
+          nome: typeof x === 'string' ? x : x.name,
+          tipo: typeof x === 'string' ? null : x.type,
+          zona: [sn.name || sn.id, sn.az, t(sn.public ? 'topo.subnetPublic' : 'topo.subnetPrivate')].filter(Boolean).join(' · '),
+          az: sn.az ?? null,
         })),
       )
-      groups.push({
+      gruppi.push({
         id: `vpc:${acc.account}:${v.id}`,
-        title: v.name || v.id,
-        subtitle: [acc.label, v.cidr, egress ? `→ ${egress}` : null].filter(Boolean).join(' · '),
-        color: acc.color || '#8c8c8c',
-        services,
+        account: acc.account,
+        titolo: v.name || v.id,
+        sotto: [acc.label, v.cidr, egress ? `→ ${egress}` : null].filter(Boolean).join(' · '),
+        colore: acc.color || '#8c8c8c',
+        risorse,
       })
     }
     if ((acc.noVpc ?? []).length) {
-      groups.push({
+      gruppi.push({
         id: `novpc:${acc.account}`,
-        title: t('topo.noVpc'),
-        subtitle: `${acc.label} · ${t('topo.noVpcSub')}`,
-        color: acc.color || '#8c8c8c',
-        dim: true,
-        services: acc.noVpc.map((name) => ({ name, sub: null })),
+        account: acc.account,
+        titolo: t('topo.noVpc'),
+        sotto: `${acc.label} · ${t('topo.noVpcSub')}`,
+        colore: acc.color || '#8c8c8c',
+        tratteggiato: true,
+        risorse: (acc.noVpc ?? []).map((x) => ({
+          nome: typeof x === 'string' ? x : x.name,
+          tipo: typeof x === 'string' ? null : x.type,
+          zona: null,
+          az: null,
+        })),
       })
     }
   }
 
-  const GW = 250
-  const HEADER = 48
-  const ROW = 42
-  const PADB = 14
-  const GAPX = 36
+  const GW = 268
+  const TESTA = 52
+  const RIGA = 62
+  const CODA = 14
+  const GAPX = 40
   const nodes = []
   let x = 0
-  for (const g of groups) {
-    const count = Math.max(1, g.services.length)
+  for (const g of gruppi) {
+    const prefissi = familyPrefixes(g.risorse.map((r) => r.nome))
     nodes.push({
       id: g.id,
       position: { x, y: 0 },
@@ -63,9 +78,9 @@ function buildNetworkGraph(net, dark, t) {
       selectable: false,
       style: {
         width: GW,
-        height: HEADER + count * ROW + PADB,
-        borderRadius: 10,
-        border: `1.5px ${g.dim ? 'dashed' : 'solid'} ${g.color}`,
+        height: TESTA + Math.max(1, g.risorse.length) * RIGA + CODA,
+        borderRadius: 12,
+        border: `1.5px ${g.tratteggiato ? 'dashed' : 'solid'} ${g.colore}`,
         background: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
       },
     })
@@ -75,44 +90,44 @@ function buildNetworkGraph(net, dark, t) {
       extent: 'parent',
       draggable: false,
       selectable: false,
-      position: { x: 10, y: 8 },
+      position: { x: 12, y: 10 },
       data: {
         label: (
-          <div style={{ textAlign: 'left', width: GW - 32 }}>
-            <div style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</div>
-            <div style={{ fontSize: 10, opacity: 0.7 }}>{g.subtitle}</div>
+          <div style={{ textAlign: 'left', width: GW - 34 }}>
+            <div style={{ fontWeight: 650, fontSize: FONT.small }}>{g.titolo}</div>
+            <div style={{ fontSize: FONT.micro, opacity: 0.7 }}>{g.sotto}</div>
           </div>
         ),
       },
-      style: { border: 'none', background: 'transparent', padding: 0, width: GW - 20 },
+      style: { border: 'none', background: 'transparent', padding: 0, width: GW - 24 },
     })
-    g.services.forEach((s, i) => {
+    g.risorse.forEach((r, i) => {
+      const vero = statoDi.get(`${g.account}::${r.nome}`)
       nodes.push({
-        id: `${g.id}::${s.name}`,
+        id: `${g.id}::${r.nome}`,
         parentId: g.id,
         extent: 'parent',
         draggable: false,
-        position: { x: 12, y: HEADER + i * ROW },
+        type: 'svc',
+        position: { x: 14, y: TESTA + i * RIGA },
+        style: { width: GW - 28, height: 52 },
         data: {
-          label: (
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 12 }}>{s.name}</div>
-              {s.sub && <div style={{ fontSize: 10, opacity: 0.65 }}>{s.sub}</div>}
-            </div>
-          ),
-        },
-        style: {
-          width: GW - 24,
-          borderRadius: 6,
-          border: `1px solid ${dark ? '#303030' : '#d9d9d9'}`,
-          background: dark ? '#1f1f1f' : '#fff',
-          padding: 6,
+          name: r.nome,
+          prefissi,
+          type: r.tipo ?? vero?.type ?? null,
+          // Lo stato viene dai check, come sulla mappa: una risorsa giù dentro la sua subnet è
+          // l'informazione per cui vale la pena guardare questa vista quando qualcosa non va.
+          color: STATUS_COLOR[vero?.overall] ?? STATUS_COLOR.unknown,
+          repliche: vero ? repliche(vero) : null,
+          meta: [r.tipo ?? vero?.type, r.az].filter(Boolean).join(' · '),
+          title: [r.nome, r.zona].filter(Boolean).join('\n'),
+          servizio: vero ?? null,
         },
       })
     })
     x += GW + GAPX
   }
-  return { nodes, hasData: groups.length > 0 }
+  return { nodes, hasData: gruppi.length > 0 }
 }
 
 const CANVAS = {
@@ -308,7 +323,9 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
   )
   // Era un riferimento a una variabile che non esiste più: aprire la scheda «Rete» buttava giù la pagina
   // con un ReferenceError, cioè schermo bianco.
-  const netGraph = useMemo(() => buildNetworkGraph(shownNet ?? {}, dark, t), [shownNet, dark, t])
+  // Lo stato per la vista di rete, indicizzato come lo nomina il payload della rete (`account::nome`).
+  const statoDiRete = useMemo(() => new Map(services.map((s) => [`${acctKey(s)}::${s.name}`, s])), [services])
+  const netGraph = useMemo(() => buildNetworkGraph(shownNet ?? {}, dark, t, statoDiRete), [shownNet, dark, t, statoDiRete])
 
   // I SERVIZI della mappa vengono dal grafo, non dallo stato della flotta. È la correzione che cambia
   // l'attesa vera: `/api/status` fa gli otto check su tutti i servizi di tutti gli account e ci mette
@@ -550,11 +567,14 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
               <ReactFlow
                 nodes={netGraph.nodes}
                 edges={[]}
+                nodeTypes={TIPI_NODO}
                 fitView
+                fitViewOptions={{ padding: 0.12, maxZoom: 1.4 }}
                 nodesDraggable={false}
                 nodesConnectable={false}
                 colorMode={dark ? 'dark' : 'light'}
                 proOptions={{ hideAttribution: true }}
+                onNodeClick={(_, n) => n.type === 'svc' && n.data.servizio && onApriServizio?.(n.data.servizio)}
               >
                 <Background />
                 <Controls showInteractive={false} />
