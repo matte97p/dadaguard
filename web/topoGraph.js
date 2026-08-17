@@ -189,6 +189,49 @@ export function fondiArchi(edges = [], gruppoDi) {
   return [...per.values()].map((v) => ({ ...v, vias: [...v.vias], forte: isViaForte([...v.vias]) }))
 }
 
+// Da che LATO esce e da che lato entra un arco, date le due posizioni. È la differenza fra un disegno
+// che si legge e uno in cui gli archi girano intorno alle card: due riquadri nella stessa colonna si
+// collegano sotto/sopra, non destra/sinistra. Pura/testabile.
+export function maniglie(a, b) {
+  if (!a || !b) return { sourceHandle: 'r-s', targetHandle: 'l-t' }
+  const dx = b.x - a.x
+  if (Math.abs(dx) > 8)
+    return dx > 0 ? { sourceHandle: 'r-s', targetHandle: 'l-t' } : { sourceHandle: 'l-s', targetHandle: 'r-t' }
+  return b.y >= a.y ? { sourceHandle: 'b-s', targetHandle: 't-t' } : { sourceHandle: 't-s', targetHandle: 'b-t' }
+}
+
+// Due archi opposti fra gli stessi due nodi diventano UN arco con la punta alle due estremità. Disegnati
+// separati si sovrapponevano quasi del tutto, e il risultato era una linea doppia che non diceva niente:
+// «si chiamano a vicenda» è un fatto solo, e come tale va disegnato. Pura/testabile.
+export function unisciReciproci(archi = []) {
+  const per = new Map(archi.map((a) => [`${a.source}>${a.target}`, a]))
+  const out = []
+  const fatti = new Set()
+  for (const a of archi) {
+    const chiave = `${a.source}>${a.target}`
+    if (fatti.has(chiave)) continue
+    const opposto = per.get(`${a.target}>${a.source}`)
+    fatti.add(chiave)
+    if (!opposto) {
+      out.push(a)
+      continue
+    }
+    fatti.add(`${a.target}>${a.source}`)
+    const vias = [...new Set([...(a.data?.vias ?? []), ...(opposto.data?.vias ?? [])])]
+    const forte = isViaForte(vias)
+    const n = (Number(a.label) || 0) + (Number(opposto.label) || 0)
+    out.push({
+      ...a,
+      data: { ...a.data, vias, forte, doppio: true },
+      label: n ? String(n) : a.label,
+      style: { ...a.style, strokeDasharray: forte ? undefined : '6 5', stroke: forte ? '#fa8c16' : '#8c8c8c' },
+      markerStart: { type: 'arrowclosed', width: 12, height: 12, color: forte ? '#fa8c16' : '#8c8c8c' },
+      markerEnd: { type: 'arrowclosed', width: 12, height: 12, color: forte ? '#fa8c16' : '#8c8c8c' },
+    })
+  }
+  return out
+}
+
 // Quanto manca, in parole: «fra 12m», «fra 3h». Gemella di fmtSchedule/fmtAgo in web/format.js, che
 // però parlano del passato. Pura.
 export function fraTempo(ms, t = (k) => k) {
@@ -320,11 +363,12 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
     }
   })
 
-  const archi = fusi.map((a) => ({
+  const archi = unisciReciproci(fusi.map((a) => ({
     id: `g:${a.source}->g:${a.target}`,
     source: `g:${a.source}`,
     target: `g:${a.target}`,
-    type: 'smoothstep',
+    ...maniglie(pos.get(`g:${a.source}`), pos.get(`g:${a.target}`)),
+    type: 'default',
     label: String(a.n),
     data: { vias: a.vias, forte: a.forte, coppie: a.coppie },
     // Piena = c'è un puntatore vero (un target group registra quel servizio, o l'indirizzo del load
@@ -332,7 +376,7 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
     // configurazione o in una policy: vera, ma non è un flusso.
     style: { strokeDasharray: a.forte ? undefined : '6 5', stroke: a.forte ? '#fa8c16' : '#8c8c8c' },
     markerEnd: { type: 'arrowclosed', width: 14, height: 14, color: a.forte ? '#fa8c16' : '#8c8c8c' },
-  }))
+  })))
 
   return { nodes, edges: archi, perGruppo, vuoto: nodes.length === 0 }
 }
@@ -444,31 +488,32 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
   // Archi interni al gruppo, più quelli verso gli stub.
   const interni = (topo.edges ?? [])
     .filter((e) => chiaviDentro.has(e.source) && chiaviDentro.has(e.target))
-    .map((e) => arco(e.source, e.target, e.vias))
+    .map((e) => arco(e.source, e.target, e.vias, pos))
   const versoStub = []
   for (const e of topo.edges ?? []) {
     if (chiaviDentro.has(e.source) && !chiaviDentro.has(e.target)) {
       const g = gruppoDi.get(e.target)
-      if (g) versoStub.push(arco(e.source, `stub:out:${g}`, e.vias))
+      if (g) versoStub.push(arco(e.source, `stub:out:${g}`, e.vias, pos))
     } else if (!chiaviDentro.has(e.source) && chiaviDentro.has(e.target)) {
       const g = gruppoDi.get(e.source)
-      if (g) versoStub.push(arco(`stub:in:${g}`, e.target, e.vias))
+      if (g) versoStub.push(arco(`stub:in:${g}`, e.target, e.vias, pos))
     }
   }
-  const unici = new Map([...interni, ...versoStub].map((a) => [a.id, a]))
+  const unici = new Map(unisciReciproci([...interni, ...versoStub]).map((a) => [a.id, a]))
 
   const altezza = Math.max(...elementi.map((el) => (pos.get(el.id)?.y ?? 0) + el.h), 120)
   return { nodes, edges: [...unici.values()], membri: dentro, altezza }
 }
 
-function arco(source, target, vias = []) {
+function arco(source, target, vias = [], pos = new Map()) {
   const forte = isViaForte(vias)
   const colore = forte ? '#fa8c16' : '#8c8c8c'
   return {
     id: `${source}->${target}`,
     source,
     target,
-    type: 'smoothstep',
+    ...maniglie(pos.get(source), pos.get(target)),
+    type: 'default',
     data: { vias, forte },
     style: { strokeDasharray: forte ? undefined : '6 5', stroke: colore },
     markerEnd: { type: 'arrowclosed', width: 12, height: 12, color: colore },

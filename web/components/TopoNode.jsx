@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import {
   ApiOutlined,
@@ -23,14 +24,26 @@ import { FONT, MONO } from '../theme.js'
 // colonna dice a che livello vive, l'accento dice se c'è un guasto. Il testo distingue due cose dello
 // stesso tipo, non porta il peso del messaggio.
 
-// Le maniglie stanno a SINISTRA e a DESTRA perché il disegno scorre in orizzontale (ingresso →
-// applicazioni → dati). Con le maniglie in alto e in basso gli archi uscivano dal fondo di un box per
-// rientrare in cima a quello accanto, disegnando cappi: è il difetto classico di ReactFlow quando la
-// posizione delle maniglie non segue la direzione del layout.
+// QUATTRO LATI, non due. Con le sole maniglie sinistra/destra ogni arco fra due riquadri della STESSA
+// colonna (due servizi che si chiamano a vicenda) doveva uscire a destra e rientrare a sinistra, cioè
+// girare intorno al riquadro: sul disegno vero erano rettangoli lunghi che passavano davanti alle altre
+// card e non si capiva più chi puntava a chi. Chi costruisce l'arco sceglie il lato in base alla
+// posizione (vedi `maniglie()` in web/topoGraph.js): destra→sinistra se il bersaglio è più a destra,
+// sotto→sopra se è nella stessa colonna, sinistra→destra se l'arco torna indietro.
+const LATI = [
+  ['l', Position.Left],
+  ['r', Position.Right],
+  ['t', Position.Top],
+  ['b', Position.Bottom],
+]
 const MANIGLIE = (
   <>
-    <Handle type="target" position={Position.Left} className="dg-topo-handle" />
-    <Handle type="source" position={Position.Right} className="dg-topo-handle" />
+    {LATI.map(([id, position]) => (
+      <Fragment key={id}>
+        <Handle id={`${id}-t`} type="target" position={position} className="dg-topo-handle" />
+        <Handle id={`${id}-s`} type="source" position={position} className="dg-topo-handle" />
+      </Fragment>
+    ))}
   </>
 )
 

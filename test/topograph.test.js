@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId, testaComune, nomiDaMostrare, esterniDi } from '../web/topoGraph.js'
+import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId, testaComune, nomiDaMostrare, esterniDi, maniglie, unisciReciproci } from '../web/topoGraph.js'
 import { topologyNodeId as chiaveServer } from '../server/topology/deduce.js'
 
 // La MAPPA dell'architettura. Queste sono decisioni di prodotto, non dettagli di resa: chi entra in
@@ -268,4 +268,32 @@ test('scendendo nel gruppo, la card di chi ne soffre è gialla e dice perché', 
   assert.equal(card.data.color, '#faad14')
   assert.deepEqual(card.data.rischio, ['redis'])
   assert.equal(g.nodes.find((n) => n.data.name === 'frontend').data.color, '#52c41a')
+})
+
+
+test('gli archi escono dal LATO giusto: girare intorno a una card la fa sembrare collegata a un’altra', () => {
+  // Con le sole maniglie sinistra/destra, un arco fra due riquadri della stessa colonna doveva uscire a
+  // destra e rientrare a sinistra: sul disegno vero erano rettangoli lunghi che passavano davanti alle
+  // altre card, e non si capiva più chi puntasse a chi.
+  assert.deepEqual(maniglie({ x: 0, y: 0 }, { x: 200, y: 0 }), { sourceHandle: 'r-s', targetHandle: 'l-t' })
+  // Arco che torna INDIETRO: esce a sinistra, così si vede che va contro il verso di lettura.
+  assert.deepEqual(maniglie({ x: 200, y: 0 }, { x: 0, y: 0 }), { sourceHandle: 'l-s', targetHandle: 'r-t' })
+  // Stessa colonna: sotto e sopra.
+  assert.deepEqual(maniglie({ x: 0, y: 0 }, { x: 0, y: 90 }), { sourceHandle: 'b-s', targetHandle: 't-t' })
+  assert.deepEqual(maniglie({ x: 0, y: 90 }, { x: 0, y: 0 }), { sourceHandle: 't-s', targetHandle: 'b-t' })
+})
+
+test('«si chiamano a vicenda» è UN fatto: una freccia con due punte, non due linee sovrapposte', () => {
+  const uno = { id: 'a->b', source: 'a', target: 'b', label: '3', data: { vias: ['route'] }, style: {}, markerEnd: {} }
+  const due = { id: 'b->a', source: 'b', target: 'a', label: '1', data: { vias: ['env'] }, style: {}, markerEnd: {} }
+  const solo = { id: 'a->c', source: 'a', target: 'c', label: '2', data: { vias: ['env'] }, style: {}, markerEnd: {} }
+  const out = unisciReciproci([uno, due, solo])
+  assert.equal(out.length, 2, 'i due opposti diventano uno')
+  const fuso = out.find((e) => e.id === 'a->b')
+  assert.ok(fuso.markerStart && fuso.markerEnd, 'la punta sta alle due estremità')
+  assert.equal(fuso.label, '4', 'il numero è il totale delle relazioni fuse')
+  assert.deepEqual(fuso.data.vias, ['route', 'env'])
+  // Una via forte in una delle due direzioni rende l'arco pieno: il puntatore vero c'è.
+  assert.equal(fuso.style.strokeDasharray, undefined)
+  assert.equal(out.find((e) => e.id === 'a->c').markerStart, undefined)
 })

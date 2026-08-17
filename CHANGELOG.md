@@ -44,6 +44,16 @@ All notable changes to Dadaguard are documented here. Format based on
 - **I riquadri erano più piccoli di quello che ci scrivevi dentro.** Altezza fissa a 138: un gruppo con
   quattro nomi, la testa comune, il «+9» e due righe di riassunto finiva col testo scritto fuori dal
   bordo. Ora l'altezza la calcola il contenuto, in entrambi i versi.
+- **Le frecce non si capivano: giravano intorno alle card.** Le maniglie stavano solo a sinistra e a
+  destra, quindi un arco fra due riquadri della STESSA colonna (due servizi che si chiamano a vicenda)
+  doveva uscire a destra e rientrare a sinistra, disegnando rettangoli lunghi che passavano davanti alle
+  altre card: sembravano collegamenti fra chi non c'entrava niente. Ora ogni riquadro ha le maniglie sui
+  quattro lati e il lato lo scegliono le posizioni: destra verso sinistra se il bersaglio è più a destra,
+  sotto verso sopra se è nella stessa colonna, sinistra verso destra se l'arco torna indietro (e allora si
+  VEDE che va contro il verso di lettura). Due archi opposti fra gli stessi due nodi diventano **una
+  freccia con la punta alle due estremità**: «si chiamano a vicenda» è un fatto solo, e disegnarlo come due
+  linee sovrapposte non diceva niente. Gli archi tornano curvi: il tracciato ortogonale faceva confluire
+  sei frecce in un unico tronco verticale, dove non si distingueva più quale andasse dove.
 - **La scheda «Rete» buttava giù la pagina.** Restava un riferimento a una variabile cancellata col
   vecchio grafo, quindi aprire quella scheda dava schermo bianco (`ReferenceError`). Il build non lo
   vede: un identificativo non risolto passa per una globale.
