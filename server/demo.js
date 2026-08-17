@@ -478,6 +478,56 @@ export function demoTopology() {
   }
 }
 
+// Rete finta: due VPC per account, subnet pubbliche e private con la loro zona, e il gruppo «senza VPC»
+// per le lambda che non ci stanno dentro. In demo la vista di rete rispondeva «niente da mostrare», che
+// per l'immagine pubblica del progetto è una pagina vuota su una feature che esiste.
+export function demoNetwork() {
+  const risorse = (nomi) => nomi.map(([name, type]) => ({ name, type }))
+  return {
+    accounts: [
+      {
+        account: 'prod',
+        label: 'Production',
+        color: '#722ed1',
+        vpcs: [
+          {
+            id: 'vpc-0aa1',
+            name: 'prod-vpc',
+            cidr: '10.20.0.0/16',
+            nat: 2,
+            igw: true,
+            subnets: [
+              { id: 'subnet-1a', name: 'public-a', az: 'eu-central-1a', public: true, services: risorse([['public-lb', 'alb'], ['web', 'ecs']]) },
+              { id: 'subnet-1b', name: 'private-a', az: 'eu-central-1a', public: false, services: risorse([['checkout-api', 'ecs'], ['payments-worker', 'lambda']]) },
+              { id: 'subnet-1c', name: 'private-b', az: 'eu-central-1b', public: false, services: risorse([['user-db', 'rds']]) },
+            ],
+          },
+        ],
+        noVpc: risorse([['image-resizer', 'lambda'], ['nightly-bi-refresh', 'lambda'], ['public-assets', 's3']]),
+      },
+      {
+        account: 'staging',
+        label: 'Staging',
+        color: '#13c2c2',
+        vpcs: [
+          {
+            id: 'vpc-0bb2',
+            name: 'staging-vpc',
+            cidr: '10.30.0.0/16',
+            nat: 1,
+            igw: true,
+            subnets: [
+              { id: 'subnet-2a', name: 'public-a', az: 'eu-central-1a', public: true, services: risorse([['legacy-api', 'ec2']]) },
+              { id: 'subnet-2b', name: 'private-a', az: 'eu-central-1a', public: false, services: risorse([['sessions', 'elasticache']]) },
+            ],
+          },
+        ],
+        noVpc: risorse([['notifier', 'lambda'], ['nightly-report', 'lambda']]),
+      },
+    ],
+  }
+}
+
 // IAM policy explorer finto: poche policy customer-managed con entità e permessi coerenti.
 export function demoIamPolicies() {
   return {

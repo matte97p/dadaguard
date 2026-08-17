@@ -45,7 +45,9 @@ export function story(lang = 'en') {
 
   return {
     name: en ? 'dadaguard' : 'dadaguard-it',
-    url: 'http://localhost:3001',
+    // Indirizzo sovrascrivibile: registrare non deve costringere a spegnere il server di sviluppo, che
+    // di solito occupa proprio la 3001 (`DADAGUARD_DEMO_URL=http://localhost:3097`).
+    url: process.env.DADAGUARD_DEMO_URL || 'http://localhost:3001',
     // La UI di Dadaguard si traduce dal locale del context: qui si decide la lingua del prodotto,
     // non solo quella delle caption.
     locale: en ? 'en-US' : 'it-IT',
@@ -221,16 +223,38 @@ export function story(lang = 'en') {
       },
       { type: 'highlightHide' },
 
+      // ── Esecuzioni: i cron che girano adesso, e i log della singola corsa ─────────────────────
+      { type: 'click', selector: nav('/esecuzioni') },
+      { type: 'wait', selector: '.dg-tl-row' },
+      {
+        type: 'caption',
+        text: say(
+          'Cron jobs: one row each, one block per run. Green ended fine, red did not, striped is running now.',
+          'I cron: una riga a testa, un blocco per esecuzione. Verde è finita bene, rosso no, rigata sta girando adesso.',
+        ),
+        duration: 3800,
+      },
+      { type: 'zoom', selector: '.dg-tl-strip', scale: 1.7 },
+      {
+        type: 'caption',
+        text: say(
+          'A watchdog says «the cron ran». This says how each single run ended, and opens its logs.',
+          'Un watchdog dice «il cron è partito». Qui si vede com’è finita ogni singola corsa, e si aprono i suoi log.',
+        ),
+        duration: 3600,
+      },
+      { type: 'zoomReset' },
+
       // ── Topologia: la mappa dell'architettura, un livello per volta ──────────────────────────
       { type: 'click', selector: nav('/topologia') },
       { type: 'wait', selector: '.dg-topo-box' },
       {
         type: 'caption',
         text: say(
-          'One diagram, one level: who takes the request, who serves it, where the data is.',
-          'Un diagramma, un livello: chi riceve la richiesta, chi la serve, dove stanno i dati.',
+          'Two questions: if this stops, who suffers? And this is broken, what does it depend on?',
+          'Due domande: se questo si ferma, chi ne soffre? E questo è rotto, da cosa dipende?',
         ),
-        duration: 3600,
+        duration: 3800,
       },
       // Il selettore punta alla CLASSE del box, non all'id di una risorsa: gli id dipendono dal dataset
       // e il primo livello non ne contiene nessuno (i box sono gruppi). Un video che si aggancia a un id
@@ -239,10 +263,18 @@ export function story(lang = 'en') {
       {
         type: 'caption',
         text: say(
-          'A solid arrow is a real pointer; a dashed one is inferred from a name in a config.',
-          'Freccia piena = un puntatore vero; tratteggiata = dedotta da un nome in una configurazione.',
+          'Solid arrow: a real pointer (a load balancer routes here). Dashed: inferred from a config.',
+          'Freccia piena: un puntatore vero (un load balancer instrada qui). Tratteggiata: dedotta da una configurazione.',
         ),
-        duration: 2800,
+        duration: 3000,
+      },
+      {
+        type: 'caption',
+        text: say(
+          'Columns come from the graph, not from a hand-written list. Nothing to declare by hand.',
+          'Le colonne vengono dagli archi, non da un elenco scritto a mano. Niente da dichiarare.',
+        ),
+        duration: 3000,
       },
       { type: 'zoomReset' },
 
