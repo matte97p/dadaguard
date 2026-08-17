@@ -4,7 +4,7 @@ import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
 import { buildMap, buildGroup, rollup, topologyNodeId, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
 import Loading from '../components/Loading.jsx'
@@ -360,17 +360,24 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
             </Text>
           </Space>
 
-          {loading ? (
-            <div style={{ ...CANVAS, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Loading text={t('topo.loading')} />
-            </div>
-          ) : serviziAmbiente.length === 0 ? (
+          {/* La mappa NON aspetta gli archi. I box vengono dai servizi, che la pagina ha già in mano;
+              le relazioni arrivano da /api/topology, che su una flotta vera è un giro di decine di
+              chiamate AWS (55 secondi a cache fredda, misurati). Prima la pagina restava sullo spinner
+              per tutto quel tempo e si leggeva come «carica all'infinito»: ora il disegno c'è subito e
+              le frecce compaiono quando arrivano, con una riga che dice che stanno arrivando. */}
+          {serviziAmbiente.length === 0 ? (
             <div style={CANVAS}>
               <EmptyState description={t('topo.noServices')} />
             </div>
           ) : (
             <div style={{ ...CANVAS, display: 'flex', overflow: 'hidden' }}>
               <div style={{ flex: 1, position: 'relative' }}>
+                {loading && (
+                  <div className="dg-topo-loading">
+                    <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
+                    {t('topo.loadingEdges')}
+                  </div>
+                )}
                 <ReactFlow
                   key={firma}
                   nodes={nodes}

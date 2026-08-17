@@ -874,3 +874,22 @@ details[open] > .dg-summary .dg-chev {
   gap: 6px;
   flex-wrap: wrap;
 }
+
+/* «Sto leggendo le relazioni»: una riga sopra la tela, non uno spinner al posto del disegno. La mappa
+   esiste senza gli archi (i box vengono dai servizi, già in pagina) e farla aspettare un giro di decine
+   di chiamate AWS si legge come «carica all'infinito» — che è esattamente come è stata descritta. */
+.dg-topo-loading {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--dg-node-bg, #fff);
+  border: 1px solid var(--dg-line);
+  font-size: 11.5px;
+  color: var(--dg-ink-mute);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}

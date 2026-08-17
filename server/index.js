@@ -410,8 +410,11 @@ app.get('/api/topology', async (_req, res) => {
     // ALB e i security group di ogni servizio — decine di chiamate, ~10 secondi sulla flotta vera. La
     // topologia però cambia quando cambia l'INFRASTRUTTURA (un apply Terraform), non col traffico:
     // rifarla a ogni apertura di pagina significa far aspettare dieci secondi per un disegno identico.
-    // Cinque minuti, e le aperture successive (anche di altre persone) sono immediate.
-    res.json(await cached('topology', 300_000, () => deduceTopology(services, accounts)))
+    // Dieci minuti, e le aperture successive (anche di altre persone) sono immediate. A cache fredda il
+    // giro resta lungo (55 secondi misurati mentre la dashboard interroga AWS in parallelo), ma la
+    // pagina non lo aspetta più: disegna i box dai servizi che ha già e ci attacca le frecce quando
+    // arrivano.
+    res.json(await cached('topology', 600_000, () => deduceTopology(services, accounts)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

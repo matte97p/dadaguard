@@ -70,7 +70,10 @@ const NAV = [
       // Esecuzioni: solo Account. Regione e tipo non filtrano una run (il cron ha già la sua regione),
       // e una barra con filtri inerti fa dubitare di tutti gli altri.
       { to: '/esecuzioni', key: 'runs', icon: <FieldTimeOutlined />, fields: ['account'], surfaces: [] },
-      { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: FILTER_FIELDS_FULL, surfaces: ['topology'] },
+      // Topologia: solo Account, e nemmeno quello serve granché — la pagina ha il suo selettore
+      // d'ambiente. Gli altri filtri (tipo, stato, nome) su una MAPPA fanno danno: nascondono membri di
+      // un gruppo senza dirlo, e il conteggio del box diventa una mezza verità.
+      { to: '/topologia', key: 'topology', icon: <PartitionOutlined />, fields: ['account'], surfaces: ['topology'] },
     ],
   },
   {
