@@ -118,10 +118,18 @@ export function classifyEcs(svc, now = Date.now(), graceMs = GRACE_MS) {
 //   - alcuni sani su molti → ATTENZIONE, anche se i task risultano tutti su
 //   - durante un deploy non si giudica: i target vecchi vanno in draining e i nuovi si registrano,
 //     un rosso lì sarebbe un falso allarme a ogni rilascio
+//
+// I target in transizione non contano nel giudizio, ma NON spengono il segnale: si guarda `registered`,
+// cioè quanti sono iscritti al target group, transizione compresa. Guardare il solo `total` significava
+// che un servizio con tutti i target in draining (zero traffico servito, 503 a chi chiama) usciva dalla
+// regola dalla porta di servizio, e la card tornava verde proprio nel caso che questa funzione esiste
+// per prendere. Il rilascio resta coperto da `deploying`, che è il posto giusto per quel silenzio.
 export function applyTargetHealth({ status, desiredCount = 0, deploying = false }, health) {
-  if (deploying || !health || !health.total) return { status, changed: false }
+  if (deploying || !health) return { status, changed: false }
+  const registered = health.registered ?? health.total
+  if (!registered) return { status, changed: false }
   if (health.healthy === 0 && desiredCount > 0) return { status: 'down', changed: true }
-  if (health.healthy < health.total && status === 'up') return { status: 'degraded', changed: true }
+  if (health.total > 0 && health.healthy < health.total && status === 'up') return { status: 'degraded', changed: true }
   return { status, changed: false }
 }
 
@@ -156,9 +164,10 @@ async function targetHealth(svc, aws) {
         total: a.total + b.total,
         healthy: a.healthy + b.healthy,
         transitioning: a.transitioning + b.transitioning,
+        registered: a.registered + b.registered,
         bad: [...a.bad, ...b.bad],
       }),
-      { total: 0, healthy: 0, transitioning: 0, bad: [] },
+      { total: 0, healthy: 0, transitioning: 0, registered: 0, bad: [] },
     )
   } catch {
     return null // permesso mancante o chiamata fallita: nessun segnale, non un falso allarme
@@ -200,16 +209,27 @@ export async function ecsRuntime(cfg, aws, opts = {}) {
   }
   const { status: finalStatus } = applyTargetHealth({ status, desiredCount, deploying }, health)
   const targetiFuori = Boolean(health && health.total > 0 && health.healthy < health.total && !deploying)
-  const finalSummary = targetiFuori
-    ? `${summary} · ${t('ecs.targets', { healthy: health.healthy, total: health.total })}`
-    : summary
+  // I target in transizione non contano nel colore, ma vanno DETTI: senza questa coda un servizio con
+  // «2/2 target sani» e un terzo che sta uscendo racconta una flotta più piccola di quella vera, e il
+  // caso in cui stanno uscendo tutti mostrerebbe la sola riga dei task, senza nessuna spiegazione.
+  const inTransizione = Boolean(health && health.transitioning > 0 && !deploying)
+  const codaTransizione = inTransizione
+    ? health.total === 0
+      ? ` · ${t('alb.alltransitioning', { n: health.transitioning })}`
+      : t('alb.transitioning', { n: health.transitioning })
+    : ''
+  const finalSummary =
+    (targetiFuori ? `${summary} · ${t('ecs.targets', { healthy: health.healthy, total: health.total })}` : summary) +
+    codaTransizione
   // In chat il conteggio dei task non spiega niente se il problema sta dietro al load balancer: qui si
   // dice quale target è fuori e con che motivo (dalla stessa risposta AWS già in mano).
   const alert =
     targetiFuori && (health.bad ?? []).length
       ? `${summary} · ${t(health.healthy === 0 ? 'alb.allunhealthy' : 'alb.unhealthy', {
           n: health.bad.length,
-          total: health.total,
+          // denominatore = target ISCRITTI, transizione compresa: «2 su 8» è la flotta vera, «2 su 2»
+          // farebbe sembrare l'intero servizio fuori a chi legge la notifica di notte.
+          total: health.registered ?? health.total,
           list: unhealthyList(health.bad),
         })}`
       : undefined
