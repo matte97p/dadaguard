@@ -398,7 +398,10 @@ export default function TopologyPage({ services = [], accountLabels, dark, t = (
                   <Controls showInteractive={false} />
                 </ReactFlow>
               </div>
-              <Pannello scelto={scelto} servizi={serviziAmbiente} topo={topo} t={t} onApri={apriGruppo} />
+              {/* Il pannello prende larghezza SOLO quando c'è qualcosa da dire: a mappa non selezionata
+                  quei 280px li usa il disegno, ed è la differenza fra una tela che ci sta e una che
+                  `fitView` rimpicciolisce fino a rendere il testo di dieci pixel. */}
+              {scelto && <Pannello scelto={scelto} servizi={serviziAmbiente} topo={topo} t={t} onApri={apriGruppo} />}
             </div>
           )}
         </>

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId } from '../web/topoGraph.js'
+import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId, testaComune, nomiDaMostrare } from '../web/topoGraph.js'
 import { topologyNodeId as chiaveServer } from '../server/topology/deduce.js'
 
 // La MAPPA dell'architettura. Queste sono decisioni di prodotto, non dettagli di resa: chi entra in
@@ -137,4 +137,41 @@ test('un ambiente senza niente non esplode: mappa vuota, e lo dice', () => {
   const m = buildMap([], { nodes: [], edges: [] }, t)
   assert.deepEqual(m.nodes, [])
   assert.equal(m.vuoto, true)
+})
+
+test('la testa comune si scrive UNA volta: compattarla in grigio non fa risparmiare un pixel', () => {
+  const nomi = ['acme-production-cron-ai-credit-monitor', 'acme-production-cron-follow-competitor', 'acme-production-cron-release-recap']
+  assert.equal(testaComune(nomi), 'acme-production-cron-')
+  // Un nome solo non ha una testa «comune» con nessuno.
+  assert.equal(testaComune(['acme-production-backend']), null)
+  // Testa troppo corta: si guadagna niente e si perde il nome intero.
+  assert.equal(testaComune(['a-uno', 'a-due']), null)
+  // Nessuna testa condivisa.
+  assert.equal(testaComune(['backend', 'frontend', 'garanzia']), null)
+  // La testa si taglia al confine del trattino, non a metà parola: qui la parte comune è `acme-`
+  // (cinque caratteri, sotto la soglia) e NON `acme-prod`, che spezzerebbe `produzione` a metà.
+  assert.equal(testaComune(['acme-prod-uno', 'acme-produzione-due']), null)
+  assert.equal(testaComune(['acmecorp-prod-uno', 'acmecorp-produzione-due']), 'acmecorp-')
+})
+
+test('due nomi identici nel box vengono distinti, invece di sembrare un errore', () => {
+  // Due modelli Bedrock diversi possono avere lo stesso nome parlante: cambia l'area di inferenza, che
+  // è anche l'informazione che conta (`global.` può uscire dall'Unione Europea).
+  const servizi = [
+    { name: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0', type: 'bedrock' },
+    { name: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', type: 'bedrock' },
+  ]
+  const { nomi } = nomiDaMostrare(servizi, () => 'Claude Haiku 4.5')
+  assert.deepEqual(nomi, ['Claude Haiku 4.5', 'Claude Haiku 4.5 · global'])
+})
+
+test('nel box compaiono PRIMA i servizi con problemi: su tredici membri il rotto è l’unico che cerchi', () => {
+  const servizi = [
+    ...Array.from({ length: 12 }, (_, i) => svc(`aaa-cron-${i}`, 'lambda', { checks: { runtime: { schedule: '1440m' } } })),
+    svc('zzz-cron-rotto', 'lambda', { overall: 'down', checks: { runtime: { schedule: '1440m' } } }),
+  ]
+  const m = buildMap(servizi, { nodes: [], edges: [] }, t)
+  const box = m.nodes.find((n) => n.data.key === 'sched')
+  assert.ok(box.data.nomi[0].includes('rotto'), `atteso il rotto in cima: ${box.data.nomi.join(', ')}`)
+  assert.equal(box.data.altri, 9)
 })

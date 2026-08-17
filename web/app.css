@@ -893,3 +893,34 @@ details[open] > .dg-summary .dg-chev {
   color: var(--dg-ink-mute);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
+
+/* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
+   una riga ciascuno e tagliati con l'ellissi — servono a riconoscere, non a leggere per intero (il nome
+   completo sta nel tooltip e nel pannello). */
+.dg-topo-box-names {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--dg-ink-mute);
+}
+.dg-topo-box-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dg-topo-box-more {
+  font-size: 10px;
+  opacity: 0.55;
+}
+/* La testa condivisa dei nomi, in cima all'elenco e una volta sola. */
+.dg-topo-box-fam {
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--dg-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

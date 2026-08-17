@@ -81,6 +81,22 @@ export function TopoGroup({ data, selected }) {
         <span className="dg-topo-box-title">{data.titolo}</span>
         <span className="dg-topo-rep">{r.membri}</span>
       </div>
+      {/* I nomi di cosa c'è dentro: è la differenza fra un contenitore e un'informazione. Testa di
+          famiglia compattata, come ovunque nell'app — qui i nomi condividono tutti lo stesso prefisso
+          di ambiente e senza compattarli si legge otto volte la stessa parola. */}
+      {data.nomi?.length > 0 && (
+        <div className="dg-topo-box-names">
+          {/* La testa condivisa UNA volta sola, in cima: scritta su ogni riga occuperebbe lo spazio
+              della parte che distingue, e i nomi finirebbero tagliati proprio lì. */}
+          {data.testa && <div className="dg-topo-box-fam">{data.testa}…</div>}
+          {data.nomi.map((n) => (
+            <div key={n} className="dg-topo-box-name" title={n}>
+              {n}
+            </div>
+          ))}
+          {data.altri > 0 && <div className="dg-topo-box-more">+{data.altri}</div>}
+        </div>
+      )}
       <div className="dg-topo-box-body">
         {/* PROBLEMI, non «X su N attivi»: un servizio senza traffico è `idle`, e contarlo fra i non
             attivi trasforma «nessuno l'ha chiamato» in «è rotto». Zero problemi si dice, non si tace:

@@ -1,4 +1,5 @@
 import { nodeIdOf } from '../shared/nodeId.js'
+import { familyPrefixes, displayName } from './serviceName.js'
 
 // COME SI COSTRUISCE LA MAPPA DELL'ARCHITETTURA.
 //
@@ -102,6 +103,49 @@ export function rollup(servizi = [], now = Date.now()) {
   }
 }
 
+// La TESTA COMUNE di un elenco di nomi, tagliata al confine di un trattino. Serve a mostrarla una volta
+// sola in cima al box invece che su ogni riga: compattarla in grigio (come fanno le card) NON fa
+// risparmiare un pixel, e in un box da 224px i nomi dei cron finivano tagliati a metà — cioè proprio
+// sulla parte che li distingue. Si applica solo se toglie almeno sei caratteri a TUTTI: sotto quella
+// soglia si guadagna niente e si perde il nome intero. Pura/testabile.
+export function testaComune(nomi = [], minimo = 6) {
+  if (nomi.length < 2) return null
+  const pezzi = nomi[0].split('-')
+  let testa = ''
+  for (let i = 0; i < pezzi.length - 1; i++) {
+    const cand = `${testa}${pezzi[i]}-`
+    if (!nomi.every((n) => n.startsWith(cand) && n.length > cand.length)) break
+    testa = cand
+  }
+  return testa.length >= minimo ? testa : null
+}
+
+// Nomi da mostrare in un box: senza la testa comune, e disambiguati se due coincidono (due modelli
+// Bedrock diversi possono avere lo stesso nome parlante, e vederlo due volte sembra un errore). Pura.
+export function nomiDaMostrare(servizi, nomeDi, quanti = 4) {
+  const completi = servizi.map(nomeDi)
+  const testa = testaComune(completi)
+  const visti = new Map()
+  const nomi = servizi.slice(0, quanti).map((s, i) => {
+    let n = testa ? completi[i].slice(testa.length) : completi[i]
+    if (visti.has(n)) {
+      // Due nomi uguali: si aggiunge ciò che li distingue davvero (per i modelli è l'area di inferenza,
+      // che è anche l'informazione che conta: `global.` può uscire dall'Unione Europea).
+      const scope = String(s.name).split('.')[0]
+      if (scope && scope !== s.name) n = `${n} · ${scope}`
+    }
+    visti.set(n, true)
+    return n
+  })
+  return { testa, nomi }
+}
+
+// Toglie la testa condivisa da un nome, quando c'è. Pura.
+export const scorcia = (nome, testa) => (testa && String(nome).startsWith(testa) ? String(nome).slice(testa.length) : nome)
+
+// Ordine di importanza dentro a un gruppo: chi è giù, poi chi è degradato, poi il resto. Pura.
+export const peso = (s) => (s.overall === 'down' ? 0 : s.overall === 'degraded' ? 1 : s.overall === 'idle' || s.overall === 'disabled' ? 3 : 2)
+
 // Colore dell'accento di un gruppo: solo i guasti lo colorano.
 export const coloreGruppo = (r) => (r.problemi > 0 ? STATUS_COLOR.down : STATUS_COLOR.up)
 
@@ -133,10 +177,13 @@ export function fraTempo(ms, t = (k) => k) {
   return `${Math.round(min / 1440)}${t('time.unit.d')}`
 }
 
-const W = 250
-const H = 96
-const GAP_X = 70
-const GAP_Y = 26
+// Misure scelte per NON far rimpicciolire il disegno: con quattro colonne da 250 e 70 di stacco la
+// tela era 1210px in circa mille disponibili, quindi `fitView` scendeva a zoom 0.75 e il testo dei box
+// finiva a dieci pixel e mezzo — «illeggibile» era una descrizione esatta. 224 + 44 fa 1028, che ci sta.
+const W = 224
+const H = 138
+const GAP_X = 44
+const GAP_Y = 28
 
 // LIVELLO 1: la mappa. Colonne da sinistra a destra (ingresso → applicazioni → dati), e sotto la banda
 // di ciò che gira da solo. Il verso è quello che chi guarda si aspetta da un diagramma di flusso, ed è
@@ -149,6 +196,13 @@ const COLONNE = [
 ]
 
 export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now() } = {}) {
+  // La testa condivisa dei nomi si conta su TUTTO l'ambiente: dev'essere la stessa in ogni box, sennò
+  // l'occhio la rilegge ogni volta invece di saltarla.
+  // `displayName` e non `name`: un modello Bedrock si chiama
+  // `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, che in un box da 224px è una riga di rumore. La
+  // funzione che lo rende leggibile («Claude Haiku 4.5») esiste già ed è la stessa delle card.
+  const nomeDi = (x) => displayName(x)
+  const prefissi = familyPrefixes(services.filter((s) => s.type !== 'bedrock').map((s) => s.name))
   const perGruppo = new Map(GRUPPI.map((g) => [g.key, []]))
   for (const s of services) perGruppo.get(groupOf(s)).push(s)
 
@@ -162,6 +216,7 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
     col.forEach((key, y) => {
       const lista = perGruppo.get(key)
       const r = rollup(lista, now)
+      const nomiBox = nomiDaMostrare([...lista].sort((a, b) => peso(a) - peso(b) || nomeDi(a).localeCompare(nomeDi(b))), nomeDi)
       nodes.push({
         id: `g:${key}`,
         type: 'gruppo',
@@ -175,11 +230,23 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
           rollup: r,
           colore: coloreGruppo(r),
           membri: lista,
+          // I NOMI dentro al box. Un rettangolo che dice «Applicazioni · 8» è un contenitore, non
+          // un'informazione: per sapere cosa c'è dentro bisogna aprirlo, e allora tanto vale l'elenco.
+          // Quattro e il resto contato: cinque righe di nomi in un box da 138px non ci stanno, e la
+          // quinta sarebbe tagliata a metà, che è peggio di un «+5».
+          prefissi,
+          // Quali quattro: PRIMA chi ha un problema. Mostrare i primi quattro in ordine alfabetico
+          // significa che su un gruppo di tredici il servizio rotto non compare quasi mai, ed è l'unico
+          // che si stava cercando.
+          ...nomiBox,
+          altri: Math.max(0, lista.length - 4),
           // Le frasi le compone qui chi ha `t` in mano: il componente disegna, non traduce. Così le
           // stringhe restano in un posto solo e il guardiano i18n le vede.
           frasi: {
+            // Anche qui la testa condivisa si toglie: scritta per intero, la riga del problema esce dal
+            // box e taglia via il nome del servizio rotto, che è l'unica cosa che si voleva leggere.
             problemi: r.primoProblema
-              ? `${t('topo.g.problems', { n: r.problemi })}: ${r.primoProblema}`
+              ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
               : t('topo.g.problems', { n: r.problemi }),
             nessunProblema: t('topo.g.noProblems'),
             task: t('topo.g.task'),
@@ -222,14 +289,15 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
 
   const nodes = dentro
     .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => peso(a) - peso(b) || a.name.localeCompare(b.name))
     .map((s, i) => ({
       id: topologyNodeId(s),
       type: 'svc',
       position: { x: (i % perRiga) * (WR + 28), y: Math.floor(i / perRiga) * (HR + 34) },
       style: { width: WR, height: HR },
       data: {
-        name: s.name,
+        name: displayName(s),
+        prefissi: familyPrefixes(dentro.map((x) => x.name)),
         type: s.type,
         color: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
         repliche: repliche(s),
