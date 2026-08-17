@@ -24,6 +24,26 @@ All notable changes to Dadaguard are documented here. Format based on
   cross-account esistono, e sono proprio quelle che a mente non si ricostruiscono.
 
 ### Fixed
+- **Il traffico interno non si vedeva: i servizi si chiamano per INDIRIZZO del load balancer.** Nelle
+  configurazioni c'è `http://internal-…elb.amazonaws.com:8000`, e quel valore non uguaglia il nome del
+  load balancer, quindi nessuna passata lo vedeva: la mappa mostrava otto servizi affiancati senza una
+  freccia fra loro. Ora si leggono gli indirizzi dei load balancer (una `DescribeLoadBalancers` per
+  account) e i loro ascoltatori, e la PORTA dice chi risponde: `:8000` è il Backend, `:8001` la chat.
+  Senza la porta si collegherebbe chi chiama a tutti i servizi dietro quel load balancer, che è lo stesso
+  fanout falso del nome del cluster. Sulla flotta vera arrivano **14 archi nuovi**, che sono il grafo
+  delle chiamate interne. Se la porta non è mappata l'arco va al load balancer stesso, che è comunque
+  vero e verificabile: meglio un arco più corto del vero che un arco inventato.
+- **Le colonne erano un elenco scritto nel codice, non una lettura dei dati.** Ora il livello di un nodo
+  è la sua distanza dal perimetro calcolata sugli archi, e un gruppo prende il livello del suo membro più
+  a monte. Fra due nodi vince la direzione prevalente (sette frecce contro una non sono un pareggio) e
+  due che si chiamano a vicenda sono PARI, quindi stanno nella stessa colonna con le due frecce fra loro
+  invece di essere messi in fila scegliendo un verso a caso. Chi non ha archi va in fondo e non in testa:
+  la prima colonna vuol dire «da qui entra il lavoro». Dentro un gruppo le risorse stanno in colonne per
+  livello e i vicini agli estremi, così nessuna freccia verso un vicino attraversa la fila delle card
+  facendo sembrare una catena fra servizi che non esiste.
+- **I riquadri erano più piccoli di quello che ci scrivevi dentro.** Altezza fissa a 138: un gruppo con
+  quattro nomi, la testa comune, il «+9» e due righe di riassunto finiva col testo scritto fuori dal
+  bordo. Ora l'altezza la calcola il contenuto, in entrambi i versi.
 - **La scheda «Rete» buttava giù la pagina.** Restava un riferimento a una variabile cancellata col
   vecchio grafo, quindi aprire quella scheda dava schermo bianco (`ReferenceError`). Il build non lo
   vede: un identificativo non risolto passa per una globale.

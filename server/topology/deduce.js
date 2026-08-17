@@ -37,6 +37,8 @@ import {
   DescribeLoadBalancersCommand,
   DescribeTargetGroupsCommand,
   DescribeTargetHealthCommand,
+  DescribeListenersCommand,
+  DescribeRulesCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2'
 import {
   IAMClient,
@@ -216,6 +218,35 @@ export function extractHosts(env) {
   return [...new Set([...String(env || '').matchAll(HOST)].map((m) => m[0].toLowerCase()))]
 }
 
+// ENDPOINT AWS citati in una configurazione, con la porta quando c'è: `http://internal-…elb.amazonaws.com:8000`.
+// È il modo in cui i servizi si chiamano fra loro qui dentro, e nessuna passata lo vedeva: quel valore non
+// uguaglia il nome del load balancer (che si chiama `<org>-staging-alb-int`), quindi tutto il traffico
+// interno era invisibile e la mappa mostrava servizi affiancati senza una freccia fra loro.
+// La porta serve perché su un load balancer interno ogni ascoltatore porta a un servizio diverso: `:8000`
+// è il Backend, `:8001` la chat. Senza la porta si collegherebbe chi chiama a TUTTI i servizi dietro quel
+// load balancer, che è il fanout falso già visto col nome del cluster.
+// Senza porta esplicita vale quella dello schema (http 80, https 443), che è la regola dei browser e dei
+// client HTTP: non è una convenzione nostra. Pura/testabile.
+const ENDPOINT = /(?:(https?|wss?):\/\/)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.amazonaws\.com)(?::(\d{2,5}))?/gi
+export function extractEndpoints(env) {
+  const out = new Map()
+  for (const m of String(env || '').matchAll(ENDPOINT)) {
+    const host = m[2].toLowerCase()
+    const porta = m[3] ? Number(m[3]) : m[1] ? (m[1] === 'https' || m[1] === 'wss' ? 443 : 80) : null
+    const k = `${host}|${porta ?? ''}`
+    if (!out.has(k)) out.set(k, { host, porta })
+  }
+  return [...out.values()]
+}
+
+// Chi risponde a quell'indirizzo: i servizi dietro l'ascoltatore su quella porta. Se la porta non si sa o
+// non è mappata, l'arco va al load balancer stesso, che è comunque vero e verificabile: «cita questo
+// indirizzo». Meglio un arco più corto del vero che un arco inventato verso sei servizi. Pura/testabile.
+export function chiRispondeA({ porta }, lb) {
+  const dietro = porta != null ? lb.porte.get(porta) : null
+  return dietro?.length ? dietro : [lb.key]
+}
+
 export function matchEnvTargets(env, self, idList) {
   const tokens = envTokens(env)
   const candidates = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => tokens.has(tok)))
@@ -386,6 +417,82 @@ async function deduceBySecurityGroups(services, accounts, push) {
   }
 }
 
+// INDIRIZZI dei load balancer: DNS, scheme (esposto o interno) e, per ogni porta in ascolto, i servizi
+// dietro. Una `DescribeLoadBalancers` per account (elenca tutti i LB in una volta) più una
+// `DescribeListeners` e una `DescribeRules` per load balancer: i load balancer sono una manciata, e in
+// cambio si vede il traffico interno, che è la metà del disegno che mancava.
+// Lo `scheme` non serve a un arco ma alla LETTURA: un load balancer interno non è una porta d'ingresso,
+// e metterlo in prima colonna insieme a quelli pubblici racconta un perimetro che non esiste.
+async function lbAddresses(services, accounts, ecsData) {
+  const albs = services.filter((s) => s.aws?.type === 'alb' && (s.aws.arn || s.aws.name))
+  const perDns = new Map()
+  const schemi = new Map()
+  if (!albs.length) return { perDns, schemi }
+
+  const ecsByTg = new Map()
+  for (const s of services) {
+    if (s.aws?.type !== 'ecs') continue
+    for (const tg of ecsData.get(keyOf(s))?.tgArns ?? [])
+      ecsByTg.set(`${s.account ?? '__none__'}|${tg}`, keyOf(s))
+  }
+
+  const perAccount = new Map()
+  for (const alb of albs) {
+    const acct = alb.account ?? '__none__'
+    if (!perAccount.has(acct)) perAccount.set(acct, [])
+    perAccount.get(acct).push(alb)
+  }
+
+  await mapLimit([...perAccount.entries()], LIMITE, async ([acct, lista]) => {
+    const client = new ElasticLoadBalancingV2Client(clientOpts(awsFor(lista[0], accounts)))
+    const trovati = []
+    try {
+      let marker
+      do {
+        const o = await client.send(new DescribeLoadBalancersCommand({ Marker: marker }))
+        trovati.push(...(o.LoadBalancers ?? []))
+        marker = o.NextMarker
+      } while (marker)
+    } catch {
+      return /* elasticloadbalancing:DescribeLoadBalancers assente → niente indirizzi, niente archi */
+    }
+    await mapLimit(lista, LIMITE, async (alb) => {
+      const lb = trovati.find((x) => (alb.aws.arn ? x.LoadBalancerArn === alb.aws.arn : x.LoadBalancerName === alb.aws.name))
+      if (!lb?.DNSName) return
+      schemi.set(keyOf(alb), lb.Scheme ?? null)
+      const porte = new Map()
+      try {
+        const lo = await client.send(new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn }))
+        for (const l of lo.Listeners ?? []) {
+          const tgs = new Set(arnDeiTarget(l.DefaultActions))
+          try {
+            const ro = await client.send(new DescribeRulesCommand({ ListenerArn: l.ListenerArn }))
+            for (const r of ro.Rules ?? []) for (const a of arnDeiTarget(r.Actions)) tgs.add(a)
+          } catch {
+            /* DescribeRules assente → restano le azioni di default dell'ascoltatore */
+          }
+          const dietro = [...tgs].map((tg) => ecsByTg.get(`${acct}|${tg}`)).filter(Boolean)
+          if (l.Port != null && dietro.length) porte.set(l.Port, [...new Set(dietro)])
+        }
+      } catch {
+        /* DescribeListeners assente → resta l'indirizzo, e l'arco andrà al load balancer stesso */
+      }
+      perDns.set(lb.DNSName.toLowerCase(), { key: keyOf(alb), scheme: lb.Scheme ?? null, porte })
+    })
+  })
+  return { perDns, schemi }
+}
+
+// I target group citati da un'azione di ascoltatore o di regola, forward multipli compresi. Pura.
+export function arnDeiTarget(actions = []) {
+  const out = []
+  for (const a of actions ?? []) {
+    if (a.TargetGroupArn) out.push(a.TargetGroupArn)
+    for (const t of a.ForwardConfig?.TargetGroups ?? []) if (t.TargetGroupArn) out.push(t.TargetGroupArn)
+  }
+  return [...new Set(out)]
+}
+
 // Pass load balancer: per ogni ALB risale ai target group e collega i servizi dietro (ECS via
 // il campo loadBalancers del servizio; EC2 via i target di tipo instance). ecsData porta già i
 // target group letti nel pass ECS, così non ri-descriviamo i servizi. Best effort.
@@ -510,6 +617,18 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
   const ecsData = new Map()
   await mapLimit(services .filter((s) => s.aws?.type === 'ecs' && s.aws.cluster && s.aws.service), LIMITE, async (s) => ecsData.set(keyOf(s), await ecsInfo(s, awsFor(s, accounts))))
 
+  // Indirizzi dei load balancer PRIMA del giro sulle configurazioni: è lì che i servizi si citano.
+  const { perDns, schemi } = await lbAddresses(services, accounts, ecsData).catch(() => ({ perDns: new Map(), schemi: new Map() }))
+  // Chi chiama quell'indirizzo → chi risponde su quella porta. `route` è un puntatore vero come `lb`:
+  // l'indirizzo sta nella configurazione e la mappa degli ascoltatori la dà AWS.
+  const perEndpoint = (chiave, env) => {
+    for (const ep of extractEndpoints(env)) {
+      const lb = perDns.get(ep.host)
+      if (!lb) continue
+      for (const t of chiRispondeA(ep, lb)) if (t !== chiave) push(chiave, t, 'route')
+    }
+  }
+
   // env (Lambda + ECS) + event source (Lambda).
   await mapLimit(services, LIMITE, async (s) => {
       const type = s.aws?.type
@@ -522,6 +641,7 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
         for (const t of matchEnvTargets(env, self, idList)) push(keyOf(s), t.key, 'env')
+        perEndpoint(keyOf(s), env)
         // Sistemi di terze parti nominati nella configurazione (Supabase, ClickHouse, un endpoint di
         // ricerca…): non sono risorse AWS, quindi nessun match poteva riuscire, e finivano nel nulla.
         for (const e of esterniDaHost(extractHosts(env))) {
@@ -546,6 +666,7 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
       } else if (type === 'ecs') {
         for (const t of matchEnvTargets(ecsData.get(keyOf(s))?.env ?? '', self, idList))
           push(keyOf(s), t.key, 'env')
+        perEndpoint(keyOf(s), ecsData.get(keyOf(s))?.env ?? '')
         for (const e of esterniDaHost(extractHosts(ecsData.get(keyOf(s))?.env ?? ''))) {
           if (!extra.has(e.id)) extra.set(e.id, e)
           push(keyOf(s), e.id, 'env')
@@ -599,6 +720,8 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
     name: s.name,
     account: s.account ?? null,
     type: s.aws?.type ?? s.type ?? null,
+    // Esposto o interno: lo dice AWS, e serve a disegnare il perimetro invece di supporlo.
+    ...(schemi.get(keyOf(s)) ? { scheme: schemi.get(keyOf(s)) } : {}),
   }))
   return { edges, extraNodes: [...extra.values()], nodes }
 }

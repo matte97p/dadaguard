@@ -10,6 +10,9 @@ import {
   envTokens,
   extractHosts,
   esterniDaHost,
+  extractEndpoints,
+  chiRispondeA,
+  arnDeiTarget,
 } from '../server/topology/deduce.js'
 
 const idList = [
@@ -201,4 +204,49 @@ test('i sistemi esterni si raggruppano per dominio, e le risorse AWS non sono «
     ],
   )
   assert.equal(out[0].type, 'esterno')
+})
+
+
+test('i servizi si chiamano per INDIRIZZO del load balancer, e la porta dice chi risponde', () => {
+  // Era il buco più grande del disegno: `http://internal-…elb.amazonaws.com:8000` non uguaglia il nome
+  // del load balancer, quindi il traffico interno era invisibile e i servizi comparivano affiancati senza
+  // una freccia fra loro. La porta conta: su un load balancer interno ogni ascoltatore porta a un
+  // servizio diverso, e senza di lei si collegherebbe chi chiama a TUTTI quelli dietro.
+  const env = 'API=http://internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com:8000 WS=ws://internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com:8001/ws'
+  assert.deepEqual(extractEndpoints(env), [
+    { host: 'internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com', porta: 8000 },
+    { host: 'internal-acme-staging-alb-int-1234.eu-central-1.elb.amazonaws.com', porta: 8001 },
+  ])
+  // Senza porta esplicita vale quella dello schema: è la regola dei client HTTP, non una nostra scelta.
+  assert.deepEqual(extractEndpoints('U=https://acme-prod-alb-9.eu-central-1.elb.amazonaws.com/health'), [
+    { host: 'acme-prod-alb-9.eu-central-1.elb.amazonaws.com', porta: 443 },
+  ])
+  // Un endpoint citato senza schema e senza porta resta senza porta: inventarne una sarebbe indovinare.
+  assert.deepEqual(extractEndpoints('H=master.acme-staging-cache.abc.euc1.cache.amazonaws.com'), [
+    { host: 'master.acme-staging-cache.abc.euc1.cache.amazonaws.com', porta: null },
+  ])
+
+  const lb = { key: 'staging::acme-staging-alb-int', scheme: 'internal', porte: new Map([[8000, ['staging::backend']], [8001, ['staging::chat']]]) }
+  assert.deepEqual(chiRispondeA({ porta: 8000 }, lb), ['staging::backend'])
+  assert.deepEqual(chiRispondeA({ porta: 8001 }, lb), ['staging::chat'])
+  // Porta non mappata (o assente): l'arco va al load balancer stesso, che è comunque vero e verificabile.
+  // Meglio un arco più corto del vero che un arco inventato verso tutto quello che gli sta dietro.
+  assert.deepEqual(chiRispondeA({ porta: 9999 }, lb), ['staging::acme-staging-alb-int'])
+  assert.deepEqual(chiRispondeA({ porta: null }, lb), ['staging::acme-staging-alb-int'])
+})
+
+test('i target group di un ascoltatore: anche quelli dietro un forward pesato', () => {
+  // Un deploy blu/verde o canary manda a due target group con un peso: guardando solo `TargetGroupArn`
+  // si perde metà del traffico, cioè si perde l'arco proprio mentre un rilascio è in corso.
+  assert.deepEqual(
+    arnDeiTarget([
+      { TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa' },
+      { ForwardConfig: { TargetGroups: [{ TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/due/bbb', Weight: 90 }, { TargetGroupArn: 'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa', Weight: 10 }] } },
+    ]),
+    [
+      'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/uno/aaa',
+      'arn:aws:elasticloadbalancing:eu-central-1:1:targetgroup/due/bbb',
+    ],
+  )
+  assert.deepEqual(arnDeiTarget(), [])
 })

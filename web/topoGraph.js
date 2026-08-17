@@ -1,5 +1,6 @@
 import { nodeIdOf } from '../shared/nodeId.js'
 import { familyPrefixes, displayName } from './serviceName.js'
+import { livelli, colonne, altezzaBox, altezzaCard } from './topoLayout.js'
 
 // COME SI COSTRUISCE LA MAPPA DELL'ARCHITETTURA.
 //
@@ -44,6 +45,9 @@ export const STATUS_COLOR = {
 // La differenza si DISEGNA (piena vs tratteggiata) invece di essere spiegata in una legenda.
 export const VIA = {
   lb: { color: '#fa8c16', forte: true },
+  // L'indirizzo di un load balancer citato in una configurazione, risolto sull'ascoltatore di quella
+  // porta: chi chiama lo dice, chi risponde lo dice AWS. È un puntatore, non una somiglianza di nomi.
+  route: { color: '#fa8c16', forte: true },
   net: { color: '#13c2c2', forte: true },
   event: { color: '#7c3aed', forte: true },
   flow: { color: '#eb2f96', forte: true },
@@ -194,33 +198,18 @@ export function fraTempo(ms, t = (k) => k) {
   return `${Math.round(min / 1440)}${t('time.unit.d')}`
 }
 
-// Misure scelte per NON far rimpicciolire il disegno: con quattro colonne da 250 e 70 di stacco la
-// tela era 1210px in circa mille disponibili, quindi `fitView` scendeva a zoom 0.75 e il testo dei box
-// finiva a dieci pixel e mezzo — «illeggibile» era una descrizione esatta. 224 + 44 fa 1028, che ci sta.
+// Larghezza dei riquadri: 224 + 44 di stacco fa 1028px su tre colonne, che ci sta in una tela da mille.
+// Con 250 + 70 la tela era 1210 e `fitView` scendeva a zoom 0,75, cioè testo a dieci pixel e mezzo.
+// L'ALTEZZA non è più una costante: la calcola il contenuto (vedi web/topoLayout.js). Con 138 fissi un
+// gruppo con quattro nomi e due righe di riassunto scriveva le ultime righe FUORI dal bordo.
 const W = 224
-const H = 138
 const GAP_X = 44
 const GAP_Y = 28
 
-// LIVELLO 1: la mappa. Colonne da sinistra a destra (ingresso → applicazioni → dati), e sotto la banda
-// di ciò che gira da solo. Il verso è quello che chi guarda si aspetta da un diagramma di flusso, ed è
-// anche il verso in cui i nomi lunghi hanno spazio.
-// Le colonne seguono il VERSO delle frecce: a sinistra chi fa partire il lavoro (chi riceve la
-// richiesta, chi gira a orario, chi reagisce a un evento), al centro chi lo esegue, a destra dove
-// finisce. Con i cron a destra, le loro frecce verso le applicazioni uscivano dal bordo destro e
-// tornavano indietro attraversando tutta la tela: sembravano un errore di disegno, ed erano solo un
-// ordine di colonne sbagliato.
-const COLONNE = [
-  ['ingress', 'sched', 'event'],
-  ['app'],
-  ['data', 'models', 'ext', 'other'],
-]
-
 // I nodi che NON sono servizi nostri ma stanno nel grafo: un Supabase, un endpoint di ricerca, una coda
 // che nessuno ha dichiarato. Sono citati nella configurazione di chi li usa, e senza di loro la mappa
-// taceva su metà dei dati dello stack — «dove finiscono le scritture» è la prima domanda che si fa a un
-// disegno di architettura. Entrano solo se un arco li lega a QUESTO ambiente: sennò in staging
-// comparirebbero anche quelli nominati soltanto dalla produzione.
+// taceva su metà dei dati dello stack, «dove finiscono le scritture» compreso. Entrano solo se un arco li
+// lega a QUESTO ambiente: sennò in staging comparirebbero anche quelli nominati soltanto dalla produzione.
 // Il gruppo lo decide il loro TIPO, come per i servizi: una coda SQS non dichiarata è un dato, non un
 // «sistema esterno», e metterla fra i terzi la nasconderebbe dove nessuno la cerca.
 export function esterniDi(services = [], topo = {}) {
@@ -252,79 +241,98 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
   for (const [key, lista] of perGruppo) for (const s of lista) gruppoDiChiave.set(chiaveDi(s), key)
 
   const visibili = GRUPPI.map((g) => g.key).filter((k) => (perGruppo.get(k) ?? []).length > 0)
-  const nodes = []
-  const colonneUsate = COLONNE.map((col) => col.filter((k) => visibili.includes(k))).filter((c) => c.length)
-  colonneUsate.forEach((col, x) => {
-    col.forEach((key, y) => {
-      const lista = perGruppo.get(key)
-      const r = rollup(lista, now, rischi)
-      // Ordine dentro al box: prima i guasti, POI i più usati. Su un gruppo di dati o di sistemi di
-      // terzi i guasti sono rari e l'ordine alfabetico li mette in fila come se contassero uguale: il
-      // Redis da cui dipendono cinque servizi e un bucket che nessuno cita non sono la stessa cosa.
-      const nomiBox = nomiDaMostrare(
-        [...lista].sort(
-          (a, b) => peso(a) - peso(b) || (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) || nomeDi(a).localeCompare(nomeDi(b)),
-        ),
-        nomeDi,
-      )
-      nodes.push({
-        id: `g:${key}`,
-        type: 'gruppo',
-        position: { x: x * (W + GAP_X), y: y * (H + GAP_Y) },
-        // La geometria la dichiara il grafo, non il CSS: ReactFlow misura i nodi nel browser, e se la
-        // misura vera non coincide con quella usata per posizionarli gli archi si attaccano di traverso.
-        style: { width: W, height: H },
-        data: {
-          key,
-          titolo: t(`topo.g.${key}`),
-          rollup: r,
-          colore: coloreGruppo(r),
-          membri: lista,
-          // I NOMI dentro al box. Un rettangolo che dice «Applicazioni · 8» è un contenitore, non
-          // un'informazione: per sapere cosa c'è dentro bisogna aprirlo, e allora tanto vale l'elenco.
-          // Quattro e il resto contato: cinque righe di nomi in un box da 138px non ci stanno, e la
-          // quinta sarebbe tagliata a metà, che è peggio di un «+5».
-          prefissi,
-          // Quali quattro: PRIMA chi ha un problema. Mostrare i primi quattro in ordine alfabetico
-          // significa che su un gruppo di tredici il servizio rotto non compare quasi mai, ed è l'unico
-          // che si stava cercando.
-          ...nomiBox,
-          altri: Math.max(0, lista.length - 4),
-          // Le frasi le compone qui chi ha `t` in mano: il componente disegna, non traduce. Così le
-          // stringhe restano in un posto solo e il guardiano i18n le vede.
-          frasi: {
-            // Anche qui la testa condivisa si toglie: scritta per intero, la riga del problema esce dal
-            // box e taglia via il nome del servizio rotto, che è l'unica cosa che si voleva leggere.
-            problemi: r.primoProblema
-              ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
-              : t('topo.g.problems', { n: r.problemi }),
-            nessunProblema: r.ignoto ? t('topo.g.unknownState') : t('topo.g.noProblems'),
-            // «2 a rischio: dipende da backend»: è la riga per cui vale la pena avere un disegno invece
-            // di un elenco, perché la dipendenza che la genera non si vede da nessun'altra parte.
-            rischio: r.aRischio ? `${t('topo.g.risk', { n: r.aRischio })}: ${scorcia(r.causa, nomiBox.testa)}` : '',
-            task: t('topo.g.task'),
-            prossimo: r.prossimo ? t('topo.g.next', { in: fraTempo(r.prossimo - now, t) }) : '',
-            fermi: t('topo.g.idle', { n: r.fermi }),
-          },
-        },
-      })
-    })
+  const fusi = fondiArchi(topo.edges ?? [], (id) => gruppoDiChiave.get(id) ?? null).filter(
+    (a) => visibili.includes(a.source) && visibili.includes(a.target),
+  )
+
+  // LE COLONNE VENGONO DAGLI ARCHI, non da un elenco scritto qui: il livello è la distanza dal perimetro
+  // calcolata sul grafo delle RISORSE (vedi web/topoLayout.js), e il gruppo prende il livello del suo
+  // membro più a monte. Sui gruppi fusi non funziona: un solo arco strano (una lambda che cita
+  // l'indirizzo di un load balancer interno) trascinerebbe tutto il gruppo «Ingresso» dietro gli eventi,
+  // mentre i load balancer esposti che ci stanno dentro sono il perimetro. Il minimo è robusto a
+  // quell'arco e resta una lettura dei dati, non una convenzione.
+  const livelloNodo = livelli(
+    [...gruppoDiChiave.keys()],
+    (topo.edges ?? []).filter((e) => gruppoDiChiave.has(e.source) && gruppoDiChiave.has(e.target)),
+  )
+  const livelloDi = new Map(
+    visibili.map((key) => [key, Math.min(...perGruppo.get(key).map((s) => livelloNodo.get(chiaveDi(s)) ?? 0))]),
+  )
+
+  const elementi = []
+  const dati = new Map()
+  for (const key of visibili) {
+    const lista = perGruppo.get(key)
+    const r = rollup(lista, now, rischi)
+    // Ordine dentro al box: prima i guasti, POI i più usati. Su un gruppo di dati o di sistemi di
+    // terzi i guasti sono rari e l'ordine alfabetico li mette in fila come se contassero uguale: il
+    // Redis da cui dipendono cinque servizi e un bucket che nessuno cita non sono la stessa cosa.
+    const nomiBox = nomiDaMostrare(
+      [...lista].sort(
+        (a, b) => peso(a) - peso(b) || (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) || nomeDi(a).localeCompare(nomeDi(b)),
+      ),
+      nomeDi,
+    )
+    const frasi = {
+      // Anche qui la testa condivisa si toglie: scritta per intero, la riga del problema esce dal
+      // box e taglia via il nome del servizio rotto, che è l'unica cosa che si voleva leggere.
+      problemi: r.primoProblema
+        ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
+        : t('topo.g.problems', { n: r.problemi }),
+      nessunProblema: r.ignoto ? t('topo.g.unknownState') : t('topo.g.noProblems'),
+      // «2 a rischio: dipende da backend»: è la riga per cui vale la pena avere un disegno invece
+      // di un elenco, perché la dipendenza che la genera non si vede da nessun'altra parte.
+      rischio: r.aRischio ? `${t('topo.g.risk', { n: r.aRischio })}: ${scorcia(r.causa, nomiBox.testa)}` : '',
+      task: t('topo.g.task'),
+      prossimo: r.prossimo ? t('topo.g.next', { in: fraTempo(r.prossimo - now, t) }) : '',
+      fermi: t('topo.g.idle', { n: r.fermi }),
+    }
+    // Quante righe di riassunto verranno scritte davvero: è l'altezza del riquadro. La riga dei fermi
+    // cede il posto a quella del rischio (lo fa anche il componente): sono le due meno urgenti.
+    const righeBody = 1 + (frasi.rischio ? 1 : 0) + (r.task ? 1 : 0) + (frasi.prossimo ? 1 : 0) + (r.fermi > 0 && !frasi.rischio ? 1 : 0)
+    const h = altezzaBox({ nomi: nomiBox.nomi.length, testa: Boolean(nomiBox.testa), altri: Math.max(0, lista.length - 4), righeBody })
+    elementi.push({ id: `g:${key}`, livello: livelloDi.get(key) ?? 0, w: W, h })
+    dati.set(key, { r, nomiBox, frasi, lista, h })
+  }
+
+  const pos = colonne(elementi, { gapX: GAP_X, gapY: GAP_Y })
+  const nodes = elementi.map((el) => {
+    const key = el.id.slice(2)
+    const { r, nomiBox, frasi, lista } = dati.get(key)
+    return {
+      id: el.id,
+      type: 'gruppo',
+      position: pos.get(el.id),
+      // La geometria la dichiara il grafo, non il CSS: ReactFlow misura i nodi nel browser, e se la
+      // misura vera non coincide con quella usata per posizionarli gli archi si attaccano di traverso.
+      style: { width: el.w, height: el.h },
+      data: {
+        key,
+        titolo: t(`topo.g.${key}`),
+        rollup: r,
+        colore: coloreGruppo(r),
+        membri: lista,
+        prefissi,
+        ...nomiBox,
+        altri: Math.max(0, lista.length - 4),
+        frasi,
+      },
+    }
   })
 
-  const archi = fondiArchi(topo.edges ?? [], (id) => gruppoDiChiave.get(id) ?? null)
-    .filter((a) => visibili.includes(a.source) && visibili.includes(a.target))
-    .map((a) => ({
-      id: `g:${a.source}->g:${a.target}`,
-      source: `g:${a.source}`,
-      target: `g:${a.target}`,
-      type: 'default',
-      label: String(a.n),
-      data: { vias: a.vias, forte: a.forte, coppie: a.coppie },
-      // Piena = c'è un puntatore vero (un target group registra quel servizio). Tratteggiata = dedotta
-      // da un nome che compare in una configurazione o in una policy: vera, ma non è un flusso.
-      style: { strokeDasharray: a.forte ? undefined : '6 5', stroke: a.forte ? '#fa8c16' : '#8c8c8c' },
-      markerEnd: { type: 'arrowclosed', width: 14, height: 14, color: a.forte ? '#fa8c16' : '#8c8c8c' },
-    }))
+  const archi = fusi.map((a) => ({
+    id: `g:${a.source}->g:${a.target}`,
+    source: `g:${a.source}`,
+    target: `g:${a.target}`,
+    type: 'smoothstep',
+    label: String(a.n),
+    data: { vias: a.vias, forte: a.forte, coppie: a.coppie },
+    // Piena = c'è un puntatore vero (un target group registra quel servizio, o l'indirizzo del load
+    // balancer sta nella configurazione di chi chiama). Tratteggiata = dedotta da un nome trovato in una
+    // configurazione o in una policy: vera, ma non è un flusso.
+    style: { strokeDasharray: a.forte ? undefined : '6 5', stroke: a.forte ? '#fa8c16' : '#8c8c8c' },
+    markerEnd: { type: 'arrowclosed', width: 14, height: 14, color: a.forte ? '#fa8c16' : '#8c8c8c' },
+  }))
 
   return { nodes, edges: archi, perGruppo, vuoto: nodes.length === 0 }
 }
@@ -332,9 +340,8 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
 // LIVELLO 2: dentro un gruppo. Le risorse in griglia, e ai bordi gli STUB dei vicini — senza, scendendo
 // si perde di vista con chi parla il gruppo, che è metà del motivo per cui ci si è scesi.
 const WR = 208
-const HR = 52
 
-export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { now = Date.now(), perRiga = 4, rischi = new Map(), usi = new Map() } = {}) {
+export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { now = Date.now(), rischi = new Map(), usi = new Map() } = {}) {
   // Gli esterni entrano fra i membri come i servizi: sennò scendendo in «Applicazioni» le frecce verso
   // di loro sparivano in silenzio, perché il vicino non apparteneva a nessun gruppo.
   const tutti = [...services, ...esterniDi(services, topo)]
@@ -343,39 +350,26 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
   const nomeDi = new Map((topo.nodes ?? []).map((n) => [n.id, n.name]))
   const gruppoDi = new Map(tutti.map((s) => [chiaveDi(s), groupOf(s)]))
 
-  const nodes = dentro
-    .slice()
-    .sort((a, b) => peso(a) - peso(b) || (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) || a.name.localeCompare(b.name))
-    .map((s, i) => ({
-      id: chiaveDi(s),
-      type: 'svc',
-      position: { x: (i % perRiga) * (WR + 28), y: Math.floor(i / perRiga) * (HR + 34) },
-      style: { width: WR, height: HR },
-      data: {
-        name: displayName(s),
-        prefissi: familyPrefixes(dentro.map((x) => x.name)),
-        type: s.type,
-        // Una card gialla su un servizio sano non è una bugia: dice «dipende da qualcosa che non sta
-        // bene», ed è l'informazione per cui si è scesi dentro al gruppo.
-        color: rischi.has(chiaveDi(s)) && s.overall !== 'down' && s.overall !== 'degraded' ? STATUS_COLOR.degraded : STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
-        rischio: rischi.get(chiaveDi(s)) ?? null,
-        repliche: repliche(s),
-        // Di un sistema di terzi il tipo AWS non esiste: al suo posto gli host visti nella
-        // configurazione, che sono l'unica cosa che ne sappiamo davvero.
-        // «5 lo usano» sulla card: è la risposta alla prima delle due domande della pagina, e sulle
-        // risorse condivise (un Redis, un database) è l'unica cosa che ne dice il peso.
-        meta: [
-          s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · '),
-          usi.get(chiaveDi(s)) ? t('topo.usedBy', { n: usi.get(chiaveDi(s)) }) : null,
-        ]
-          .filter(Boolean)
-          .join(' · '),
-        title: s.esterno
-          ? [s.name, ...(s.esterno.hosts ?? [])].join('\n')
-          : [s.name, s.type, acctLabel(s)].filter(Boolean).join(' · '),
-        servizio: s,
-      },
-    }))
+  // Il livello si calcola sul grafo INTERO, non sul sottografo del gruppo: dentro «Applicazioni» le
+  // relazioni fra i membri passano da un load balancer interno, che sta in un altro gruppo. Guardando
+  // solo gli archi interni tutti risultavano allo stesso livello, e si finiva in una griglia alfabetica
+  // dove le frecce verso i vicini passavano in mezzo alle card, sembrando relazioni fra loro.
+  const livelloGlobale = livelli(
+    tutti.map((s) => chiaveDi(s)),
+    topo.edges ?? [],
+  )
+  // Livelli COMPATTATI: fra i membri del gruppo possono esserci buchi (livello 1 e 4 e nient'altro), e
+  // una colonna vuota in mezzo si legge come «qui manca qualcosa».
+  const presenti = [...new Set(dentro.map((s) => livelloGlobale.get(chiaveDi(s)) ?? 0))].sort((a, b) => a - b)
+  const colonnaDi = (s) => presenti.indexOf(livelloGlobale.get(chiaveDi(s)) ?? 0)
+
+  const ordinati = [...dentro].sort(
+    (a, b) =>
+      colonnaDi(a) - colonnaDi(b) ||
+      peso(a) - peso(b) ||
+      (usi.get(chiaveDi(b)) ?? 0) - (usi.get(chiaveDi(a)) ?? 0) ||
+      a.name.localeCompare(b.name),
+  )
 
   // Vicini: chi parla con qualcuno di dentro, raggruppato per gruppo di appartenenza. Uno stub per
   // gruppo, non uno per risorsa: sennò il livello 2 ridiventa il grafo intero.
@@ -395,26 +389,56 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
     if (v.nomi.length < 6) v.nomi.push(nomeDi.get(altro) ?? altro.split('::').pop())
   }
 
-  const righe = Math.max(1, Math.ceil(nodes.length / perRiga))
-  const altezza = righe * (HR + 34)
-  const stubNodes = []
-  ;[...stubIn.values()].forEach((v, i) => {
-    stubNodes.push({
-      id: `stub:in:${v.gruppo}`,
-      type: 'stub',
-      position: { x: -(WR + 70), y: i * (HR + 20) },
-      style: { width: WR - 30, height: 40 },
-      data: { titolo: t(`topo.g.${v.gruppo}`), n: v.n, nomi: v.nomi, verso: 'in' },
-    })
-  })
-  ;[...stubOut.values()].forEach((v, i) => {
-    stubNodes.push({
-      id: `stub:out:${v.gruppo}`,
-      type: 'stub',
-      position: { x: perRiga * (WR + 28) + 42, y: i * (HR + 20) },
-      style: { width: WR - 30, height: 40 },
-      data: { titolo: t(`topo.g.${v.gruppo}`), n: v.n, nomi: v.nomi, verso: 'out' },
-    })
+  // Tutto in colonne, stub compresi: chi entra a sinistra di tutto, chi riceve a destra di tutto. Così
+  // nessuna freccia verso un vicino attraversa la fila delle card.
+  const ultima = Math.max(0, presenti.length - 1)
+  const elementi = [
+    ...[...stubIn.values()].map((v) => ({ id: `stub:in:${v.gruppo}`, livello: -1, w: WR - 30, h: 40, stub: v, verso: 'in' })),
+    ...ordinati.map((s) => ({ id: chiaveDi(s), livello: colonnaDi(s), w: WR, h: altezzaCard(displayName(s), WR), servizio: s })),
+    ...[...stubOut.values()].map((v) => ({ id: `stub:out:${v.gruppo}`, livello: ultima + 1, w: WR - 30, h: 40, stub: v, verso: 'out' })),
+  ]
+  const pos = colonne(elementi, { gapX: 56, gapY: 26 })
+
+  const nodes = elementi.map((el) => {
+    if (el.stub)
+      return {
+        id: el.id,
+        type: 'stub',
+        position: pos.get(el.id),
+        style: { width: el.w, height: el.h },
+        data: { titolo: t(`topo.g.${el.stub.gruppo}`), n: el.stub.n, nomi: el.stub.nomi, verso: el.verso },
+      }
+    const s = el.servizio
+    return {
+      id: el.id,
+      type: 'svc',
+      position: pos.get(el.id),
+      style: { width: el.w, height: el.h },
+      data: {
+        name: displayName(s),
+        prefissi: familyPrefixes(dentro.map((x) => x.name)),
+        type: s.type,
+        // Una card gialla su un servizio sano non è una bugia: dice «dipende da qualcosa che non sta
+        // bene», ed è l'informazione per cui si è scesi dentro al gruppo.
+        color: rischi.has(chiaveDi(s)) && s.overall !== 'down' && s.overall !== 'degraded' ? STATUS_COLOR.degraded : STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
+        rischio: rischi.get(chiaveDi(s)) ?? null,
+        repliche: repliche(s),
+        // «5 lo usano» sulla card: è la risposta alla prima delle due domande della pagina, e sulle
+        // risorse condivise (un Redis, un database) è l'unica cosa che ne dice il peso.
+        // L'ACCOUNT non si scrive: la pagina mostra un ambiente per volta, quindi sarebbe la stessa
+        // parola su ogni card, e mangiava lo spazio dove finiva ellissato il resto.
+        meta: [
+          s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : s.type,
+          usi.get(chiaveDi(s)) ? t('topo.usedBy', { n: usi.get(chiaveDi(s)) }) : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        title: s.esterno
+          ? [s.name, ...(s.esterno.hosts ?? [])].join('\n')
+          : [s.name, s.type, acctLabel(s)].filter(Boolean).join(' · '),
+        servizio: s,
+      },
+    }
   })
 
   // Archi interni al gruppo, più quelli verso gli stub.
@@ -433,7 +457,8 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
   }
   const unici = new Map([...interni, ...versoStub].map((a) => [a.id, a]))
 
-  return { nodes: [...nodes, ...stubNodes], edges: [...unici.values()], membri: dentro, altezza }
+  const altezza = Math.max(...elementi.map((el) => (pos.get(el.id)?.y ?? 0) + el.h), 120)
+  return { nodes, edges: [...unici.values()], membri: dentro, altezza }
 }
 
 function arco(source, target, vias = []) {
@@ -443,7 +468,7 @@ function arco(source, target, vias = []) {
     id: `${source}->${target}`,
     source,
     target,
-    type: 'default',
+    type: 'smoothstep',
     data: { vias, forte },
     style: { strokeDasharray: forte ? undefined : '6 5', stroke: colore },
     markerEnd: { type: 'arrowclosed', width: 12, height: 12, color: colore },

@@ -95,14 +95,37 @@ test('la freccia dice quanto ci si può credere: piena se c’è un puntatore ve
 })
 
 test('la mappa emette la GEOMETRIA sui nodi: ReactFlow misura, e due misure diverse storcono gli archi', () => {
-  const m = buildMap([svc('alb', 'alb'), svc('backend', 'ecs')], { nodes: [], edges: [] }, t)
+  const topo = {
+    nodes: [nodo('alb', 'alb'), nodo('backend', 'ecs'), nodo('db', 'rds')],
+    edges: [arco('alb', 'backend', ['lb']), arco('backend', 'db')],
+  }
+  const m = buildMap([svc('alb', 'alb'), svc('backend', 'ecs'), svc('db', 'rds')], topo, t)
   for (const n of m.nodes) {
     assert.ok(n.style?.width > 0 && n.style?.height > 0, 'ogni box dichiara la sua misura')
     assert.equal(n.type, 'gruppo')
   }
-  // Colonne: l'ingresso a sinistra, le applicazioni dopo. Il verso è quello di un diagramma di flusso.
+  // Le colonne le decidono GLI ARCHI: l'ingresso sta a sinistra perché non ha niente che lo chiami, non
+  // perché lo abbiamo scritto in un elenco. Su un'architettura diversa il disegno cambia con lei.
   const x = (k) => m.nodes.find((n) => n.data.key === k).position.x
-  assert.ok(x('ingress') < x('app'))
+  assert.ok(x('ingress') < x('app'), 'chi riceve da fuori viene prima di chi serve')
+  assert.ok(x('app') < x('data'), 'i dati stanno dopo chi li scrive')
+  // Senza nessun arco non c'è un verso da mostrare, e inventarlo sarebbe raccontare un flusso che non
+  // si è letto: i gruppi finiscono in una colonna sola.
+  const senzaArchi = buildMap([svc('alb', 'alb'), svc('backend', 'ecs')], { nodes: [], edges: [] }, t)
+  assert.equal(new Set(senzaArchi.nodes.map((n) => n.position.x)).size, 1)
+})
+
+test('il riquadro è ALTO quanto quello che ci scrivi dentro', () => {
+  // Con l'altezza fissa a 138 un gruppo con quattro nomi, la testa comune, il «+9» e due righe di
+  // riassunto scriveva le ultime righe fuori dal bordo: era il difetto che si vedeva a occhio.
+  const cron = Array.from({ length: 13 }, (_, i) => svc(`acme-staging-cron-${i}`, 'lambda', { checks: { runtime: { schedule: '1440m', nextRunAt: Date.now() + 60_000 } } }))
+  const m = buildMap(cron, { nodes: [], edges: [] }, t)
+  const box = m.nodes.find((n) => n.data.key === 'sched')
+  assert.ok(box.style.height >= 160, `un box con testa, 4 nomi, «+9» e due righe non sta in ${box.style.height}px`)
+  // Un gruppo con un membro solo e una riga di riassunto resta compatto: l'altezza segue il contenuto
+  // nei due versi, sennò la mappa diventa una fila di riquadri mezzi vuoti.
+  const piccolo = buildMap([svc('alb', 'alb')], { nodes: [], edges: [] }, t)
+  assert.ok(piccolo.nodes[0].style.height < 110)
 })
 
 test('dentro un gruppo: le risorse, e ai bordi gli STUB dei vicini (uno per gruppo, non per risorsa)', () => {
