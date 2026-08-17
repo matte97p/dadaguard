@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId, testaComune, nomiDaMostrare } from '../web/topoGraph.js'
+import { buildMap, buildGroup, groupOf, rollup, fondiArchi, GRUPPI, haSchedule, topologyNodeId, testaComune, nomiDaMostrare, esterniDi } from '../web/topoGraph.js'
 import { topologyNodeId as chiaveServer } from '../server/topology/deduce.js'
 
 // La MAPPA dell'architettura. Queste sono decisioni di prodotto, non dettagli di resa: chi entra in
@@ -174,4 +174,43 @@ test('nel box compaiono PRIMA i servizi con problemi: su tredici membri il rotto
   const box = m.nodes.find((n) => n.data.key === 'sched')
   assert.ok(box.data.nomi[0].includes('rotto'), `atteso il rotto in cima: ${box.data.nomi.join(', ')}`)
   assert.equal(box.data.altri, 9)
+})
+
+
+test('i sistemi di TERZI stanno sulla mappa, e di loro non si dice «nessun problema»', () => {
+  // Metà dei dati di uno stack vero sta fuori da AWS (un Supabase, un endpoint di ricerca): senza questi
+  // nodi il disegno rispondeva «niente» alla prima domanda che si fa a una topologia, dove finiscono le
+  // scritture. Sono pseudo-servizi, non risorse: lo stato non lo conosciamo e non lo si finge.
+  const servizi = [svc('backend', 'ecs')]
+  const topo = {
+    nodes: [nodo('backend', 'ecs')],
+    extraNodes: [
+      { id: 'ext:host:esempio.co', type: 'esterno', label: 'esempio.co', hosts: ['db.esempio.co'] },
+      { id: 'ext:sqs:coda-lavori', type: 'sqs', label: 'coda-lavori' },
+      // Nominato solo dall'altro ambiente: qui non c'è nessun arco, quindi non entra.
+      { id: 'ext:host:mai-usato.io', type: 'esterno', label: 'mai-usato.io' },
+    ],
+    edges: [
+      { source: 'prod::backend', target: 'ext:host:esempio.co', vias: ['env'] },
+      { source: 'ext:sqs:coda-lavori', target: 'prod::backend', vias: ['event'] },
+    ],
+  }
+  assert.deepEqual(esterniDi(servizi, topo).map((x) => x.name), ['esempio.co', 'coda-lavori'])
+
+  const m = buildMap(servizi, topo, t)
+  const ext = m.nodes.find((n) => n.data.key === 'ext')
+  assert.deepEqual(ext.data.nomi, ['esempio.co'])
+  // Una coda non dichiarata è un DATO, non un «sistema esterno»: il gruppo lo decide il tipo, sennò
+  // finirebbe dove nessuno la cerca.
+  assert.equal(m.nodes.find((n) => n.data.key === 'data').data.nomi[0], 'coda-lavori')
+  // Di un sistema di terzi non sappiamo lo stato: la riga lo dice, invece di dichiararlo sano.
+  assert.equal(ext.data.frasi.nessunProblema, 'topo.g.unknownState')
+  assert.ok(m.edges.some((e) => e.target === 'g:ext'), 'l’arco verso i terzi si disegna')
+
+  // Livello 2: scendendo in «Applicazioni» il vicino esterno non sparisce.
+  const g = buildGroup('app', servizi, topo, t)
+  assert.ok(g.nodes.some((n) => n.id === 'stub:out:ext'))
+  // E il gruppo dei terzi si apre, con gli host che sono l'unica cosa che ne sappiamo.
+  const ge = buildGroup('ext', servizi, topo, t)
+  assert.deepEqual(ge.nodes.filter((n) => n.type === 'svc').map((n) => [n.id, n.data.meta]), [['ext:host:esempio.co', 'db.esempio.co']])
 })

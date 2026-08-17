@@ -6,7 +6,7 @@ import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
 import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
-import { buildMap, buildGroup, rollup, topologyNodeId, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
+import { buildMap, buildGroup, rollup, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
@@ -169,10 +169,15 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
   // sempre, perché «citato in una env var» e «un load balancer instrada qui» sono due cose diverse e
   // solo una delle due è un flusso.
   const s = scelto.servizio
-  const chiave = topologyNodeId(s)
+  const chiave = chiaveDi(s)
   const entranti = (topo.edges ?? []).filter((e) => e.target === chiave)
   const uscenti = (topo.edges ?? []).filter((e) => e.source === chiave)
-  const nomeDi = new Map((topo.nodes ?? []).map((n) => [n.id, n.name]))
+  // Anche i nodi che non sono servizi nostri (un sistema di terzi, una coda non dichiarata) hanno un
+  // nome: senza, nel pannello delle relazioni compariva l'identificativo grezzo `ext:host:…`.
+  const nomeDi = new Map([
+    ...(topo.nodes ?? []).map((n) => [n.id, n.name]),
+    ...(topo.extraNodes ?? []).map((n) => [n.id, n.label ?? n.id]),
+  ])
   const riga = (e, verso) => {
     const altro = verso === 'in' ? e.source : e.target
     return (
@@ -194,7 +199,7 @@ function Pannello({ scelto, servizi, topo, t, onApri }) {
         {s.name}
       </div>
       <Text type="secondary" style={{ fontSize: FONT.small }}>
-        {[s.type, acctLabel(s)].filter(Boolean).join(' · ')}
+        {s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · ')}
       </Text>
       {s.checks?.runtime?.summary && (
         <div style={{ marginTop: SPACE.sm, fontSize: FONT.small }}>{s.checks.runtime.summary}</div>

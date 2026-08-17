@@ -41,6 +41,7 @@ const ICONA_GRUPPO = {
   sched: FieldTimeOutlined,
   event: ThunderboltOutlined,
   models: RobotOutlined,
+  ext: ApiOutlined,
   other: AppstoreOutlined,
 }
 
@@ -61,6 +62,7 @@ const ICONA_TIPO = {
   sqs: BranchesOutlined,
   kinesis: BranchesOutlined,
   bedrock: RobotOutlined,
+  esterno: ApiOutlined,
 }
 
 // BOX di gruppo: il nodo del primo livello. Titolo, una riga di riassunto, e il conto dei membri.

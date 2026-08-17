@@ -185,8 +185,39 @@ export function extractArns(text) {
 // "production") + disambiguazione per account. Se c'è un candidato nello STESSO account è quello
 // (uccide le collisioni di nomi tra ambienti); se il token è unico e vive in un altro account,
 // è una dipendenza cross-account VERA (es. lambda staging che legge il DB prod) → la tengo.
+// I token di un valore di configurazione. Due passaggi, e il secondo è quello che mancava:
+//  1. si spezza sui separatori (spazi, virgole, `:`, `/`, `=`, `?`, `&`…) — così un URL diventa i suoi
+//     pezzi e l'hostname resta INTERO, che è giusto: un endpoint RDS si riconosce per intero;
+//  2. ogni pezzo che contiene dei PUNTI viene spezzato anche lì, e le etichette diventano token loro.
+//     Senza questo passaggio `master.acme-production-redis.abc.euc1.cache.amazonaws.com` era un token
+//     unico e non uguagliava mai il servizio `acme-production-redis`: e' il motivo per cui nel grafo non
+//     c'era NESSUN data store — non Redis, non Bedrock, non i database — e la mappa mostrava solo
+//     l'idraulica di ingresso. Il punto non stava fra i separatori, e nessuno se n'era accorto.
+// Pura/testabile.
+export function envTokens(env) {
+  const grezzi = String(env || '').split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean)
+  const out = new Set(grezzi)
+  for (const g of grezzi) {
+    if (!g.includes('.')) continue
+    for (const etichetta of g.split('.')) if (etichetta) out.add(etichetta)
+  }
+  return out
+}
+
+// Hostname citati in un valore di configurazione: servono a riconoscere i sistemi ESTERNI (un progetto
+// Supabase, un cluster ClickHouse, un endpoint Elasticsearch), che non sono risorse AWS e quindi non
+// possono comparire fra i servizi tracciati. Prima venivano scartati in silenzio, e il disegno taceva su
+// metà dei dati dello stack. Pura/testabile.
+// Il dominio di primo livello va nell'elenco: senza, `eu.anthropic.claude-opus-5` (un id di modello)
+// passava per un hostname, e nel disegno sarebbe comparso un «sistema esterno» che non esiste.
+const TLD = 'com|net|org|io|co|dev|cloud|app|ai|sh|xyz|tech|info|eu|it|de|fr|uk|us'
+const HOST = new RegExp(`(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLD})(?![a-z0-9-])`, 'gi')
+export function extractHosts(env) {
+  return [...new Set([...String(env || '').matchAll(HOST)].map((m) => m[0].toLowerCase()))]
+}
+
 export function matchEnvTargets(env, self, idList) {
-  const tokens = new Set(String(env || '').split(/[\s,;:'"(){}\[\]|=/@?&]+/).filter(Boolean))
+  const tokens = envTokens(env)
   const candidates = idList.filter((t) => t.name !== self.name && t.ids.some((tok) => tokens.has(tok)))
   const sameAcct = candidates.filter((t) => t.account === self.account)
   return sameAcct.length ? sameAcct : candidates
@@ -411,6 +442,26 @@ async function deduceLoadBalancers(services, accounts, ecsData, push) {
     })
 }
 
+// Un hostname di terze parti → nodo esterno, raggruppato per DOMINIO REGISTRABILE. Un progetto Supabase
+// e un cluster ClickHouse non sono risorse AWS, quindi non possono comparire fra i servizi tracciati: e
+// prima venivano scartati in silenzio, cioè il disegno taceva su metà dei dati dello stack. Si raggruppa
+// per dominio e non per host perché tre bucket dello stesso provider sono un sistema, non tre.
+//
+// Gli host `*.amazonaws.com` restano fuori: quelli sono risorse AWS, e se non hanno fatto match con un
+// servizio tracciato vuol dire che quel servizio non lo stiamo guardando — dirlo «esterno» sarebbe
+// sbagliato. Pura/testabile.
+export function esterniDaHost(hosts = []) {
+  const out = new Map()
+  for (const h of hosts) {
+    if (h.endsWith('.amazonaws.com') || h.endsWith('.internal') || h === 'localhost') continue
+    const pezzi = h.split('.')
+    const dominio = pezzi.slice(-2).join('.')
+    if (!out.has(dominio)) out.set(dominio, { id: `ext:host:${dominio}`, type: 'esterno', label: dominio, hosts: [] })
+    if (!out.get(dominio).hosts.includes(h)) out.get(dominio).hosts.push(h)
+  }
+  return [...out.values()]
+}
+
 // Deduzione completa. Ritorna { edges, extraNodes, nodes }:
 //   edges      [{ source, target, vias[] }] — source/target sono CHIAVI (`account::nome`), non nomi
 //   extraNodes [{ id, type, label }]        — sorgenti evento non tracciate (code/stream), id già unico
@@ -471,6 +522,12 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
         // spazi e separatori comuni di URL/connection-string. Evita i falsi positivi del substring
         // (es. "prod" dentro "production"). Endpoint RDS e nomi funzione restano token interi.
         for (const t of matchEnvTargets(env, self, idList)) push(keyOf(s), t.key, 'env')
+        // Sistemi di terze parti nominati nella configurazione (Supabase, ClickHouse, un endpoint di
+        // ricerca…): non sono risorse AWS, quindi nessun match poteva riuscire, e finivano nel nulla.
+        for (const e of esterniDaHost(extractHosts(env))) {
+          if (!extra.has(e.id)) extra.set(e.id, e)
+          push(keyOf(s), e.id, 'env')
+        }
 
         for (const arn of sources) {
           const matched = matchByArn(arn, idList, self)
@@ -489,6 +546,10 @@ export async function deduceTopology(services, accounts, { deboli = true } = {})
       } else if (type === 'ecs') {
         for (const t of matchEnvTargets(ecsData.get(keyOf(s))?.env ?? '', self, idList))
           push(keyOf(s), t.key, 'env')
+        for (const e of esterniDaHost(extractHosts(ecsData.get(keyOf(s))?.env ?? ''))) {
+          if (!extra.has(e.id)) extra.set(e.id, e)
+          push(keyOf(s), e.id, 'env')
+        }
       }
     })
 

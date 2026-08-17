@@ -456,8 +456,17 @@ export function demoTopology() {
       { source: P('order-flow'), target: P('checkout-api'), vias: ['flow'] }, // flow su target sano → rosa
       { source: P('order-flow'), target: P('payments-worker'), vias: ['flow'] }, // rosso
       { source: S('nightly-report'), target: P('events-stream'), vias: ['iam'] }, // iam su target sano → teal scuro
+      // Sistemi FUORI da AWS, riconosciuti dagli hostname nella configurazione: in uno stack vero è qui
+      // che finisce metà dei dati, e una topologia che li tace risponde «niente» alla prima domanda.
+      { source: P('checkout-api'), target: 'ext:host:analytics-suite.com', vias: ['env'] },
+      { source: P('web'), target: 'ext:host:analytics-suite.com', vias: ['env'] },
+      { source: S('notifier'), target: 'ext:host:mail-provider.io', vias: ['env'] },
     ],
-    extraNodes: [{ id: 'ext:sqs:email-queue', type: 'sqs', label: 'email-queue' }],
+    extraNodes: [
+      { id: 'ext:sqs:email-queue', type: 'sqs', label: 'email-queue' },
+      { id: 'ext:host:analytics-suite.com', type: 'esterno', label: 'analytics-suite.com', hosts: ['eu.analytics-suite.com'] },
+      { id: 'ext:host:mail-provider.io', type: 'esterno', label: 'mail-provider.io', hosts: ['api.mail-provider.io'] },
+    ],
     // Come nel percorso reale: la flotta INTERA, non solo i nodi con archi. Serve alla UI per tenere
     // disegnati i vicini che un filtro esclude, invece di svuotare il grafo.
     nodes: demoStatus('en').services.map((s) => ({

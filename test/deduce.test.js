@@ -7,6 +7,9 @@ import {
   collectResourceArns,
   topologyNodeId,
   identifiers,
+  envTokens,
+  extractHosts,
+  esterniDaHost,
 } from '../server/topology/deduce.js'
 
 const idList = [
@@ -151,4 +154,51 @@ test('l’account proprio resta preferito, ma solo se lì il candidato è UNO', 
   assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'prod' })?.account, 'prod')
   // Nessuno dei due è nel proprio account e sono due: ambiguo → niente arco.
   assert.equal(matchByArn('arn:aws:sqs:eu-central-1:1:coda-lavori', idList, { name: 'x', account: 'security' }), null)
+})
+
+
+test('il PUNTO è un separatore: senza, nel grafo non compariva NESSUN data store', () => {
+  // Il bug che teneva la mappa muta sulla metà destra dell'architettura: l'endpoint di un Redis o di un
+  // database è un hostname, e finché era UN token non uguagliava mai il nome del servizio che lo serve.
+  const env = 'REDIS_URL=rediss://master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com:6379'
+  const tok = envTokens(env)
+  assert.ok(tok.has('acme-production-redis'), 'il nome del servizio è una etichetta dell’hostname')
+  // L'hostname INTERO resta un token: un endpoint RDS si riconosce anche per intero.
+  assert.ok(tok.has('master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com'))
+  // Un servizio elasticache citato solo così ora fa match.
+  const lista = [{ name: 'acme-production-redis', account: 'prod', ids: ['acme-production-redis'] }]
+  assert.deepEqual(
+    matchEnvTargets(env, { name: 'backend', account: 'prod' }, lista).map((x) => x.name),
+    ['acme-production-redis'],
+  )
+})
+
+test('gli hostname si riconoscono per il DOMINIO finale, sennò un id di modello sembra un sito', () => {
+  // `eu.anthropic.claude-opus-5` ha la forma di un hostname e non lo è: senza l'elenco dei domini di
+  // primo livello, sulla mappa compariva un «sistema esterno» chiamato `anthropic.claude-opus-5`.
+  assert.deepEqual(extractHosts('MODEL_ID=eu.anthropic.claude-opus-5'), [])
+  assert.deepEqual(extractHosts('DB_URL=postgres://u:p@db.progetto.esempio.co/postgres'), ['db.progetto.esempio.co'])
+  // Maiuscole e ripetizioni non generano due nodi per la stessa cosa.
+  assert.deepEqual(extractHosts('A=https://API.Esempio.Com/v1 B=https://api.esempio.com/v2'), ['api.esempio.com'])
+})
+
+test('i sistemi esterni si raggruppano per dominio, e le risorse AWS non sono «esterne»', () => {
+  const out = esterniDaHost([
+    'db.progetto.esempio.co',
+    'api.progetto.esempio.co',
+    'eventi.altro-fornitore.io',
+    // Un host AWS che non ha fatto match vuol dire «servizio che non stiamo guardando», non «di terzi»:
+    // chiamarlo esterno sarebbe una bugia, e nel disegno un nodo che non esiste.
+    'master.acme-production-redis.a1b2c3.euc1.cache.amazonaws.com',
+    'kong.internal',
+    'localhost',
+  ])
+  assert.deepEqual(
+    out.map((x) => [x.id, x.hosts.length]),
+    [
+      ['ext:host:esempio.co', 2],
+      ['ext:host:altro-fornitore.io', 1],
+    ],
+  )
+  assert.equal(out[0].type, 'esterno')
 })

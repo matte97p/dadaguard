@@ -24,6 +24,9 @@ import { familyPrefixes, displayName } from './serviceName.js'
 // Chiave di un nodo: la STESSA del server, presa dal modulo condiviso (shared/nodeId.js). Erano due
 // omonime con firme diverse, e due chiavi che divergono fondono o sdoppiano i nodi in silenzio.
 export const topologyNodeId = nodeIdOf
+// La chiave con cui il grafo nomina un nodo. Per un servizio è `account::nome`; un sistema esterno ha
+// già un id suo (`ext:host:esempio.com`), perché non sta in nessun account.
+export const chiaveDi = (s) => (s?.esterno ? s.esterno.id : topologyNodeId(s))
 export const acctLabel = (s) => (typeof s.account === 'string' ? s.account : s.account?.label) ?? null
 export const acctKey = (s) => (typeof s.account === 'string' ? s.account : s.account?.key) ?? '__none__'
 
@@ -60,6 +63,7 @@ export const GRUPPI = [
   { key: 'sched', match: (s) => s.type === 'ecs-scheduled' || (s.type === 'lambda' && haSchedule(s)) },
   { key: 'event', tipi: ['lambda'] },
   { key: 'models', tipi: ['bedrock'] },
+  { key: 'ext', tipi: ['esterno'] },
   { key: 'other', catchAll: true },
 ]
 
@@ -100,6 +104,9 @@ export function rollup(servizi = [], now = Date.now()) {
     prossimo: prossimi.length ? Math.min(...prossimi) : null,
     // `idle` e `disabled` si CONTANO ma non colorano: sono un'assenza di traffico, non un guasto.
     fermi: servizi.filter((s) => s.overall === 'idle' || s.overall === 'disabled').length,
+    // Tutto sconosciuto = non l'abbiamo guardato (i sistemi esterni). «Nessun problema» lì sarebbe
+    // affermare il contrario di quello che sappiamo, cioè niente.
+    ignoto: servizi.length > 0 && servizi.every((s) => s.overall === 'unknown'),
   }
 }
 
@@ -196,8 +203,29 @@ const GAP_Y = 28
 const COLONNE = [
   ['ingress', 'sched', 'event'],
   ['app'],
-  ['data', 'models', 'other'],
+  ['data', 'models', 'ext', 'other'],
 ]
+
+// I nodi che NON sono servizi nostri ma stanno nel grafo: un Supabase, un endpoint di ricerca, una coda
+// che nessuno ha dichiarato. Sono citati nella configurazione di chi li usa, e senza di loro la mappa
+// taceva su metà dei dati dello stack — «dove finiscono le scritture» è la prima domanda che si fa a un
+// disegno di architettura. Entrano solo se un arco li lega a QUESTO ambiente: sennò in staging
+// comparirebbero anche quelli nominati soltanto dalla produzione.
+// Il gruppo lo decide il loro TIPO, come per i servizi: una coda SQS non dichiarata è un dato, non un
+// «sistema esterno», e metterla fra i terzi la nasconderebbe dove nessuno la cerca.
+export function esterniDi(services = [], topo = {}) {
+  const nostre = new Set(services.map((x) => topologyNodeId(x)))
+  const usati = new Set()
+  for (const e of topo.edges ?? []) {
+    if (nostre.has(e.source) && !nostre.has(e.target)) usati.add(e.target)
+    if (nostre.has(e.target) && !nostre.has(e.source)) usati.add(e.source)
+  }
+  return (topo.extraNodes ?? [])
+    .filter((n) => usati.has(n.id))
+    // `overall: 'unknown'` e non `up`: di un sistema di terzi non sappiamo lo stato, e dire «nessun
+    // problema» sarebbe affermare il contrario di quello che sappiamo, cioè niente.
+    .map((n) => ({ name: n.label ?? n.id, type: n.type ?? 'esterno', account: null, overall: 'unknown', esterno: n }))
+}
 
 export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.now() } = {}) {
   // La testa condivisa dei nomi si conta su TUTTO l'ambiente: dev'essere la stessa in ogni box, sennò
@@ -208,10 +236,10 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
   const nomeDi = (x) => displayName(x)
   const prefissi = familyPrefixes(services.filter((s) => s.type !== 'bedrock').map((s) => s.name))
   const perGruppo = new Map(GRUPPI.map((g) => [g.key, []]))
-  for (const s of services) perGruppo.get(groupOf(s)).push(s)
+  for (const s of [...services, ...esterniDi(services, topo)]) perGruppo.get(groupOf(s)).push(s)
 
   const gruppoDiChiave = new Map()
-  for (const [key, lista] of perGruppo) for (const s of lista) gruppoDiChiave.set(topologyNodeId(s), key)
+  for (const [key, lista] of perGruppo) for (const s of lista) gruppoDiChiave.set(chiaveDi(s), key)
 
   const visibili = GRUPPI.map((g) => g.key).filter((k) => (perGruppo.get(k) ?? []).length > 0)
   const nodes = []
@@ -252,7 +280,7 @@ export function buildMap(services = [], topo = {}, t = (k) => k, { now = Date.no
             problemi: r.primoProblema
               ? `${t('topo.g.problems', { n: r.problemi })}: ${scorcia(r.primoProblema, nomiBox.testa)}`
               : t('topo.g.problems', { n: r.problemi }),
-            nessunProblema: t('topo.g.noProblems'),
+            nessunProblema: r.ignoto ? t('topo.g.unknownState') : t('topo.g.noProblems'),
             task: t('topo.g.task'),
             prossimo: r.prossimo ? t('topo.g.next', { in: fraTempo(r.prossimo - now, t) }) : '',
             fermi: t('topo.g.idle', { n: r.fermi }),
@@ -286,16 +314,19 @@ const WR = 208
 const HR = 52
 
 export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { now = Date.now(), perRiga = 4 } = {}) {
-  const dentro = services.filter((s) => groupOf(s) === groupKey)
-  const chiaviDentro = new Set(dentro.map((s) => topologyNodeId(s)))
+  // Gli esterni entrano fra i membri come i servizi: sennò scendendo in «Applicazioni» le frecce verso
+  // di loro sparivano in silenzio, perché il vicino non apparteneva a nessun gruppo.
+  const tutti = [...services, ...esterniDi(services, topo)]
+  const dentro = tutti.filter((s) => groupOf(s) === groupKey)
+  const chiaviDentro = new Set(dentro.map((s) => chiaveDi(s)))
   const nomeDi = new Map((topo.nodes ?? []).map((n) => [n.id, n.name]))
-  const gruppoDi = new Map(services.map((s) => [topologyNodeId(s), groupOf(s)]))
+  const gruppoDi = new Map(tutti.map((s) => [chiaveDi(s), groupOf(s)]))
 
   const nodes = dentro
     .slice()
     .sort((a, b) => peso(a) - peso(b) || a.name.localeCompare(b.name))
     .map((s, i) => ({
-      id: topologyNodeId(s),
+      id: chiaveDi(s),
       type: 'svc',
       position: { x: (i % perRiga) * (WR + 28), y: Math.floor(i / perRiga) * (HR + 34) },
       style: { width: WR, height: HR },
@@ -305,8 +336,12 @@ export function buildGroup(groupKey, services = [], topo = {}, t = (k) => k, { n
         type: s.type,
         color: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown,
         repliche: repliche(s),
-        meta: [s.type, acctLabel(s)].filter(Boolean).join(' · '),
-        title: [s.name, s.type, acctLabel(s)].filter(Boolean).join(' · '),
+        // Di un sistema di terzi il tipo AWS non esiste: al suo posto gli host visti nella
+        // configurazione, che sono l'unica cosa che ne sappiamo davvero.
+        meta: s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · '),
+        title: s.esterno
+          ? [s.name, ...(s.esterno.hosts ?? [])].join('\n')
+          : [s.name, s.type, acctLabel(s)].filter(Boolean).join(' · '),
         servizio: s,
       },
     }))
