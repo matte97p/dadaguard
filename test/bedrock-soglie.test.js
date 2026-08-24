@@ -4,9 +4,10 @@ import { bedrockRuntime } from '../server/runtime/bedrock.js'
 import { makeT } from '../server/i18n.js'
 
 // Le soglie di Bedrock esistono per una ragione precisa, vista dal vivo: 358 invocazioni con UN errore
-// client hanno prodotto un allarme rosso con `<!channel>` in produzione, e più tardi 78 invocazioni con
-// UN errore server hanno fatto lo stesso. Un errore isolato non è la piattaforma giù, e un allarme che
-// suona per il rumore normale insegna alla squadra a ignorarlo.
+// client hanno prodotto un allarme rosso con `<!channel>` in produzione, più tardi 78 invocazioni con
+// UN errore server hanno fatto lo stesso, e il 23/08 ci è riuscito UN 503 su 57 invocazioni, passando
+// dalla finestra corta. Un errore isolato non è la piattaforma giù, e un allarme che suona per il
+// rumore normale insegna alla squadra a ignorarlo.
 //
 // Il provider legge DUE finestre: l'ora (il problema è reale?) e gli ultimi 15 minuti (sta ancora
 // succedendo?). Da qui i tre stati: `down` se sfondano entrambe, `degraded` se ne sfonda una sola,
@@ -81,6 +82,45 @@ test('5xx: 1 errore su 20 invocazioni (5%) resta sotto entrambi i rami', async (
   assert.equal(await stato({ inv: 20, serr: 1 }), 'up')
 })
 
+// --- 5xx: la percentuale non decide su un campione da niente ------------------------------------
+// Il caso reale #3, 23/08 in canale. Il ramo percentuale del 5xx decide DA SOLO (`or`), e sui 15
+// minuti il denominatore è quattro volte più piccolo che sull'ora: senza un campione minimo,
+// QUALSIASI errore singolo sfonda il 10% finché le invocazioni della finestra sono <= 10.
+test('il caso reale #3: 1 errore server su 57 invocazioni l ora e 8 nei 15 minuti NON è un guasto', async () => {
+  const r = await leggi({ inv: 57, serr: 1, lat: 32000 }, { inv: 8, serr: 1 })
+  assert.equal(r.status, 'up', 'un 503 isolato non è la piattaforma giù, su nessuna delle due finestre')
+  assert.doesNotMatch(r.summary, /soglia/, 'e il messaggio non parla di soglie: non ce n è una superata')
+})
+
+test('5xx: 1 errore su 8 invocazioni è il 12,5% ma il campione non basta per concludere', async () => {
+  assert.equal(await stato({ inv: 8, serr: 1 }), 'up')
+})
+
+test('5xx: al campione minimo la percentuale torna a contare (2 su 20 = 10%)', async () => {
+  assert.equal(await stato({ inv: 20, serr: 2 }), 'down')
+})
+
+test('5xx: appena sotto il campione minimo la stessa coppia di errori non allarma', async () => {
+  // 2 su 19 è il 10,5%, più dei 2 su 20 che allarmano: è il campione a mancare, non la percentuale.
+  assert.equal(await stato({ inv: 19, serr: 2 }), 'up')
+})
+
+test('5xx: il minimo assoluto resta indipendente dal campione (5 errori su 6 invocazioni)', async () => {
+  // Il pavimento vale sul ramo percentuale, non su quello assoluto: 5 errori sono 5 errori.
+  assert.equal(await stato({ inv: 6, serr: 5 }), 'down')
+})
+
+test('5xx: più errori che invocazioni contate allarma comunque (richieste respinte prima del conteggio)', async () => {
+  // Campione minuscolo, ma non passa niente: sopprimere qui vorrebbe dire tacere sul guasto vero.
+  assert.equal(await stato({ inv: 2, serr: 3 }), 'down')
+})
+
+test('il campione minimo non tocca i segnali in `and`: la percentuale lì non decide da sola', async () => {
+  // 5 errori client su 6 invocazioni è l'83%: campione piccolo, ma il minimo assoluto è già la
+  // guardia, e mettere un pavimento anche qui toglierebbe solo veri positivi.
+  assert.equal(await stato({ inv: 6, cerr: 5 }), 'down')
+})
+
 // --- throttling: capacità che finisce, soglia più bassa del 4xx ---
 test('throttling: 3 su 100 (3%), e ancora in corso → down', async () => {
   assert.equal(await stato({ inv: 100, thr: 3 }, { inv: 25, thr: 3 }), 'down')
@@ -131,7 +171,11 @@ test('il messaggio dice QUALE soglia è stata superata, con i numeri e la regola
   const r = await leggi({ inv: 200, serr: 20 })
   assert.match(r.summary, /oltre soglia/, 'nomina lo sforamento')
   assert.match(r.summary, /su 60m: 20 su 200 \(10%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
-  assert.match(r.summary, /≥5 o ≥10%/, 'e con la regola, così si tara leggendo la chat')
+  assert.match(
+    r.summary,
+    /≥5 o ≥10% su almeno 20 invocazioni/,
+    'e con la regola INTERA, campione minimo compreso: è la condizione che il 23/08 ha deciso l allarme',
+  )
 })
 
 test('il messaggio nomina il segnale più grave quando ne sfondano più di uno', async () => {
