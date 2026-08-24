@@ -39,8 +39,26 @@ const SOGLIE = {
   // era troppo basso in ENTRAMBI i rami: con ~80 invocazioni l'ora, l'1% vuol dire che un SOLO 503
   // (rumore noto di Bedrock) suonava — ed è quello che è successo. 5 e 10% alzano tutti e due i rami:
   // alzare solo la percentuale avrebbe lasciato il ramo assoluto a suonare alla prossima coppia.
+  // Il ramo percentuale vuole anche un campione minimo (vedi `CAMPIONE_MINIMO`): è l'unico che può
+  // decidere da solo, e su una finestra corta lo farebbe con un denominatore da niente.
   serr: { min: 5, rate: 0.1, or: true },
 }
+
+// Quanto grande deve essere il campione perché la PERCENTUALE possa decidere da sola. Riguarda solo
+// il 5xx, l'unico con `or`: dove le condizioni sono in `and` la percentuale non decide mai da sola,
+// perché a fare da guardia c'è già il minimo assoluto, e un pavimento anche lì toglierebbe solo veri
+// positivi (5 errori su 6 invocazioni è l'83%, ed è un guasto).
+//
+// Il caso reale del 23/08, terzo falso positivo in cinque giorni: UN 503 su 57 invocazioni nell'ora
+// (1,75%, pulita) ma su 8 invocazioni nei 15 minuti, cioè il 12,5%, che sfonda il 10% e in
+// produzione suona con `<!channel>`. La finestra corta ha un denominatore quattro volte più piccolo
+// di quella lunga: le soglie alzate nel #92 guardavano l'ora e hanno lasciato scoperta la finestra
+// che decide da sola. Senza pavimento, con `rate: 0.1`, QUALSIASI errore singolo sfonda finché le
+// invocazioni della finestra sono <= 10, che con questo traffico è la norma, non il caso raro.
+//
+// 20 è il più piccolo campione che regge la regola documentata: 1 errore su 20 è il 5% e resta
+// sotto, 2 su 20 sono il 10% e allarmano.
+const CAMPIONE_MINIMO = 20
 
 // Se più segnali sfondano insieme, il messaggio nomina il più grave: prima il 5xx (è la piattaforma),
 // poi il throttling (capacità), infine il 4xx (chiamante).
@@ -54,7 +72,12 @@ const SEGNALE = { serr: 'm.errServer', thr: 'm.throttle', cerr: 'm.errClient' }
 function sforo(key, n, inv, s) {
   const base = Math.max(inv, n, 1)
   const perMin = n >= s.min
-  const perRate = n >= s.rate * base
+  // Il campione basta se è abbastanza grande, oppure se non serve (il ramo percentuale non decide
+  // da solo). L'eccezione sono gli errori che superano le invocazioni contate, cioè le richieste
+  // respinte prima del conteggio: lì il campione non c'è, ma il guasto sì, e sopprimerlo
+  // vorrebbe dire tacere proprio quando non passa niente.
+  const campione = !s.or || base >= CAMPIONE_MINIMO || n > inv
+  const perRate = campione && n >= s.rate * base
   if (!(s.or ? perMin || perRate : perMin && perRate)) return null
   return { key, n, inv, pct: Math.round((n / base) * 1000) / 10, min: s.min, rate: s.rate, or: Boolean(s.or) }
 }
@@ -74,7 +97,12 @@ function sfori(m) {
 // cosa parla il secondo («4 err. server (60m) · oltre soglia: 6 su 40»), che si legge come un errore.
 function perche(s, finestra, t) {
   const rate = Math.round(s.rate * 100)
-  const regola = s.or ? t('bedrock.regola.o', { min: s.min, rate }) : t('bedrock.regola.e', { min: s.min, rate })
+  // Il pavimento sul campione fa parte della regola, quindi si stampa: è la condizione che il
+  // 23/08 ha deciso l'allarme, e una regola scritta a metà è esattamente ciò che porta a tarare
+  // il ramo sbagliato leggendo la chat.
+  const regola = s.or
+    ? t('bedrock.regola.o', { min: s.min, rate, campione: CAMPIONE_MINIMO })
+    : t('bedrock.regola.e', { min: s.min, rate })
   return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola })
 }
 
