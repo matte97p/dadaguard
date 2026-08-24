@@ -5,7 +5,7 @@ import { TableOutlined, AppstoreOutlined } from '@ant-design/icons'
 import ServiceCard from '../components/ServiceCard.jsx'
 import ServicesTable from '../components/ServicesTable.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
-import { familyPrefixes } from '../serviceName.js'
+import { familyPrefixes, serviceKey } from '../serviceName.js'
 
 const { Text } = Typography
 
@@ -159,8 +159,11 @@ export default function DashboardPage({ data, groups, allServices, statusFilter,
             {/* align="stretch" + Card height:100% → le card di una riga sono alte uguali: bordi
                 allineati invece del zig-zag di buchi che si vedeva prima. */}
             <Row gutter={[16, 16]} align="stretch">
+              {/* La chiave è `serviceKey`, non il nome: dentro un account lo stesso nome torna su più
+                  region e su più tipi di risorsa, e due card con la stessa chiave lasciano una card
+                  fantasma quando la lista si accorcia (vedi serviceName.js). */}
               {[...g.services].sort(byseverity).map((svc) => (
-                <Col key={svc.name} xs={24} sm={12} md={8} lg={6} style={{ display: 'flex' }}>
+                <Col key={serviceKey(svc)} xs={24} sm={12} md={8} lg={6} style={{ display: 'flex' }}>
                   <ServiceCard
                     service={svc}
                     onRemove={caps.watchlist ? onRemove : undefined}

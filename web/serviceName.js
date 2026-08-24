@@ -39,12 +39,28 @@ export function isNonEuInference(service) {
   return Boolean(scope) && scope !== 'eu'
 }
 
-// IDENTITÀ di un servizio nella UI: account + nome. Il nome da solo NON identifica niente — `backend`
-// esiste in staging e in produzione, e i modelli Bedrock in entrambi. Cercare per nome apre la card
-// dell'altro ambiente, e con essa i suoi numeri e i suoi log: la tabella dice "234 invocazioni, 1
-// errore 5xx" su produzione e il pannello risponde "nessuna invocazione" perché sta guardando staging.
+// IDENTITÀ di un servizio nella UI: account + region + tipo + nome. Il nome da solo NON identifica
+// niente: `backend` esiste in staging e in produzione, e i modelli Bedrock in entrambi. Cercare per
+// nome apre la card dell'altro ambiente, e con essa i suoi numeri e i suoi log: la tabella dice "234
+// invocazioni, 1 errore 5xx" su produzione e il pannello risponde "nessuna invocazione" perché sta
+// guardando staging.
+//
+// Nemmeno account + nome basta, e non per un caso di scuola: DENTRO un account lo stesso nome torna
+// più volte. La discovery fa un candidato per RISORSA (`server/discover.js`), e una risorsa ECS, il
+// suo ALB e il suo autoscaling group portano lo stesso nome AWS; e lo sweep multi-region
+// (`server/autodiscover.js`) rilegge quel nome in ogni region. Il payload dello stato non ha ID di
+// risorsa: quello che distingue quelle righe è `region` e `type`, quindi stanno nella chiave.
+//
+// Il prezzo di sbagliarla non è cosmetico: questa chiave è il `rowKey` della tabella, e chiavi
+// duplicate lasciano RIGHE FANTASMA. React tiene una voce per chiave, quindi dei fratelli omonimi ne
+// cancella uno solo: gli altri restano appesi nel DOM col loro stato di prima, e filtrando "giù" si
+// vedevano tre righe verdi sotto un contatore che diceva "3/107" (cioè: nei dati filtrati non
+// c'erano). Stessa chiave apre il pannello, e con gli omonimi apriva sempre il primo trovato.
 export function serviceKey(service) {
-  return `${service?.account?.key ?? '—'}/${service?.name ?? ''}`
+  const account = service?.account?.key ?? '—'
+  const region = service?.region ?? '—'
+  const type = service?.type ?? '—'
+  return `${account}/${region}/${type}/${service?.name ?? ''}`
 }
 
 // Nome leggibile per la UI. Ritorna sempre una stringa.
