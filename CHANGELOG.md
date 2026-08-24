@@ -26,6 +26,19 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Un solo 503 di Bedrock svegliava il canale, ed era il terzo falso positivo in cinque giorni.** Il 5xx
+  è l'unico segnale che può allarmare col solo ramo percentuale (`or`), e quel ramo non aveva un campione
+  minimo: sulla finestra da 15 minuti, che ha un denominatore quattro volte più piccolo di quella da
+  un'ora, con `rate: 0.1` QUALSIASI errore singolo sfonda il 10% finché le invocazioni della finestra
+  restano sotto le dieci, che con questo traffico è la norma. Il 23/08 su `eu.anthropic.claude-opus-5` in
+  produzione: 1 errore server su 57 invocazioni nell'ora (1,75%, sotto soglia su entrambi i rami) ma su 8
+  nei 15 minuti, cioè il 12,5%, quindi `degraded`, che in produzione vuol dire `<!channel>`. Le soglie
+  alzate a inizio agosto (5 errori / 10%) guardavano l'ora e avevano lasciato scoperta proprio la finestra
+  che decide da sola. Ora il ramo percentuale conta solo su almeno **20 invocazioni**: 1 su 20 è il 5% e
+  tace, 2 su 20 sono il 10% e allarmano. Fuori dal pavimento restano il minimo assoluto (5 errori sono 5
+  errori, anche su 6 invocazioni) e gli errori che superano le invocazioni contate, dove il campione non
+  c'è ma il guasto sì. Il pavimento finisce anche nel messaggio in chat, insieme al resto della regola:
+  una regola scritta a metà è come si finisce a discutere la taratura del ramo sbagliato.
 - **Nessun deploy andava a buon fine da fine giugno, e i test erano verdi.** Lo stage di runtime del
   Dockerfile copiava `server` e `dist`, non `shared/`, nata il 29/06/2026 per tenere in un posto solo il
   codice che usano server e web. Il server la importa, quindi il container moriva all'avvio con

@@ -172,7 +172,7 @@ const S = {
     // Il perché dell'allarme, dentro al messaggio: quale segnale, con che numeri, e la regola che
     // l'ha fatto scattare. Serve a tarare le soglie leggendo la chat, senza aprire il codice.
     'bedrock.sopraSoglia': 'oltre soglia {segnale} su {finestra}: {n} su {inv} ({pct}%) · scatta a {regola}',
-    'bedrock.regola.o': '≥{min} o ≥{rate}%',
+    'bedrock.regola.o': '≥{min} o ≥{rate}% su almeno {campione} invocazioni',
     'bedrock.regola.e': '≥{min} e ≥{rate}%',
     'bedrock.ancora': 'ancora sopra soglia negli ultimi {window}',
     'bedrock.rientro': 'ultimi {window} sotto soglia: probabile rientro, confermato quando è pulita la finestra da {conferma}',
@@ -500,7 +500,7 @@ const S = {
     'bedrock.throttled': '{n} throttled',
     'bedrock.latency': 'lat ~{d}',
     'bedrock.sopraSoglia': 'over the {segnale} threshold on {finestra}: {n} of {inv} ({pct}%) · fires at {regola}',
-    'bedrock.regola.o': '≥{min} or ≥{rate}%',
+    'bedrock.regola.o': '≥{min} or ≥{rate}% over at least {campione} invocations',
     'bedrock.regola.e': '≥{min} and ≥{rate}%',
     'bedrock.ancora': 'still over threshold in the last {window}',
     'bedrock.rientro': 'last {window} below threshold: likely recovering, confirmed once the {conferma} window is clean',
