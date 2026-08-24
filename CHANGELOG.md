@@ -26,6 +26,18 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Un allarme che si dichiara «non ancora confermato» non chiama più tutto il canale.** Il provider di
+  Bedrock legge due finestre, l'ora e gli ultimi 15 minuti, e quando lo sforamento viene dalla sola
+  finestra corta il messaggio lo scrive («sopra soglia solo negli ultimi 15m: non è ancora una finestra
+  da 60m»), ma partiva con `<!channel>` come un guasto pieno: la riga contraddiceva la frase che portava.
+  Ora il check può dichiarare provvisorio il proprio sforamento (`provisional`), il flag viaggia fino
+  alla transizione e in chat toglie la menzione, lasciando messaggio, pallino giallo e dettaglio. Non si
+  perde niente in copertura: sul 5xx uno sforo della sola finestra corta implica meno di 5 errori
+  nell'ora (gli stessi errori stanno in entrambe le finestre, e 5 sfonderebbero il ramo assoluto), quindi
+  se il guasto è vero la finestra lunga lo conferma entro un giro o due e la salita `degraded → down` è
+  già un allarme con la sirena. Quello che sparisce è l'altro caso, quello che si richiude da solo: tre
+  503 in un quarto d'ora scarico, che sull'ora non sono niente. Lo stato e l'instradamento non cambiano,
+  cambia solo chi viene strappato dal lavoro.
 - **Un solo 503 di Bedrock svegliava il canale, ed era il terzo falso positivo in cinque giorni.** Il 5xx
   è l'unico segnale che può allarmare col solo ramo percentuale (`or`), e quel ramo non aveva un campione
   minimo: sulla finestra da 15 minuti, che ha un denominatore quattro volte più piccolo di quella da
