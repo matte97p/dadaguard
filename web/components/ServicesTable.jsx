@@ -11,8 +11,11 @@ const { Text, Link } = Typography
 // le card, a 48, diventano un muro (è il pattern delle service list di Datadog/Sentry/ArgoCD).
 // Colonne fisse e ordinabili, i segnali secondari nella riga espansa, il dettaglio nel drawer.
 //
-// Nomi DUPLICATI tra account (`backend` esiste in staging e in produzione, e i modelli Bedrock in
-// entrambi): la chiave di riga è account+nome, mai il nome. Stessa identità che apre il pannello.
+// Nomi DUPLICATI, e non solo tra account (`backend` esiste in staging e in produzione, e i modelli
+// Bedrock in entrambi): anche DENTRO un account, dove una ECS, il suo ALB e la stessa ECS in un altro
+// cluster portano lo stesso nome. La chiave di riga è `serviceKey`, cioè l'identità della risorsa, mai
+// il nome: due righe con la stessa chiave lasciano righe fantasma nel DOM. Stessa identità che apre il
+// pannello e che sceglie quale voce di services.yaml cancella il cestino.
 
 // Severità: problemi in cima, poi i sani, in fondo ciò che non è un problema (inattivi e spenti di
 // proposito). Stesso ordine della vista a card.
@@ -278,7 +281,7 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
                 description={t('card.removeDesc')}
                 okText={t('card.removeOk')}
                 cancelText={t('card.removeCancel')}
-                onConfirm={() => onRemove(s.name)}
+                onConfirm={() => onRemove(s)}
               >
                 <Link type="secondary">
                   <DeleteOutlined />

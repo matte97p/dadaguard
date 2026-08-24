@@ -683,11 +683,20 @@ app.post('/api/watchlist/add', requireLocal('Watchlist'), (req, res) => {
 
 app.post('/api/watchlist/remove', requireLocal('Watchlist'), (req, res) => {
   try {
-    const removed = removeService(req.body?.name)
+    // L'identità intera della riga cliccata, non il nome nudo: due voci omonime in services.yaml
+    // (una ECS e il suo ALB, la stessa ECS in due cluster) sono cancellazioni diverse.
+    const removed = removeService({
+      name: req.body?.name,
+      account: req.body?.account,
+      resourceId: req.body?.resourceId,
+    })
     invalidateServicesCache()
     res.json({ removed })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    // Bersaglio ambiguo: è una richiesta che non si può servire, non un guasto del server. 409, così
+    // la dashboard mostra il perché invece di un "errore interno" su una scrittura non fatta.
+    const ambiguo = /combacia con \d+ voci/.test(err.message)
+    res.status(ambiguo ? 409 : 500).json({ error: err.message })
   }
 })
 
