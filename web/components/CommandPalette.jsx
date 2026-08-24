@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Input, List, Badge, Typography } from 'antd'
-import { displayName } from '../serviceName.js'
+import { displayName, omonimiVisibili, chiaveVisibile, distintivo } from '../serviceName.js'
 
 const { Text } = Typography
 
@@ -33,6 +33,11 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
       : services
     return list.slice(0, 40)
   }, [q, services])
+
+  // Righe indistinguibili fra loro (stesso nome, stesso account): a quelle si aggiunge tipo e region,
+  // che è ciò che le separa davvero. Solo a quelle: metterlo su tutte è rumore su ogni riga per un
+  // caso che riguarda due righe.
+  const ambigue = useMemo(() => omonimiVisibili(results), [results])
 
   const choose = (item) => {
     if (!item) return
@@ -82,6 +87,11 @@ export default function CommandPalette({ open, onClose, services = [], onPick, t
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
               <Badge status={STATUS[item.overall] ?? 'default'} />
               <span style={{ fontWeight: 500 }}>{displayName(item)}</span>
+              {ambigue.has(chiaveVisibile(item)) && distintivo(item) && (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {distintivo(item)}
+                </Text>
+              )}
               {item.account?.label && (
                 <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
                   {item.account.label}
