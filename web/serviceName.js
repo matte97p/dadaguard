@@ -56,8 +56,19 @@ export function isNonEuInference(service) {
 // cancella uno solo: gli altri restano appesi nel DOM col loro stato di prima, e filtrando "giù" si
 // vedevano tre righe verdi sotto un contatore che diceva "3/107" (cioè: nei dati filtrati non
 // c'erano). Stessa chiave apre il pannello, e con gli omonimi apriva sempre il primo trovato.
+// Quando il server sa QUALE risorsa è (`resourceId` = account|tipo|cluster/arn/asg…) si usa quella:
+// è l'unica cosa che separa due servizi ECS omonimi in cluster diversi dello stesso account e della
+// stessa region, che su account, region, tipo e nome sono identici. Il ripiego serve ai servizi
+// dichiarati a mano senza identificatori di risorsa, e ai payload di una versione precedente del
+// server (una UI aggiornata può parlare con un server che non manda ancora il campo).
+//
+// L'account arriva come oggetto `{key,label,color}` dal payload della UI e come stringa dal
+// risolutore del server: si normalizza come fanno `nodeIdOf` e `acctKey`, perché una chiave costruita
+// sull'oggetto diventa "[object Object]" per tutti gli account e le collisioni tornano tutte insieme.
 export function serviceKey(service) {
-  const account = service?.account?.key ?? '—'
+  const acct = service?.account
+  const account = (typeof acct === 'string' ? acct : acct?.key) ?? '—'
+  if (service?.resourceId) return `${account}/${service.resourceId}`
   const region = service?.region ?? '—'
   const type = service?.type ?? '—'
   return `${account}/${region}/${type}/${service?.name ?? ''}`
