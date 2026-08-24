@@ -1,6 +1,6 @@
 import { loadConfig } from './config.js'
 import { accountsSummary } from './accounts.js'
-import { autoDiscoverServices, mergeServices } from './autodiscover.js'
+import { autoDiscoverServices, mergeServices, resourceId } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { discoverProfileAccounts } from './awsProfiles.js'
 import { cloudflareWorkersStatus, CF_COLOR, shortId } from './cloudflare.js'
@@ -279,6 +279,9 @@ export function cfServiceResult(w, t) {
   const { overall, cause, causes } = computeOverall(checks)
   return {
     name: w.name,
+    // I Worker non passano dalla discovery AWS: la loro identità è l'id Cloudflare (o il nome, che
+    // su un account Cloudflare è unico), nella stessa forma `account|tipo|id` degli altri.
+    resourceId: `cloudflare|cloudflare-worker|${w.id ?? w.name}`,
     url: w.deployUrl ?? null, // endpoint pubblico del Worker (workers.dev / rotta) → link sulla card
     links: w.deployUrl ? { Cloudflare: w.deployUrl } : {},
     account: { key: 'cloudflare', label: 'Cloudflare', color: CF_COLOR },
@@ -431,6 +434,12 @@ export async function getStatus(lang) {
       const { overall, cause, causes } = computeOverall(checks)
       return {
         name: service.name,
+        // Identità della RISORSA (account|tipo|cluster/arn/asg…), non del nome: due servizi ECS
+        // omonimi in cluster diversi dello stesso account e della stessa region si distinguono solo
+        // per il cluster, e senza questo campo la UI non ha niente con cui separarli (le sue righe
+        // finiscono con la stessa chiave, e chiavi uguali lasciano righe fantasma). `null` per un
+        // servizio dichiarato a mano senza identificatori: la UI ha il suo ripiego.
+        resourceId: resourceId(service),
         url: endpoint, // endpoint pubblico del servizio (config url / CloudFront / healthUrl); null se ignoto
         links: {
           ...(service.links ?? {}),
