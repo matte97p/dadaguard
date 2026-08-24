@@ -8,12 +8,14 @@ import { makeT } from '../server/i18n.js'
 // Il notificatore vive o muore su una cosa: mandare i messaggi GIUSTI. Un watchdog che grida per
 // ogni sfarfallio si silenzia dopo due giorni, e uno che tace su un guasto non serve a niente.
 
-const svc = (name, account, overall, cause = null, detail = null) => ({
+// `extra` finisce dentro al check colpevole: serve ai campi che il check dichiara oltre al testo
+// (oggi `provisional`), senza toccare le chiamate che quel campo non lo usano.
+const svc = (name, account, overall, cause = null, detail = null, extra = {}) => ({
   name,
   account: { key: account.toLowerCase(), label: account },
   overall,
   cause,
-  checks: cause ? { [cause]: { summary: detail } } : {},
+  checks: cause ? { [cause]: { summary: detail, ...extra } } : {},
 })
 const stato = (servizi) => ({ services: servizi })
 const conferma = { confirmations: 2 }
@@ -245,6 +247,58 @@ test('messaggio: cosa, dove, perché, e il link per continuare', () => {
   assert.match(text, /ultima esecuzione FALLITA/)
   assert.match(text, /dadaguard\.example/)
   assert.match(text, /^<!channel>/, 'un guasto in produzione chiama il canale')
+})
+
+// --- allarme PROVVISORIO: si annuncia, non chiama ----------------------------------------------
+// Uno sforamento visto dalla sola finestra corta porta già scritto «non è ancora una finestra da 60m»:
+// chiamare il canale contraddice la frase che il messaggio stesso trasporta. Il caso vero, dal vivo:
+// tre 503 in un quarto d'ora scarico, che sull'ora non sono niente e si richiudono da soli.
+test('il flag `provisional` del check colpevole arriva fino alla transizione', () => {
+  const prev = stato({ 'production/claude-opus-5': { confirmed: 'up', pending: { overall: 'degraded', count: 1 } } })
+  const now = snapshot([
+    svc('claude-opus-5', 'Production', 'degraded', 'runtime', 'sopra soglia solo negli ultimi 15m', { provisional: true }),
+  ])
+  const { transitions } = diffStates(prev, now, conferma)
+  assert.equal(transitions.length, 1)
+  assert.equal(transitions[0].kind, 'alert', 'resta un allarme: cambia la sirena, non lo stato né l instradamento')
+  assert.equal(transitions[0].provisional, true)
+})
+
+test('un allarme che il check non dichiara provvisorio non lo diventa per conto suo', () => {
+  const prev = stato({ 'production/api': { confirmed: 'up', pending: { overall: 'down', count: 1 } } })
+  const { transitions } = diffStates(prev, snapshot([svc('api', 'Production', 'down', 'runtime', 'giù')]), conferma)
+  assert.equal(transitions[0].provisional, false, 'il default è la sirena: tacere si chiede, non si eredita')
+})
+
+test('messaggio: un allarme provvisorio in produzione arriva, ma non chiama il canale', () => {
+  const { text } = slackMessage(
+    [
+      {
+        kind: 'alert',
+        name: 'claude-opus-5',
+        account: 'Production',
+        from: 'up',
+        to: 'degraded',
+        cause: 'runtime',
+        detail: '3 err. server (5xx) · sopra soglia solo negli ultimi 15m: non è ancora una finestra da 60m',
+        provisional: true,
+      },
+    ],
+    { t: makeT('it') },
+  )
+  assert.ok(!text.includes('<!channel>'), 'non si strappa nessuno dal lavoro per uno sforamento non confermato')
+  assert.match(text, /:warning:/, 'ma il messaggio arriva lo stesso, col suo pallino')
+  assert.match(text, /claude-opus-5/)
+  assert.match(text, /non è ancora una finestra da 60m/, 'e porta la frase che dice perché è provvisorio')
+})
+
+test('messaggio: la conferma dalla finestra lunga (degraded → down) chiama il canale', () => {
+  // È la metà che rende accettabile il silenzio all'ingresso: se il guasto è vero, la salita suona.
+  const { text } = slackMessage(
+    [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', from: 'degraded', to: 'down', cause: 'runtime' }],
+    { t: makeT('it') },
+  )
+  assert.match(text, /^<!channel>/)
 })
 
 test('messaggio: niente <!channel> per staging né per un rientro', () => {

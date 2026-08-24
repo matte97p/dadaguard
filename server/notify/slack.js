@@ -38,8 +38,15 @@ export function envTag(account) {
 }
 
 // `<!channel>` solo per un guasto in PRODUZIONE, come nei cron: se suona sempre, non suona più.
+//
+// E nemmeno per un allarme PROVVISORIO, cioè visto dalla sola finestra corta: il messaggio stesso dice
+// «non è ancora una finestra da 60m», quindi strappare tutti dal lavoro contraddice la frase che porta.
+// Non si perde niente: se è un guasto vero la finestra lunga lo conferma al giro dopo, e la salita
+// `degraded → down` è già un `alert` con la sirena (regola 5 in diff.js). Il caso che questo toglie è
+// l'altro, quello che si richiude da solo: tre 503 in un quarto d'ora scarico, che sull'ora non sono
+// niente. Il messaggio arriva lo stesso, con il suo pallino giallo: non chiama, si legge.
 function mention(t) {
-  return t.kind === 'alert' && /^prod/i.test(t.account ?? '') ? '<!channel> ' : ''
+  return t.kind === 'alert' && !t.provisional && /^prod/i.test(t.account ?? '') ? '<!channel> ' : ''
 }
 
 // La causa: quale SEGNALE ha fatto scattare l'allarme, detto come lo direbbe un umano. `runtime` è il

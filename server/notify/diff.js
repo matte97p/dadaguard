@@ -21,7 +21,9 @@ export function stateClass(overall) {
 
 // Regola 5: dentro la classe "problema" ci sono DUE gravità, e passare dall'una all'altra è una
 // notizia quanto entrarci. `degraded` = da guardare, `down` = conclamato.
-//  · peggiora (degraded → down) = un allarme vero, con la stessa sirena di un rosso nuovo;
+//  · peggiora (degraded → down) = un allarme vero, con la stessa sirena di un rosso nuovo, e vale
+//    anche come conferma di un allarme entrato provvisorio (sotto): quello che tace all'ingresso
+//    suona qui, appena la finestra lunga gli dà ragione;
 //  · migliora (down → degraded) = «sembra rientrato, non è confermato»: si annuncia, ma SENZA sirena
 //    (in slack.js il `<!channel>` è legato a kind === 'alert'). È il segnale intermedio che mancava:
 //    prima o eri rosso o eri verde, e un rientro parziale non aveva modo di dirsi.
@@ -52,6 +54,10 @@ export function snapshot(services = []) {
       type: s.type ?? null,
       // esito strutturato del dead-man: 'missed' (mai partita) | 'failed' (partita e caduta) | 'ok'
       outcome: s.checks?.runtime?.outcome ?? null,
+      // Il check dichiara il proprio sforamento PROVVISORIO: l'ha visto solo la finestra corta, e
+      // quella lunga (l'unica che può dire «è finita») non l'ha ancora confermato. Non cambia lo
+      // stato né il routing, cambia solo se si strappa tutti dal lavoro: vedi `mention` in slack.js.
+      provisional: s.checks?.[s.cause]?.provisional === true,
     }
   }
   return out
@@ -125,6 +131,7 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
         type: obs.type,
         causeType: obs.causeType,
         outcome: obs.outcome,
+        provisional: obs.provisional === true,
       })
     }
   }
