@@ -286,7 +286,7 @@ export default function ServiceCard({
                   description={t('card.removeDesc')}
                   okText={t('card.removeOk')}
                   cancelText={t('card.removeCancel')}
-                  onConfirm={() => onRemove(service.name)}
+                  onConfirm={() => onRemove(service)}
                 >
                   <Link type="secondary">
                     <DeleteOutlined />

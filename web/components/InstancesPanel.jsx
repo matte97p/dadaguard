@@ -63,7 +63,7 @@ const fmtBytes = (n) => {
 // Pannello "Istanze": una riga per task ECS. Le metriche di servizio sono MEDIE sulla flotta, e una
 // media su tre replica nasconde il caso che si sta cercando — un task che macina CPU mentre gli altri
 // stanno bene. Qui i task sono separati, e da ognuno si salta ai suoi log.
-export default function InstancesPanel({ service, account, onTaskLogs, t = (k) => k, lang }) {
+export default function InstancesPanel({ service, account, resourceId = null, onTaskLogs, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -78,7 +78,9 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
     setLoading(true)
     setError(null)
     const acct = account ? `&account=${encodeURIComponent(account)}` : ''
-    fetch(`/api/task-metrics?service=${encodeURIComponent(service)}${acct}&lang=${lang}`)
+    // vedi LogsPanel: le istanze sono di UNA risorsa, e fra omonime il nome non dice quale
+    const rid = resourceId ? `&resourceId=${encodeURIComponent(resourceId)}` : ''
+    fetch(`/api/task-metrics?service=${encodeURIComponent(service)}${acct}${rid}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -86,7 +88,7 @@ export default function InstancesPanel({ service, account, onTaskLogs, t = (k) =
     return () => {
       stale = true
     }
-  }, [service, account, reloadKey, lang])
+  }, [service, account, resourceId, reloadKey, lang])
 
   const tasks = data?.tasks ?? []
   const mixedRevisions = (data?.revisions?.length ?? 0) > 1

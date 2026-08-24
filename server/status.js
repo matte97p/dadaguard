@@ -163,11 +163,24 @@ export function invalidateServicesCache() {
 // Con l'account dichiarato e nessun servizio che combacia si torna null: un 404 è meglio dei log
 // dell'ambiente sbagliato, che sembrano una risposta valida. Senza account (chiamata vecchia, o un
 // nome unico) resta il primo che combacia: compatibilità con chi non passa il parametro.
-export function findService(services, { service, account } = {}) {
+// Con `resourceId` (l'identità della risorsa: account|tipo|cluster/arn/asg…) la scelta è ESATTA, ed è
+// l'unica che distingue due risorse omonime dentro lo stesso account: un servizio ECS e il suo ALB, o
+// la stessa ECS in due cluster. Senza, le loro risposte (log, eventi) sono quelle della prima che
+// combacia, cioè di un'altra risorsa. Se l'identità arriva ma non combacia con niente si ripiega solo
+// quando resta UN candidato (una risorsa ricreata ha un arn nuovo, e il pannello può avere in mano un
+// payload di un minuto prima): con più omonimi si torna null, perché indovinare qui vuol dire mostrare
+// i log di un altro servizio sotto il titolo di questo.
+export function findService(services, { service, account, resourceId: rid } = {}) {
   const sameName = services.filter((s) => s.name === service)
   if (sameName.length === 0) return null
+  const inAccount = account ? sameName.filter((s) => (s.account ?? '—') === account) : sameName
+  if (rid) {
+    const esatto = inAccount.find((s) => resourceId(s) === rid)
+    if (esatto) return esatto
+    return inAccount.length === 1 ? inAccount[0] : null
+  }
   if (!account) return sameName[0]
-  return sameName.find((s) => (s.account ?? '—') === account) ?? null
+  return inAccount[0] ?? null
 }
 
 export async function resolveServices() {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { serviceKey } from '../web/serviceName.js'
+import { serviceKey, omonimiVisibili, chiaveVisibile, distintivo } from '../web/serviceName.js'
 import { findService } from '../server/status.js'
 import { resourceId } from '../server/autodiscover.js'
 
@@ -115,4 +115,56 @@ test('findService: senza account resta il primo omonimo (chiamate vecchie, nomi 
   assert.equal(findService(BE, { service: 'agentic-chat' }).account, 'staging')
   assert.equal(findService(BE, { service: 'dadaguard', account: '—' }).name, 'dadaguard')
   assert.equal(findService(BE, { service: 'inesistente', account: 'staging' }), null)
+})
+
+
+// --- log ed eventi: la richiesta dice QUALE risorsa, non solo il nome ---
+// Le API di log, eventi e istanze risolvono il servizio con `findService`. Con due omonime nello
+// stesso account il nome non basta: le risposte erano quelle della prima che combacia, cioè di
+// un'altra risorsa, sotto il titolo di questa. E dei log di un altro servizio non si vede che sono
+// di un altro: sembrano una risposta valida.
+const OMONIME_BE = [
+  { name: 'gateway', account: 'security', aws: { type: 'ecs', cluster: 'app', service: 'gateway' } },
+  { name: 'gateway', account: 'security', aws: { type: 'alb', arn: 'arn:aws:elb:gateway' } },
+]
+
+test('findService: con l identità di risorsa prende QUELLA risorsa fra due omonime', () => {
+  const alb = findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: resourceId(OMONIME_BE[1]) })
+  assert.equal(alb.aws.type, 'alb')
+  const ecs = findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: resourceId(OMONIME_BE[0]) })
+  assert.equal(ecs.aws.cluster, 'app')
+})
+
+test('findService: identità che non combacia e più omonime → null, mai una a caso', () => {
+  // Meglio un 404 che i log di un'altra risorsa: quelli sembrano una risposta valida.
+  assert.equal(findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: 'security|asg|||||||||altro' }), null)
+})
+
+test('findService: identità che non combacia ma un solo candidato → quel candidato', () => {
+  // Una risorsa ricreata ha un arn nuovo, e il pannello può avere in mano un payload di un minuto
+  // prima: con un candidato solo non c'è niente da sbagliare, e un 404 sarebbe una bugia.
+  const uno = [OMONIME_BE[0]]
+  assert.equal(findService(uno, { service: 'gateway', account: 'security', resourceId: 'vecchio' }).aws.type, 'ecs')
+})
+
+
+// --- palette ⌘K: due righe identiche non si possono scegliere ---
+test('omonimiVisibili: segna solo le righe indistinguibili, non tutte', () => {
+  const lista = [
+    { name: 'gateway', type: 'ecs', region: 'eu-west-1', account: { key: 'security' } },
+    { name: 'gateway', type: 'alb', region: 'eu-west-1', account: { key: 'security' } },
+    { name: 'api', type: 'ecs', region: 'eu-west-1', account: { key: 'security' } },
+    { name: 'gateway', type: 'ecs', region: 'eu-west-1', account: { key: 'staging' } },
+  ]
+  const ambigue = omonimiVisibili(lista)
+  assert.equal(ambigue.size, 1, 'ambigua è solo gateway in security: le altre hanno nome o account diverso')
+  assert.ok(ambigue.has(chiaveVisibile(lista[0])))
+  assert.ok(!ambigue.has(chiaveVisibile(lista[2])))
+  assert.ok(!ambigue.has(chiaveVisibile(lista[3])))
+})
+
+test('distintivo: dice tipo e region, e non inventa niente quando non le sa', () => {
+  assert.equal(distintivo({ type: 'alb', region: 'eu-west-1' }), 'alb · eu-west-1')
+  assert.equal(distintivo({ type: 'ecs' }), 'ecs')
+  assert.equal(distintivo({}), '')
 })

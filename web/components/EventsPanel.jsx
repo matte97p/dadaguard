@@ -12,7 +12,7 @@ const { Text } = Typography
 // drawer che copriva il primo — si perdeva di vista il servizio che si stava guardando, e chiudendolo
 // riappariva l'altro. Il fetch parte al mount, e la scheda si monta solo quando la apri: resta
 // on-demand come prima.
-export default function EventsPanel({ service, account, t = (k) => k, lang }) {
+export default function EventsPanel({ service, account, resourceId = null, t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -29,7 +29,9 @@ export default function EventsPanel({ service, account, t = (k) => k, lang }) {
     // `account` insieme al nome: staging e produzione hanno gli stessi servizi, e senza l'account il
     // server risolve il primo che combacia — cioè gli eventi dell'ambiente sbagliato.
     const acct = account ? `&account=${encodeURIComponent(account)}` : ''
-    fetch(`/api/events?service=${encodeURIComponent(service)}${acct}&lang=${lang}`)
+    // vedi LogsPanel: fra due risorse omonime il nome non basta a dire di quale sono gli eventi
+    const rid = resourceId ? `&resourceId=${encodeURIComponent(resourceId)}` : ''
+    fetch(`/api/events?service=${encodeURIComponent(service)}${acct}${rid}&lang=${lang}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => !stale && setData(d))
       .catch((e) => !stale && setError(e.message))
@@ -37,7 +39,7 @@ export default function EventsPanel({ service, account, t = (k) => k, lang }) {
     return () => {
       stale = true
     }
-  }, [service, account, reloadKey, lang])
+  }, [service, account, resourceId, reloadKey, lang])
 
   const fmt = (ts) => (ts ? new Date(ts).toLocaleString() : '')
 

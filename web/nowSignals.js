@@ -41,7 +41,10 @@ function serviceSignals(services = [], t, nameOf) {
     if (s?.overall !== 'down' && s?.overall !== 'degraded') continue
     const cause = s.cause ? s.checks?.[s.cause] : null
     out.push({
-      id: `svc:${s.account?.key ?? '-'}:${s.name}`,
+      // L'identità della RISORSA, non il nome: due risorse omonime dello stesso account (una ECS e il
+      // suo ALB) davano due segnali con lo stesso id, che è la chiave React della riga in pagina, e
+      // quando uno dei due rientrava restava una riga rossa appesa sulla pagina dei guasti.
+      id: `svc:${s.account?.key ?? '-'}:${s.resourceId ?? s.name}`,
       level: s.overall === 'down' ? 'crit' : 'warn',
       kind: 'service',
       title: nameOf(s),
