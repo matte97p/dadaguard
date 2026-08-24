@@ -116,3 +116,33 @@ test('findService: senza account resta il primo omonimo (chiamate vecchie, nomi 
   assert.equal(findService(BE, { service: 'dadaguard', account: '—' }).name, 'dadaguard')
   assert.equal(findService(BE, { service: 'inesistente', account: 'staging' }), null)
 })
+
+
+// --- log ed eventi: la richiesta dice QUALE risorsa, non solo il nome ---
+// Le API di log, eventi e istanze risolvono il servizio con `findService`. Con due omonime nello
+// stesso account il nome non basta: le risposte erano quelle della prima che combacia, cioè di
+// un'altra risorsa, sotto il titolo di questa. E dei log di un altro servizio non si vede che sono
+// di un altro: sembrano una risposta valida.
+const OMONIME_BE = [
+  { name: 'gateway', account: 'security', aws: { type: 'ecs', cluster: 'app', service: 'gateway' } },
+  { name: 'gateway', account: 'security', aws: { type: 'alb', arn: 'arn:aws:elb:gateway' } },
+]
+
+test('findService: con l identità di risorsa prende QUELLA risorsa fra due omonime', () => {
+  const alb = findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: resourceId(OMONIME_BE[1]) })
+  assert.equal(alb.aws.type, 'alb')
+  const ecs = findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: resourceId(OMONIME_BE[0]) })
+  assert.equal(ecs.aws.cluster, 'app')
+})
+
+test('findService: identità che non combacia e più omonime → null, mai una a caso', () => {
+  // Meglio un 404 che i log di un'altra risorsa: quelli sembrano una risposta valida.
+  assert.equal(findService(OMONIME_BE, { service: 'gateway', account: 'security', resourceId: 'security|asg|||||||||altro' }), null)
+})
+
+test('findService: identità che non combacia ma un solo candidato → quel candidato', () => {
+  // Una risorsa ricreata ha un arn nuovo, e il pannello può avere in mano un payload di un minuto
+  // prima: con un candidato solo non c'è niente da sbagliare, e un 404 sarebbe una bugia.
+  const uno = [OMONIME_BE[0]]
+  assert.equal(findService(uno, { service: 'gateway', account: 'security', resourceId: 'vecchio' }).aws.type, 'ecs')
+})
