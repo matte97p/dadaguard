@@ -74,6 +74,25 @@ export function serviceKey(service) {
   return `${account}/${region}/${type}/${service?.name ?? ''}`
 }
 
+// Quali righe di un elenco sono INDISTINGUIBILI a occhio: stesso nome mostrato e stesso account.
+// Serve alla palette ⌘K, dove la riga è nome più etichetta dell'account e basta: da quando gli
+// omonimi sono entità distinte (una ECS, il suo ALB, la stessa ECS in due cluster) sceglierne uno
+// voleva dire indovinare fra righe identiche, e ogni scelta apriva qualcosa di diverso. Ritorna le
+// chiavi `account/nome mostrato` che compaiono più di una volta.
+export function omonimiVisibili(list = []) {
+  const conta = new Map()
+  for (const s of list) {
+    const k = `${s?.account?.key ?? '—'}/${displayName(s)}`
+    conta.set(k, (conta.get(k) ?? 0) + 1)
+  }
+  return new Set([...conta].filter(([, n]) => n > 1).map(([k]) => k))
+}
+
+// La chiave con cui `omonimiVisibili` indicizza una riga, e il pezzo che la distingue dalle sue
+// omonime: tipo e region, cioè quello che il payload ha e che l'occhio non vede.
+export const chiaveVisibile = (s) => `${s?.account?.key ?? '—'}/${displayName(s)}`
+export const distintivo = (s) => [s?.type, s?.region].filter(Boolean).join(' · ')
+
 // Nome leggibile per la UI. Ritorna sempre una stringa.
 export function displayName(service) {
   if (service?.type === 'bedrock') return prettyBedrock(service.name).name || service.name

@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { parseDocument } from 'yaml'
 import { CONFIG_PATH } from './config.js'
 import { isCloud } from './mode.js'
+import { resourceId } from './autodiscover.js'
 
 // La watchlist È services.yaml. Add/remove modificano SOLO questo file locale
 // (cosa monitoro), MAI l'infra AWS. Usiamo la Document API di `yaml` per
@@ -57,13 +58,50 @@ export function addServices(entries = []) {
   return added
 }
 
-// Rimuove un servizio dalla watchlist per name. Ritorna true se rimosso.
-export function removeService(name) {
+// Identità di una voce di services.yaml, nella stessa forma del payload dello stato: serve a
+// riconoscere QUALE riga della dashboard corrisponde a QUALE voce del file.
+const idOf = (entry) => resourceId({ account: entry?.account, aws: entry?.aws })
+
+// QUALE voce cancellare. Pura e testabile di proposito: `CONFIG_PATH` è un file solo, quindi la
+// scelta si prova qui e non scrivendo il services.yaml del repo.
+//
+// Il bersaglio è l'identità della riga cliccata, non il nome nudo: services.yaml può avere due voci
+// omonime (un servizio ECS e il suo ALB, la stessa ECS in due cluster, lo stesso nome in due account)
+// e cancellare la prima che combacia vuol dire togliere il monitoraggio di un ALTRO servizio, con la
+// UI che dice "fatto". È una scrittura che dalla dashboard non si annulla, quindi davanti a un
+// bersaglio ambiguo NON si indovina: si alza un errore che dice quante voci combaciano.
+export function targetIndex(entries = [], target = {}) {
+  const { name, account, resourceId: rid } = typeof target === 'string' ? { name: target } : target
+  if (!name) return -1
+  const combacia = entries
+    .map((entry, idx) => ({ entry, idx }))
+    .filter(({ entry }) => entry?.name === name)
+    // L'account restringe solo se lo sappiamo da entrambe le parti: una voce senza `account` nel file
+    // vale per l'account che il risolutore le assegna, e scartarla qui vorrebbe dire non cancellare
+    // mai niente.
+    .filter(({ entry }) => !account || !entry.account || entry.account === account)
+
+  if (combacia.length === 0) return -1
+  // Con l'identità di risorsa la scelta è esatta: è l'unica cosa che separa due voci che si somigliano
+  // in tutto il resto.
+  const esatta = rid ? combacia.filter(({ entry }) => idOf(entry) === rid) : []
+  if (esatta.length === 1) return esatta[0].idx
+  if (combacia.length === 1) return combacia[0].idx
+  throw new Error(
+    `"${name}" combacia con ${combacia.length} voci di services.yaml e non c'è modo di dire quale: rimuovila a mano dal file`,
+  )
+}
+
+// Rimuove un servizio dalla watchlist. Accetta l'identità della riga (`{ name, account, resourceId }`)
+// e ancora la stringa nuda, per le chiamate vecchie e per i file dove i nomi sono unici davvero.
+// Ritorna true se rimosso.
+export function removeService(target) {
   assertWritable()
   const doc = load()
   const services = doc.get('services')
   if (!services) return false
-  const idx = services.items.findIndex((it) => it.get('name') === name)
+  const entries = services.items.map((item) => (item?.toJSON ? item.toJSON() : item))
+  const idx = targetIndex(entries, target)
   if (idx === -1) return false
   services.delete(idx)
   persist(doc)

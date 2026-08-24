@@ -30,7 +30,20 @@ export function stateClass(overall) {
 // Il verde definitivo resta l'unica cosa che chiude l'allarme: qui non si esce mai dal rosso.
 const GRAVITA = { degraded: 1, down: 2 }
 
-export const serviceKey = (s) => `${s.account?.key ?? '—'}/${s.name}`
+// La chiave di un servizio nello stato del watcher. È l'identità della RISORSA quando il payload la
+// porta (`resourceId` = account|tipo|cluster/arn/asg…, vedi server/status.js), non il nome: due
+// risorse omonime nello stesso account (un servizio ECS e il suo ALB, o la stessa ECS in due cluster)
+// finivano nella stessa voce dello snapshot, e `snapshot()` scrive per chiave, quindi sopravviveva
+// solo l'ultima letta. Conseguenza in un watchdog: la ECS che va giù mentre l'ALB resta su non veniva
+// confrontata con niente, e il guasto non si annunciava. Il nome resta il ripiego per i servizi
+// dichiarati a mano, che non hanno identificatori di risorsa.
+const accountKey = (s) => s?.account?.key ?? '—'
+export const serviceKey = (s) => `${accountKey(s)}/${s?.resourceId ?? s?.name}`
+
+// La chiave di PRIMA (account + nome), che è quella scritta nello stato su disco dei giri passati.
+// Serve solo a non perdere la memoria degli allarmi già aperti quando la forma della chiave cambia:
+// vedi `diffStates`.
+const legacyKey = (s) => `${accountKey(s)}/${s?.name}`
 
 // Fotografia da salvare: per ogni servizio lo stato osservato ora + il candidato in attesa di conferma.
 // `confirmed` è l'ultimo stato ANNUNCIATO (o osservato al primo giro): il confronto si fa su quello,
@@ -51,6 +64,9 @@ export function snapshot(services = []) {
       causeType: s.checks?.[s.cause]?.causeType ?? null,
       account: s.account?.label ?? null,
       name: s.name,
+      // La chiave vecchia della stessa riga: non finisce nello stato salvato (`next` copia campo per
+      // campo), la legge solo la migrazione dentro `diffStates`.
+      legacy: legacyKey(s),
       type: s.type ?? null,
       // esito strutturato del dead-man: 'missed' (mai partita) | 'failed' (partita e caduta) | 'ok'
       outcome: s.checks?.runtime?.outcome ?? null,
@@ -72,8 +88,26 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
   const transitions = []
   const next = {}
 
+  // Migrazione della forma della chiave, una volta sola. Lo stato su disco è indicizzato con la
+  // chiave vecchia (account + nome): senza questo, al primo giro dopo il rilascio ogni servizio
+  // sarebbe "nuovo", perderebbe `alerted` e `route`, e il rientro di un allarme aperto ADESSO
+  // resterebbe muto (verrebbe scartato come rientro orfano, vedi sotto). Si eredita la voce vecchia
+  // solo se non è la chiave corrente di nessun altro e se non se l'è già presa un omonimo: fra due
+  // risorse che prima collassavano in una sola voce, quella memoria è di una e non si duplica.
+  const chiaviCorrenti = new Set(Object.keys(now))
+  const ereditate = new Set()
+  const ereditaVecchia = (key, obs) => {
+    const vecchia = obs.legacy
+    if (!vecchia || vecchia === key) return undefined
+    if (chiaviCorrenti.has(vecchia) || ereditate.has(vecchia)) return undefined
+    const before = prevMap[vecchia]
+    if (!before) return undefined
+    ereditate.add(vecchia)
+    return before
+  }
+
   for (const [key, obs] of Object.entries(now)) {
-    const before = prevMap[key]
+    const before = prevMap[key] ?? ereditaVecchia(key, obs)
     // Servizio nuovo (o primo giro in assoluto): si prende nota, non si annuncia. Dopo un riavvio
     // il notificatore non deve rovesciare in chat lo stato del mondo — solo i cambi che vede lui.
     if (!before) {

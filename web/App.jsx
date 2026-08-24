@@ -241,13 +241,21 @@ export default function App() {
     loadHealth()
   }, [loadHealth])
 
+  // Riceve il SERVIZIO, non il suo nome: la voce di services.yaml da cancellare si sceglie con
+  // l'identità della risorsa, perché due voci omonime sono due monitoraggi diversi e cancellare
+  // quella sbagliata è una scrittura che dalla dashboard non si annulla.
   const removeService = useCallback(
-    async (name) => {
+    async (service) => {
+      const target = typeof service === 'string' ? { name: service } : service
       try {
         const res = await fetch('/api/watchlist/remove', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({
+            name: target?.name,
+            account: target?.account?.key ?? target?.account,
+            resourceId: target?.resourceId,
+          }),
         })
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))

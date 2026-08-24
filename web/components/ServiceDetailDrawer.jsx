@@ -95,6 +95,7 @@ export default function ServiceDetailDrawer({
         <InstancesPanel
           service={service?.name}
           account={service?.account?.key}
+          resourceId={service?.resourceId}
           onTaskLogs={(taskId, allTasks) => {
             setLogFocus({ task: taskId, tasks: allTasks ?? [] })
             onTab?.('logs')
@@ -113,6 +114,7 @@ export default function ServiceDetailDrawer({
         <LogsPanel
           service={service?.name}
           account={service?.account?.key}
+          resourceId={service?.resourceId}
           focus={logFocus}
           defaultMinutes={logsDefaultMinutes}
           defaultErrorsOnly={logsDefaultErrorsOnly}
@@ -124,7 +126,15 @@ export default function ServiceDetailDrawer({
     has.events && {
       key: 'events',
       label: t('events.button'),
-      children: <EventsPanel service={service?.name} account={service?.account?.key} t={t} lang={lang} />,
+      children: (
+        <EventsPanel
+          service={service?.name}
+          account={service?.account?.key}
+          resourceId={service?.resourceId}
+          t={t}
+          lang={lang}
+        />
+      ),
     },
   ].filter(Boolean)
 

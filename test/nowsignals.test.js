@@ -246,3 +246,24 @@ test('un riavvio RESPINTO resta anche se lo ha tentato la CI: un permesso negato
   }
   assert.equal(buildSignals({ services: [], deploys, hours: 24, now: NOW, t }).length, 1)
 })
+
+
+// L'id di un segnale è la chiave React della sua riga in pagina: due segnali con lo stesso id sono la
+// stessa classe di guaio delle righe fantasma nella tabella (uno rientra, la riga rossa dell'altro
+// resta appesa sulla pagina che elenca i guasti). Due risorse omonime dello stesso account si
+// distinguono solo per l'identità di risorsa.
+test('due risorse omonime giù danno due segnali con id DIVERSI', () => {
+  const services = [
+    { name: 'gateway', overall: 'down', cause: 'runtime', resourceId: 'security|ecs|||gateway', checks: { runtime: { summary: '0/2 task' } }, account: { key: 'security', label: 'Security' } },
+    { name: 'gateway', overall: 'degraded', cause: 'runtime', resourceId: 'security|alb||||||arn:elb', checks: { runtime: { summary: '1/2 target sani' } }, account: { key: 'security', label: 'Security' } },
+  ]
+  const out = buildSignals({ services, now: NOW, t })
+  assert.equal(out.length, 2)
+  assert.notEqual(out[0].id, out[1].id)
+  assert.equal(new Set(out.map((x) => x.id)).size, 2)
+})
+
+test('senza identità di risorsa l id resta quello di prima (account e nome)', () => {
+  const services = [{ name: 'backend', overall: 'down', cause: 'runtime', checks: { runtime: {} }, account: { key: 'prod', label: 'Production' } }]
+  assert.equal(buildSignals({ services, now: NOW, t })[0].id, 'svc:prod:backend')
+})

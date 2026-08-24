@@ -18,6 +18,7 @@ const shortTask = (taskId) => String(taskId ?? '').slice(0, 8)
 export default function LogsPanel({
   service,
   account,
+  resourceId = null, // identità della risorsa: fra due omonime dice di QUALE sono i log
   focus = null, // { task, tasks } dalla scheda Istanze: oggetto nuovo a ogni clic
   defaultMinutes = 60,
   defaultErrorsOnly = false,
@@ -72,7 +73,7 @@ export default function LogsPanel({
       setKnownTasks([])
     }
     prevService.current = key
-  }, [service, account])
+  }, [service, account, resourceId])
 
   useEffect(() => {
     if (!service) {
@@ -85,9 +86,12 @@ export default function LogsPanel({
     // `account` insieme al nome: il nome da solo è ambiguo (staging e produzione hanno gli stessi
     // servizi) e il server aprirebbe il log group dell'ambiente sbagliato.
     const acct = account ? `&account=${encodeURIComponent(account)}` : ''
+    // Identità della risorsa: senza, due omonime dello stesso account (una ECS e il suo ALB) hanno gli
+    // stessi log, cioè i log della prima che combacia sotto il titolo dell'altra.
+    const rid = resourceId ? `&resourceId=${encodeURIComponent(resourceId)}` : ''
     const one = task ? `&task=${encodeURIComponent(task)}` : ''
     fetch(
-      `/api/logs?service=${encodeURIComponent(service)}${acct}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}${one}&minutes=${minutes}&lang=${lang}`,
+      `/api/logs?service=${encodeURIComponent(service)}${acct}${rid}&errorsOnly=${errorsOnly}&skipHealth=${!showHealth}${one}&minutes=${minutes}&lang=${lang}`,
     )
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
@@ -103,7 +107,7 @@ export default function LogsPanel({
     return () => {
       stale = true
     }
-  }, [service, account, errorsOnly, showHealth, task, minutes, reloadKey, lang])
+  }, [service, account, resourceId, errorsOnly, showHealth, task, minutes, reloadKey, lang])
 
   return (
     <>

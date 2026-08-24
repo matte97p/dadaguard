@@ -20,6 +20,13 @@ const svc = (name, account, overall, cause = null, detail = null, extra = {}) =>
 const stato = (servizi) => ({ services: servizi })
 const conferma = { confirmations: 2 }
 
+// Come sopra, ma con l'identità di RISORSA che il payload dello stato porta (`resourceId`): due
+// risorse omonime nello stesso account si distinguono solo per quella.
+const risorsa = (name, account, overall, resourceId, cause = null) => ({
+  ...svc(name, account, overall, cause, cause ? 'dettaglio' : null),
+  resourceId,
+})
+
 // --- il confine che conta ---
 test('stateClass: problema, non-problema, e "non lo so"', () => {
   assert.equal(stateClass('down'), 'problem')
@@ -456,4 +463,67 @@ test('runOnce: senza webhook dedicato, il cron mai partito finisce nel principal
   )
   assert.equal(inviati.length, 1)
   assert.match(inviati[0].hook, /\/main$/, 'meglio nel posto sbagliato che in nessun posto')
+})
+
+
+// --- identità: omonimi nello stesso account ---
+// Il difetto era nello snapshot, non nel confronto: `out[chiave] = …` per due risorse omonime dello
+// stesso account teneva solo l'ultima letta, e il guasto dell'altra non veniva confrontato con
+// niente. In un watchdog è il modo peggiore di sbagliare: non un messaggio brutto, nessun messaggio.
+test('snapshot: due risorse omonime nello stesso account restano DUE voci', () => {
+  const now = snapshot([
+    risorsa('gateway', 'Security', 'down', 'security|ecs|||gateway', 'runtime'),
+    risorsa('gateway', 'Security', 'up', 'security|alb|||||arn:aws:elb:gateway'),
+  ])
+  assert.equal(Object.keys(now).length, 2, 'la ECS e il suo ALB non sono la stessa riga')
+  assert.equal(now['security/security|ecs|||gateway'].overall, 'down')
+  assert.equal(now['security/security|alb|||||arn:aws:elb:gateway'].overall, 'up')
+})
+
+test('il guasto di una risorsa omonima si annuncia (prima lo copriva quella sana)', () => {
+  const su = risorsa('gateway', 'Security', 'up', 'security|alb|||||arn:aws:elb:gateway')
+  const ecsSu = risorsa('gateway', 'Security', 'up', 'security|ecs|||gateway')
+  let s = diffStates(null, snapshot([ecsSu, su]), conferma).next
+  // la ECS va giù e ci resta: due letture di fila, come vuole il debounce
+  for (let i = 0; i < 2; i++) {
+    const r = diffStates(s, snapshot([risorsa('gateway', 'Security', 'down', 'security|ecs|||gateway', 'runtime'), su]), conferma)
+    s = r.next
+    if (i === 1) {
+      assert.equal(r.transitions.length, 1)
+      assert.equal(r.transitions[0].kind, 'alert')
+      assert.equal(r.transitions[0].to, 'down')
+    }
+  }
+})
+
+// --- migrazione della chiave: gli allarmi già aperti non diventano muti ---
+test('la memoria di un allarme aperto sopravvive al cambio di forma della chiave', () => {
+  // Stato scritto dai giri PRECEDENTI, con la chiave vecchia account/nome e un allarme annunciato.
+  const prev = stato({ 'production/api': { confirmed: 'down', cause: 'runtime', alerted: true, route: 'main' } })
+  const ora = risorsa('api', 'Production', 'up', 'production|ecs|||api')
+  let s = prev
+  let ultimo
+  for (let i = 0; i < 2; i++) {
+    ultimo = diffStates(s, snapshot([ora]), conferma)
+    s = ultimo.next
+  }
+  assert.equal(ultimo.transitions.length, 1, 'il rientro va annunciato, non scartato come orfano')
+  assert.equal(ultimo.transitions[0].kind, 'recovery')
+  assert.equal(ultimo.transitions[0].key, 'production/production|ecs|||api')
+})
+
+test('la memoria vecchia se la prende UNA sola delle omonime, non tutte', () => {
+  const prev = stato({ 'security/gateway': { confirmed: 'down', cause: 'runtime', alerted: true } })
+  const now = snapshot([
+    risorsa('gateway', 'Security', 'up', 'security|ecs|||gateway'),
+    risorsa('gateway', 'Security', 'up', 'security|alb|||||arn:aws:elb:gateway'),
+  ])
+  const { next } = diffStates(prev, now, conferma)
+  const conMemoria = Object.values(next.services).filter((v) => v.alerted === true)
+  assert.equal(conMemoria.length, 1, 'un allarme aperto era uno: non si duplica in due rientri')
+})
+
+test('serviceKey: senza resourceId resta la chiave vecchia (servizi dichiarati a mano)', () => {
+  assert.equal(serviceKey(svc('api', 'Staging', 'up')), 'staging/api')
+  assert.equal(serviceKey(risorsa('api', 'Staging', 'up', 'staging|ecs|||api')), 'staging/staging|ecs|||api')
 })

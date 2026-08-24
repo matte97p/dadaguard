@@ -7,7 +7,7 @@ import { TIPI_NODO } from '../components/TopoNode.jsx'
 import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
 import { buildMap, buildGroup, rollup, repliche, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
-import { familyPrefixes } from '../serviceName.js'
+import { familyPrefixes, serviceKey } from '../serviceName.js'
 import { rischi as calcolaRischi, usiDiretti, impatto } from '../topoImpact.js'
 import Loading from '../components/Loading.jsx'
 
@@ -172,8 +172,11 @@ function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) 
           {t('topo.panel.open')}
         </Button>
         <div className="dg-topo-panel-list">
+          {/* La chiave è l'identità della RISORSA, non quella del nodo: sotto un nodo `account::nome`
+              possono stare più risorse omonime, e due righe con la stessa chiave lasciano una riga
+              appesa quando la lista si accorcia (vedi web/serviceName.js). */}
           {scelto.membri.map((s) => (
-            <div key={chiaveDi(s)} className="dg-topo-panel-row">
+            <div key={s.esterno ? s.esterno.id : serviceKey(s)} className="dg-topo-panel-row">
               <span style={{ width: 7, height: 7, borderRadius: 2, background: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown }} />
               <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>{s.name}</span>
               <Text type="secondary" style={{ fontSize: FONT.micro }}>
@@ -334,15 +337,32 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
   //
   // `topo.nodes` porta nome, account e tipo di ogni risorsa: basta a disegnare la mappa. Lo stato
   // (problemi, task attivi, prossima esecuzione) arriva dopo e ARRICCHISCE i box, senza bloccarli.
-  const perChiave = useMemo(() => new Map(services.map((x) => [topologyNodeId(x), x])), [services])
+  // Un nodo del grafo è `account::nome`, e sotto quel nome possono stare PIÙ risorse: un servizio ECS
+  // e il suo ALB, o la stessa ECS in due cluster. Il grafo le tiene insieme di proposito (gli archi si
+  // deducono per nome, sul server), ma allora lo stato del nodo non può essere «l'ultimo letto», che
+  // è quello che faceva una `Map` costruita così: un box verde con una risorsa giù dietro è
+  // esattamente la bugia che questa pagina non deve dire. Vince il PEGGIORE.
+  const SEV_NODO = { down: 0, degraded: 1, unknown: 2, up: 3, idle: 4, disabled: 5 }
+  const peggiore = (a, b) => ((SEV_NODO[a?.overall] ?? 2) <= (SEV_NODO[b?.overall] ?? 2) ? a : b)
+  const perChiave = useMemo(() => {
+    const m = new Map()
+    for (const x of services) {
+      const k = topologyNodeId(x)
+      m.set(k, m.has(k) ? peggiore(m.get(k), x) : x)
+    }
+    return m
+  }, [services])
   const servizi = useMemo(() => {
-    if (!topo.nodes?.length) return services
+    // Senza il grafo dal server si disegna la flotta, ma DEDUPLICATA per chiave di nodo: due omonimi
+    // darebbero due nodi con lo stesso id a React Flow, che è la stessa classe di guaio delle chiavi
+    // duplicate in una lista (un nodo di troppo, o uno che resta appeso).
+    if (!topo.nodes?.length) return [...perChiave.values()]
     return topo.nodes.map((n) => {
       const vero = perChiave.get(n.id)
       if (vero) return vero
       return { name: n.name, type: n.type, account: { key: n.account, label: n.account }, overall: 'unknown' }
     })
-  }, [topo, perChiave, services])
+  }, [topo, perChiave])
 
   const conti = useMemo(() => {
     const m = new Map()
