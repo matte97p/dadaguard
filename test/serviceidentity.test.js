@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { serviceKey } from '../web/serviceName.js'
 import { findService } from '../server/status.js'
+import { resourceId } from '../server/autodiscover.js'
 
 // Un servizio è identificato da ACCOUNT + REGION + TIPO + NOME. Il nome da solo è ambiguo su una
 // flotta multi-account (`backend` esiste in staging e in produzione, i modelli Bedrock in entrambi) e
@@ -53,7 +54,38 @@ test('serviceKey: nessuna chiave duplicata su una flotta con omonimi (rowKey del
 test('serviceKey: la riga cliccata apre SE STESSA, non l omonimo di un altro tipo', () => {
   const clicked = OMONIMI[1] // la riga dell'ALB, non quella del servizio ECS
   const found = OMONIMI.find((s) => serviceKey(s) === serviceKey(clicked))
+  // `assert.ok` prima di leggere `found.type`: se la chiave cambia forma e non combacia più niente,
+  // senza questo il test muore su "Cannot read properties of undefined" invece di dire cosa si
+  // aspettava, proprio sull'asserzione che è il punto di tutto.
+  assert.ok(found, 'nessun servizio trovato con la chiave della riga cliccata')
   assert.equal(found.type, 'alb')
+})
+
+// Il caso che account + region + tipo + nome NON distingue: due servizi ECS con lo stesso nome in
+// cluster diversi dello stesso account e della stessa region. AWS li ammette (il nome di un servizio
+// ECS è unico per cluster, non per account) e la discovery li emette entrambi. Li separa solo
+// l'identità della risorsa che il server manda nel payload.
+const CLUSTER = [
+  { name: 'worker', type: 'ecs', region: 'eu-west-1', account: { key: 'security' }, resourceId: resourceId({ account: 'security', aws: { type: 'ecs', cluster: 'app', service: 'worker' } }) },
+  { name: 'worker', type: 'ecs', region: 'eu-west-1', account: { key: 'security' }, resourceId: resourceId({ account: 'security', aws: { type: 'ecs', cluster: 'batch', service: 'worker' } }) },
+]
+
+test('serviceKey: due ECS omonime in cluster diversi hanno chiavi diverse', () => {
+  assert.notEqual(serviceKey(CLUSTER[0]), serviceKey(CLUSTER[1]))
+})
+
+test('resourceId: senza identificatori di risorsa è null, e la chiave ripiega su region+tipo+nome', () => {
+  // Un servizio dichiarato a mano in services.yaml può non avere ID: meglio un ripiego dichiarato che
+  // una chiave `account|tipo|||…` identica per tutti, che sarebbe una collisione travestita.
+  assert.equal(resourceId({ account: 'security', aws: { type: 'ecs' } }), null)
+  assert.equal(serviceKey({ name: 'worker', type: 'ecs', region: 'eu-west-1', account: { key: 'security' }, resourceId: null }), 'security/eu-west-1/ecs/worker')
+})
+
+test('serviceKey: account come STRINGA (forma del server) non collassa tutti sul sentinella', () => {
+  const a = { name: 'agentic-chat', type: 'ecs', region: 'eu-west-1', account: 'staging' }
+  const b = { name: 'agentic-chat', type: 'ecs', region: 'eu-west-1', account: 'production' }
+  assert.notEqual(serviceKey(a), serviceKey(b))
+  assert.equal(serviceKey(a), 'staging/eu-west-1/ecs/agentic-chat')
 })
 
 test('serviceKey: la ricerca per chiave prende il servizio CLICCATO, non il primo omonimo', () => {

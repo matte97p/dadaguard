@@ -54,10 +54,26 @@ export async function autoDiscoverServices(accounts) {
 // Identità di una risorsa AWS monitorata: account + tipo + identificatori. Serve a de-duplicare
 // quando si uniscono i servizi dichiarati (watchlist) con quelli scoperti: stessa risorsa = stessa
 // chiave, anche se il `name` differisce (la watchlist usa nomi umani, la discovery il nome AWS).
+//
+// Viaggia anche nel payload dello stato (`resourceId`, vedi server/status.js) perché è l'UNICA
+// identità che distingue due risorse che si somigliano in tutto il resto: due servizi ECS con lo
+// stesso nome in cluster diversi dello stesso account e della stessa region hanno account, nome,
+// tipo e region identici, e li separa solo il cluster. La UI la usa come chiave delle righe, dove
+// due chiavi uguali lasciano righe fantasma nel DOM.
 const ID_FIELDS = ['function', 'cluster', 'service', 'taskDefinition', 'instance', 'table', 'bucket', 'arn', 'id', 'stream', 'asg', 'instanceId', 'queue', 'url', 'topic']
 export function serviceKey(s) {
   const a = s?.aws ?? {}
   return `${s?.account ?? ''}|${a.type ?? ''}|${ID_FIELDS.map((f) => a[f] ?? '').join('|')}`
+}
+
+// La stessa identità, ma solo se DAVVERO identifica: un servizio dichiarato a mano in services.yaml
+// può non avere nessun identificatore di risorsa, e in quel caso la chiave sarebbe `account|tipo|||…`
+// per tutti quanti, cioè una collisione travestita da identità. `null` dice "non lo so", e chi la usa
+// ha un ripiego onesto (account + region + tipo + nome) invece di una chiave finta.
+export function resourceId(s) {
+  const a = s?.aws ?? {}
+  if (!ID_FIELDS.some((f) => a[f])) return null
+  return serviceKey(s)
 }
 
 // Unione watchlist + servizi scoperti: i DICHIARATI vincono (conservano i loro override); un
