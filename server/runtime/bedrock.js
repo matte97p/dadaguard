@@ -192,5 +192,10 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
     throttles,
     over: nellOra.map((s) => s.key),
     overAcute: adesso.map((s) => s.key),
+    // Lo sforamento viene SOLO dalla finestra corta: è cominciato adesso e non è ancora confermato
+    // dall'ora, che è l'unica che può dirlo senza smentirsi dieci minuti dopo. Il messaggio già lo
+    // scrive («non è ancora una finestra da 60m»), e `notify/slack.js` lo usa per non chiamare il
+    // canale su un allarme che si annuncia da sé come provvisorio.
+    provisional: !nellOra.length && adesso.length > 0,
   }
 }

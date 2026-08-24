@@ -146,6 +146,17 @@ test('sopra soglia solo negli ultimi 15 minuti → degraded (appena cominciato, 
   assert.match(r.summary, /oltre soglia err\. server \(5xx\) su 15m: 6 su 40/)
 })
 
+test('lo sforo visto dalla sola finestra corta si DICHIARA provvisorio', async () => {
+  const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 6 })
+  assert.equal(r.status, 'degraded')
+  assert.equal(r.provisional, true, 'l ora non l ha ancora confermato, e in chat non si chiama il canale')
+})
+
+test('lo sforo che passa dall ora non è provvisorio, né da conclamato né in rientro', async () => {
+  assert.equal((await leggi({ inv: 200, serr: 20 }, { inv: 50, serr: 8 })).provisional, false, 'down')
+  assert.equal((await leggi({ inv: 200, serr: 8 }, { inv: 50, serr: 0 })).provisional, false, 'probabile rientro')
+})
+
 test('sopra soglia su entrambe → down, e il messaggio dice che è ancora in corso', async () => {
   const r = await leggi({ inv: 200, serr: 20 }, { inv: 50, serr: 8 })
   assert.equal(r.status, 'down')
