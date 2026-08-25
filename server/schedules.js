@@ -11,7 +11,9 @@ import { mapLimit } from './util/pool.js'
 
 // Espressione di schedule EventBridge → cadenza in MINUTI (null se non interpretabile). Pura/testabile.
 // rate(N unit) è esatto; cron(...) è una stima best-effort che, nel dubbio, SOVRASTIMA la cadenza
-// (fallback giornaliero) per non generare falsi allarmi nel dead-man switch.
+// (fallback giornaliero) per non generare falsi allarmi nel dead-man switch. Legge tutti i campi che
+// sa leggere — minuti, ore, giorno del mese, mese, giorno della settimana — perché una cadenza
+// dedotta dai soli primi due dà per giornaliero anche ciò che gira una volta al mese.
 export function scheduleExpressionToMinutes(expr) {
   if (!expr) return null
   const s = String(expr).trim()
@@ -26,14 +28,31 @@ export function scheduleExpressionToMinutes(expr) {
   const cron = /^cron\((.+)\)$/i.exec(s)
   if (!cron) return null
   // EventBridge cron: "min hour day-of-month month day-of-week year"
-  const [min = '*', hour = '*'] = cron[1].trim().split(/\s+/)
+  const [min = '*', hour = '*', dom = '*', month = '*', dow = '*'] = cron[1].trim().split(/\s+/)
   const stepMin = /^(?:\*|\d+)\/(\d+)$/.exec(min)
   if (stepMin) return Number(stepMin[1]) // ogni N minuti (*/N oppure start/N)
   if (min === '*') return 1 // ogni minuto
   const stepHour = /^(?:\*|\d+)\/(\d+)$/.exec(hour)
   if (stepHour) return Number(stepHour[1]) * 60 // ogni N ore
   if (/^\d/.test(min) && hour === '*') return 60 // minuto fisso, ogni ora
-  return 1440 // ora/giorno fissi o pattern complesso → conservativo (giornaliero)
+  // Ora fissa: la cadenza NON è per forza giornaliera, e il fallback "1g" era la bugia più visibile
+  // del pannello — un cron MENSILE (`cron(0 5 1 * ? *)`, il primo del mese) si leggeva «ogni 1g».
+  // La finestra del dead man's switch NON dipende da qui (arriva da missedWindow, che legge
+  // l'espressione vera), quindi allargare la stima non ammorbidisce nessun controllo: sposta solo la
+  // cadenza scritta a schermo dal falso al vero. I pattern che non si sanno leggere (`L`, `W`, `#`,
+  // intervalli) restano sul fallback giornaliero, che sovrastima e quindi non inventa allarmi.
+  const stepDom = /^(?:\*|\d+)\/(\d+)$/.exec(dom)
+  if (stepDom) return Number(stepDom[1]) * 1440 // ogni N giorni del mese
+  const stepMonth = /^(?:\*|\d+)\/(\d+)$/.exec(month)
+  if (stepMonth) return Number(stepMonth[1]) * 43200 // ogni N mesi (30g a mese, approssimato)
+  const domDays = dom.split(',')
+  const fixedDom = domDays.every((d) => /^\d+$/.test(d))
+  const fixedMonth = /^(?:\d+|[A-Z]{3})$/i.test(month)
+  if (fixedDom && fixedMonth) return 525600 // giorno E mese fissi → annuale
+  if (fixedDom) return Math.round(43200 / domDays.length) // N giorni fissi al mese → mensile / N
+  const fixedDow = /^(?:\d+|[A-Z]{3})$/i.test(dow)
+  if (fixedDow) return 10080 // un solo giorno della settimana → settimanale
+  return 1440 // pattern non leggibile (intervalli, L/W/#) → conservativo (giornaliero)
 }
 
 // Minuti → stringa `schedule` compatibile con runtime/lambda.js (parseSchedule capisce 'Nm'). Pura.
