@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { serviceKey, omonimiVisibili, chiaveVisibile, distintivo } from '../web/serviceName.js'
 import { findService } from '../server/status.js'
-import { resourceId } from '../server/autodiscover.js'
+import { resourceId, qualifier } from '../server/autodiscover.js'
 
 // Un servizio è identificato da ACCOUNT + REGION + TIPO + NOME. Il nome da solo è ambiguo su una
 // flotta multi-account (`backend` esiste in staging e in produzione, i modelli Bedrock in entrambi) e
@@ -167,4 +167,28 @@ test('distintivo: dice tipo e region, e non inventa niente quando non le sa', ()
   assert.equal(distintivo({ type: 'alb', region: 'eu-west-1' }), 'alb · eu-west-1')
   assert.equal(distintivo({ type: 'ecs' }), 'ecs')
   assert.equal(distintivo({}), '')
+})
+
+
+// --- il distintivo mostrato accanto al nome ---
+// Quattro servizi ECS omonimi nello stesso account e nella stessa region hanno tipo e region
+// identici: mostrare quelli non distingue niente. Li separa il cluster, che è ciò che `qualifier`
+// tira fuori dall'identità della risorsa.
+test('qualifier: il cluster di una ECS, il gruppo di autoscaling, la coda di un arn', () => {
+  assert.equal(qualifier({ aws: { type: 'ecs', cluster: 'security-auth', service: 'gateway' } }), 'security-auth')
+  assert.equal(qualifier({ aws: { type: 'asg', asg: 'gateway-nodes' } }), 'gateway-nodes')
+  assert.equal(qualifier({ aws: { type: 'ecs-scheduled', taskDefinition: 'arn:aws:ecs:eu-west-1:1:task-definition/refresh-bi:7' } }), 'refresh-bi')
+  // Un load balancer si chiama come il servizio che serve: ripeterne il nome non distingue niente, e
+  // fra quelle due righe è il tipo a dirlo. Meglio `null` che una parola che non aggiunge.
+  assert.equal(qualifier({ aws: { type: 'alb', arn: 'arn:aws:elasticloadbalancing:eu-west-1:1:loadbalancer/app/gateway/abc' } }), null)
+  assert.equal(qualifier({ aws: { type: 'ses' } }), null)
+})
+
+test('distintivo: fra omonime dello stesso cluster vince il cluster, non la region', () => {
+  const a = { type: 'ecs', region: 'eu-west-1', qualifier: 'security-auth' }
+  const b = { type: 'ecs', region: 'eu-west-1', qualifier: 'security-proxy' }
+  assert.notEqual(distintivo(a), distintivo(b), 'due ECS omonime in cluster diversi devono leggersi diverse')
+  assert.equal(distintivo(a), 'ecs · security-auth')
+  // Senza qualifier resta la region, che è meglio del tipo da solo.
+  assert.equal(distintivo({ type: 'alb', region: 'eu-west-1' }), 'alb · eu-west-1')
 })

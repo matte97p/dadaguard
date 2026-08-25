@@ -76,6 +76,24 @@ export function resourceId(s) {
   return serviceKey(s)
 }
 
+// Il pezzo di identità da MOSTRARE quando due righe hanno lo stesso nome nello stesso account: il
+// cluster di un servizio ECS, il gruppo di autoscaling, la famiglia di una task-def. Non è la chiave
+// (quella è `resourceId`, che va bene per una macchina e non per un occhio): è la parola più corta che
+// dice quale delle omonime stai guardando. Senza, quattro righe `acme-gateway` nello stesso account
+// sono quattro righe identiche, e l'unico modo di distinguerle è aprirle una per una.
+//
+// `null` quando la risorsa non ha niente da aggiungere: un load balancer si chiama come il servizio
+// che serve, quindi ripeterne il nome non distingue nulla, e fra quelle due righe è il TIPO a dire
+// quale è quale (la UI lo mostra già accanto).
+const QUALIFIER_FIELDS = ['cluster', 'asg', 'function', 'table', 'bucket', 'domain', 'stream', 'queue', 'instanceId', 'instance', 'id']
+export function qualifier(s) {
+  const a = s?.aws ?? {}
+  for (const f of QUALIFIER_FIELDS) if (a[f]) return String(a[f])
+  // Task-def schedulata: vale la FAMIGLIA (`…/famiglia:3` → famiglia), che è il nome del cron.
+  if (!a.taskDefinition) return null
+  return String(a.taskDefinition).split('/').pop().split(':')[0] || null
+}
+
 // Unione watchlist + servizi scoperti: i DICHIARATI vincono (conservano i loro override); un
 // servizio scoperto si aggiunge solo se la sua risorsa non è già in watchlist.
 export function mergeServices(declared, discovered) {
