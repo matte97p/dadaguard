@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { Table, Typography, Space, Badge, Tooltip, Popconfirm, Tag } from 'antd'
 import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { fmtMs, fmtSchedule, rowClickOpens } from '../format.js'
-import { prettyBedrock, splitFamily, familyPrefixes, serviceKey, isNonEuInference } from '../serviceName.js'
+import { prettyBedrock, splitFamily, familyPrefixes, serviceKey, isNonEuInference, omonimiVisibili, chiaveVisibile, distintivo } from '../serviceName.js'
 import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
 
 const { Text, Link } = Typography
@@ -35,6 +35,13 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
   for (const [k, names] of famByAccount) famByAccount.set(k, familyPrefixes(names))
 
   const rows = [...services].sort((a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)))
+
+  // Righe INDISTINGUIBILI a occhio: stesso nome mostrato, stesso account. Succede per davvero (quattro
+  // `…-teleport` in Security, che sono un servizio ECS per cluster più il suo load balancer), e finché
+  // il distintivo stava solo nella riga espansa l'unico modo di sapere quale stavi guardando era
+  // aprirle una per una. Solo a quelle si aggiunge tipo e cluster: su tutte sarebbe rumore su ogni
+  // riga per un caso che riguarda due righe.
+  const ambigue = omonimiVisibili(rows)
 
   const typeLabel = (ty) => (ty ? (t(`type.${ty}`) === `type.${ty}` ? ty : t(`type.${ty}`)) : '—')
   const uniq = (vals) => [...new Set(vals.filter(Boolean))]
@@ -106,6 +113,11 @@ export default function ServicesTable({ services, caps, onRemove, onLogs, onEven
                 >
                   {bedrock.scope}
                 </Tag>
+              )}
+              {ambigue.has(chiaveVisibile(s)) && distintivo(s) && (
+                <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                  {distintivo(s)}
+                </Text>
               )}
               <StatusTag service={s} t={t} />
               {cadence && (

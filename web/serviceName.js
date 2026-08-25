@@ -91,7 +91,11 @@ export function omonimiVisibili(list = []) {
 // La chiave con cui `omonimiVisibili` indicizza una riga, e il pezzo che la distingue dalle sue
 // omonime: tipo e region, cioè quello che il payload ha e che l'occhio non vede.
 export const chiaveVisibile = (s) => `${s?.account?.key ?? '—'}/${displayName(s)}`
-export const distintivo = (s) => [s?.type, s?.region].filter(Boolean).join(' · ')
+// Quello che separa una riga dalle sue omonime, in ordine di utilità: il tipo di risorsa, poi il
+// pezzo leggibile dell'identità che il server manda (`qualifier`: il cluster di una ECS, il gruppo di
+// autoscaling…), e la region come ultimo appiglio. Quattro servizi ECS omonimi nello stesso account e
+// nella stessa region hanno tipo e region identici: è il cluster l'unica cosa che li distingue.
+export const distintivo = (s) => [s?.type, s?.qualifier, s?.qualifier ? null : s?.region].filter(Boolean).join(' · ')
 
 // Nome leggibile per la UI. Ritorna sempre una stringa.
 export function displayName(service) {

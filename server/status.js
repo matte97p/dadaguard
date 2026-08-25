@@ -1,6 +1,6 @@
 import { loadConfig } from './config.js'
 import { accountsSummary } from './accounts.js'
-import { autoDiscoverServices, mergeServices, resourceId } from './autodiscover.js'
+import { autoDiscoverServices, mergeServices, resourceId, qualifier } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { discoverProfileAccounts } from './awsProfiles.js'
 import { cloudflareWorkersStatus, CF_COLOR, shortId } from './cloudflare.js'
@@ -453,6 +453,10 @@ export async function getStatus(lang) {
         // finiscono con la stessa chiave, e chiavi uguali lasciano righe fantasma). `null` per un
         // servizio dichiarato a mano senza identificatori: la UI ha il suo ripiego.
         resourceId: resourceId(service),
+        // Il pezzo di identità LEGGIBILE (il cluster di una ECS, il gruppo di autoscaling, la coda di
+        // un arn): la UI lo mostra accanto al nome delle sole righe omonime, che altrimenti sono
+        // identiche a occhio e si distinguono solo aprendole una per una.
+        qualifier: qualifier(service),
         url: endpoint, // endpoint pubblico del servizio (config url / CloudFront / healthUrl); null se ignoto
         links: {
           ...(service.links ?? {}),
