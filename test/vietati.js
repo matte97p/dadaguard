@@ -26,6 +26,14 @@ export const VIETATI = [
   // vieta un webhook VERO, cioè quello che ha un token dietro.
   { re: /hooks\.slack\.com\/services\/[A-Z0-9]{6,}/i, cosa: 'webhook Slack' },
   { re: /\bAKIA[0-9A-Z]{16}\b/, cosa: 'access key' },
+  // I NOMI delle persone quando compaiono NUDI: il pattern sull'email non li vede in
+  // `members: ['matteo', 'giovanni']`, ed e' esattamente la forma in cui erano finiti nella demo.
+  // Un handle di un collega dice chi lavora su quello stack quanto la sua email.
+  { re: /\b(giovanni|giacometti|ggiacometti|bossolini|midena|mmatteo23|matteomidena|sabatti|bonfanti|zoncada)\b/i, cosa: 'nome di una persona del team' },
+  // `matteo` e' anche il nome dell'AUTORE, che nella licenza e nel README ci deve stare: si vieta il
+  // nome nudo e la forma puntata (`matteo.perino`), non l'attribuzione «Matteo Perino» ne' il dominio
+  // `matteoperino.dev`.
+  { re: /\bmatteo(?!\s+perino\b)(?!perino)/i, cosa: 'nome di una persona nei dati' },
 ]
 
 // Gli id account veri: se compaiono, la sostituzione non ha funzionato.

@@ -3,7 +3,7 @@ import { stripOrgEnv, ENV_PREFIX } from './envToken.js'
 // Obiettivo: mostrare la PERSONA quando c'è; per le pipeline (CI/CodeBuild) mostrare un'etichetta
 // PULITA (il pipeline), mai una sessione-macchina grezza tipo `AWSCodeBuild-<uuid>`. Puro/testabile.
 //
-//   iam::123:user/matteo                                    → matteo
+//   iam::123:user/alex                                      → alex
 //   assumed-role/AdminAccess/sam@example.com            → sam@example.com   (sessione SSO = persona)
 //   assumed-role/acme-prod-backend-deploy/AWSCodeBuild-uuid → backend-deploy         (pipeline CodeBuild)
 //   assumed-role/acme-staging-codebuild-iac/codebuild-iac-9 → codebuild-iac          (pipeline IaC)
