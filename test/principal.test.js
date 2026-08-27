@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { principalName, canonicalActor, actorKind, isHumanActor } from '../server/util/principal.js'
 
 test('principalName: IAM user → nome', () => {
-  assert.equal(principalName('arn:aws:iam::123456789012:user/matteo'), 'matteo')
+  assert.equal(principalName('arn:aws:iam::123456789012:user/alex'), 'alex')
 })
 
 test('principalName: assumed-role SSO → sessione (la persona)', () => {

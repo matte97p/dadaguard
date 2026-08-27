@@ -10,7 +10,7 @@ test('principalArnForSimulation: assumed-role → ARN del ruolo', () => {
 })
 
 test('principalArnForSimulation: utente/ruolo IAM → invariato (già valido come sorgente)', () => {
-  assert.equal(principalArnForSimulation('arn:aws:iam::111122223333:user/matteo'), 'arn:aws:iam::111122223333:user/matteo')
+  assert.equal(principalArnForSimulation('arn:aws:iam::111122223333:user/alex'), 'arn:aws:iam::111122223333:user/alex')
   assert.equal(principalArnForSimulation('arn:aws:iam::111122223333:role/ops'), 'arn:aws:iam::111122223333:role/ops')
 })
 
