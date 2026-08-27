@@ -18,6 +18,12 @@ All notable changes to Dadaguard are documented here. Format based on
   Topologia («se questo si ferma, chi ne soffre?»), perché un video che mostra un disegno senza dire a
   cosa serve vende un disegno. L'indirizzo del server demo ora si sovrascrive con `DADAGUARD_DEMO_URL`,
   così registrare non costringe a spegnere il server di sviluppo che occupa la stessa porta.
+- **Il guardiano dei nomi vede anche i nomi di persona nudi.** Vietava le email e i nomi interni, ma un
+  handle da solo (`members: ['<nome>', '<nome>']` in una fixture, un `da <nome>` in una riga di changelog) gli
+  passava davanti: un nome di persona dice chi lavora su quello stack quanto la sua email. Ora due regole
+  in piu' in `test/vietati.js`, e i dati finti della demo, due test e due righe di changelog usano nomi
+  inventati. L'attribuzione dell'autore nella licenza e nel README resta ammessa di proposito: quella e'
+  una firma, non un dato.
 
 ### Performance
 - **I load balancer si leggono in una passata sola.** Erano due giri sulle stesse risorse: uno per gli
@@ -457,7 +463,7 @@ All notable changes to Dadaguard are documented here. Format based on
      l'elenco dei servizi selezionabili si limita agli account visibili (prima offriva servizi di
      account nascosti, e sceglierli svuotava la pagina senza spiegare perché).
 
-  Sulle righe **Cloudflare** l'autore compariva due volte: una nell'intestazione come `da matteo` e
+  Sulle righe **Cloudflare** l'autore compariva due volte: una nell'intestazione come `da alex` e
   una nella riga sotto per email, perché quello spazio — dove per AWS c'è la durata — veniva riempito
   con l'autore. Resta l'intestazione; l'email intera è nel dettaglio della build.
 
@@ -485,7 +491,7 @@ All notable changes to Dadaguard are documented here. Format based on
 ### Added
 - **Mappa alias delle persone (`people:` in config)** — il tag `deployedBy` è l'email dell'autore del
   commit, e la stessa persona può committare con più identità git: il pannello mostrava
-  `ggiacometti` su un deploy e `giovanni1.giacometti` su un altro, e chi guarda conclude che sono due
+  `arossi` su un deploy e `alice1.rossi` su un altro, e chi guarda conclude che sono due
   colleghi. Una riga per alias, chiave = identità grezza (o la sua forma accorciata, senza distinzione
   di maiuscole), valore = nome da mostrare.
   **Non** è dedotta dai nomi somiglianti, e non lo sarà: quando un'euristica del genere sbaglia,

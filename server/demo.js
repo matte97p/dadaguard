@@ -660,7 +660,7 @@ export function demoIamAccess(needle) {
       permissionSet: 'AdministratorAccess',
       actions: ['*'],
       broad: true,
-      assignments: [{ account: 'Production', type: 'group', name: 'admins', members: ['matteo', 'giovanni'] }],
+      assignments: [{ account: 'Production', type: 'group', name: 'admins', members: ['alex', 'sam'] }],
       on: ['user-db', 'events-stream', 'public-assets', 'web', 'checkout-api'],
     },
   ]
@@ -675,8 +675,8 @@ export function demoSsoAccess() {
       {
         name: 'AdministratorAccess',
         assignments: [
-          { account: 'Production', type: 'group', name: 'platform-admins', members: ['matteo.perino', 'alice.rossi'] },
-          { account: 'Staging', type: 'group', name: 'platform-admins', members: ['matteo.perino', 'alice.rossi'] },
+          { account: 'Production', type: 'group', name: 'platform-admins', members: ['sam.bianchi', 'alice.rossi'] },
+          { account: 'Staging', type: 'group', name: 'platform-admins', members: ['sam.bianchi', 'alice.rossi'] },
         ],
       },
       {
@@ -917,7 +917,7 @@ export function demoEvents() {
     changes: [
       { ts: now - 130000, eventName: 'UpdateService', user: 'github-actions', source: 'ecs.amazonaws.com', errorCode: null },
       { ts: now - 900000, eventName: 'RegisterTaskDefinition', user: 'github-actions', source: 'ecs.amazonaws.com', errorCode: null },
-      { ts: now - 3600000, eventName: 'PutScalingPolicy', user: 'matteo', source: 'application-autoscaling.amazonaws.com', errorCode: 'AccessDenied' },
+      { ts: now - 3600000, eventName: 'PutScalingPolicy', user: 'alex', source: 'application-autoscaling.amazonaws.com', errorCode: 'AccessDenied' },
     ],
   }
 }
