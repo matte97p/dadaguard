@@ -32,6 +32,30 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Un errore ATTESO nel log non fa piu' fallire un cron riuscito, e non c'e' niente da dichiarare.** Un
+  cron su ECS veniva dato per fallito se nell'ultima run comparivano `Traceback`, `ERROR:` o `CRITICAL:`,
+  ma il filtro di CloudWatch cerca quei termini DOVUNQUE nella riga: un job che ricarica i ruoli di un
+  dump su un Postgres appena creato da `initdb` stampa `psql:<stdin>:36: ERROR:  role "postgres" already
+  exists`, la conta fra le righe rifiutate e la ristampa dentro il riepilogo `Done:`. Risultato: due job
+  RIUSCITI (un backup pubblicato, un ripristino di prova finito in 7m03s) segnati rossi, e un guasto
+  inventato insegna a non guardare piu' il pannello quanto uno taciuto. Ora la riga si classifica da se':
+  nel formato di `logging` il LIVELLO e' il primo campo (`ERROR:logger:messaggio`, `[ERROR]` su Lambda) e
+  un traceback comincia con la sua intestazione, quindi conta solo cio' che sta all'INIZIO della riga e
+  quello che una riga INFO cita piu' avanti non e' il suo esito. Dedotto e non dichiarato di proposito:
+  una lista di eccezioni scritta a mano nasce incompleta al primo cron nuovo. I fallimenti veri restano
+  rossi (`refresh-bi-mvs` stampa `ERROR:cron.refresh-bi-mvs:...` e `Traceback` a inizio riga), e le
+  chiamate sul pattern di guasto ora chiedono una pagina vera invece di un evento solo, perche' con
+  `limit: 1` si leggeva la riga innocua e si rispondeva su quella.
+- **«1 sano su 2» si deduce dall'health check, invece di essere una riga per nome.** `expectedHealthy`
+  copriva il writer del Postgres self-hosted, dichiarato a mano: ogni altro target group con la stessa
+  forma nasceva giallo finche' qualcuno non si ricordava di aggiungere la sua riga, ed e' successo il
+  28/08/2026 con `postgres-pub`, ATTENZIONE tutti i giorni a cluster sano. Ora, se l'health check di un
+  target group e' un endpoint di RUOLO (`/primary`, `/replica`, `/leader`, `/read-write`… di Patroni),
+  il pavimento di quel target group e' 1: l'informazione era gia' nella `DescribeTargetGroups` che
+  leggevamo comunque, quindi zero chiamate in piu'. Si somma PER target group, non per load balancer: un
+  LB con writer e reader ha 2 sani su 4 come stato normale, e un numero globale a 1 avrebbe dato per sano
+  un cluster con meta' dei ruoli fuori. `expectedHealthy` resta come via di scampo dichiarata a mano per
+  i casi che la discovery non puo' sapere, e zero target sani resta GIU' comunque.
 - **Un allarme che si dichiara «non ancora confermato» non chiama più tutto il canale.** Il provider di
   Bedrock legge due finestre, l'ora e gli ultimi 15 minuti, e quando lo sforamento viene dalla sola
   finestra corta il messaggio lo scrive («sopra soglia solo negli ultimi 15m: non è ancora una finestra

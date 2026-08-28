@@ -34,6 +34,36 @@ function fmtDur(min, t = identityT) {
 // livello error (formato logging `LEVEL:logger:msg`). Il successo logga `Done: ...`, nessuno di questi.
 export const FAILURE_PATTERN = '?Traceback ?"ERROR:" ?"CRITICAL:"'
 
+// Non ogni riga che ACCENDE quel pattern e' un guasto, perche' il filtro di CloudWatch cerca quei
+// termini DOVUNQUE nella riga. Un job che ricarica i ruoli di un dump su un Postgres appena creato da
+// `initdb` stampa `psql:<stdin>:36: ERROR:  role "postgres" already exists`, la conta fra le righe
+// rifiutate e la ristampa dentro il riepilogo `Done:`: il 28/08/2026 due corse RIUSCITE (un backup
+// pubblicato, un ripristino di prova finito in 7m03s) erano rosse per quella riga sola, e un guasto
+// inventato insegna a non guardare piu' il pannello quanto uno taciuto.
+//
+// La differenza si legge nella riga stessa, senza chiedere niente a nessuno: nel formato di `logging`
+// il LIVELLO e' il primo campo (`ERROR:logger:messaggio`, `[ERROR]\tmessaggio` su Lambda), e un
+// traceback comincia con la sua intestazione. Quindi conta solo cio' che sta all'INIZIO: se il livello
+// della riga e' INFO, quello che quella riga CITA piu' avanti non e' il suo esito. Dedotto, non
+// dichiarato: una lista di eccezioni scritta a mano nasce incompleta al primo cron nuovo.
+//
+// `refresh-bi-mvs`, che fallisce sul serio, resta rosso: stampa `ERROR:cron.refresh-bi-mvs:[3/12] ...`
+// e `Traceback (most recent call last):`, tutti e due a inizio riga.
+const LIVELLO_GUASTO = /^\s*\[?(?:ERROR|CRITICAL|FATAL)\]?(?::|\s|$)/
+const TRACEBACK = /^\s*Traceback\b/
+
+// Una riga e' un guasto? Pura/testabile: e' qui che si decide un colore, quindi si prova da sola.
+export function isFailureLine(message) {
+  const m = message ?? ''
+  return LIVELLO_GUASTO.test(m) || TRACEBACK.test(m)
+}
+
+// Le righe di una pagina che sono DAVVERO un guasto. Se non ne resta nessuna, la pagina non e' una
+// prova di fallimento: si continua a paginare, e in fondo la run e' riuscita.
+export function realFailures(events) {
+  return (events ?? []).filter((e) => isFailureLine(e?.message))
+}
+
 // Classifica l'esito di un cron ECS dai due segnali di log. Pura/testabile.
 //   ran=false           → 'missed'  (dead-man: nessun log nella finestra = non è partito)
 //   ran=true, failed    → 'failed'  (è partito ma i log contengono un errore/traceback)
@@ -64,11 +94,18 @@ export function pickLastRun(streams = [], startTimeMs) {
 // faceva leggere "nessun errore" dove gli errori c'erano. Tetto di pagine per non trasformare un
 // check in una scansione infinita: esaurito il budget diciamo "non trovato", mai "fallito".
 const MAX_PAGES = 15
-async function anyEvent(logs, params) {
+// Un evento per pagina basta per la domanda "e' partito?", non per "e' fallito?": la riga innocua puo'
+// stare davanti a quella vera, e con `limit: 1` si leggeva la prima e si rispondeva sulla sbagliata.
+// Le chiamate sul pattern di fallimento chiedono una pagina vera e la filtrano (vedi realFailures).
+const PAGE_LIMIT = 25
+async function anyEvent(logs, params, { filtra = false } = {}) {
   let token
   for (let page = 0; page < MAX_PAGES; page++) {
-    const r = await logs.send(new FilterLogEventsCommand({ ...params, nextToken: token, limit: 1 }))
-    if ((r.events ?? []).length) return true
+    const r = await logs.send(
+      new FilterLogEventsCommand({ ...params, nextToken: token, limit: filtra ? PAGE_LIMIT : 1 }),
+    )
+    const eventi = filtra ? realFailures(r.events) : (r.events ?? [])
+    if (eventi.length) return true
     token = r.nextToken
     if (!token) return false
   }
@@ -87,13 +124,17 @@ export async function runOutcome(logs, logGroup, startTime) {
     )
     const { stream, ran } = pickLastRun(streams.logStreams ?? [], startTime)
     if (!ran || !stream) return { ran: false, failed: false }
-    const failed = await anyEvent(logs, { logGroupName: logGroup, logStreamNames: [stream], startTime, filterPattern: FAILURE_PATTERN })
+    const failed = await anyEvent(
+      logs,
+      { logGroupName: logGroup, logStreamNames: [stream], startTime, filterPattern: FAILURE_PATTERN },
+      { filtra: true },
+    )
     return { ran: true, failed }
   } catch (err) {
     if (!isDenied(err)) throw err
     const [ran, failed] = await Promise.all([
       anyEvent(logs, { logGroupName: logGroup, startTime }),
-      anyEvent(logs, { logGroupName: logGroup, startTime, filterPattern: FAILURE_PATTERN }),
+      anyEvent(logs, { logGroupName: logGroup, startTime, filterPattern: FAILURE_PATTERN }, { filtra: true }),
     ])
     return { ran, failed }
   }

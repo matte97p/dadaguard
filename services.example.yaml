@@ -227,9 +227,11 @@ services:
 # Load balancer in cui «tutti i target sani» NON e' lo stato normale, per i servizi SCOPERTI dalla
 # discovery (che non hanno un blocco `aws:` in cui scriverlo). Chiave: `<account>/<nome>` oppure il nome
 # secco; valore: quanti sani sono la normalita'.
-# Il caso vero e' il writer di un Postgres in replica: l'health check chiede «sei il primario?», quindi
-# lo standby registrato risponde no e resta `unhealthy` per sempre. Senza questa riga quel servizio
-# risulta ATTENZIONE ogni giorno, e un allarme che suona sempre non si legge piu'.
+# NB: il caso piu' comune NON va dichiarato, si deduce. Se l'health check di un target group e' un
+# endpoint di RUOLO (`/primary`, `/replica`, `/leader`… di Patroni) risponde un nodo solo per
+# costruzione, e Dadaguard mette il pavimento a 1 da se', sommandolo per target group. Questa mappa
+# serve per i casi che la discovery non puo' sapere (es. una coda di worker in cui meta' e' spenta apposta).
 # Zero target sani resta GIU' comunque: qui si sposta la soglia, non si spegne il rosso.
 # expectedHealthy:
 #   staging/acme-staging-postgres-writer: 1
+

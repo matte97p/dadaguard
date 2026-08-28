@@ -97,7 +97,9 @@ test('runOutcome: budget di pagine esaurito → "non trovato", mai un fallimento
 })
 
 test('runOutcome: senza logs:DescribeLogStreams ripiega sul gruppo intero (e continua a funzionare)', async () => {
-  const logs = fakeLogs({ streamsError: denied, pagine: [{ events: [{ message: 'INFO ...' }] }] })
+  // Nella strada B la stessa pagina risponde a «e' partito?» e a «e' fallito?», quindi la riga deve
+  // essere un guasto VERO: da quando il livello si legge a inizio riga, un `INFO ...` non lo e' piu'.
+  const logs = fakeLogs({ streamsError: denied, pagine: [{ events: [{ message: 'ERROR:app:caduto' }] }] })
   assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
   assert.equal(logs.chiamate.describe, 1)
 })
@@ -113,4 +115,66 @@ test('runOutcome: un errore che NON è "accesso negato" non va mascherato', asyn
   const boom = Object.assign(new Error('kaboom'), { name: 'ThrottlingException' })
   const logs = fakeLogs({ streamsError: boom, pagine: [] })
   await assert.rejects(() => runOutcome(logs, '/gruppo', start), /kaboom/)
+})
+
+// --- quale riga e' un guasto: dedotto dalla riga, non da una lista scritta a mano (28/08/2026) ---
+import { isFailureLine, realFailures } from '../server/runtime/ecsScheduled.js'
+
+const ROLE = 'role "postgres" already exists'
+const benigna = { message: `psql:<stdin>:36: ERROR:  ${ROLE}` }
+const citata = { message: `INFO:cron.db-backup:ruoli della sorgente: psql:30: ERROR:  ${ROLE}` }
+const done = { message: `INFO:cron.db-restore-test:Done: {'ok': True, 'errori': ['psql: ERROR:  ${ROLE}']}` }
+const vera = { message: 'Traceback (most recent call last):' }
+const veraLivello = { message: 'ERROR:cron.refresh-bi-mvs:[3/12] bi_tenders_mv FALLITA dopo 300s' }
+
+test('isFailureLine: conta il LIVELLO a inizio riga, non la parola citata dentro', () => {
+  assert.equal(isFailureLine(benigna.message), false, 'output di psql: il livello della riga non e` suo')
+  assert.equal(isFailureLine(citata.message), false, 'riga INFO che cita un errore atteso')
+  assert.equal(isFailureLine(done.message), false, 'il riepilogo Done ristampa la riga rifiutata')
+  assert.equal(isFailureLine(vera.message), true)
+  assert.equal(isFailureLine(veraLivello.message), true)
+  assert.equal(isFailureLine('[ERROR] HTTPError: HTTP Error 401: Unauthorized'), true, 'formato Lambda')
+  assert.equal(isFailureLine('CRITICAL:app:il disco e` pieno'), true)
+  assert.equal(isFailureLine(''), false)
+  assert.equal(isFailureLine(undefined), false)
+})
+
+test('realFailures: tiene solo le righe che sono davvero un guasto', () => {
+  assert.deepEqual(realFailures([benigna, citata, done, vera]), [vera])
+  assert.deepEqual(realFailures([benigna, citata, done]), [])
+  assert.deepEqual(realFailures(undefined), [])
+})
+
+// Client che REGISTRA anche i parametri: il `limit` fa parte del contratto (costo della chiamata).
+function logsConParams({ streams, pagine }) {
+  let i = 0
+  const inputs = []
+  return {
+    inputs,
+    async send(cmd) {
+      if (cmd instanceof DescribeLogStreamsCommand) return { logStreams: streams }
+      if (cmd instanceof FilterLogEventsCommand) {
+        inputs.push(cmd.input)
+        return pagine[Math.min(i++, pagine.length - 1)]
+      }
+      throw new Error('comando inatteso')
+    },
+  }
+}
+
+test('runOutcome: una run riuscita che stampa un errore ATTESO resta riuscita', async () => {
+  // Il caso vero: `db-restore-test` del 25/08/2026, ripristino completato in 7m03s, dato per fallito.
+  const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, done] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false })
+})
+
+test('runOutcome: riga attesa PIU una vera → fallita lo stesso, il silenzio non si eredita', async () => {
+  const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, veraLivello] }] })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
+})
+
+test('runOutcome: la riga vera oltre la prima non deve sfuggire → pagina vera sul pattern di guasto', async () => {
+  const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna] }] })
+  await runOutcome(logs, '/gruppo', start)
+  assert.equal(logs.inputs.at(-1).limit, 25, 'con limit 1 si leggeva la riga innocua e si rispondeva su quella')
 })
