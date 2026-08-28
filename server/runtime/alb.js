@@ -86,6 +86,28 @@ export function expectedHealthyFloor(expected, registered) {
   return Math.min(Number.isFinite(expected) && expected > 0 ? expected : registered, registered)
 }
 
+// Endpoint di RUOLO: l'health check non chiede «sei vivo?» ma «sei TU quello che serve questo ruolo?»
+// (Patroni li espone così su :8008), quindi in un cluster in replica risponde UNO SOLO per costruzione
+// e «tutti sani» non esiste. Il pavimento di quel target group è 1, e si DEDUCE dalla config del target
+// group che stiamo già leggendo: dichiararlo a mano per nome voleva dire che ogni nuovo cluster, ogni
+// nuovo target group e ogni rinomina nasceva giallo finché qualcuno non si ricordava di aggiungere una
+// riga. Il caso vero: il 28/08/2026 `postgres-pub` suonava ATTENZIONE con il cluster sano, perché la
+// riga c'era per il writer e non per lui.
+export const ROLE_HEALTH_PATHS = new Set([
+  '/primary', '/leader', '/read-write', '/master', '/standby-leader',
+  '/replica', '/read-only', '/sync', '/async', '/quorum',
+])
+
+// Pavimento DEDOTTO di un singolo target group. Per target group e non per load balancer di proposito:
+// un LB con il TG del writer e quello del reader ha 2 sani su 4 come stato normale, e un unico numero
+// globale non sa dirlo (se lo mettessi a 1 accetterebbe come sano un cluster con metà dei ruoli fuori).
+// Pura/testabile.
+export function tgExpectedHealthy(tg, registered) {
+  const path = (tg?.HealthCheckPath ?? '').trim().toLowerCase().replace(/\/+$/, '')
+  if (registered > 0 && ROLE_HEALTH_PATHS.has(path)) return 1
+  return registered
+}
+
 // La frase della card. Tre casi che è facile confondere, e confonderli manda a cercare la cosa
 // sbagliata: nessun target ISCRITTO (configurazione, o servizio spento), tutti i target in TRANSIZIONE
 // (rilascio in corso), e il caso normale. Pura/testabile: la composizione è dove si sbaglia il ramo.
@@ -125,6 +147,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
   let healthy = 0
   let total = 0
   let transitioning = 0 // target che entrano o escono: non sono né sani né rotti (vedi countTargets)
+  let dedotto = 0 // pavimento dedotto dagli health check di ruolo, sommato per target group
   const bad = [] // chi è fuori e perché: la notizia è il target FUORI, non quelli dentro
   try {
     // paginazione target group (Marker/NextMarker): senza loop si ignorano i TG oltre la prima pagina.
@@ -145,6 +168,7 @@ export async function albRuntime(cfg, aws, opts = {}) {
       total += c.total
       healthy += c.healthy
       transitioning += c.transitioning
+      dedotto += tgExpectedHealthy(tg, c.registered)
       bad.push(...c.bad)
     }
   } catch {
@@ -152,8 +176,11 @@ export async function albRuntime(cfg, aws, opts = {}) {
   }
 
   const registered = total + transitioning
-  const atteso = expectedHealthyFloor(cfg.expectedHealthy, registered)
-  const status = albStatus(healthy, total, cfg.expectedHealthy, transitioning)
+  // Dichiarato a mano > dedotto: `expectedHealthy` resta la via di scampo per i casi che nessuna
+  // discovery può indovinare, ma non serve dichiarare quello che il target group già dice di sé.
+  const expected = Number.isFinite(cfg.expectedHealthy) ? cfg.expectedHealthy : dedotto
+  const atteso = expectedHealthyFloor(expected, registered)
+  const status = albStatus(healthy, total, expected, transitioning)
   // In chat il conteggio da solo non basta: `alert` dice quanti sono fuori (non quanti sono dentro),
   // quali e con che motivo. La card tiene il conteggio, che accanto alla metrica è più leggibile.
   // Il denominatore è quello REGISTRATO: «nessuno dei 1 target è sano» con otto iscritti farebbe

@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTargetHealth } from '../server/runtime/ecs.js'
-import { albStatus, countTargets, expectedHealthyFloor, targetsSummary } from '../server/runtime/alb.js'
+import { albStatus, countTargets, expectedHealthyFloor, targetsSummary, tgExpectedHealthy } from '../server/runtime/alb.js'
 
 // Comodità per scrivere i casi come li racconta AWS: stato + motivo, non la forma della risposta.
 const target = (id, State, Reason = null) => ({ Target: { Id: id }, TargetHealth: { State, ...(Reason ? { Reason } : {}) } })
@@ -204,4 +204,26 @@ test('targetsSummary: «attesi n» compare quando il pavimento è sotto gli ISCR
     targetsSummary({ healthy: 1, total: 2, transitioning: 0, registered: 2, atteso: 1 }, tFinto),
     'alb.targets(healthy=1,total=2)alb.expected(n=1)',
   )
+})
+
+// --- il pavimento si DEDUCE dal target group, non si scrive a mano (28/08/2026) ---
+test('tgExpectedHealthy: health check di ruolo → ne basta uno, qualunque sia il numero di nodi', () => {
+  assert.equal(tgExpectedHealthy({ HealthCheckPath: '/primary' }, 2), 1)
+  assert.equal(tgExpectedHealthy({ HealthCheckPath: '/replica' }, 3), 1)
+  assert.equal(tgExpectedHealthy({ HealthCheckPath: '/Primary/' }, 2), 1, 'maiuscole e slash finale non contano')
+})
+
+test('tgExpectedHealthy: health check normale → li vuole tutti, come prima', () => {
+  assert.equal(tgExpectedHealthy({ HealthCheckPath: '/health' }, 4), 4)
+  assert.equal(tgExpectedHealthy({}, 4), 4, 'TCP puro: nessun path, nessuna deduzione')
+  assert.equal(tgExpectedHealthy({ HealthCheckPath: '/primary' }, 0), 0, 'nessun iscritto: non si inventa un atteso')
+})
+
+test('tgExpectedHealthy: due ruoli sullo stesso LB fanno 2, non 1', () => {
+  // E` il motivo per cui si somma per target group: con un numero globale a 1, un cluster con il
+  // writer fuori sarebbe risultato sano perche` il reader rispondeva.
+  const somma = tgExpectedHealthy({ HealthCheckPath: '/primary' }, 2) + tgExpectedHealthy({ HealthCheckPath: '/replica' }, 2)
+  assert.equal(somma, 2)
+  assert.equal(albStatus(2, 4, somma), 'up')
+  assert.equal(albStatus(1, 4, somma), 'degraded', 'un ruolo fuori resta ATTENZIONE')
 })
