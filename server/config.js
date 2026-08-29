@@ -59,6 +59,14 @@ export function validateConfig(doc) {
     // Esplicita di proposito: dedurlo dai nomi somiglianti, quando sbaglia, attribuisce un deploy in
     // produzione a qualcun altro.
     people: doc?.people ?? null,
+    // Superficie "Accessi": dove stanno l'audit del cluster Teleport e l'heartbeat dei dev-env.
+    // ⚠️ Senza questa sezione la superficie NON esiste (niente log group cablati nel codice: qui non
+    // ci sono nomi di nessuno). Forma:
+    //   teleport:
+    //     audit:     { account: security,   logGroup: /ecs/... }
+    //     heartbeat: { account: management, logGroup: /cato/dev-env/heartbeat }
+    //     webUrl: https://teleport.example.com    # per i link "vai ad agire"
+    teleport: doc?.teleport ?? null,
   }
 }
 

@@ -39,6 +39,7 @@ import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
+import AccessiPage from './pages/AccessiPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
 import logo from '../assets/logo.png'
 
@@ -113,6 +114,9 @@ const NAV = [
     items: [
       { to: '/sicurezza', key: 'security', icon: <AlertOutlined />, fields: [], surfaces: ['security'] },
       { to: '/iam', key: 'iam', icon: <SafetyOutlined />, fields: [], surfaces: ['iam'] },
+      // Accessi: sempre visibile. La pagina stessa dice se manca la sezione `teleport:` della
+      // config, che e' un'informazione utile: nascondere la voce farebbe sembrare che non esista.
+      { to: '/accessi', key: 'accessi', icon: <SafetyOutlined />, fields: [], surfaces: [] },
     ],
   },
 ]
@@ -715,6 +719,7 @@ export default function App() {
                 }
               />
               <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
+              <Route path="/accessi" element={<AccessiPage t={t} lang={lang} />} />
               <Route path="/sicurezza" element={<SecurityPage t={t} lang={lang} />} />
               {/* I percorsi vecchi non muoiono: reindirizzano alla scheda giusta della pagina fusa. */}
               {Object.entries(REDIRECTS).map(([from, to]) => (
