@@ -32,6 +32,18 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Una durata di tre ore si legge in ore, non in "234m 56s".** La striscia delle Esecuzioni scriveva la
+  durata di una run con lo stesso formattatore della LATENZA, che si fermava ai minuti perche' nato per
+  il p95 di lambda e ALB, dove 4m e' gia' un numero enorme: un cron vivo da tre ore e mezza si annunciava
+  `in corso · 234m 56s`, cioe' un numero che chi legge deve dividere a mente. Ora sopra l'ora escono ore e
+  minuti (`3h 55m`) e i secondi spariscono, che a quella scala sono rumore. Con lo stesso giro sono
+  spariti quattro modi di stampare un tempo che non esiste: `1m 60s` e `60s` ai bordi dell'arrotondamento,
+  `10.0s` con la coda a zero e `-12000ms` per una durata negativa (succede quando gli orologi di due
+  macchine non concordano), che ora e' un `—`. La pagina Rilasci aveva una TERZA copia della stessa scala,
+  ferma anche lei ai minuti: adesso usa quella condivisa, quindi una build lunga si legge come una run.
+  Allineato anche `fmtCount` fra client e server, che era gia' divergente in silenzio: 1,79 milioni di
+  invocazioni erano `1.8M` nel riepilogo della card e `1788k` nel tooltip del grafico, due numeri per lo
+  stesso dato nella stessa pagina.
 - **Un errore ATTESO nel log non fa piu' fallire un cron riuscito, e non c'e' niente da dichiarare.** Un
   cron su ECS veniva dato per fallito se nell'ultima run comparivano `Traceback`, `ERROR:` o `CRITICAL:`,
   ma il filtro di CloudWatch cerca quei termini DOVUNQUE nella riga: un job che ricarica i ruoli di un

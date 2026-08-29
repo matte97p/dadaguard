@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
-import { shortActor, fmtAgo, awsErrorText, accountShort } from '../format.js'
+import { shortActor, fmtAgo, fmtMs, awsErrorText, accountShort } from '../format.js'
 import { groupByService, isServiceRow } from '../deployRows.js'
 import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
@@ -29,12 +29,10 @@ const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
 
-function fmtDur(ms) {
-  if (ms == null) return ''
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m ${s % 60}s`
-}
+// Durata di una build: `fmtMs` più la regola di questa pagina, dove «non lo so» si scrive vuoto e non
+// «—» (finisce dentro righe che si compongono con `filter(Boolean)`). Qui c'era una terza copia della
+// scala delle durate, ferma ai minuti: una build da quattro ore si leggeva "234m 56s".
+const fmtDur = (ms) => (ms == null ? '' : fmtMs(ms))
 
 // Nome fase leggibile: DOWNLOAD_SOURCE → "Download source".
 function phaseLabel(type = '') {
