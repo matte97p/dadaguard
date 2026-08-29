@@ -22,7 +22,7 @@ test("fra il minuto e l'ora: «Xm Ys»", () => {
 test("da un'ora in su: ore e minuti, senza secondi", () => {
   assert.equal(fmtMs(3600000), '1h')
   assert.equal(fmtMs(14096000), '3h 55m') // la run viva del tooltip: 234m 56s
-  assert.equal(fmtMs(108000000), '30h') // niente giorni: «30h» resta leggibile e non serve `t`
+  assert.equal(fmtMs(108000000), '30h') // niente giorni: oltre le 24h una run non arriva in lista
 })
 
 test('i bordi non producono unità impossibili: mai 60s di minuti né 60m di ore', () => {
