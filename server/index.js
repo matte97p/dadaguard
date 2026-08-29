@@ -36,6 +36,7 @@ import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
 import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
+import * as teleport from './teleport.js'
 import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
@@ -431,6 +432,31 @@ app.get('/api/network', async (_req, res) => {
 })
 
 // IAM policy explorer (read-only, on-demand): elenco policy customer-managed per account…
+// Superficie "Accessi": chi entra dove (audit del cluster Teleport) e chi ha il dev-env indietro
+// (heartbeat). Due letture di log, read-only, e nessun nome cablato: log group e account arrivano
+// dalla sezione `teleport:` della config. Senza quella, la pagina lo dice invece di mostrare il vuoto.
+// Cache breve: e' una vista che si guarda durante un guasto, dove due minuti di ritardo sono tanti.
+app.get('/api/teleport', async (req, res) => {
+  try {
+    const { accounts } = await resolveServices()
+    const cfg = loadConfig().teleport
+    if (!cfg) return res.json({ configurato: false })
+    const conto = (nome) => accounts?.[nome]?.aws ?? (nome ? { profile: nome } : {})
+    const ore = Math.min(168, Math.max(1, Number(req.query.ore) || 24))
+    const [audit, heartbeat] = await Promise.all([
+      cached(`teleport:audit:${ore}`, 120_000, () =>
+        teleport.audit(conto(cfg.audit?.account), { logGroup: cfg.audit?.logGroup, ore }),
+      ).catch((err) => ({ errore: cleanAwsReason(err) })),
+      cached('teleport:heartbeat', 120_000, () =>
+        teleport.heartbeat(conto(cfg.heartbeat?.account), { logGroup: cfg.heartbeat?.logGroup }),
+      ).catch((err) => ({ errore: cleanAwsReason(err) })),
+    ])
+    res.json({ configurato: true, webUrl: cfg.webUrl ?? null, audit, heartbeat })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/api/iam/policies', async (req, res) => {
   try {
     if (isDemo) return res.json(demoIamPolicies())
