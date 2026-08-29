@@ -1,14 +1,36 @@
 // Formattatori lato client — gemelli di server/util/format.js (client e server sono bundle separati,
 // non condividono codice). Tienili allineati.
 
-// Latenza leggibile: ms sotto il secondo, s fino al minuto, poi "Xm Ys" (245759ms → "4m 6s").
+// Durata leggibile: ms sotto il secondo, s fino al minuto, "Xm Ys" fino all'ora, poi "Xh Ym"
+// (245759ms → "4m 6s", 14096000ms → "3h 55m").
+//
+// Il ramo delle ore è arrivato dopo, e il perché vale la pena scriverlo: questa funzione è nata per la
+// LATENZA (p95 di lambda e ALB, dove già 4m è un numero enorme), poi la stessa la usa la DURATA di una
+// run, che di ore ne fa parecchie. Una run viva da tre ore e mezza si leggeva "234m 56s": un numero che
+// chi legge deve dividere a mente per capire da quanto sta girando.
+//
+// Due dettagli che sembrano pignoleria e non lo sono: (1) sopra l'ora i secondi spariscono, perché a
+// quella scala sono rumore; (2) i minuti si arrotondano sul TOTALE e non sul resto, se no 3h 59m 40s
+// uscirebbe "3h 60m". Per lo stesso motivo il ramo dei minuti conta i secondi totali: prima 1m 59,7s
+// diventava "1m 60s".
+//
+// Niente ramo dei giorni: il giorno è "g" in italiano e "d" in inglese, quindi servirebbe `t` e la firma
+// cambierebbe a tutti i chiamanti (fmtMs la chiamano anche le card del server). "30h 5m" si legge lo
+// stesso, e una run da trenta ore è già una notizia di suo.
 export function fmtMs(ms) {
   if (!Number.isFinite(ms)) return '—'
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
-  const m = Math.floor(ms / 60000)
-  const s = Math.round((ms % 60000) / 1000)
-  return s ? `${m}m ${s}s` : `${m}m`
+  const totSec = Math.round(ms / 1000)
+  if (totSec < 3600) {
+    const m = Math.floor(totSec / 60)
+    const s = totSec % 60
+    return s ? `${m}m ${s}s` : `${m}m`
+  }
+  const totMin = Math.round(totSec / 60)
+  const h = Math.floor(totMin / 60)
+  const m = totMin % 60
+  return m ? `${h}h ${m}m` : `${h}h`
 }
 
 // "Quanto fa", con le unità che cambiano scala: minuti → ore → giorni → settimane, così non si legge
