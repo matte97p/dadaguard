@@ -18,7 +18,17 @@ import { clientOpts } from './runtime/awsClient.js'
 export const key = 'teleport'
 
 const ORE_DEFAULT = 24
-const MAX_EVENTI = 3000 // tetto duro: una giornata storta non deve diventare una pagina che non carica
+const MAX_EVENTI = 5000 // tetto duro: una giornata storta non deve diventare una pagina che non carica
+
+// La prima parola di una query dice il mestiere. Serve per separare «ha guardato» da «ha scritto», che
+// e' la domanda vera su un database di produzione.
+// ⚠️ Della query si tiene SOLO questa parola, mai il testo: dentro a una `WHERE` ci sono i dati dei
+// clienti, e questa pagina la guarda chi non ha (e non deve avere) accesso a quei dati.
+const SCRITTURE = new Set(['insert', 'update', 'delete', 'truncate', 'drop', 'alter', 'create', 'grant', 'revoke'])
+function mestiere(query) {
+  const prima = String(query ?? '').trim().toLowerCase().match(/^[a-z]+/)
+  return prima ? prima[0] : ''
+}
 
 // Una riga di log JSON, o null se non e' JSON (il cluster scrive anche righe di testo).
 function comeJson(messaggio) {
@@ -60,12 +70,22 @@ async function eventi(aws, { logGroup, filterPattern, da, limite = MAX_EVENTI })
 export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   if (!logGroup) return null
   const da = Date.now() - ore * 3600_000
-  const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start"', da })
+  const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start" ?"db.session.query"', da })
 
   const persone = new Map()
   const chiave = (nome) => {
-    if (!persone.has(nome)) persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, sessioniDb: 0, ultima: null })
+    if (!persone.has(nome)) {
+      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, sessioniDb: 0, query: 0, scritture: 0, ultima: null })
+    }
     return persone.get(nome)
+  }
+  // Per database: quante query, quante scritture, e QUANTE PERSONE. Un database toccato da una persona
+  // sola e' una cosa; lo stesso numero fatto da sei persone e' un'altra.
+  const database = new Map()
+  const perDatabase = (servizio, nome) => {
+    const k = `${servizio ?? '?'}/${nome ?? '?'}`
+    if (!database.has(k)) database.set(k, { servizio: servizio ?? '?', nome: nome ?? '?', query: 0, scritture: 0, persone: new Set(), ambiente: null })
+    return database.get(k)
   }
 
   for (const ev of righe) {
@@ -86,14 +106,34 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       }
     } else if (tipo === 'db.session.start') {
       p.sessioniDb += 1
+    } else if (tipo === 'db.session.query') {
+      const d = perDatabase(campi.db_service, campi.db_name)
+      d.query += 1
+      d.persone.add(utente)
+      d.ambiente = d.ambiente ?? campi.db_labels?.env ?? null
+      p.query += 1
+      if (SCRITTURE.has(mestiere(campi.db_query))) {
+        d.scritture += 1
+        p.scritture += 1
+      }
     }
   }
 
   const elenco = [...persone.values()].sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
+  const db = [...database.values()]
+    .map((d) => ({ ...d, persone: d.persone.size }))
+    .sort((a, b) => b.query - a.query)
   return {
     ore,
     persone: elenco,
+    database: db,
     loginFallite: elenco.reduce((n, p) => n + p.loginFallite, 0),
+    query: elenco.reduce((n, p) => n + p.query, 0),
+    scritture: elenco.reduce((n, p) => n + p.scritture, 0),
+    sessioniDb: elenco.reduce((n, p) => n + p.sessioniDb, 0),
+    // ⚠️ Se si e' toccato il tetto, quelli sotto sono un CAMPIONE e non un totale: dirlo, perche' un
+    // numero parziale spacciato per totale e' peggio di nessun numero.
+    troncato: righe.length >= MAX_EVENTI,
     // Il motivo piu' frequente fra le fallite: e' la riga che risponde a «cosa sta succedendo adesso».
     motivoPiuComune: piuComune(elenco.filter((p) => p.motivo).map((p) => p.motivo)),
   }

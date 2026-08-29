@@ -1,6 +1,7 @@
-import { Alert, Typography, Table, Tag, Space, Skeleton, Button } from 'antd'
+import { Alert, Typography, Table, Tag, Space, Skeleton, Button, Statistic } from 'antd'
 import { PageIntro, PANEL_CARD, EmptyState } from './pageKit.jsx'
 import { usePoll } from '../usePoll.js'
+import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
 
@@ -20,10 +21,9 @@ const quando = (ts, lang) => (ts ? new Date(ts).toLocaleString(lang === 'it' ? '
 const corta = (v) => (v && v.length > 22 ? `${v.slice(0, 19)}…` : (v ?? '—'))
 
 export default function AccessiPage({ t, lang }) {
-  // 60 secondi: la vista si guarda durante un guasto, ma dietro c'e' una lettura di log, che si paga.
-  // Il server tiene comunque una cache di due minuti, quindi un giro piu' fitto non porterebbe dati
-  // piu' freschi, solo richieste.
-  const { data: dati, loading, error: errore } = usePoll('/api/teleport', { intervalMs: 60000 })
+  // 20 secondi come le altre pagine, e con l'indicatore «aggiornato N fa»: senza, una vista che si
+  // guarda durante un guasto non dice se quello che vedi e' di adesso o di dieci minuti fa.
+  const { data: dati, loading, refreshing, error: errore, lastUpdated } = usePoll('/api/teleport', { intervalMs: 20000 })
 
   if (errore && !dati) return <Alert type="error" showIcon message={String(errore)} />
   if (loading || !dati) return <Skeleton active />
@@ -56,6 +56,14 @@ export default function AccessiPage({ t, lang }) {
         ),
     },
     { title: t('accessi.col.sessioniDb'), dataIndex: 'sessioniDb', key: 'sessioniDb' },
+    { title: t('accessi.col.query'), dataIndex: 'query', key: 'query' },
+    // Le scritture in arancione: su un database di produzione sono la riga che si guarda per prima.
+    {
+      title: t('accessi.col.scritture'),
+      dataIndex: 'scritture',
+      key: 'scritture',
+      render: (n) => (n > 0 ? <Tag color="orange">{n}</Tag> : <Tag>0</Tag>),
+    },
     // Il motivo per intero, non troncato: è la riga che distingue «sessione scaduta» da «ruolo che non
     // esiste», cioè una persona sola da tutto il team fuori.
     { title: t('accessi.col.motivo'), dataIndex: 'motivo', key: 'motivo', render: (v) => v ?? '—' },
@@ -78,7 +86,31 @@ export default function AccessiPage({ t, lang }) {
 
   return (
     <>
-      <PageIntro title={t('accessi.title')} desc={t('accessi.desc')} />
+      <PageIntro
+        title={t('accessi.title')}
+        desc={t('accessi.desc')}
+        extra={<PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />}
+      />
+
+      {/* La riga dei numeri: si guarda per prima e risponde a «serve che io faccia qualcosa?». */}
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: '0 0 16px' }}>
+        <Statistic title={t('accessi.kpi.falliteN')} value={audit.loginFallite ?? 0}
+          valueStyle={{ color: audit.loginFallite ? '#cf1322' : undefined }} />
+        <Statistic title={t('accessi.kpi.persone')} value={audit.persone?.length ?? 0} />
+        <Statistic title={t('accessi.kpi.sessioni')} value={audit.sessioniDb ?? 0} />
+        <Statistic title={t('accessi.kpi.query')} value={audit.query ?? 0} />
+        <Statistic title={t('accessi.kpi.scritture')} value={audit.scritture ?? 0}
+          valueStyle={{ color: audit.scritture ? '#d46b08' : undefined }} />
+        <Statistic title={t('accessi.kpi.macchine')} value={battito.macchine?.length ?? 0} />
+        <Statistic title={t('accessi.kpi.versioni')} value={versioniInGiro}
+          valueStyle={{ color: versioniInGiro > 1 ? '#d46b08' : undefined }} />
+      </div>
+
+      {/* ⚠️ Un campione spacciato per totale e' peggio di nessun numero: se il tetto e' stato toccato
+          lo si dice, e i numeri qui sopra vanno letti come «almeno». */}
+      {audit.troncato && (
+        <Alert type="info" showIcon message={t('accessi.troncato')} style={{ marginBottom: 12 }} />
+      )}
 
       {audit.errore && <Alert type="warning" showIcon message={audit.errore} style={{ marginBottom: 12 }} />}
       {audit.motivoPiuComune && (
@@ -105,6 +137,37 @@ export default function AccessiPage({ t, lang }) {
           columns={colonnePersone}
           dataSource={audit.persone ?? []}
           locale={{ emptyText: t('accessi.nessunAccesso') }}
+        />
+      </div>
+
+      {/* Quali database vengono toccati, e da quante persone. Un database con tante query di UNA
+          persona e' un lavoro in corso; lo stesso numero fatto da sei e' una dipendenza di squadra. */}
+      <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
+        <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('accessi.database')}</Text>
+        <Table
+          size="small"
+          rowKey={(r) => `${r.servizio}/${r.nome}`}
+          pagination={false}
+          columns={[
+            { title: t('accessi.col.database'), dataIndex: 'nome', key: 'nome' },
+            { title: t('accessi.col.servizio'), dataIndex: 'servizio', key: 'servizio' },
+            {
+              title: t('accessi.col.ambiente'),
+              dataIndex: 'ambiente',
+              key: 'ambiente',
+              render: (v) => (v === 'prod' ? <Tag color="red">{v}</Tag> : v ? <Tag>{v}</Tag> : '—'),
+            },
+            { title: t('accessi.col.query'), dataIndex: 'query', key: 'query' },
+            {
+              title: t('accessi.col.scritture'),
+              dataIndex: 'scritture',
+              key: 'scritture',
+              render: (n) => (n > 0 ? <Tag color="orange">{n}</Tag> : <Tag>0</Tag>),
+            },
+            { title: t('accessi.col.quantePersone'), dataIndex: 'persone', key: 'persone' },
+          ]}
+          dataSource={audit.database ?? []}
+          locale={{ emptyText: t('accessi.nessunaQuery') }}
         />
       </div>
 
