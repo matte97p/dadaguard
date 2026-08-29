@@ -441,15 +441,29 @@ app.get('/api/teleport', async (req, res) => {
     const { accounts } = await resolveServices()
     const cfg = loadConfig().teleport
     if (!cfg) return res.json({ configurato: false })
-    const conto = (nome) => accounts?.[nome]?.aws ?? (nome ? { profile: nome } : {})
+    // ⚠️ Le credenziali di un account si compongono dai suoi campi (`roleArn` + `externalId` in cloud,
+    // `profile` in locale), come fa `awsForAccount` in iam.js. Il primo giro leggeva `acc.aws`, che non
+    // esiste, e ripiegava su `{ profile: <nome> }`: in cloud non ci sono profili, quindi la pagina
+    // mostrava «Could not resolve credentials using profile: [security]» su un account configurato
+    // benissimo, cioe' un messaggio che manda a cercare dalla parte sbagliata.
+    const conto = (nome) => {
+      const acc = accounts?.[nome]
+      if (!acc) return null
+      return { profile: acc.profile, roleArn: acc.roleArn, externalId: acc.externalId, region: acc.region || 'eu-central-1' }
+    }
     const ore = Math.min(168, Math.max(1, Number(req.query.ore) || 24))
+    const mancante = (nome) => ({ errore: `account "${nome}" non configurato in accounts: aggiungilo, oppure correggi teleport.*.account` })
     const [audit, heartbeat] = await Promise.all([
-      cached(`teleport:audit:${ore}`, 120_000, () =>
-        teleport.audit(conto(cfg.audit?.account), { logGroup: cfg.audit?.logGroup, ore }),
-      ).catch((err) => ({ errore: cleanAwsReason(err) })),
-      cached('teleport:heartbeat', 120_000, () =>
-        teleport.heartbeat(conto(cfg.heartbeat?.account), { logGroup: cfg.heartbeat?.logGroup }),
-      ).catch((err) => ({ errore: cleanAwsReason(err) })),
+      conto(cfg.audit?.account)
+        ? cached(`teleport:audit:${ore}`, 120_000, () =>
+            teleport.audit(conto(cfg.audit?.account), { logGroup: cfg.audit?.logGroup, ore }),
+          ).catch((err) => ({ errore: cleanAwsReason(err) }))
+        : mancante(cfg.audit?.account ?? '?'),
+      conto(cfg.heartbeat?.account)
+        ? cached('teleport:heartbeat', 120_000, () =>
+            teleport.heartbeat(conto(cfg.heartbeat?.account), { logGroup: cfg.heartbeat?.logGroup }),
+          ).catch((err) => ({ errore: cleanAwsReason(err) }))
+        : mancante(cfg.heartbeat?.account ?? '?'),
     ])
     res.json({ configurato: true, webUrl: cfg.webUrl ?? null, audit, heartbeat })
   } catch (err) {

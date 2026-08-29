@@ -99,3 +99,23 @@ test('heartbeat: piu versioni in giro vuol dire che qualcuno e indietro, e si co
   assert.equal(out.versioni.length, 2)
   assert.equal(out.conToolMancanti, 1)
 })
+
+// ⚠️ Le credenziali di un account si compongono dai suoi CAMPI (roleArn + externalId in cloud,
+// profile in locale). Il primo giro leggeva `acc.aws`, che non esiste, e ripiegava su
+// `{ profile: <nome> }`: in cloud non ci sono profili, quindi la pagina diceva «Could not resolve
+// credentials using profile: [security]» su un account configurato benissimo, cioe' mandava a
+// cercare dalla parte sbagliata. Visto in produzione il 29/08/2026, alla prima apertura della pagina.
+test('la composizione delle credenziali di un account usa roleArn e externalId, non un profilo inventato', async () => {
+  const { readFileSync } = await import('node:fs')
+  const sorgente = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8')
+  const blocco = sorgente.slice(sorgente.indexOf('const conto = (nome)'), sorgente.indexOf('const mancante ='))
+  assert.match(blocco, /roleArn/, 'senza roleArn in cloud non si assume niente')
+  assert.match(blocco, /externalId/, 'senza externalId l assume-role viene rifiutato')
+  assert.doesNotMatch(blocco, /profile:\s*nome/, 'il nome dell account non e un profilo AWS')
+})
+
+test('un account nominato ma non configurato lo dice, invece di sembrare un problema di credenziali', async () => {
+  const { readFileSync } = await import('node:fs')
+  const sorgente = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8')
+  assert.match(sorgente, /non configurato in accounts/)
+})
