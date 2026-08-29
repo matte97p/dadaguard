@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Alert, Typography, Table, Tag, Space, Skeleton, Button } from 'antd'
 import { PageIntro, PANEL_CARD, EmptyState } from './pageKit.jsx'
+import { usePoll } from '../usePoll.js'
 
 const { Text } = Typography
 
@@ -20,22 +20,13 @@ const quando = (ts, lang) => (ts ? new Date(ts).toLocaleString(lang === 'it' ? '
 const corta = (v) => (v && v.length > 22 ? `${v.slice(0, 19)}…` : (v ?? '—'))
 
 export default function AccessiPage({ t, lang }) {
-  const [dati, setDati] = useState(null)
-  const [errore, setErrore] = useState(null)
+  // 60 secondi: la vista si guarda durante un guasto, ma dietro c'e' una lettura di log, che si paga.
+  // Il server tiene comunque una cache di due minuti, quindi un giro piu' fitto non porterebbe dati
+  // piu' freschi, solo richieste.
+  const { data: dati, loading, error: errore } = usePoll('/api/teleport', { intervalMs: 60000 })
 
-  useEffect(() => {
-    let vivo = true
-    fetch('/api/teleport')
-      .then((r) => r.json())
-      .then((d) => vivo && (d.error ? setErrore(d.error) : setDati(d)))
-      .catch((e) => vivo && setErrore(String(e)))
-    return () => {
-      vivo = false
-    }
-  }, [])
-
-  if (errore) return <Alert type="error" showIcon message={errore} />
-  if (!dati) return <Skeleton active />
+  if (errore && !dati) return <Alert type="error" showIcon message={String(errore)} />
+  if (loading || !dati) return <Skeleton active />
 
   // Senza la sezione `teleport:` nella config non si mostra un vuoto che sembra un guasto: si dice
   // cosa manca. È la stessa scelta del resto dell'app (nessun nome di risorsa cablato nel codice).
