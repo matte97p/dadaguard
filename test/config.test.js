@@ -8,7 +8,9 @@ test('validateConfig: doc valido passa', () => {
 })
 
 test('validateConfig: doc vuoto = config minimale ok', () => {
-  assert.deepEqual(validateConfig({}), { accounts: {}, services: [], org: null, discoverAccounts: null, freeTierAccount: null, publicUrl: null, urls: null, health: null, expectedHealthy: null, people: null })
+  // `teleport: null` sta qui e non e' un dettaglio: senza quella sezione la superficie Accessi non
+  // esiste, e la pagina lo dice invece di mostrare un vuoto che sembra un guasto.
+  assert.deepEqual(validateConfig({}), { accounts: {}, services: [], org: null, discoverAccounts: null, freeTierAccount: null, publicUrl: null, urls: null, health: null, expectedHealthy: null, people: null, teleport: null })
 })
 
 test('validateConfig: accounts come array → errore', () => {
