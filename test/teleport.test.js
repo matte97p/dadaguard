@@ -32,23 +32,23 @@ async function conEventi(eventi) {
 
 test('audit: separa le login fallite da quelle riuscite e tiene il motivo per intero', async () => {
   const { audit } = await conEventi([
-    LOGIN_FALLITA('gabboclaa', 1000, 'role db-cato-staging-read-ssm is not found'),
-    LOGIN_FALLITA('gabboclaa', 2000, 'role db-cato-staging-read-ssm is not found'),
-    LOGIN_OK('matte97p', 3000),
-    SESSIONE_DB('matte97p', 3500),
-    SESSIONE_DB('matte97p', 3600),
+    LOGIN_FALLITA('utente-uno', 1000, 'role db-team-staging-read is not found'),
+    LOGIN_FALLITA('utente-uno', 2000, 'role db-team-staging-read is not found'),
+    LOGIN_OK('utente-due', 3000),
+    SESSIONE_DB('utente-due', 3500),
+    SESSIONE_DB('utente-due', 3600),
   ])
   const out = await audit({}, { logGroup: '/finto', ore: 24 })
   assert.equal(out.loginFallite, 2)
-  const gabbo = out.persone.find((p) => p.utente === 'gabboclaa')
+  const gabbo = out.persone.find((p) => p.utente === 'utente-uno')
   assert.equal(gabbo.loginFallite, 2)
   assert.equal(gabbo.loginOk, 0)
   // ⚠️ Il motivo NON si accorcia a «errore»: e' la differenza fra una sessione scaduta e un ruolo che
   // sul cluster non esiste, cioe' fra «normale» e «tutto il team e' fuori».
-  assert.match(gabbo.motivo, /role db-cato-staging-read-ssm is not found/)
-  const matteo = out.persone.find((p) => p.utente === 'matte97p')
-  assert.equal(matteo.loginOk, 1)
-  assert.equal(matteo.sessioniDb, 2)
+  assert.match(gabbo.motivo, /role db-team-staging-read is not found/)
+  const secondo = out.persone.find((p) => p.utente === 'utente-due')
+  assert.equal(secondo.loginOk, 1)
+  assert.equal(secondo.sessioniDb, 2)
 })
 
 test('audit: il motivo piu comune e quello che risponde a «cosa sta succedendo adesso»', async () => {
@@ -65,7 +65,7 @@ test('audit: il motivo piu comune e quello che risponde a «cosa sta succedendo 
 test('audit: le righe che non sono JSON non fanno cadere la lettura', async () => {
   const { audit } = await conEventi([
     { timestamp: 1, message: 'Starting session with SessionId: abc' },
-    LOGIN_OK('matte97p', 2),
+    LOGIN_OK('utente-due', 2),
   ])
   const out = await audit({}, { logGroup: '/finto' })
   assert.equal(out.persone.length, 1)
@@ -79,9 +79,9 @@ test('audit e heartbeat: senza log group non si inventa niente', async () => {
 
 test('heartbeat: tiene la riga PIU RECENTE per macchina e per lato', async () => {
   const { heartbeat } = await conEventi([
-    riga({ macchina: 'mac-di-gabri', lato: 'host', utente: 'gabboclaa', immagine: 'sha256:vecchia', esito: 'ok', tool_mancanti: 1 }, 1000),
-    riga({ macchina: 'mac-di-gabri', lato: 'host', utente: 'gabboclaa', immagine: 'sha256:nuova', esito: 'ok', tool_mancanti: 0 }, 5000),
-    riga({ macchina: 'mac-di-gabri', lato: 'container', utente: 'gabboclaa', immagine: 'sha256:nuova', esito: 'ok', tool_mancanti: 0 }, 4000),
+    riga({ macchina: 'portatile-uno', lato: 'host', utente: 'utente-uno', immagine: 'sha256:vecchia', esito: 'ok', tool_mancanti: 1 }, 1000),
+    riga({ macchina: 'portatile-uno', lato: 'host', utente: 'utente-uno', immagine: 'sha256:nuova', esito: 'ok', tool_mancanti: 0 }, 5000),
+    riga({ macchina: 'portatile-uno', lato: 'container', utente: 'utente-uno', immagine: 'sha256:nuova', esito: 'ok', tool_mancanti: 0 }, 4000),
   ])
   const out = await heartbeat({}, { logGroup: '/finto' })
   assert.equal(out.macchine.length, 2, 'host e container sono due stati diversi della stessa macchina')

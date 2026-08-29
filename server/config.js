@@ -63,8 +63,8 @@ export function validateConfig(doc) {
     // ⚠️ Senza questa sezione la superficie NON esiste (niente log group cablati nel codice: qui non
     // ci sono nomi di nessuno). Forma:
     //   teleport:
-    //     audit:     { account: security,   logGroup: /ecs/... }
-    //     heartbeat: { account: management, logGroup: /cato/dev-env/heartbeat }
+    //     audit:     { account: security,   logGroup: /ecs/teleport }
+    //     heartbeat: { account: management, logGroup: /dev-env/heartbeat }
     //     webUrl: https://teleport.example.com    # per i link "vai ad agire"
     teleport: doc?.teleport ?? null,
   }
