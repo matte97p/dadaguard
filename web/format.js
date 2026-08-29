@@ -18,11 +18,13 @@
 // Una durata negativa è "—", non "-12000ms": esiste per davvero (`endedAt - startedAt` con gli orologi
 // di due macchine che non concordano, vedi server/prefect.js) ed è un tempo che non significa niente.
 //
-// Niente ramo dei giorni: il giorno è "g" in italiano e "d" in inglese, quindi lo possiede il dizionario
-// (`time.unit.d`) e servirebbe un `t` VERO in ogni chiamante. Il default identità che usano fmtAgo e
-// fmtSchedule qui non basterebbe: stamperebbe la chiave, "12time.unit.d". Chi la scala in giorni ce l'ha
-// già ed è `fmtElapsed` in server/i18n.js, che il `t` lo riceve. "30h 5m" si legge lo stesso, e una run
-// da trenta ore è già una notizia di suo.
+// Niente ramo dei giorni, e la ragione non è la lingua: è che una durata di giorni non arriva mai qui.
+// Una lambda ha il tetto dei 15 minuti e comunque smette di risultare viva oltre `timeout + grace`
+// (server/runs.js), e le run ECS si leggono in una finestra di 1440 minuti, quindi il massimo che può
+// comparire è poco sotto le 24h: "23h 40m", che si legge bene. Se un giorno la finestra si allargasse,
+// il giorno costerebbe un `t` VERO in ogni chiamante, perché è "g" in italiano e "d" in inglese e il
+// default identità stamperebbe la chiave ("12time.unit.d"); chi la scala in giorni ce l'ha già ed è
+// `fmtElapsed` in server/i18n.js, che il `t` lo riceve.
 export function fmtMs(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '—'
   if (ms < 1000) return `${Math.round(ms)}ms`
