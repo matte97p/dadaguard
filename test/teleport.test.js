@@ -51,6 +51,53 @@ test('audit: separa le login fallite da quelle riuscite e tiene il motivo per in
   assert.equal(secondo.sessioniDb, 2)
 })
 
+const QUERY = (utente, quando, testo, servizio = 'prod-db', nome = 'tenders') =>
+  riga(
+    {
+      event_type: 'db.session.query',
+      fields: {
+        event: 'db.session.query',
+        user: utente,
+        db_service: servizio,
+        db_name: nome,
+        db_query: testo,
+        db_labels: { env: 'prod' },
+      },
+    },
+    quando,
+  )
+
+test('audit: separa chi ha guardato da chi ha SCRITTO, e non tiene il testo della query', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, 'select * from tenders where email = \'x@y.z\''),
+    QUERY('utente-uno', 1100, "update tenders set stato = 'aperta' where id = 3"),
+    QUERY('utente-due', 1200, 'SELECT 1'),
+    QUERY('utente-uno', 1300, 'DELETE FROM tenders WHERE id = 4'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.query, 4)
+  assert.equal(out.scritture, 2, 'update e delete sono scritture, le select no')
+  const uno = out.persone.find((p) => p.utente === 'utente-uno')
+  assert.equal(uno.scritture, 2)
+  // ⚠️ Il testo della query NON deve uscire da qui: dentro a una WHERE ci sono i dati dei clienti, e
+  // questa pagina la guarda chi non ha (e non deve avere) accesso a quei dati.
+  assert.doesNotMatch(JSON.stringify(out), /x@y\.z/)
+  assert.doesNotMatch(JSON.stringify(out), /select \*/i)
+})
+
+test('audit: i database si contano con QUANTE persone li toccano, non solo con quante query', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, 'select 1', 'prod-db', 'tenders'),
+    QUERY('utente-due', 1100, 'select 1', 'prod-db', 'tenders'),
+    QUERY('utente-uno', 1200, 'select 1', 'staging-db', 'postgres'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  const tenders = out.database.find((d) => d.nome === 'tenders')
+  assert.equal(tenders.query, 2)
+  assert.equal(tenders.persone, 2, 'due query di due persone non sono due query di una')
+  assert.equal(out.database[0].nome, 'tenders', 'il piu toccato sta in cima')
+})
+
 test('audit: il motivo piu comune e quello che risponde a «cosa sta succedendo adesso»', async () => {
   const { audit } = await conEventi([
     LOGIN_FALLITA('a', 1000, 'role x is not found'),
