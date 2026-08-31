@@ -25,3 +25,7 @@ HANDOFF.md
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# I worktree git di questo repo: cartelle di lavoro, non contenuto. Committarli aggiunge un
+# "embedded git repository" che in un clone arriva vuoto (visto il 31/08/2026, `git add -A`).
+.worktrees/
