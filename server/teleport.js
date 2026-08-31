@@ -98,7 +98,19 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const database = new Map()
   const perDatabase = (servizio, nome) => {
     const k = `${servizio ?? '?'}/${nome ?? '?'}`
-    if (!database.has(k)) database.set(k, { servizio: servizio ?? '?', nome: nome ?? '?', query: 0, scritture: 0, persone: new Set(), ambiente: null })
+    if (!database.has(k))
+      database.set(k, {
+        servizio: servizio ?? '?',
+        nome: nome ?? '?',
+        query: 0,
+        scritture: 0,
+        persone: new Set(),
+        scriventi: new Set(),
+        // L'istante dell'ultima scrittura su questo database: serve a chi annuncia, per dire una cosa
+        // sola una volta invece di ripeterla a ogni giro per tutta la finestra.
+        ultimaScrittura: null,
+        ambiente: null,
+      })
     return database.get(k)
   }
 
@@ -169,6 +181,8 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       p.query += 1
       if (SCRITTURE.has(mestiere(campi.db_query))) {
         d.scritture += 1
+        d.scriventi.add(utente)
+        d.ultimaScrittura = Math.max(d.ultimaScrittura ?? 0, ev.timestamp ?? 0)
         p.scritture += 1
       }
     }
@@ -178,7 +192,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     .map(({ motivoQuando, ...p }) => p)
     .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   const db = [...database.values()]
-    .map((d) => ({ ...d, persone: d.persone.size }))
+    .map((d) => ({ ...d, persone: d.persone.size, scriventi: [...d.scriventi] }))
     .sort((a, b) => b.query - a.query)
   // Aperta = ha uno `start` e nessun `end` con lo STESSO id. Un `end` il cui `start` e' fuori dalla
   // finestra non conta come apertura (non sta in `iniziate`), e uno `start` senza `end` resta aperto,

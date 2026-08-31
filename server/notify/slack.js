@@ -141,3 +141,42 @@ export async function postSlack(webhook, payload, { timeoutMs = 5000 } = {}) {
     clearTimeout(timer)
   }
 }
+
+// ── I messaggi degli ACCESSI ────────────────────────────────────────────────────────────────────────
+//
+// Stessa grammatica di sopra, che e' quella che il canale legge gia' dai cron:
+//   :emoji: `bersaglio` [ENV] COSA — dettaglio · <url|Accessi>
+//
+// ⚠️ Nessun `<!channel>`, nemmeno sulla sessione SSH. La destinazione di queste tre regole e' un canale
+// dove per ora legge una persona sola: strappare tutti dal lavoro per una cosa che non e' un guasto del
+// prodotto e' il modo di far silenziare il canale prima che serva davvero.
+const EMOJI_ACCESSI = { allarme: ':red_circle:', attenzione: ':warning:' }
+
+const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
+
+export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
+  const emoji = EMOJI_ACCESSI[segnale.livello] ?? ':warning:'
+  const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
+  const testa = `${emoji} \`${segnale.bersaglio}\``
+
+  if (segnale.tipo === 'scrittura') {
+    const quante = segnale.quante === 1 ? '1 statement' : `${segnale.quante} statement`
+    return `${testa}${envTag(segnale.ambiente)} SCRITTURE — ${quante} di scrittura da ${elenco(segnale.chi)}${coda}`
+  }
+  if (segnale.tipo === 'ssh') {
+    const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'
+    return `${testa} SESSIONE SSH APERTA — ${elenco(segnale.chi)} su ${di}${coda}`
+  }
+  if (segnale.tipo === 'versione') {
+    const q = segnale.quante === 1 ? "l'unica macchina" : `nessuna delle ${segnale.quante} macchine`
+    return `${testa} VERSIONE ATTESA — non ce l'ha ${q}${coda}`
+  }
+  return `${testa} — ${segnale.tipo}${coda}`
+}
+
+// La tabella dove si continua a guardare: il link porta dove sta la riga, non sulla pagina generica.
+function vistaDi(segnale) {
+  if (segnale.tipo === 'scrittura') return 'database'
+  if (segnale.tipo === 'ssh') return 'ssh'
+  return 'devEnv'
+}
