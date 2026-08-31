@@ -666,7 +666,10 @@ export default function AccessiPage({ t, lang }) {
         <span aria-hidden="true" style={{ alignSelf: 'stretch', borderInlineStart: '1px solid var(--dg-line)' }} />
         <HeroStat label={t('accessi.kpi.persone')} value={audit.persone?.length ?? 0} size={18} />
         <HeroStat label={t('accessi.kpi.sessioni')} value={audit.sessioniDb ?? 0} size={18} />
-        <HeroStat label={t('accessi.kpi.ssh')} value={audit.sessioniSsh ?? 0} size={18} />
+        {/* ⚠️ Il totale delle sessioni SSH era un numero di troppo: accanto a «SESSIONI SSH APERTE» dei
+            segnali si leggeva come lo stesso numero contato due volte, perché le due etichette
+            differiscono per una parola. Quante macchine hanno avuto sessioni lo dice già l'interruttore
+            («SSH 1»), e quante ne ha avute ciascuna la sua tabella: qui restava solo a confondere. */}
         <HeroStat label={t('accessi.kpi.query')} value={audit.query ?? 0} size={18} />
         <HeroStat label={t('accessi.kpi.macchine')} value={battito.macchine?.length ?? 0} size={18} />
       </HeroRow>

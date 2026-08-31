@@ -127,6 +127,10 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Due numeri con lo stesso nome, uno di troppo.** Nella fila in cima c'erano «Sessioni SSH aperte»
+  fra i segnali e «Sessioni SSH» fra i numeri di contesto: due etichette che differiscono per una parola
+  si leggono come lo stesso numero contato due volte. Il totale se ne va: quante macchine hanno avuto
+  sessioni lo dice già l'interruttore e quante ne ha avute ciascuna lo dice la sua tabella.
 - **La riga di sintesi diceva un numero che non era di quel database.** Prendeva il TOTALE delle
   scritture della finestra e lo appaiava all'elenco dei soli database di produzione: con 4 scritture su
   un database di produzione e 2 su staging scriveva «6 scritture su <produzione>», falso due volte. Ora
