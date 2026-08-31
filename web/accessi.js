@@ -49,6 +49,56 @@ export function immagineRiferimento(macchine = [], attesa = null) {
   return { immagine: piuRecente?.immagine ?? null, fonte: 'vista' }
 }
 
+// ── La DATA dell'immagine, che è quel che rende «indietro» un fatto ────────────────────────────────
+//
+// Il digest non ha un ORDINE: fra `45486f79` e `36b245a8` non si sa quale sia il più nuovo, e
+// confrontarli con quello dell'avvio più recente fa eleggere il riferimento dall'orologio di chi avvia
+// (il 31/08/2026 la pagina accusava quattro macchine su cinque, fra cui una che aveva l'immagine più
+// nuova di quella eletta). Una data invece si ordina, quindi «indietro di otto giorni» è vero da solo,
+// senza bisogno che qualcuno abbia la versione più nuova che esista.
+//
+// La manda l'avvio, letta dal label OCI sull'host e dal file che l'immagine si porta dentro (dal
+// container il label non si legge, non c'è docker). Per chi non ha ancora aggiornato il dev-env il
+// campo non c'è: allora non si dice niente, invece di indovinare.
+export const dataImmagine = (m) => {
+  const t = Date.parse(String(m?.creata ?? ''))
+  return Number.isFinite(t) ? t : null
+}
+
+// La data più recente vista: è un massimo su un insieme ordinato, non una scelta fra pari.
+export function dataRiferimento(macchine = []) {
+  let max = null
+  for (const m of macchine) {
+    const t = dataImmagine(m)
+    if (t != null && (max == null || t > max)) max = t
+  }
+  return max
+}
+
+// Di quanti GIORNI interi è indietro quella macchina. `null` quando una delle due date manca, e `0`
+// quando sono dello stesso giorno: sotto le 24 ore non è «indietro», è la stessa immagine ricostruita,
+// e chiamarlo indietro farebbe suonare ogni rebuild.
+export function giorniIndietro(m, riferimento) {
+  const mia = dataImmagine(m)
+  if (mia == null || riferimento == null) return null
+  return Math.floor((riferimento - mia) / 86_400_000)
+}
+
+// Quanti giorni di ritardo contano come «indietro». Sette e non uno: l'immagine si ricostruisce a ogni
+// modifica del dev-env, quindi due giorni di ritardo sono il caso normale di chi ha lavorato ieri, e
+// una soglia bassa farebbe suonare ogni rebuild. Una settimana e' il punto in cui il ritardo spiega
+// davvero un «a me non funziona».
+export const GIORNI_INDIETRO = 7
+
+// «Indietro» come FATTO, in ordine di forza: la versione attesa dalla config quando c'e', altrimenti
+// la data di costruzione, e in mancanza di entrambe non si accusa nessuno.
+export function ritardo(m, riferimento, dataRif) {
+  if (macchinaIndietro(m, riferimento)) return { indietro: true, giorni: giorniIndietro(m, dataRif) }
+  const g = giorniIndietro(m, dataRif)
+  if (g != null && g >= GIORNI_INDIETRO) return { indietro: true, giorni: g }
+  return { indietro: false, giorni: g }
+}
+
 // «Indietro» è un'accusa, e si può fare solo con la versione ATTESA in mano.
 //
 // ⚠️ Misurato sui dati veri il 31/08/2026, ed è la ragione di questa firma: con cinque macchine e
@@ -90,8 +140,8 @@ export const problemaPersona = (p) => (p?.loginFallite ?? 0) > 0
 // Le SCRITTURE su un `prod`, non le query: un database di produzione letto da sei persone è il
 // mestiere, scriverci è la cosa che si guarda.
 export const problemaDatabase = (d) => (d?.scritture ?? 0) > 0 && d?.ambiente === 'prod'
-export const problemaMacchina = (m, riferimento) =>
-  macchinaIndietro(m, riferimento) || (m?.toolMancanti ?? 0) > 0 || avvioStorto(m)
+export const problemaMacchina = (m, riferimento, dataRif = null) =>
+  ritardo(m, riferimento, dataRif).indietro || (m?.toolMancanti ?? 0) > 0 || avvioStorto(m)
 export const problemaSsh = (m) => (m?.aperte ?? 0) > 0
 
 // Ordinamento di default: prima le righe con un problema, poi le più recenti. In un guasto si guarda
@@ -105,9 +155,9 @@ export const ordinaPersone = (persone = []) =>
 export const ordinaDatabase = (database = []) =>
   [...database].sort((a, b) => primaIProblemi(problemaDatabase)(a, b) || (b.query ?? 0) - (a.query ?? 0))
 
-export const ordinaMacchine = (macchine = [], riferimento) =>
+export const ordinaMacchine = (macchine = [], riferimento, dataRif = null) =>
   [...macchine].sort(
-    (a, b) => primaIProblemi((m) => problemaMacchina(m, riferimento))(a, b) || perData('quando')(a, b),
+    (a, b) => primaIProblemi((m) => problemaMacchina(m, riferimento, dataRif))(a, b) || perData('quando')(a, b),
   )
 
 export const ordinaSsh = (ssh = []) =>
@@ -217,12 +267,27 @@ export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
   // Le versioni contano come «trovato» solo quando il confronto è un fatto, cioè con la versione attesa
   // in config: senza, sono una statistica, e una statistica in cima alla pagina si legge come un
   // problema che non c'è.
+  // Le macchine INDIETRO, contate: con le date e' un fatto, e va detto come tale invece di parlare di
+  // «versioni in giro», che e' una statistica su cui non si agisce.
+  const macchine = heartbeat.macchine ?? []
+  const dataRif = dataRiferimento(macchine)
+  const indietro = macchine.filter((m) => ritardo(m, riferimento, dataRif).indietro)
   const versioni = heartbeat.versioni?.length ?? 0
-  const accusabile = riferimento?.fonte === 'config'
-  const tutti = tuttiIndietro(heartbeat.macchine ?? [], riferimento)
-  const voceVersioni = { k: 'versioni', n: versioni, tutti, vista: 'devEnv' }
-  if (accusabile && (versioni > 1 || tutti)) trovato.push(voceVersioni)
-  else if (versioni <= 1) tranquillo.push(voceVersioni)
+  const tutti = tuttiIndietro(macchine, riferimento)
+  if (indietro.length > 0) {
+    trovato.push({
+      k: 'indietro',
+      n: indietro.length,
+      giorni: Math.max(...indietro.map((m) => ritardo(m, riferimento, dataRif).giorni ?? 0)),
+      tutti,
+      vista: 'devEnv',
+    })
+  } else if (dataRif != null) {
+    // Nessuno indietro E le date ci sono: e' un a posto vero, e si puo' dire.
+    tranquillo.push({ k: 'indietro', n: 0, vista: 'devEnv' })
+  } else if (versioni <= 1) {
+    tranquillo.push({ k: 'versioni', n: versioni, vista: 'devEnv' })
+  }
 
   return { trovato, tranquillo }
 }
