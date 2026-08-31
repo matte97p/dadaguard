@@ -894,6 +894,91 @@ export function demoTaskMetrics() {
   }
 }
 
+// Accessi (audit del cluster + heartbeat dei dev-env). In demo la pagina rispondeva «manca la sezione
+// `teleport:` nella config», cioè una pagina vuota su una funzione che esiste: chi lancia l'immagine
+// pubblica per valutare la UI non ha modo di vederla. Stessa ragione per cui la Rete ha i suoi dati
+// finti.
+//
+// La finestra la sceglie chi guarda (24h / 48h / 7g), quindi i VOLUMI si scalano: un dataset che non
+// cambia cambiando finestra fa sembrare rotto l'interruttore. Le righe restano le stesse, perché in
+// sette giorni sono le stesse persone e le stesse macchine.
+//
+// La flotta finta mostra TUTTI gli stati che la pagina sa segnalare: chi è chiuso fuori dal login e
+// perché, una scrittura su un database di produzione, una sessione SSH ancora aperta, un'immagine
+// rimasta indietro e una macchina con dei tool mancanti. Una demo dove va tutto bene non fa vedere
+// niente di quello che la pagina serve a vedere.
+export function demoTeleport(ore = 24) {
+  const now = Date.now()
+  const f = Math.max(1, ore / 24)
+  const su = (n) => Math.round(n * f)
+  const persone = [
+    { utente: 'alex', loginOk: su(9), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(6), query: su(184), scritture: 0, sessioniSsh: 0, ultima: now - 4 * 60_000 },
+    { utente: 'rin', loginOk: su(7), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(68), query: su(1487), scritture: 0, sessioniSsh: 0, ultima: now - 22 * 60_000 },
+    // Chi è chiuso fuori, col motivo per intero: è la riga per cui la pagina esiste.
+    { utente: 'sam', loginOk: 0, loginFallite: su(3), motivo: 'role "db-writer" is not found', primaFallita: now - 21 * 60_000, ultimaFallita: now - 9 * 60_000, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: now - 9 * 60_000 },
+    { utente: 'noa', loginOk: su(4), loginFallite: su(1), motivo: 'access denied: MFA required', primaFallita: now - 3 * 3600_000, ultimaFallita: now - 3 * 3600_000, sessioniDb: su(14), query: su(28), scritture: 0, sessioniSsh: 2, ultima: now - 51 * 60_000 },
+    { utente: 'kim', loginOk: su(4), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(101), query: su(116), scritture: su(5), sessioniSsh: 0, ultima: now - 3 * 3600_000 },
+    { utente: 'lee', loginOk: su(2), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(1), query: su(4), scritture: 0, sessioniSsh: 0, ultima: now - 5 * 3600_000 },
+  ]
+  const database = [
+    { servizio: 'orders-prod-db-ro', nome: 'orders', ambiente: 'prod', query: su(2329), scritture: 0, persone: 4 },
+    { servizio: 'app-staging-db', nome: 'postgres', ambiente: 'staging', query: su(95), scritture: su(5), persone: 1 },
+    { servizio: 'cache-prod', nome: '?', ambiente: 'prod', query: su(28), scritture: 0, persone: 3 },
+    { servizio: 'cache-staging', nome: '?', ambiente: 'staging', query: su(26), scritture: 0, persone: 3 },
+    // Una scrittura su un database di PRODUZIONE: il pallino sull'interruttore nasce da questa riga.
+    { servizio: 'app-production-db', nome: 'postgres', ambiente: 'prod', query: su(9), scritture: 2, persone: 1 },
+  ]
+  const ssh = [
+    // Ancora aperta: qualcuno è su quella macchina adesso, ed è l'unica riga a cui si reagisce subito.
+    { macchina: 'noa-macbook', chi: ['noa'], sessioni: 2, aperte: 1, ultima: now - 12 * 60_000 },
+    { macchina: 'alex-macbook', chi: ['rin'], sessioni: 1, aperte: 0, ultima: now - 6 * 3600_000 },
+  ]
+  const IMG = { nuova: 'sha256:4f21c8a0e9d3b7c15a2f6e08d94b3c71', vecchia: 'sha256:9b0e73d4a1c86f52e7d09a4b31c5f860' }
+  const macchine = [
+    { macchina: 'alex-macbook', lato: 'host', utente: 'alex', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 74, quando: now - 40 * 60_000 },
+    { macchina: 'alex-macbook', lato: 'container', utente: 'alex', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 41, quando: now - 39 * 60_000 },
+    { macchina: 'rin-macbook', lato: 'host', utente: 'rin', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 96, quando: now - 3 * 3600_000 },
+    // Rimasta indietro, e con dei tool che mancano sul portatile: i due modi in cui un dev-env spiega
+    // un «a me non funziona» senza che nessuno debba andare a chiederlo.
+    { macchina: 'sam-macbook', lato: 'host', utente: 'sam', immagine: IMG.vecchia, esito: 'ok', toolMancanti: 3, durata: 212, quando: now - 5 * 86_400_000 },
+    { macchina: 'noa-macbook', lato: 'host', utente: 'noa', immagine: IMG.vecchia, esito: 'parziale', toolMancanti: 1, durata: 168, quando: now - 2 * 86_400_000 },
+  ]
+  const somma = (campo) => persone.reduce((n, p) => n + (p[campo] ?? 0), 0)
+  return {
+    configurato: true,
+    webUrl: 'https://teleport.example.com/web',
+    sshCommand: 'tsh ssh dev@{macchina}',
+    auditUserUrl: 'https://teleport.example.com/web/audit?user={utente}',
+    auditNodeUrl: 'https://teleport.example.com/web/audit?node={macchina}',
+    audit: {
+      ore,
+      persone,
+      database,
+      ssh,
+      sessioniSsh: ssh.reduce((n, m) => n + m.sessioni, 0),
+      sshAperte: ssh.reduce((n, m) => n + m.aperte, 0),
+      loginFallite: somma('loginFallite'),
+      query: somma('query'),
+      scritture: somma('scritture'),
+      sessioniDb: somma('sessioniDb'),
+      troncato: false,
+      motivoPiuComune: { motivo: 'role "db-writer" is not found', quante: su(3) },
+    },
+    heartbeat: {
+      giorni: 7,
+      // In demo la versione attesa NON c'e': cosi' la pagina mostra il ripiego («la piu' recente vista»)
+      // dichiarato come tale, che e' lo stato in cui si trova chi non ha ancora messo quel campo.
+      attesa: null,
+      macchine,
+      versioni: [
+        { immagine: IMG.nuova, quante: 3 },
+        { immagine: IMG.vecchia, quante: 2 },
+      ],
+      conToolMancanti: macchine.filter((m) => m.toolMancanti > 0).length,
+    },
+  }
+}
+
 export function demoSelfcheck() {
   return {
     status: 'up', allOk: true, anyFail: false,

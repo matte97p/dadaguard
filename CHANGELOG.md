@@ -6,6 +6,58 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **La pagina «Accessi» si guarda invece di leggersi.** Mostrava tutto insieme: nove numeri in fila con
+  lo stesso peso, quattro tabelle una sotto l'altra, un tag con lo zero dentro in ogni cella e la data
+  assoluta al secondo in ogni riga. Con sette persone e cinque macchine erano già due schermate dove
+  niente spiccava, e le due domande per cui la pagina esiste («chi non riesce a entrare, e perché» e
+  «chi è rimasto indietro con l'immagine») si rispondevano leggendo. Ora: una tabella per volta, scelta
+  da un interruttore che porta il conteggio e un pallino colorato quando dentro c'è qualcosa da
+  guardare (così niente resta nascosto); gli zeri sono testo muto e non tag, perché in una colonna dove
+  quasi tutto è zero i tag diventano una texture e il 5 non si distingue più; le date sono «3m fa» col
+  timestamp intero nel tooltip; e l'ordine di default mette in cima le righe con un problema, perché in
+  un guasto si guarda la prima riga, non la settima. La colonna dell'immagine mostra il digest corto e
+  marca «indietro» chi non ha quella dell'avvio più recente: prima erano cinque hash troncati identici
+  nei primi caratteri, e capire chi fosse indietro voleva dire copiarli fuori e confrontarli a mano.
+  Nuovi anche la finestra scegliibile (24h / 48h / 7g: il server accettava `?ore=` da sempre e la pagina
+  chiedeva per sempre 24 ore, quindi «chi è entrato questa settimana» non era una domanda che si potesse
+  fare), la ricerca per persona o macchina, il filtro «solo da guardare» e una riga verde quando non c'è
+  niente da guardare, perché un riepilogo che tace lascia il dubbio che la pagina non abbia caricato.
+  Corretti due difetti trovati per strada: il riquadro che spiega la config mancante usciva senza una
+  parola dentro (prop sbagliata, `title` invece di `description`), e chi aveva otto login riuscite e due
+  fallite risultava «2 fallite», cioè sembrava fuori mentre stava lavorando.
+  La tabella scelta sta anche nell'URL (`/accessi?vista=devEnv`), così «guarda la riga di quella
+  macchina» si manda come link invece che come istruzione, come già fa la pagina IAM con `?view=`.
+  Il conteggio delle login fallite porta anche la DURATA della raffica («3 fallite in 12m»): tre in due
+  minuti sono un guasto in corso, tre in un giorno sono tre giornate diverse, e il numero da solo le
+  racconta identiche. I nomi di persona e di macchina sono link verso l'audit di Teleport quando la
+  config dice come raggiungerlo (`auditUserUrl`, `auditNodeUrl`, con `{utente}` e `{macchina}` dentro,
+  come già `sshCommand`): la pagina diceva che le sessioni si rivedono e poi offriva un bottone solo, in
+  fondo. E sulla vista Dev-env l'interruttore della finestra non c'è: l'heartbeat è per definizione
+  «l'ultima riga di ogni macchina» su sette giorni, quindi lì cambiare finestra non muoveva niente, e un
+  comando che non risponde si legge come rotto.
+- **Le regole della pagina «Accessi» adesso si provano.** Quali righe hanno un problema, in che ordine
+  si mostrano, qual è l'immagine di riferimento e come si accorcia un digest stavano dentro il
+  componente, dove si leggono e non si provano: sono le regole che decidono cosa una persona guarda per
+  prima durante un guasto, cioè quelle che non devono cambiare per sbaglio al primo ritocco della
+  tabella. Ora stanno in `web/accessi.js` con 18 asserzioni, come già `deployRows.js` e `nowSignals.js`.
+  Due cose sono emerse solo scrivendo le prove: `immagineRiferimento` si appoggiava all'ordine con cui
+  il server manda le macchine (una regola che dipende da chi la chiama si rompe in silenzio il giorno
+  che quell'ordine cambia), e la ricerca guarda solo i campi che la vista dichiara, non tutta la riga,
+  sennò cercando un nome si pescano campi che in tabella non si vedono.
+- **«Indietro» può essere un fatto invece di una stima.** Il confronto si faceva con l'immagine
+  dell'avvio più recente registrato, cioè «la più nuova che qualcuno ha visto»: se nessuno ha ancora
+  aggiornato, il riferimento è la vecchia e la pagina dice che vanno tutti bene, che è esattamente il
+  caso peggiore. Ora la config può dire la versione attesa (`teleport.heartbeat.immagineAttesa`) e allora
+  la pagina sa anche rispondere «non ce l'ha nessuno: sono indietro tutti, non uno». Senza quel campo
+  resta il ripiego, e la pagina scrive accanto alla tabella quale delle due regole sta usando: la stessa
+  colonna che vuol dire due cose diverse senza dirlo è peggio di una colonna in meno.
+- **In modalità demo la pagina «Accessi» ha i suoi dati.** Rispondeva «manca la sezione `teleport:`
+  nella config», cioè una pagina vuota su una funzione che esiste: chi lancia l'immagine pubblica per
+  valutare la UI non aveva modo di vederla. La flotta finta mostra tutti gli stati che la pagina sa
+  segnalare (chi è chiuso fuori dal login e perché, una scrittura su un database di produzione, una
+  sessione SSH ancora aperta, un'immagine rimasta indietro, una macchina con dei tool mancanti) e i
+  volumi si scalano con la finestra scelta, perché un dataset che non cambia cambiando finestra fa
+  sembrare rotto l'interruttore.
 - **La vista «Rete» parla la stessa lingua della mappa.** Disegnava i servizi come riquadri con stili
   scritti a mano: senza icona, senza tipo e senza stato, quindi la stessa risorsa aveva due facce nella
   stessa pagina. Il payload della rete ora porta il TIPO di ogni risorsa oltre al nome, e la vista usa le
@@ -32,6 +84,10 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Il motivo dell'ultima login fallita era «l'ultimo letto», non «l'ultimo nel tempo».** È la frase con
+  cui si capisce cosa sta succedendo adesso, e `FilterLogEvents` ordina le righe per stream e non fra
+  stream diversi: con due tentativi finiti in stream diversi, la pagina mostrava il motivo del più
+  vecchio. Stesso inciampo delle sessioni SSH aperte, corretto qui prima che succedesse.
 - **Una durata di tre ore si legge in ore, non in "234m 56s".** La striscia delle Esecuzioni scriveva la
   durata di una run con lo stesso formattatore della LATENZA, che si fermava ai minuti perche' nato per
   il p95 di lambda e ALB, dove 4m e' gia' un numero enorme: un cron vivo da tre ore e mezza si annunciava

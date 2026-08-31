@@ -77,7 +77,12 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const persone = new Map()
   const chiave = (nome) => {
     if (!persone.has(nome)) {
-      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
+      // `primaFallita`/`ultimaFallita`: i due istanti della raffica, non solo quante sono. Tre fallite
+      // in due minuti sono un guasto in corso, tre in ventiquattro ore sono tre giornate diverse, e il
+      // conteggio da solo le racconta identiche. Sono separati da `ultima`, che e' l'ultimo evento di
+      // QUALSIASI tipo: una persona che dopo le fallite e' entrata ha `ultima` recente e la raffica
+      // finita mezz'ora prima.
+      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
     }
     return persone.get(nome)
   }
@@ -111,8 +116,19 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     if (tipo === 'user.login') {
       if (campi.success === false) {
         p.loginFallite += 1
+        const quando = ev.timestamp ?? 0
+        p.primaFallita = p.primaFallita == null ? quando : Math.min(p.primaFallita, quando)
+        p.ultimaFallita = Math.max(p.ultimaFallita ?? 0, quando)
         // L'ultimo motivo vince: durante un guasto la gente riprova, e la riga utile e' la piu' recente.
-        p.motivo = String(campi.error ?? '').split('\n').pop().trim() || p.motivo
+        // ⚠️ «L'ultimo» per TEMPO, non «l'ultimo letto»: `FilterLogEvents` ordina per stream, non fra
+        // stream diversi, quindi senza il confronto sull'istante il motivo mostrato dipende da come sono
+        // spezzati i log. E' lo stesso inciampo delle sessioni SSH aperte (piu' sotto), scoperto la' e
+        // corretto qui prima che succedesse.
+        const motivo = String(campi.error ?? '').split('\n').pop().trim()
+        if (motivo && quando >= (p.motivoQuando ?? 0)) {
+          p.motivo = motivo
+          p.motivoQuando = quando
+        }
       } else {
         p.loginOk += 1
       }
@@ -151,7 +167,9 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     }
   }
 
-  const elenco = [...persone.values()].sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
+  const elenco = [...persone.values()]
+    .map(({ motivoQuando, ...p }) => p)
+    .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   const db = [...database.values()]
     .map((d) => ({ ...d, persone: d.persone.size }))
     .sort((a, b) => b.query - a.query)
@@ -198,7 +216,7 @@ function piuComune(valori) {
 // ⚠️ Per macchina e non per persona: la stessa persona ha il portatile e il container, e sono due
 // stati diversi. Una versione vecchia su una sola delle due e' esattamente il caso che spiega meta'
 // dei «a me non funziona».
-export async function heartbeat(aws, { logGroup, giorni = 7 } = {}) {
+export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = null } = {}) {
   if (!logGroup) return null
   const da = Date.now() - giorni * 86_400_000
   const righe = await eventi(aws, { logGroup, filterPattern: '', da })
@@ -229,6 +247,10 @@ export async function heartbeat(aws, { logGroup, giorni = 7 } = {}) {
   for (const m of elenco) if (m.immagine) versioni.set(m.immagine, (versioni.get(m.immagine) ?? 0) + 1)
   return {
     giorni,
+    // La versione ATTESA, se la config la dice. Serve a rispondere alla domanda che il ripiego non puo'
+    // porsi: se nessuno ha ancora aggiornato, «la piu' nuova che qualcuno ha visto» e' la vecchia, e la
+    // pagina direbbe che vanno tutti bene. Senza questo campo resta il ripiego, dichiarato come tale.
+    attesa: immagineAttesa,
     macchine: elenco,
     versioni: [...versioni.entries()].map(([immagine, quante]) => ({ immagine, quante })).sort((a, b) => b.quante - a.quante),
     conToolMancanti: elenco.filter((m) => m.toolMancanti > 0).length,

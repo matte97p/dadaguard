@@ -34,7 +34,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import * as teleport from './teleport.js'
 import { collectFindings } from './security.js'
@@ -438,6 +438,7 @@ app.get('/api/network', async (_req, res) => {
 // Cache breve: e' una vista che si guarda durante un guasto, dove due minuti di ritardo sono tanti.
 app.get('/api/teleport', async (req, res) => {
   try {
+    if (isDemo) return res.json(demoTeleport(Math.min(168, Math.max(1, Number(req.query.ore) || 24))))
     const { accounts } = await resolveServices()
     const cfg = loadConfig().teleport
     if (!cfg) return res.json({ configurato: false })
@@ -461,11 +462,25 @@ app.get('/api/teleport', async (req, res) => {
         : mancante(cfg.audit?.account ?? '?'),
       conto(cfg.heartbeat?.account)
         ? cached('teleport:heartbeat', 120_000, () =>
-            teleport.heartbeat(conto(cfg.heartbeat?.account), { logGroup: cfg.heartbeat?.logGroup }),
+            teleport.heartbeat(conto(cfg.heartbeat?.account), {
+              logGroup: cfg.heartbeat?.logGroup,
+              immagineAttesa: cfg.heartbeat?.immagineAttesa ?? null,
+            }),
           ).catch((err) => ({ errore: cleanAwsReason(err) }))
         : mancante(cfg.heartbeat?.account ?? '?'),
     ])
-    res.json({ configurato: true, webUrl: cfg.webUrl ?? null, sshCommand: cfg.sshCommand ?? null, audit, heartbeat })
+    // I MODELLI dei link «vai a vedere in Teleport» arrivano dalla config, come `sshCommand`: qui non
+    // sta l'URL di nessuno, e senza modello la pagina non mostra il link invece di portare a una pagina
+    // che su questa installazione non esiste.
+    res.json({
+      configurato: true,
+      webUrl: cfg.webUrl ?? null,
+      sshCommand: cfg.sshCommand ?? null,
+      auditUserUrl: cfg.auditUserUrl ?? null,
+      auditNodeUrl: cfg.auditNodeUrl ?? null,
+      audit,
+      heartbeat,
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
