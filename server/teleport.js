@@ -95,7 +95,8 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const macchine = new Map()
   const perMacchina = (nodo) => {
     const k = nodo ?? '?'
-    if (!macchine.has(k)) macchine.set(k, { macchina: k, sessioni: 0, chi: new Set(), ultima: null, aperte: 0 })
+    if (!macchine.has(k))
+      macchine.set(k, { macchina: k, sessioni: 0, chi: new Set(), ultima: null, iniziate: new Set(), finite: new Set() })
     return macchine.get(k)
   }
 
@@ -121,15 +122,20 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       // ⚠️ Il nodo si legge da `server_hostname`, non da `server_id`: il secondo e' un UUID, cioe'
       // esattamente il nome che non aiuta chi legge «chi e' entrato dove».
       const m = perMacchina(campi.server_hostname ?? campi.server_id)
+      // ⚠️ Si appaiano gli ID di sessione, NON si conta piu' o meno uno. La prima stesura teneva un
+      // contatore (`+1` allo start, `-1` all'end, con una guardia per non andare sotto zero) e il
+      // 31/08/2026 la pagina ha detto «1 aperta adesso» su due sessioni entrambe chiuse: un contatore
+      // dipende dall'ORDINE, e `FilterLogEvents` restituisce le righe ordinate per stream, non fra
+      // stream diversi, quindi un `end` letto prima del suo `start` non decrementava (la guardia) e lo
+      // `start` poi incrementava. Con gli insiemi l'ordine non conta.
+      const sid = campi.sid ?? null
       if (tipo === 'session.start') {
         m.sessioni += 1
         m.chi.add(utente)
         p.sessioniSsh += 1
-        // `aperte` sale allo start e scende all'end: senza il secondo evento la sessione risulta
-        // ancora aperta, che e' l'informazione giusta (qualcuno e' dentro adesso).
-        m.aperte += 1
-      } else if (m.aperte > 0) {
-        m.aperte -= 1
+        if (sid) m.iniziate.add(sid)
+      } else if (sid) {
+        m.finite.add(sid)
       }
       m.ultima = Math.max(m.ultima ?? 0, ev.timestamp ?? 0)
     } else if (tipo === 'db.session.query') {
@@ -149,8 +155,15 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const db = [...database.values()]
     .map((d) => ({ ...d, persone: d.persone.size }))
     .sort((a, b) => b.query - a.query)
+  // Aperta = ha uno `start` e nessun `end` con lo STESSO id. Un `end` il cui `start` e' fuori dalla
+  // finestra non conta come apertura (non sta in `iniziate`), e uno `start` senza `end` resta aperto,
+  // che e' l'informazione giusta: qualcuno e' dentro adesso.
   const ssh = [...macchine.values()]
-    .map((m) => ({ ...m, chi: [...m.chi] }))
+    .map(({ iniziate, finite, ...m }) => ({
+      ...m,
+      chi: [...m.chi],
+      aperte: [...iniziate].filter((sid) => !finite.has(sid)).length,
+    }))
     .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   return {
     ore,
