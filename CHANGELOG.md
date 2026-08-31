@@ -78,6 +78,28 @@ All notable changes to Dadaguard are documented here. Format based on
   una firma, non un dato.
 
 ### Performance
+- **Le pagine non aspettano più lo stato della flotta.** Misurato sul servizio vero il 31/08/2026: un
+  giro completo di `/api/status` costa fra 7,6 e 28,2 secondi (media oraria fra 12,6 e 16,1 su 113
+  servizi per 8 famiglie di check, i due pesi sono `runtime` con 46 a 68 secondi di chiamate AWS sommate
+  e `version` con 16 a 44). La cache dell'endpoint durava 30 secondi, ma chi la riempiva davvero era il
+  watchdog delle notifiche, che gira ogni 300 e chiamava `getStatus` per conto suo senza passare da
+  nessuna cache: la cache era quindi fresca 30 secondi su 300, il 10% del tempo, e chi apriva una pagina
+  in un momento qualsiasi pagava il ricalcolo intero 9 volte su 10. Ed è il GUSCIO dell'app a chiedere
+  `/api/status`, quindi era il costo di ogni pagina, non solo della Dashboard.
+  Tre cambi, tutti nella stessa direzione: il dato vecchio si consegna subito e si rinfresca dietro le
+  spalle (`server/util/swr.js`, 9 asserzioni); il giro del watchdog lo REGALA alla stessa cache, così
+  ogni 300 secondi la UI ha un dato fresco senza che nessuno abbia aspettato; e la cache si scalda
+  all'avvio, perché altrimenti il primo che apre dopo un rilascio paga il giro intero e un rilascio
+  succede a ogni merge su main. Anche `/metrics` legge quella cache invece di ricalcolare per conto suo:
+  era un secondo percorso identico, e uno scrape capitato a cache scaduta pagava lo stesso conto senza
+  che nessuno se ne accorgesse, perché a scrapare è una macchina.
+  Il TTL passa da 30 a 120 secondi e cambia significato: non è più «quanto aspetta chi apre la pagina»,
+  che ora è zero, ma «quanto vecchio può essere il dato prima che parta un rinfresco». Servire un dato
+  non appena calcolato è legittimo solo perché la pagina dice quando è stato calcolato (`generatedAt`,
+  «ultimo fetch» sulla Dashboard): una cache che serve dati vecchi senza dirlo è un modo di mentire.
+  Resta fuori il costo VERO del giro, che non è cambiato: lì il sospetto misurabile è il limite di
+  CloudTrail (2 richieste al secondo per account) che tiene la concorrenza a 6, ed è la ragione per cui
+  alzarla e' un lavoro da misurare e non un numero da cambiare.
 - **I load balancer si leggono in una passata sola.** Erano due giri sulle stesse risorse: uno per gli
   archi dei target group e uno per gli indirizzi e gli ascoltatori, con una `DescribeLoadBalancers` per
   load balancer invece di una per account. Stessa uscita esatta (75 archi, 14 `lb`, 14 `route`, 9 load

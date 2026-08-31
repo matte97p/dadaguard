@@ -41,6 +41,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
+import { statusFor, warmStatus } from './statusCache.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -57,44 +58,36 @@ const requireLocal = (feature) => (_req, res, next) => {
 app.get('/healthz', (_req, res) => res.json({ ok: true, mode: MODE }))
 
 // Esposizione Prometheus: severità per servizio/check → Grafana/Alertmanager fanno alert e storico,
-// senza che Dadaguard diventi un servizio. Cache breve: Prometheus scrapa spesso, evitiamo di
-// martellare AWS a ogni scrape (il /api/status della dashboard resta invece live).
-let metricsCache = { at: 0, body: '' }
-const METRICS_TTL = 30000
+// senza che Dadaguard diventi un servizio.
+//
+// Legge la STESSA cache della dashboard. Prima aveva la sua, di 30 secondi, e sopra un `getStatus`
+// tutto suo: era un secondo percorso che ricalcolava lo stato del mondo per conto proprio, quindi uno
+// scrape capitato a cache scaduta pagava lo stesso giro da 8 a 28 secondi e nessuno se ne accorgeva,
+// perché a scrapare è una macchina. Un esportatore che consegna l'ultimo campione invece di calcolarne
+// uno nuovo a comando è anche il comportamento normale per Prometheus.
 app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4')
   try {
-    if (metricsCache.body && Date.now() - metricsCache.at < METRICS_TTL) return res.send(metricsCache.body)
-    const body = renderMetrics(isDemo ? demoStatus('en') : await getStatus('en'))
-    metricsCache = { at: Date.now(), body }
-    res.send(body)
+    const stato = isDemo ? demoStatus('en') : (await statusFor('en')).value
+    res.send(renderMetrics(stato))
   } catch (err) {
     res.status(500).send(`# scrape failed: ${err.message}\ndadaguard_scrape_success 0\n`)
   }
 })
 
-// Cache breve dello stato. Un giro completo costa ~4-5s (52 servizi × 8 check su 4 account: le
-// metriche CloudWatch e CloudTrail sono la parte grossa), e finora OGNI apertura di pagina lo rifaceva
-// da zero — anche due schede aperte, anche due persone insieme. I dati guardano finestre di 24h: 30
-// secondi di età non cambiano una diagnosi, e l'età è comunque scritta in pagina («ultimo fetch»).
-// Stesso mestiere che /metrics fa già da tempo.
-// `?fresh=1` la salta: il bottone «Aggiorna» deve poter dire la verità, altrimenti aggiorna niente.
-const STATUS_TTL_MS = Number(process.env.DADAGUARD_STATUS_TTL_MS ?? 30_000)
-const statusCache = new Map() // lingua → { at, payload }
-
+// Lo stato della flotta: la cache sta in `statusCache.js`, che la condivide col watchdog e consegna il
+// dato vecchio SUBITO rinfrescando dietro. Il perché, coi numeri misurati, è scritto là: qui basta
+// sapere che un giro completo costa fra 7,6 e 28,2 secondi su 113 servizi, che questo endpoint lo
+// chiede il guscio dell'app (quindi lo pagava ogni pagina) e che ora nessuno lo aspetta.
+// `?fresh=1` aspetta il giro nuovo: il bottone «Aggiorna» deve poter dire la verità.
 app.get('/api/status', async (req, res) => {
   try {
     if (isDemo) return res.json(demoStatus(req.query.lang))
     const lang = req.query.lang ?? 'it'
-    const fresh = req.query.fresh === '1'
-    const hit = statusCache.get(lang)
-    if (!fresh && hit && Date.now() - hit.at < STATUS_TTL_MS) {
-      // `cached: true` è dichiarato: chi legge l'API sa che non è un giro nuovo.
-      return res.json({ ...hit.payload, cached: true })
-    }
-    const payload = await getStatus(lang)
-    statusCache.set(lang, { at: Date.now(), payload })
-    res.json(payload)
+    const { value, stale, computed } = await statusFor(lang, { fresh: req.query.fresh === '1' })
+    // `cached`/`stale` dichiarati: chi legge l'API sa se è un giro nuovo, e se dietro ne sta partendo
+    // un altro. L'età del dato è `generatedAt`, che c'era già ed è quella che la pagina mostra.
+    res.json({ ...value, cached: !computed, stale })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -783,4 +776,8 @@ app.listen(PORT, '0.0.0.0', () => {
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
   // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
   if (!isDemo) startWatcher()
+  // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
+  // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
+  // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.
+  if (!isDemo) warmStatus()
 })
