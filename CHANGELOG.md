@@ -127,6 +127,20 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **La riga di sintesi diceva un numero che non era di quel database.** Prendeva il TOTALE delle
+  scritture della finestra e lo appaiava all'elenco dei soli database di produzione: con 4 scritture su
+  un database di produzione e 2 su staging scriveva «6 scritture su <produzione>», falso due volte. Ora
+  il numero è quello dei database nominati e le altre si dicono in coda («più 1 fuori produzione»).
+- **«6 versioni in giro» stava fra le cose «guardate e a posto»**, due righe sopra un avviso che dice
+  il contrario. Non è né a posto né da guardare: da lì non si sa, e lo dice l'avviso. Nella riga muta ci
+  va solo quando in giro c'è una versione sola, che è davvero un a posto.
+- **Sei righe con l'etichetta «diversa» dicevano solo «non lo sappiamo».** Che i digest siano diversi si
+  vede dai digest, la ragione del confronto sta già accanto al titolo della tabella, e un'etichetta su
+  ogni riga la fa sembrare un difetto di quella macchina. Via l'etichetta: resta «indietro», che compare
+  solo quando è un fatto.
+- **L'interruttore della finestra poteva dire «7g» sopra dei numeri di 24 ore** senza spiegare perché:
+  il server rilegge sette giorni di log e non è istantaneo. Ora accanto al titolo della tabella si legge
+  la finestra del DATO più «sto rileggendo la finestra scelta».
 - **Il guardiano dei nomi lasciava passare un nome attaccato a un cognome, e ci sono passato io.** La
   regola cercava `\bnome\b`, e il confine di parola non combacia fra una minuscola e la maiuscola che
   segue: la forma `<nome><Cognome>` gli passava davanti. Cosi' l'handle di un collega e' finito in un

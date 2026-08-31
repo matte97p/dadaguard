@@ -65,12 +65,6 @@ export function macchinaIndietro(m, riferimento) {
   return Boolean(atteso && versioneNota(m?.immagine) && m.immagine !== atteso)
 }
 
-// «Diversa da quella del riferimento», che è tutto quel che si può dire senza la versione attesa: si
-// mostra in grigio, non in arancione, perché non è un problema di quella macchina.
-export function macchinaDiversa(m, riferimento) {
-  const atteso = typeof riferimento === 'object' && riferimento ? riferimento.immagine : riferimento
-  return Boolean(atteso && versioneNota(m?.immagine) && m.immagine !== atteso)
-}
 
 // La macchina non ha dichiarato la versione: non è indietro, non è pari, è senza il dato.
 export const senzaVersione = (m) => !versioneNota(m?.immagine)
@@ -204,11 +198,17 @@ export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
   // mestiere di tutti i giorni e la cosa che si guarda.
   const scriventi = (audit.database ?? []).filter((d) => (d.scritture ?? 0) > 0)
   const prod = scriventi.filter((d) => d.ambiente === 'prod')
+  // Si nomina la PRODUZIONE quando c'e', e il numero e' quello dei database nominati: non il totale
+  // della finestra. Con 4 scritture su un database di produzione e 2 su staging, «6 scritture su
+  // <produzione>» sarebbe falso due volte.
+  const contate = prod.length ? prod : scriventi
   spingi(scriventi.length > 0, {
     k: 'scritture',
-    n: audit.scritture ?? 0,
-    dove: (prod.length ? prod : scriventi).map((d) => (d.nome && d.nome !== '?' ? d.nome : d.servizio)),
+    n: contate.reduce((n, d) => n + (d.scritture ?? 0), 0),
+    dove: contate.map((d) => (d.nome && d.nome !== '?' ? d.nome : d.servizio)),
     prod: prod.length > 0,
+    // Le altre, quelle fuori produzione: si dicono in coda invece di sparire dentro un totale.
+    altrove: prod.length ? scriventi.length - prod.length : 0,
     vista: 'database',
   })
 
@@ -219,12 +219,10 @@ export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
   // problema che non c'è.
   const versioni = heartbeat.versioni?.length ?? 0
   const accusabile = riferimento?.fonte === 'config'
-  spingi(accusabile && (versioni > 1 || tuttiIndietro(heartbeat.macchine ?? [], riferimento)), {
-    k: 'versioni',
-    n: versioni,
-    tutti: tuttiIndietro(heartbeat.macchine ?? [], riferimento),
-    vista: 'devEnv',
-  })
+  const tutti = tuttiIndietro(heartbeat.macchine ?? [], riferimento)
+  const voceVersioni = { k: 'versioni', n: versioni, tutti, vista: 'devEnv' }
+  if (accusabile && (versioni > 1 || tutti)) trovato.push(voceVersioni)
+  else if (versioni <= 1) tranquillo.push(voceVersioni)
 
   return { trovato, tranquillo }
 }

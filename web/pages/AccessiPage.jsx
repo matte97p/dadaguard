@@ -14,7 +14,6 @@ import {
   filtraRighe,
   immagineRiferimento,
   linkAudit,
-  macchinaDiversa,
   macchinaIndietro,
   personaMacchina,
   riepilogo,
@@ -147,7 +146,6 @@ export default function AccessiPage({ t, lang }) {
     [battito.macchine, battito.attesa],
   )
   const indietro = (m) => macchinaIndietro(m, riferimento)
-  const diversa = (m) => macchinaDiversa(m, riferimento)
   const versioniInGiro = battito.versioni?.length ?? 0
   // I nomi che Teleport conosce: servono a scegliere quale dei due nomi della stessa persona mostrare
   // sulla riga di una macchina (l'heartbeat manda l'utente di sistema quando non c'è una sessione).
@@ -346,8 +344,6 @@ export default function AccessiPage({ t, lang }) {
             <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
               {t('accessi.img.indietro')}
             </Tag>
-          ) : diversa(r) ? (
-            <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.img.diversa')}</Tag>
           ) : null}
         </Space>
       ),
@@ -450,7 +446,7 @@ export default function AccessiPage({ t, lang }) {
       livello: 'crit',
       cerca: (p) => [p.utente, p.motivo],
       vuoto: t('accessi.nessunAccesso'),
-      finestra: t('accessi.ultimeOre', { n: audit.ore ?? ore }),
+      finestra: finestraDetta,
     },
     {
       value: 'database',
@@ -463,7 +459,7 @@ export default function AccessiPage({ t, lang }) {
       livello: 'crit',
       cerca: (d) => [d.nome, d.servizio, d.ambiente],
       vuoto: t('accessi.nessunaQuery'),
-      finestra: t('accessi.ultimeOre', { n: audit.ore ?? ore }),
+      finestra: finestraDetta,
     },
     {
       value: 'devEnv',
@@ -491,7 +487,7 @@ export default function AccessiPage({ t, lang }) {
       livello: 'crit',
       cerca: (m) => [m.macchina, ...(m.chi ?? [])],
       vuoto: t('accessi.nessunaSsh'),
-      finestra: t('accessi.ultimeOre', { n: audit.ore ?? ore }),
+      finestra: finestraDetta,
       nota: t('accessi.sshRegistrate'),
     },
   ]
@@ -510,6 +506,13 @@ export default function AccessiPage({ t, lang }) {
   // a chiedersi se la pagina ha caricato.
   const quante = daGuardare(audit, battito, riferimento)
   const sintesi = riepilogo(audit, battito, riferimento)
+  // La finestra del DATO, non quella chiesta: quando il server sta ancora rileggendo (sette giorni di
+  // log non sono istantanei) i numeri sono ancora quelli di prima, e va detto invece di lasciare
+  // l'interruttore su «7g» sopra dei numeri di 24 ore.
+  const finestraDetta =
+    audit.ore && audit.ore !== ore
+      ? `${t('accessi.ultimeOre', { n: audit.ore })} · ${t('accessi.inAggiornamento')}`
+      : t('accessi.ultimeOre', { n: audit.ore ?? ore })
   const nessunoAggiornato = tuttiIndietro(battito.macchine ?? [], riferimento)
 
   return (
@@ -601,7 +604,7 @@ export default function AccessiPage({ t, lang }) {
                 ? t(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', {
                     n: v.n,
                     dove: v.dove.join(', '),
-                  })
+                  }) + (v.altrove > 0 ? ` ${t('accessi.sintesi.altrove', { n: v.altrove })}` : '')
                 : v.k === 'versioni'
                   ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
                   : t(`accessi.sintesi.${v.k}`, { n: v.n })}
