@@ -70,6 +70,14 @@ export function validateConfig(doc) {
     //         macchina, mostrato copiabile nella tabella. `{macchina}` viene sostituito col nome del
     //         nodo. Senza, la colonna non c'e': meglio nessun comando che un comando che su questa
     //         installazione non esiste.
+    //     auditUserUrl: https://teleport.example.com/web/audit?user={utente}   # facoltativo: il link
+    //         per riga verso l'audit di UNA persona. Senza, il nome resta testo: la pagina dice che le
+    //         sessioni sono riproducibili, e un link che non porta da nessuna parte e' peggio.
+    //     auditNodeUrl: https://teleport.example.com/web/audit?node={macchina}  # facoltativo: lo stesso
+    //         per una MACCHINA, cioe' «chi e' entrato qui, e rivediamo la sessione».
+    //     heartbeat.immagineAttesa: sha256:…   # facoltativo: la versione dell'immagine che le macchine
+    //         DOVREBBERO avere. Senza, «indietro» si calcola sulla piu' recente che qualcuno ha visto,
+    //         che non sa vedere il caso in cui sono indietro tutti (nessuno ha ancora aggiornato).
     teleport: doc?.teleport ?? null,
   }
 }

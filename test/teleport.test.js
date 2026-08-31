@@ -286,3 +286,54 @@ test('ssh: una riga senza `sid` non inventa una sessione aperta', async () => {
   assert.equal(out.sessioniSsh, 1)
   assert.equal(out.sshAperte, 0)
 })
+
+test('audit: la raffica di fallite porta i suoi due istanti, non solo il conteggio', async () => {
+  const { audit } = await conEventi([
+    LOGIN_FALLITA('utente-uno', 1000, 'role db-team-staging-read is not found'),
+    LOGIN_FALLITA('utente-uno', 61_000, 'role db-team-staging-read is not found'),
+    LOGIN_FALLITA('utente-uno', 121_000, 'role db-team-staging-read is not found'),
+    // Poi e' entrata: `ultima` diventa questo istante, e la raffica resta finita a 121_000.
+    LOGIN_OK('utente-uno', 900_000),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const p = out.persone.find((x) => x.utente === 'utente-uno')
+  assert.equal(p.loginFallite, 3)
+  assert.equal(p.primaFallita, 1000)
+  assert.equal(p.ultimaFallita, 121_000)
+  // ⚠️ `ultima` e' l'ultimo evento di QUALSIASI tipo: confonderlo con l'ultima fallita direbbe che la
+  // raffica dura ancora su una persona che e' entrata dieci minuti dopo.
+  assert.equal(p.ultima, 900_000)
+})
+
+test('audit: chi non ha mai fallito non porta due istanti inventati', async () => {
+  const { audit } = await conEventi([LOGIN_OK('utente-due', 3000)])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const p = out.persone.find((x) => x.utente === 'utente-due')
+  assert.equal(p.primaFallita, null)
+  assert.equal(p.ultimaFallita, null)
+})
+
+// Stesso inciampo delle sessioni SSH aperte: `FilterLogEvents` ordina per stream, non fra stream
+// diversi, quindi la riga letta per ultima non e' l'ultima nel tempo. Col motivo contava, perche' e' la
+// frase che si legge per capire cosa sta succedendo ADESSO.
+test('audit: il motivo mostrato e quello dell istante piu recente, non dell ultima riga letta', async () => {
+  const { audit } = await conEventi([
+    LOGIN_FALLITA('utente-uno', 9000, 'MFA device not found'),
+    LOGIN_FALLITA('utente-uno', 1000, 'role db-team-staging-read is not found'),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const p = out.persone.find((x) => x.utente === 'utente-uno')
+  assert.equal(p.motivo, 'MFA device not found')
+  // Il campo di servizio con cui si fa il confronto non finisce nel payload.
+  assert.equal('motivoQuando' in p, false)
+})
+
+test('heartbeat: la versione attesa arriva dalla config, e senza quella il campo e nullo', async () => {
+  const battito = (immagine, quando) =>
+    riga({ macchina: 'macchina-uno', lato: 'host', utente: 'utente-uno', immagine, esito: 'ok', tool_mancanti: 0 }, quando)
+  const { heartbeat } = await conEventi([battito('sha256:vecchia', 1000)])
+  const conAttesa = await heartbeat({}, { logGroup: '/finto', immagineAttesa: 'sha256:nuova' })
+  assert.equal(conAttesa.attesa, 'sha256:nuova')
+  const senza = await heartbeat({}, { logGroup: '/finto' })
+  assert.equal(senza.attesa, null)
+})
