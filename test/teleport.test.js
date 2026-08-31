@@ -23,16 +23,18 @@ const SESSIONE_DB = (utente, quando) =>
   riga({ event_type: 'db.session.start', fields: { event: 'db.session.start', user: utente } }, quando)
 // Sessione SSH su un nodo: `server_hostname` e' il nome leggibile, `server_id` l'UUID. Le righe vere
 // portano entrambi, e la vista deve mostrare il primo.
-const SSH_INIZIO = (utente, macchina, quando) =>
+// `sid` e' l'id della sessione: e' cosi' che start e end si appaiano, e le righe vere lo portano
+// sempre. Il default lo rende comodo da omettere quando la prova non guarda le aperte.
+const SSH_INIZIO = (utente, macchina, quando, sid = 'sid-1') =>
   riga(
     {
       event_type: 'session.start',
-      fields: { event: 'session.start', user: utente, server_hostname: macchina, server_id: 'a3f1-uuid-che-non-aiuta' },
+      fields: { event: 'session.start', user: utente, server_hostname: macchina, server_id: 'a3f1-uuid-che-non-aiuta', sid },
     },
     quando,
   )
-const SSH_FINE = (utente, macchina, quando) =>
-  riga({ event_type: 'session.end', fields: { event: 'session.end', user: utente, server_hostname: macchina } }, quando)
+const SSH_FINE = (utente, macchina, quando, sid = 'sid-1') =>
+  riga({ event_type: 'session.end', fields: { event: 'session.end', user: utente, server_hostname: macchina, sid } }, quando)
 
 async function conEventi(eventi) {
   // Il finto client: risponde una pagina sola e nessun token.
@@ -204,9 +206,9 @@ test('ssh: una sessione senza `session.end` resta APERTA, e il numero lo dice', 
   // Il caso che conta davvero: qualcuno e' dentro adesso. Contare solo gli `start` direbbe «2
   // sessioni» senza distinguere quella chiusa da quella in corso.
   const { audit } = await conEventi([
-    SSH_INIZIO('utente-uno', 'portatile-uno', 1000),
-    SSH_FINE('utente-uno', 'portatile-uno', 1500),
-    SSH_INIZIO('utente-tre', 'portatile-uno', 2000),
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000, 'sid-chiusa'),
+    SSH_FINE('utente-uno', 'portatile-uno', 1500, 'sid-chiusa'),
+    SSH_INIZIO('utente-tre', 'portatile-uno', 2000, 'sid-aperta'),
   ])
   const out = await audit({}, { logGroup: '/finto' })
   assert.equal(out.sessioniSsh, 2)
@@ -229,8 +231,8 @@ test('ssh: un `session.end` orfano non porta le aperte sotto zero', async () => 
 test('ssh: le sessioni SSH contano anche per PERSONA, e non si mescolano con le sessioni DB', async () => {
   const { audit } = await conEventi([
     SESSIONE_DB('utente-uno', 500),
-    SSH_INIZIO('utente-uno', 'portatile-uno', 1000),
-    SSH_INIZIO('utente-uno', 'portatile-tre', 1100),
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000, 'sid-a'),
+    SSH_INIZIO('utente-uno', 'portatile-tre', 1100, 'sid-b'),
   ])
   const out = await audit({}, { logGroup: '/finto' })
   const primo = out.persone.find((p) => p.utente === 'utente-uno')
@@ -243,5 +245,44 @@ test('ssh: nessuna sessione SSH non e un errore, e non inventa macchine', async 
   const out = await audit({}, { logGroup: '/finto' })
   assert.deepEqual(out.ssh, [])
   assert.equal(out.sessioniSsh, 0)
+  assert.equal(out.sshAperte, 0)
+})
+
+test('ssh: `end` letto PRIMA del suo `start` conta come chiusa, non come aperta', async () => {
+  // Il bug vero del 31/08/2026: la pagina diceva «1 aperta adesso» su due sessioni entrambe chiuse.
+  // `FilterLogEvents` ordina le righe per stream e non fra stream diversi, quindi un `end` puo'
+  // arrivare prima del suo `start`. Con un contatore la guardia contro il negativo mangiava il
+  // decremento e lo `start` successivo lo rimetteva: un numero rosso che dice «qualcuno e' dentro
+  // adesso» mentre non c'e' nessuno.
+  const { audit } = await conEventi([
+    SSH_FINE('utente-uno', 'portatile-uno', 2000, 'sid-x'),
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000, 'sid-x'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sessioniSsh, 1)
+  assert.equal(out.sshAperte, 0)
+})
+
+test('ssh: due sessioni chiuse sulla stessa macchina non lasciano niente di aperto', async () => {
+  // Il caso esatto visto sulla macchina vera: due `start` e due `end`, appaiati.
+  const { audit } = await conEventi([
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000, 'sid-1'),
+    SSH_FINE('utente-uno', 'portatile-uno', 1100, 'sid-1'),
+    SSH_INIZIO('utente-uno', 'portatile-uno', 2000, 'sid-2'),
+    SSH_FINE('utente-uno', 'portatile-uno', 2200, 'sid-2'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sessioniSsh, 2)
+  assert.equal(out.sshAperte, 0)
+})
+
+test('ssh: una riga senza `sid` non inventa una sessione aperta', async () => {
+  // Senza id non si puo\' appaiare niente: la sessione si conta (c\'e\' stata) ma non si dichiara
+  // aperta, perche\' un falso «qualcuno e\' dentro» costa piu\' di un conteggio mancante.
+  const { audit } = await conEventi([
+    riga({ event_type: 'session.start', fields: { event: 'session.start', user: 'utente-uno', server_hostname: 'portatile-uno' } }, 1000),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sessioniSsh, 1)
   assert.equal(out.sshAperte, 0)
 })
