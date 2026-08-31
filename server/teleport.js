@@ -70,12 +70,14 @@ async function eventi(aws, { logGroup, filterPattern, da, limite = MAX_EVENTI })
 export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   if (!logGroup) return null
   const da = Date.now() - ore * 3600_000
-  const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start" ?"db.session.query"', da })
+  // `session.start` e `session.end` sono le sessioni SSH sulle macchine (nodi `mac-dev`): la parte che
+  // risponde a «chi e' entrato sul computer di chi», che per un accesso del genere non e' un extra.
+  const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start" ?"db.session.query" ?"session.start" ?"session.end"', da })
 
   const persone = new Map()
   const chiave = (nome) => {
     if (!persone.has(nome)) {
-      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, sessioniDb: 0, query: 0, scritture: 0, ultima: null })
+      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
     }
     return persone.get(nome)
   }
@@ -86,6 +88,15 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     const k = `${servizio ?? '?'}/${nome ?? '?'}`
     if (!database.has(k)) database.set(k, { servizio: servizio ?? '?', nome: nome ?? '?', query: 0, scritture: 0, persone: new Set(), ambiente: null })
     return database.get(k)
+  }
+
+  // Sessioni SSH per MACCHINA: chi e' entrato, quante volte, e quando l'ultima. La chiave e' il nodo e
+  // non la persona, perche' la domanda arriva sempre da quel verso: «chi e' stato sul mio Mac?».
+  const macchine = new Map()
+  const perMacchina = (nodo) => {
+    const k = nodo ?? '?'
+    if (!macchine.has(k)) macchine.set(k, { macchina: k, sessioni: 0, chi: new Set(), ultima: null, aperte: 0 })
+    return macchine.get(k)
   }
 
   for (const ev of righe) {
@@ -106,6 +117,21 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       }
     } else if (tipo === 'db.session.start') {
       p.sessioniDb += 1
+    } else if (tipo === 'session.start' || tipo === 'session.end') {
+      // ⚠️ Il nodo si legge da `server_hostname`, non da `server_id`: il secondo e' un UUID, cioe'
+      // esattamente il nome che non aiuta chi legge «chi e' entrato dove».
+      const m = perMacchina(campi.server_hostname ?? campi.server_id)
+      if (tipo === 'session.start') {
+        m.sessioni += 1
+        m.chi.add(utente)
+        p.sessioniSsh += 1
+        // `aperte` sale allo start e scende all'end: senza il secondo evento la sessione risulta
+        // ancora aperta, che e' l'informazione giusta (qualcuno e' dentro adesso).
+        m.aperte += 1
+      } else if (m.aperte > 0) {
+        m.aperte -= 1
+      }
+      m.ultima = Math.max(m.ultima ?? 0, ev.timestamp ?? 0)
     } else if (tipo === 'db.session.query') {
       const d = perDatabase(campi.db_service, campi.db_name)
       d.query += 1
@@ -123,10 +149,16 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const db = [...database.values()]
     .map((d) => ({ ...d, persone: d.persone.size }))
     .sort((a, b) => b.query - a.query)
+  const ssh = [...macchine.values()]
+    .map((m) => ({ ...m, chi: [...m.chi] }))
+    .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   return {
     ore,
     persone: elenco,
     database: db,
+    ssh,
+    sessioniSsh: ssh.reduce((n, m) => n + m.sessioni, 0),
+    sshAperte: ssh.reduce((n, m) => n + m.aperte, 0),
     loginFallite: elenco.reduce((n, p) => n + p.loginFallite, 0),
     query: elenco.reduce((n, p) => n + p.query, 0),
     scritture: elenco.reduce((n, p) => n + p.scritture, 0),

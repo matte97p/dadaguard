@@ -21,6 +21,18 @@ const LOGIN_OK = (utente, quando) =>
   riga({ event_type: 'user.login', fields: { event: 'user.login', success: true, user: utente } }, quando)
 const SESSIONE_DB = (utente, quando) =>
   riga({ event_type: 'db.session.start', fields: { event: 'db.session.start', user: utente } }, quando)
+// Sessione SSH su un nodo: `server_hostname` e' il nome leggibile, `server_id` l'UUID. Le righe vere
+// portano entrambi, e la vista deve mostrare il primo.
+const SSH_INIZIO = (utente, macchina, quando) =>
+  riga(
+    {
+      event_type: 'session.start',
+      fields: { event: 'session.start', user: utente, server_hostname: macchina, server_id: 'a3f1-uuid-che-non-aiuta' },
+    },
+    quando,
+  )
+const SSH_FINE = (utente, macchina, quando) =>
+  riga({ event_type: 'session.end', fields: { event: 'session.end', user: utente, server_hostname: macchina } }, quando)
 
 async function conEventi(eventi) {
   // Il finto client: risponde una pagina sola e nessun token.
@@ -165,4 +177,71 @@ test('un account nominato ma non configurato lo dice, invece di sembrare un prob
   const { readFileSync } = await import('node:fs')
   const sorgente = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8')
   assert.match(sorgente, /non configurato in accounts/)
+})
+
+// --- sessioni SSH sulle macchine ------------------------------------------------------------------
+// Perche' contano: dare a tre persone una shell sul computer delle altre e' accettabile solo se si
+// vede chi e' entrato dove. Se questa vista tace, l'accesso resta e la traccia no.
+
+test('ssh: raggruppa per macchina, col nome leggibile e non con l UUID', async () => {
+  const { audit } = await conEventi([
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000),
+    SSH_FINE('utente-uno', 'portatile-uno', 2000),
+    SSH_INIZIO('utente-due', 'portatile-due', 3000),
+    SSH_FINE('utente-due', 'portatile-due', 3100),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sessioniSsh, 2)
+  assert.equal(out.ssh.length, 2)
+  const gio = out.ssh.find((m) => m.macchina === 'portatile-uno')
+  assert.deepEqual(gio.chi, ['utente-uno'])
+  assert.equal(gio.sessioni, 1)
+  // L UUID non deve comparire da nessuna parte: e' il nome che non aiuta chi legge.
+  assert.doesNotMatch(JSON.stringify(out), /uuid-che-non-aiuta/)
+})
+
+test('ssh: una sessione senza `session.end` resta APERTA, e il numero lo dice', async () => {
+  // Il caso che conta davvero: qualcuno e' dentro adesso. Contare solo gli `start` direbbe «2
+  // sessioni» senza distinguere quella chiusa da quella in corso.
+  const { audit } = await conEventi([
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000),
+    SSH_FINE('utente-uno', 'portatile-uno', 1500),
+    SSH_INIZIO('utente-tre', 'portatile-uno', 2000),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sessioniSsh, 2)
+  assert.equal(out.sshAperte, 1)
+  const gio = out.ssh.find((m) => m.macchina === 'portatile-uno')
+  assert.equal(gio.aperte, 1)
+  assert.deepEqual(gio.chi.sort(), ['utente-tre', 'utente-uno'])
+})
+
+test('ssh: un `session.end` orfano non porta le aperte sotto zero', async () => {
+  // Succede per davvero: la finestra taglia lo `start` fuori e lascia dentro solo la fine. Un
+  // contatore negativo poi si somma agli altri e il totale della pagina diventa sbagliato.
+  const { audit } = await conEventi([SSH_FINE('utente-uno', 'portatile-uno', 2000)])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.sshAperte, 0)
+  assert.equal(out.ssh[0].aperte, 0)
+  assert.equal(out.ssh[0].sessioni, 0)
+})
+
+test('ssh: le sessioni SSH contano anche per PERSONA, e non si mescolano con le sessioni DB', async () => {
+  const { audit } = await conEventi([
+    SESSIONE_DB('utente-uno', 500),
+    SSH_INIZIO('utente-uno', 'portatile-uno', 1000),
+    SSH_INIZIO('utente-uno', 'portatile-tre', 1100),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  const primo = out.persone.find((p) => p.utente === 'utente-uno')
+  assert.equal(primo.sessioniSsh, 2)
+  assert.equal(primo.sessioniDb, 1)
+})
+
+test('ssh: nessuna sessione SSH non e un errore, e non inventa macchine', async () => {
+  const { audit } = await conEventi([LOGIN_OK('utente-uno', 1000)])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.ssh, [])
+  assert.equal(out.sessioniSsh, 0)
+  assert.equal(out.sshAperte, 0)
 })

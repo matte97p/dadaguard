@@ -82,6 +82,44 @@ export default function AccessiPage({ t, lang }) {
       render: (n) => (n > 0 ? <Tag color="orange">{n}</Tag> : <Tag>0</Tag>),
     },
     { title: t('accessi.col.ultimoAvvio'), dataIndex: 'quando', key: 'quando', render: (v) => quando(v, lang) },
+    // Il comando per entrare, copiabile. Il MODELLO arriva dalla config (`teleport.sshCommand`, con
+    // `{macchina}` dentro) e non dal codice: qui non stanno i nomi degli strumenti di nessuno, come
+    // per log group e account. Senza quel campo la colonna non c'è, invece di mostrare un comando
+    // inventato che non esiste su nessuna macchina.
+    // ⚠️ Solo per `lato: host`: il container non è una macchina raggiungibile, e un comando che non
+    // funziona è peggio che nessun comando.
+    ...(dati.sshCommand
+      ? [
+          {
+            title: t('accessi.col.comeEntri'),
+            key: 'comeEntri',
+            render: (_, r) =>
+              r.lato === 'host' ? (
+                <Text code copyable>
+                  {dati.sshCommand.replace('{macchina}', r.macchina)}
+                </Text>
+              ) : (
+                '—'
+              ),
+          },
+        ]
+      : []),
+  ]
+
+  // Chi è entrato sulle macchine: la metà che l'heartbeat non copre. L'heartbeat dice chi è rimasto
+  // indietro, questa dice chi è andato a vedere, ed è la traccia che rende accettabile il primo.
+  const colonneSsh = [
+    { title: t('accessi.col.macchina'), dataIndex: 'macchina', key: 'macchina' },
+    { title: t('accessi.col.chiEntrato'), dataIndex: 'chi', key: 'chi', render: (v) => (v?.length ? v.join(', ') : '—') },
+    { title: t('accessi.col.quanteSessioni'), dataIndex: 'sessioni', key: 'sessioni' },
+    // Le aperte in rosso: qualcuno è dentro adesso, ed è la riga a cui si reagisce subito.
+    {
+      title: t('accessi.col.aperte'),
+      dataIndex: 'aperte',
+      key: 'aperte',
+      render: (n) => (n > 0 ? <Tag color="red">{n}</Tag> : <Tag>0</Tag>),
+    },
+    { title: t('accessi.col.ultima'), dataIndex: 'ultima', key: 'ultima', render: (v) => quando(v, lang) },
   ]
 
   return (
@@ -101,6 +139,10 @@ export default function AccessiPage({ t, lang }) {
         <Statistic title={t('accessi.kpi.query')} value={audit.query ?? 0} />
         <Statistic title={t('accessi.kpi.scritture')} value={audit.scritture ?? 0}
           valueStyle={{ color: audit.scritture ? '#d46b08' : undefined }} />
+        {/* Le sessioni SSH in rosso quando una è aperta: vuol dire che qualcuno è su una macchina
+            ADESSO, ed è l'unico numero di questa riga a cui si reagisce subito. */}
+        <Statistic title={t('accessi.kpi.ssh')} value={audit.sessioniSsh ?? 0}
+          valueStyle={{ color: audit.sshAperte ? '#cf1322' : undefined }} />
         <Statistic title={t('accessi.kpi.macchine')} value={battito.macchine?.length ?? 0} />
         <Statistic title={t('accessi.kpi.versioni')} value={versioniInGiro}
           valueStyle={{ color: versioniInGiro > 1 ? '#d46b08' : undefined }} />
@@ -185,6 +227,26 @@ export default function AccessiPage({ t, lang }) {
           dataSource={battito.macchine ?? []}
           locale={{ emptyText: t('accessi.nessunAvvio') }}
         />
+      </div>
+
+      <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
+        <Space style={{ marginBottom: 8 }}>
+          <Text strong>{t('accessi.ssh')}</Text>
+          {audit.sshAperte > 0 && <Tag color="red">{t('accessi.sshAperteN', { n: audit.sshAperte })}</Tag>}
+        </Space>
+        <Table
+          size="small"
+          rowKey="macchina"
+          pagination={false}
+          columns={colonneSsh}
+          dataSource={audit.ssh ?? []}
+          locale={{ emptyText: t('accessi.nessunaSsh') }}
+        />
+        {(audit.ssh?.length ?? 0) > 0 && (
+          <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+            {t('accessi.sshRegistrate')}
+          </Text>
+        )}
       </div>
 
       {dati.webUrl && (

@@ -66,6 +66,10 @@ export function validateConfig(doc) {
     //     audit:     { account: security,   logGroup: /ecs/teleport }
     //     heartbeat: { account: management, logGroup: /dev-env/heartbeat }
     //     webUrl: https://teleport.example.com    # per i link "vai ad agire"
+    //     sshCommand: "mio-comando entra {macchina}"  # facoltativo: il comando con cui SI ENTRA in una
+    //         macchina, mostrato copiabile nella tabella. `{macchina}` viene sostituito col nome del
+    //         nodo. Senza, la colonna non c'e': meglio nessun comando che un comando che su questa
+    //         installazione non esiste.
     teleport: doc?.teleport ?? null,
   }
 }
