@@ -42,6 +42,7 @@ import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { statusFor, warmStatus } from './statusCache.js'
+import { statoAccessi } from './accessi.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -432,48 +433,9 @@ app.get('/api/network', async (_req, res) => {
 app.get('/api/teleport', async (req, res) => {
   try {
     if (isDemo) return res.json(demoTeleport(Math.min(168, Math.max(1, Number(req.query.ore) || 24))))
-    const { accounts } = await resolveServices()
-    const cfg = loadConfig().teleport
-    if (!cfg) return res.json({ configurato: false })
-    // ⚠️ Le credenziali di un account si compongono dai suoi campi (`roleArn` + `externalId` in cloud,
-    // `profile` in locale), come fa `awsForAccount` in iam.js. Il primo giro leggeva `acc.aws`, che non
-    // esiste, e ripiegava su `{ profile: <nome> }`: in cloud non ci sono profili, quindi la pagina
-    // mostrava «Could not resolve credentials using profile: [security]» su un account configurato
-    // benissimo, cioe' un messaggio che manda a cercare dalla parte sbagliata.
-    const conto = (nome) => {
-      const acc = accounts?.[nome]
-      if (!acc) return null
-      return { profile: acc.profile, roleArn: acc.roleArn, externalId: acc.externalId, region: acc.region || 'eu-central-1' }
-    }
-    const ore = Math.min(168, Math.max(1, Number(req.query.ore) || 24))
-    const mancante = (nome) => ({ errore: `account "${nome}" non configurato in accounts: aggiungilo, oppure correggi teleport.*.account` })
-    const [audit, heartbeat] = await Promise.all([
-      conto(cfg.audit?.account)
-        ? cached(`teleport:audit:${ore}`, 120_000, () =>
-            teleport.audit(conto(cfg.audit?.account), { logGroup: cfg.audit?.logGroup, ore }),
-          ).catch((err) => ({ errore: cleanAwsReason(err) }))
-        : mancante(cfg.audit?.account ?? '?'),
-      conto(cfg.heartbeat?.account)
-        ? cached('teleport:heartbeat', 120_000, () =>
-            teleport.heartbeat(conto(cfg.heartbeat?.account), {
-              logGroup: cfg.heartbeat?.logGroup,
-              immagineAttesa: cfg.heartbeat?.immagineAttesa ?? null,
-            }),
-          ).catch((err) => ({ errore: cleanAwsReason(err) }))
-        : mancante(cfg.heartbeat?.account ?? '?'),
-    ])
-    // I MODELLI dei link «vai a vedere in Teleport» arrivano dalla config, come `sshCommand`: qui non
-    // sta l'URL di nessuno, e senza modello la pagina non mostra il link invece di portare a una pagina
-    // che su questa installazione non esiste.
-    res.json({
-      configurato: true,
-      webUrl: cfg.webUrl ?? null,
-      sshCommand: cfg.sshCommand ?? null,
-      auditUserUrl: cfg.auditUserUrl ?? null,
-      auditNodeUrl: cfg.auditNodeUrl ?? null,
-      audit,
-      heartbeat,
-    })
+    // La composizione sta in `server/accessi.js`, condivisa col watchdog: una regola che deve parlare
+    // su Slack ha bisogno esattamente di questi numeri, e riscriverli la' sarebbe la seconda verita'.
+    res.json(await statoAccessi({ ore: req.query.ore }))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -5,6 +5,27 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Gli accessi ora parlano, invece di aspettare che qualcuno apra la pagina.** Tre regole nel watchdog
+  che c'è già, con una destinazione loro e uno stato suo: una **scrittura su un database di produzione**
+  (con chi, quante e su quale servizio), una **sessione SSH aperta su una macchina che non è di chi è
+  entrato**, e **la versione attesa dell'immagine che non ce l'ha nessuno**. Sono esattamente le tre
+  cose che un metric filter sul log del cluster non può sapere: il verbo della query separato dal suo
+  testo (che non teniamo da nessuna parte) e l'incrocio fra audit e heartbeat. Gli allarmi sul login
+  invece esistono già come metric filter dal 29/08/2026 e non vanno rifatti.
+  Provate sui dati veri degli ultimi sette giorni: **avrebbero mandato tre messaggi**, tutti su
+  scritture verso database di produzione (4 statement di una persona il 31/08, 3 di due persone e 3 di
+  una il 27/08), **zero** sull'SSH (due sessioni in sette giorni, entrambe di chi possiede la macchina)
+  e zero sulle versioni, che senza la versione attesa in config non accusano nessuno. Le scritture su
+  staging non parlano mai per scelta: sono il lavoro di tutti i giorni, e un canale che racconta il
+  lavoro normale si spegne da sé nella testa di chi legge.
+  Il messaggio segue la grammatica che quel canale legge già dai cron, e senza
+  `teleport.slackWebhook` in config il giro non parte e **non chiama AWS**: chi non ha configurato la
+  destinazione non paga due letture di CloudWatch ogni cinque minuti.
+- **La composizione della risposta di `/api/teleport` è condivisa col watchdog** (`server/accessi.js`):
+  stava dentro la route, e una regola che deve parlare su Slack ha bisogno esattamente di quei numeri.
+  Riscriverli nel watchdog avrebbe voluto dire una seconda verità sugli stessi dati.
+
 ### Changed
 - **La pagina «Accessi» si guarda invece di leggersi.** Mostrava tutto insieme: nove numeri in fila con
   lo stesso peso, quattro tabelle una sotto l'altra, un tag con lo zero dentro in ogni cella e la data

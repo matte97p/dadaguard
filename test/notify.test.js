@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/diff.js'
 import { slackMessage, envTag } from '../server/notify/slack.js'
-import { runOnce, watchConfig } from '../server/notify/watch.js'
+import { runOnce, watchConfig, giroAccessi } from '../server/notify/watch.js'
 import { makeT } from '../server/i18n.js'
 
 // Il notificatore vive o muore su una cosa: mandare i messaggi GIUSTI. Un watchdog che grida per
@@ -545,4 +545,99 @@ test('runOnce: lo stato appena calcolato finisce nella cache che serve le pagine
     },
   )
   assert.deepEqual(pubblicati, [['it', stat]])
+})
+
+// ── Il giro degli accessi ──────────────────────────────────────────────────────────────────────────
+const CFG_ACCESSI = { ...watchConfig({}), publicUrl: 'https://esempio.test' }
+const DATI = {
+  configurato: true,
+  audit: {
+    database: [{ servizio: 'orders-prod-db-ro', nome: 'orders', ambiente: 'prod', scritture: 4, scriventi: ['tizio'], ultimaScrittura: 9000 }],
+  },
+  heartbeat: {},
+}
+
+// ⚠️ La cosa che conta piu' delle altre: senza destinazione in config non deve chiamare AWS. Due
+// letture di CloudWatch ogni cinque minuti per un canale che non esiste sono un conto che nessuno ha
+// chiesto, e si paga in silenzio.
+test('giroAccessi: senza webhook in config non fa niente, e NON legge AWS', async () => {
+  let letture = 0
+  const out = await giroAccessi(CFG_ACCESSI, {
+    loadConfig: () => ({ teleport: { audit: { logGroup: '/x' } } }),
+    statoAccessi: async () => {
+      letture += 1
+      return DATI
+    },
+    postSlack: async () => true,
+  })
+  assert.equal(out.spento, true)
+  assert.equal(letture, 0)
+})
+
+test('giroAccessi: al primo giro prende nota e non annuncia', async () => {
+  let mandati = 0
+  const out = await giroAccessi(CFG_ACCESSI, {
+    loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+    statoAccessi: async () => DATI,
+    postSlack: async () => {
+      mandati += 1
+      return true
+    },
+  })
+  assert.equal(mandati, 0)
+  assert.deepEqual(out.nuovi, [])
+  assert.deepEqual(out.stato, { 'scrittura:orders-prod-db-ro/orders': 9000 })
+})
+
+test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del canale', async () => {
+  let testo = null
+  const out = await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => DATI,
+      postSlack: async (_hook, payload) => {
+        testo = payload.text
+        return true
+      },
+    },
+    { accessi: { 'scrittura:orders-prod-db-ro/orders': 8000 } },
+  )
+  assert.equal(out.nuovi.length, 1)
+  assert.match(testo, /^:warning: `orders` \[PROD\] SCRITTURE — 4 statement di scrittura da tizio/)
+  assert.match(testo, /esempio\.test\/accessi\?vista=database\|Accessi/)
+})
+
+// Se Slack non risponde lo stato non avanza: al giro dopo si riprova, invece di perdere la notizia
+// perche' un webhook era irraggiungibile per dieci secondi. E' la stessa regola dei servizi.
+test('giroAccessi: invio fallito, stato NON avanzato', async () => {
+  const out = await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => DATI,
+      postSlack: async () => false,
+    },
+    { accessi: { 'scrittura:orders-prod-db-ro/orders': 8000 } },
+  )
+  assert.equal(out.sent, false)
+  assert.equal(out.stato, null)
+})
+
+test('giroAccessi: niente da dire, niente messaggio', async () => {
+  let mandati = 0
+  const out = await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => ({ configurato: true, audit: {}, heartbeat: {} }),
+      postSlack: async () => {
+        mandati += 1
+        return true
+      },
+    },
+    { accessi: {} },
+  )
+  assert.equal(mandati, 0)
+  assert.deepEqual(out.nuovi, [])
 })

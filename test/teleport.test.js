@@ -200,8 +200,9 @@ test('heartbeat: la macchina porta TUTTI i nomi visti, non solo quello dell ulti
 // cercare dalla parte sbagliata. Visto in produzione il 29/08/2026, alla prima apertura della pagina.
 test('la composizione delle credenziali di un account usa roleArn e externalId, non un profilo inventato', async () => {
   const { readFileSync } = await import('node:fs')
-  const sorgente = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8')
-  const blocco = sorgente.slice(sorgente.indexOf('const conto = (nome)'), sorgente.indexOf('const mancante ='))
+  const sorgente = readFileSync(new URL('../server/accessi.js', import.meta.url), 'utf8')
+  const blocco = sorgente.slice(sorgente.indexOf('const conto = (accounts, nome)'), sorgente.indexOf('const mancante ='))
+  assert.ok(blocco.length > 50, 'il blocco delle credenziali non e piu dove il test lo cerca')
   assert.match(blocco, /roleArn/, 'senza roleArn in cloud non si assume niente')
   assert.match(blocco, /externalId/, 'senza externalId l assume-role viene rifiutato')
   assert.doesNotMatch(blocco, /profile:\s*nome/, 'il nome dell account non e un profilo AWS')
@@ -209,7 +210,7 @@ test('la composizione delle credenziali di un account usa roleArn e externalId, 
 
 test('un account nominato ma non configurato lo dice, invece di sembrare un problema di credenziali', async () => {
   const { readFileSync } = await import('node:fs')
-  const sorgente = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8')
+  const sorgente = readFileSync(new URL('../server/accessi.js', import.meta.url), 'utf8')
   assert.match(sorgente, /non configurato in accounts/)
 })
 
