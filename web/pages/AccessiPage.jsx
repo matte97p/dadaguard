@@ -17,6 +17,7 @@ import {
   macchinaDiversa,
   macchinaIndietro,
   personaMacchina,
+  riepilogo,
   senzaVersione,
   ordinaDatabase,
   ordinaMacchine,
@@ -508,6 +509,7 @@ export default function AccessiPage({ t, lang }) {
   // tranquillo» ha il diritto di esserci. Un riepilogo che tace quando va tutto bene lascia chi guarda
   // a chiedersi se la pagina ha caricato.
   const quante = daGuardare(audit, battito, riferimento)
+  const sintesi = riepilogo(audit, battito, riferimento)
   const nessunoAggiornato = tuttiIndietro(battito.macchine ?? [], riferimento)
 
   return (
@@ -576,6 +578,49 @@ export default function AccessiPage({ t, lang }) {
           </Toolbar>
         }
       />
+
+      {/* ⚠️ La riga che risponde a «e quindi?» prima dei numeri. Sui dati veri di una giornata normale
+          i cinque numeri grandi sono tre zeri e due numeri, e per sapere cosa fossero le «6 scritture»
+          bisognava aprire la tabella dei database, poi quella delle persone, e incrociarle a mano.
+          Qui la pagina lo dice: cosa ha trovato, dove, e cosa ha guardato senza trovare niente. */}
+      {sintesi.trovato.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SPACE.xs}px ${SPACE.md}px`, marginBottom: SPACE.sm }}>
+          <Text strong style={{ fontSize: FONT.lead }}>
+            {t('accessi.sintesi.trovato')}
+          </Text>
+          {sintesi.trovato.map((v) => (
+            <a
+              key={v.k}
+              onClick={() => scegliVista(v.vista)}
+              style={{ fontSize: FONT.lead, cursor: 'pointer' }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && scegliVista(v.vista)}
+            >
+              {v.k === 'scritture'
+                ? t(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', {
+                    n: v.n,
+                    dove: v.dove.join(', '),
+                  })
+                : v.k === 'versioni'
+                  ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
+                  : t(`accessi.sintesi.${v.k}`, { n: v.n })}
+            </a>
+          ))}
+        </div>
+      )}
+      {sintesi.tranquillo.length > 0 && (
+        <Text type="secondary" style={{ display: 'block', fontSize: FONT.small, marginBottom: SPACE.lg }}>
+          {t('accessi.sintesi.aPosto')}{' '}
+          {sintesi.tranquillo
+            .map((v) =>
+              v.k === 'versioni'
+                ? t('accessi.sintesi.zero.versioni', { n: v.n })
+                : t(`accessi.sintesi.zero.${v.k}`),
+            )
+            .join(' · ')}
+        </Text>
+      )}
 
       {/* La riga dei numeri: si guarda per prima e risponde a «serve che io faccia qualcosa?». I cinque
           che possono chiedere un intervento stanno grandi e prendono colore; gli altri quattro sono il

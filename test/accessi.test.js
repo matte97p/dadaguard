@@ -20,6 +20,7 @@ import {
   tuttiIndietro,
   macchinaDiversa,
   personaMacchina,
+  riepilogo,
   senzaVersione,
   versioneNota,
 } from '../web/accessi.js'
@@ -255,19 +256,68 @@ test('linkAudit: senza modello nella config il link non c e, e il valore si scap
   assert.equal(linkAudit('https://x/{macchina}/a/{macchina}', 'macchina', 'm1'), 'https://x/m1/a/m1')
 })
 
-// ⚠️ Dai dati veri del 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa macchina, `gabboclaa` e
-// `gabrieleclaradigioacchino` su un'altra. Sono la stessa persona, e quale nome finiva in tabella
+// ⚠️ Dai dati veri del 31/08/2026, su due macchine su cinque: l'utente del cluster e quello del
+// portatile, che non si somigliano. Sono la stessa persona, e quale nome finiva in tabella
 // dipendeva da se l'ultimo avvio aveva trovato una sessione Teleport aperta.
 test('personaMacchina: fra due nomi della stessa persona vince quello che Teleport conosce', () => {
-  const m = { utente: 'bonfa', utenti: ['bonfa', 'BonfantiStefano'] }
-  const noti = new Set(['BonfantiStefano', 'matte97p'])
-  assert.deepEqual(personaMacchina(m, noti), { nome: 'BonfantiStefano', altri: ['bonfa'] })
+  const m = { utente: 'nome-locale', utenti: ['nome-locale', 'nome-cluster'] }
+  const noti = new Set(['nome-cluster', 'altra-persona'])
+  assert.deepEqual(personaMacchina(m, noti), { nome: 'nome-cluster', altri: ['nome-locale'] })
 })
 
 test('personaMacchina: se Teleport non ne conosce nessuno resta quello dell ultimo avvio', () => {
-  const m = { utente: 'bonfa', utenti: ['bonfa', 'stefano-locale'] }
-  assert.deepEqual(personaMacchina(m, new Set()), { nome: 'bonfa', altri: ['stefano-locale'] })
+  const m = { utente: 'nome-locale', utenti: ['nome-locale', 'altro-nome-locale'] }
+  assert.deepEqual(personaMacchina(m, new Set()), { nome: 'nome-locale', altri: ['altro-nome-locale'] })
   // Heartbeat di una versione precedente, senza l'elenco: si usa il nome che c'e'.
-  assert.deepEqual(personaMacchina({ utente: 'bonfa' }, new Set()), { nome: 'bonfa', altri: [] })
+  assert.deepEqual(personaMacchina({ utente: 'nome-locale' }, new Set()), { nome: 'nome-locale', altri: [] })
   assert.deepEqual(personaMacchina({}, new Set()), { nome: null, altri: [] })
+})
+
+// ⚠️ Il caso di TUTTI i giorni, preso dai dati veri del 31/08/2026: niente login fallite, niente
+// sessioni aperte, niente tool mancanti, e le uniche due cose vere sono delle scritture e le versioni
+// in giro. Prima la pagina metteva cinque numeri grandi in fila, tre spenti, e per sapere cosa fossero
+// le «6 scritture» bisognava aprire due tabelle e incrociarle a mano.
+test('riepilogo: dice DOVE sono andate le scritture, e manda gli zeri fra le cose a posto', () => {
+  const audit = {
+    loginFallite: 0,
+    sshAperte: 0,
+    scritture: 6,
+    database: [
+      { nome: 'postgres', servizio: 'app-staging-db', ambiente: 'staging', scritture: 2 },
+      { nome: 'orders', servizio: 'orders-prod-db-ro', ambiente: 'prod', scritture: 4 },
+    ],
+  }
+  const { trovato, tranquillo } = riepilogo(audit, { conToolMancanti: 0, versioni: [{}, {}], macchine: [] }, VISTA())
+  assert.equal(trovato.length, 1)
+  // Fra i database che hanno scritture si nominano quelli di PRODUZIONE, non tutti.
+  assert.deepEqual(trovato[0], { k: 'scritture', n: 6, dove: ['orders'], prod: true, vista: 'database' })
+  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'tool', 'versioni'])
+})
+
+test('riepilogo: le versioni in giro non sono «da guardare» senza la versione attesa', () => {
+  const hb = { versioni: [{}, {}, {}], macchine: [{ immagine: VECCHIA }] }
+  assert.equal(riepilogo({}, hb, VISTA()).trovato.length, 0)
+  // Con la versione attesa dalla config diventano un fatto, e allora salgono.
+  const conConfig = riepilogo({}, hb, CONFIG())
+  assert.deepEqual(conConfig.trovato.map((v) => v.k), ['versioni'])
+  assert.equal(conConfig.trovato[0].tutti, true)
+})
+
+test('riepilogo: la giornata in cui non c e niente non lascia la riga vuota', () => {
+  const { trovato, tranquillo } = riepilogo({ loginFallite: 0, sshAperte: 0, database: [] }, {}, VISTA())
+  assert.equal(trovato.length, 0)
+  // Cinque famiglie guardate e tutte a zero: e' una risposta, e va scritta come tale invece di
+  // lasciare la riga vuota.
+  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'scritture', 'tool', 'versioni'])
+})
+
+test('riepilogo: ordina per urgenza, chi non entra prima di chi ha scritto', () => {
+  const audit = {
+    loginFallite: 3,
+    sshAperte: 1,
+    scritture: 2,
+    database: [{ nome: 'x', ambiente: 'prod', scritture: 2 }],
+  }
+  const { trovato } = riepilogo(audit, { conToolMancanti: 4 }, VISTA())
+  assert.deepEqual(trovato.map((v) => v.k), ['fallite', 'sshAperte', 'scritture', 'tool'])
 })

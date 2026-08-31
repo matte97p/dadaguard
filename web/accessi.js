@@ -172,8 +172,9 @@ export function linkAudit(modello, segnaposto, valore) {
 //
 // L'heartbeat manda l'utente Teleport quando c'e' una sessione e quello di SISTEMA quando non c'e',
 // quindi la stessa persona compare con due nomi e quale dei due finisce in tabella dipende da com'e'
-// andato l'ultimo avvio (visto sui dati veri il 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa
-// macchina). Si preferisce il nome che Teleport CONOSCE, cioe' quello che compare anche nell'audit del
+// andato l'ultimo avvio (visto sui dati veri il 31/08/2026 su due macchine su cinque: l'utente del
+// cluster e quello del portatile, che non si somigliano). Si preferisce il nome che Teleport CONOSCE,
+// cioe' quello che compare anche nell'audit del
 // cluster: e' l'unico dei due con cui la riga si collega al resto della pagina, e senza quel criterio
 // la stessa persona sembra due.
 export function personaMacchina(m, utentiNoti = new Set()) {
@@ -181,4 +182,49 @@ export function personaMacchina(m, utentiNoti = new Set()) {
   const noto = visti.find((u) => utentiNoti.has(u))
   const nome = noto ?? m?.utente ?? null
   return { nome, altri: visti.filter((u) => u !== nome) }
+}
+
+// Le due frasi che vanno in cima: quel che la pagina ha TROVATO, e quel che ha guardato senza trovare
+// niente. Senza, i cinque numeri grandi stanno tutti sulla stessa riga e tre sono spenti: l'occhio non
+// ha un posto dove cadere, e per sapere cosa sono le «6 scritture» tocca aprire due tabelle e
+// incrociarle a mano.
+//
+// Torna DATI e non testo: le frasi le compone la pagina, che ha il dizionario. `trovato` è ordinato per
+// urgenza (chi non entra, chi è dentro adesso, chi ha scritto, chi è indietro), `tranquillo` sono le
+// famiglie guardate e risultate a zero, che è un'informazione e non un vuoto.
+export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
+  const trovato = []
+  const tranquillo = []
+  const spingi = (condizione, voce) => (condizione ? trovato : tranquillo).push(voce)
+
+  spingi((audit.loginFallite ?? 0) > 0, { k: 'fallite', n: audit.loginFallite ?? 0, vista: 'persone' })
+  spingi((audit.sshAperte ?? 0) > 0, { k: 'sshAperte', n: audit.sshAperte ?? 0, vista: 'ssh' })
+
+  // Le scritture: non il totale, ma DOVE sono andate e su quale ambiente, che è la differenza fra il
+  // mestiere di tutti i giorni e la cosa che si guarda.
+  const scriventi = (audit.database ?? []).filter((d) => (d.scritture ?? 0) > 0)
+  const prod = scriventi.filter((d) => d.ambiente === 'prod')
+  spingi(scriventi.length > 0, {
+    k: 'scritture',
+    n: audit.scritture ?? 0,
+    dove: (prod.length ? prod : scriventi).map((d) => (d.nome && d.nome !== '?' ? d.nome : d.servizio)),
+    prod: prod.length > 0,
+    vista: 'database',
+  })
+
+  spingi((heartbeat.conToolMancanti ?? 0) > 0, { k: 'tool', n: heartbeat.conToolMancanti ?? 0, vista: 'devEnv' })
+
+  // Le versioni contano come «trovato» solo quando il confronto è un fatto, cioè con la versione attesa
+  // in config: senza, sono una statistica, e una statistica in cima alla pagina si legge come un
+  // problema che non c'è.
+  const versioni = heartbeat.versioni?.length ?? 0
+  const accusabile = riferimento?.fonte === 'config'
+  spingi(accusabile && (versioni > 1 || tuttiIndietro(heartbeat.macchine ?? [], riferimento)), {
+    k: 'versioni',
+    n: versioni,
+    tutti: tuttiIndietro(heartbeat.macchine ?? [], riferimento),
+    vista: 'devEnv',
+  })
+
+  return { trovato, tranquillo }
 }

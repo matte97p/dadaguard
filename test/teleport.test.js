@@ -180,7 +180,7 @@ test('heartbeat: «sconosciuta» non e una versione, e si conta a parte', async 
 })
 
 // ⚠️ Stessa persona, due nomi: l'heartbeat manda l'utente Teleport se c'e' una sessione e altrimenti
-// quello di sistema. Sui dati veri erano `BonfantiStefano` e `bonfa` sulla stessa macchina, e quale
+// quello di sistema. Sui dati veri erano due nomi che non si somigliano sulla stessa macchina, e quale
 // dei due finisse in tabella dipendeva da com'era andato l'ultimo avvio.
 test('heartbeat: la macchina porta TUTTI i nomi visti, non solo quello dell ultimo avvio', async () => {
   const { heartbeat } = await conEventi([
