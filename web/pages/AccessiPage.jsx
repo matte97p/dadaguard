@@ -14,7 +14,10 @@ import {
   filtraRighe,
   immagineRiferimento,
   linkAudit,
+  macchinaDiversa,
   macchinaIndietro,
+  personaMacchina,
+  senzaVersione,
   ordinaDatabase,
   ordinaMacchine,
   ordinaPersone,
@@ -142,8 +145,12 @@ export default function AccessiPage({ t, lang }) {
     () => immagineRiferimento(battito.macchine ?? [], battito.attesa ?? null),
     [battito.macchine, battito.attesa],
   )
-  const indietro = (m) => macchinaIndietro(m, riferimento.immagine)
+  const indietro = (m) => macchinaIndietro(m, riferimento)
+  const diversa = (m) => macchinaDiversa(m, riferimento)
   const versioniInGiro = battito.versioni?.length ?? 0
+  // I nomi che Teleport conosce: servono a scegliere quale dei due nomi della stessa persona mostrare
+  // sulla riga di una macchina (l'heartbeat manda l'utente di sistema quando non c'è una sessione).
+  const utentiNoti = useMemo(() => new Set((audit.persone ?? []).map((p) => p.utente)), [audit.persone])
 
   const persone = useMemo(() => ordinaPersone(audit.persone ?? []), [audit.persone])
   const database = useMemo(() => ordinaDatabase(audit.database ?? []), [audit.database])
@@ -291,7 +298,21 @@ export default function AccessiPage({ t, lang }) {
       sorter: testuale('lato'),
       render: (v) => (v ? <Text type="secondary">{v}</Text> : <Text type="secondary">—</Text>),
     },
-    { title: t('accessi.col.persona'), dataIndex: 'utente', key: 'utente', sorter: testuale('utente'), render: (v) => v ?? '—' },
+    {
+      title: t('accessi.col.persona'),
+      dataIndex: 'utente',
+      key: 'utente',
+      sorter: testuale('utente'),
+      // Fra i nomi con cui la stessa persona è comparsa si mostra quello che Teleport conosce, e gli
+      // altri stanno nel tooltip: senza questa scelta la stessa persona sembrava due.
+      render: (_, r) => {
+        const { nome, altri } = personaMacchina(r, utentiNoti)
+        if (!nome) return <Text type="secondary">—</Text>
+        const link = linkAudit(dati.auditUserUrl, 'utente', nome)
+        const dentro = <Nome href={link}>{nome}</Nome>
+        return altri.length ? <Tooltip title={t('accessi.altriNomi', { nomi: altri.join(', ') })}>{dentro}</Tooltip> : dentro
+      },
+    },
     // Il digest corto + «indietro»: è la mezza riga che risponde alla seconda domanda della pagina.
     // Prima qui c'erano cinque hash troncati tutti uguali nei primi sette caratteri, e capire chi fosse
     // rimasto indietro voleva dire copiarli fuori e confrontarli a mano.
@@ -306,18 +327,27 @@ export default function AccessiPage({ t, lang }) {
       sorter: testuale('immagine'),
       render: (v, r) => (
         <Space size={SPACE.xs}>
-          {v ? (
+          {/* Tre stati diversi, e prima erano due. «Non dichiarata» non è una versione vecchia: è una
+              riga in cui l'avvio non ha potuto leggere l'immagine, e mostrarla come un digest a metà
+              la faceva sembrare una versione (e contare fra quelle «in giro»). */}
+          {senzaVersione(r) ? (
+            <Text type="secondary">{t('accessi.img.nonDichiarata')}</Text>
+          ) : (
             <Text code copyable={{ text: v }}>
               {digestCorto(v)}
             </Text>
-          ) : (
-            <Text type="secondary">—</Text>
           )}
-          {indietro(r) && (
+          {/* ⚠️ «Indietro» è un'accusa e si fa solo con la versione attesa dalla config. Col ripiego si
+              dice «diversa», in grigio: il riferimento sarebbe la più recente AVVIATA, che si elegge
+              con l'orologio, e il 31/08/2026 marcava indietro quattro macchine su cinque, fra cui una
+              che aveva l'immagine più nuova di quella eletta. */}
+          {indietro(r) ? (
             <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
               {t('accessi.img.indietro')}
             </Tag>
-          )}
+          ) : diversa(r) ? (
+            <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.img.diversa')}</Tag>
+          ) : null}
         </Space>
       ),
     },
@@ -570,10 +600,12 @@ export default function AccessiPage({ t, lang }) {
           value={audit.scritture ?? 0}
           color={audit.scritture ? LEVEL.warn.color : undefined}
         />
+        {/* Colorato solo quando il confronto è possibile: un numero arancione che non si può tradurre
+            in «chi» è un allarme che si impara a ignorare. */}
         <HeroStat
           label={t('accessi.kpi.versioni')}
           value={versioniInGiro}
-          color={versioniInGiro > 1 ? LEVEL.warn.color : undefined}
+          color={versioniInGiro > 1 && riferimento.fonte === 'config' ? LEVEL.warn.color : undefined}
         />
         <HeroStat
           label={t('accessi.kpi.tool')}
@@ -614,11 +646,29 @@ export default function AccessiPage({ t, lang }) {
       {nessunoAggiornato && (
         <Alert type="error" showIcon message={t('accessi.nessunoAggiornato')} style={{ marginBottom: SPACE.md }} />
       )}
+      {/* ⚠️ Prima diceva «qualcuno è rimasto indietro» su un dato che non lo sa. Con cinque macchine e
+          cinque digest diversi (dati veri del 31/08/2026) versioni diverse vuol dire solo che ognuno ha
+          l'immagine che ha scaricato: chi è indietro lo si può dire solo con la versione attesa in
+          config, e senza quella l'avviso lo dichiara e dice come metterla. */}
       {versioniInGiro > 1 && (
         <Alert
-          type="warning"
+          type={riferimento.fonte === 'config' ? 'warning' : 'info'}
           showIcon
-          message={t('accessi.versioniDiverse', { n: versioniInGiro })}
+          message={
+            riferimento.fonte === 'config'
+              ? t('accessi.versioniDiverse', { n: versioniInGiro })
+              : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
+          }
+          style={{ marginBottom: SPACE.md }}
+        />
+      )}
+      {/* Le macchine che non hanno dichiarato la versione: contate a parte, perché non sono «indietro»
+          e non sono «pari», e finivano dentro il conteggio delle versioni come se fossero una versione. */}
+      {battito.senzaVersione > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message={t('accessi.senzaVersioneN', { n: battito.senzaVersione })}
           style={{ marginBottom: SPACE.md }}
         />
       )}
