@@ -935,13 +935,17 @@ export function demoTeleport(ore = 24) {
   ]
   const IMG = { nuova: 'sha256:4f21c8a0e9d3b7c15a2f6e08d94b3c71', vecchia: 'sha256:9b0e73d4a1c86f52e7d09a4b31c5f860' }
   const macchine = [
-    { macchina: 'alex-macbook', lato: 'host', utente: 'alex', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 74, quando: now - 40 * 60_000 },
-    { macchina: 'alex-macbook', lato: 'container', utente: 'alex', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 41, quando: now - 39 * 60_000 },
-    { macchina: 'rin-macbook', lato: 'host', utente: 'rin', immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 96, quando: now - 3 * 3600_000 },
+    { macchina: 'alex-macbook', lato: 'host', utente: 'alex', utenti: ['alex'], immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 74, quando: now - 40 * 60_000 },
+    { macchina: 'alex-macbook', lato: 'container', utente: 'alex', utenti: ['alex'], immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 41, quando: now - 39 * 60_000 },
+    // La stessa persona con due nomi: l'avvio manda l'utente Teleport se c'e' una sessione e quello di
+    // sistema se non c'e', e la pagina deve mostrare quello che Teleport conosce (`rin`).
+    { macchina: 'rin-macbook', lato: 'host', utente: 'rin-locale', utenti: ['rin-locale', 'rin'], immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 96, quando: now - 3 * 3600_000 },
     // Rimasta indietro, e con dei tool che mancano sul portatile: i due modi in cui un dev-env spiega
     // un «a me non funziona» senza che nessuno debba andare a chiederlo.
-    { macchina: 'sam-macbook', lato: 'host', utente: 'sam', immagine: IMG.vecchia, esito: 'ok', toolMancanti: 3, durata: 212, quando: now - 5 * 86_400_000 },
-    { macchina: 'noa-macbook', lato: 'host', utente: 'noa', immagine: IMG.vecchia, esito: 'parziale', toolMancanti: 1, durata: 168, quando: now - 2 * 86_400_000 },
+    { macchina: 'sam-macbook', lato: 'host', utente: 'sam', utenti: ['sam'], immagine: IMG.vecchia, esito: 'ok', toolMancanti: 3, durata: 212, quando: now - 5 * 86_400_000 },
+    // Versione NON dichiarata: l'avvio non ha potuto leggerla. Non e' «indietro», e non e' una versione
+    // che vada contata fra quelle in giro: e' il terzo stato, e prima la pagina non lo distingueva.
+    { macchina: 'noa-macbook', lato: 'host', utente: 'noa', utenti: ['noa'], immagine: 'sconosciuta', esito: 'parziale', toolMancanti: 1, durata: 168, quando: now - 2 * 86_400_000 },
   ]
   const somma = (campo) => persone.reduce((n, p) => n + (p[campo] ?? 0), 0)
   return {
@@ -972,9 +976,10 @@ export function demoTeleport(ore = 24) {
       macchine,
       versioni: [
         { immagine: IMG.nuova, quante: 3 },
-        { immagine: IMG.vecchia, quante: 2 },
+        { immagine: IMG.vecchia, quante: 1 },
       ],
       conToolMancanti: macchine.filter((m) => m.toolMancanti > 0).length,
+      senzaVersione: 1,
     },
   }
 }

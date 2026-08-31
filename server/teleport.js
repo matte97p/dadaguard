@@ -25,6 +25,13 @@ const MAX_EVENTI = 5000 // tetto duro: una giornata storta non deve diventare un
 // ⚠️ Della query si tiene SOLO questa parola, mai il testo: dentro a una `WHERE` ci sono i dati dei
 // clienti, e questa pagina la guarda chi non ha (e non deve avere) accesso a quei dati.
 const SCRITTURE = new Set(['insert', 'update', 'delete', 'truncate', 'drop', 'alter', 'create', 'grant', 'revoke'])
+
+// Una versione VERA e' un digest. L'heartbeat manda anche la parola con cui dichiara di non sapere
+// («sconosciuta», quando l'avvio non ha potuto leggere l'immagine), e sui dati veri del 31/08/2026 ce
+// n'erano: contandola come versione diceva «cinque versioni in giro» su quattro versioni e una riga
+// senza il dato. Si riconosce la FORMA e non la parola, perche' la parola la scrive un altro script.
+const FORMA_DIGEST = /^(?:[a-z0-9]+:)?[A-Fa-f0-9]{12,}$/
+const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
 function mestiere(query) {
   const prima = String(query ?? '').trim().toLowerCase().match(/^[a-z]+/)
   return prima ? prima[0] : ''
@@ -222,10 +229,20 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
   const righe = await eventi(aws, { logGroup, filterPattern: '', da })
 
   const perMacchina = new Map()
+  // Tutti i nomi visti per quella macchina, non solo quello dell'ultimo avvio: l'heartbeat manda
+  // l'utente Teleport se c'e' una sessione e altrimenti quello di SISTEMA, quindi la stessa persona
+  // compare con due nomi (visto il 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa macchina,
+  // `gabboclaa` e `gabrieleclaradigioacchino` su un'altra) e quale dei due finisce in tabella dipende
+  // da com'e' andato l'ultimo avvio. La pagina sceglie quello che Teleport conosce.
+  const nomiVisti = new Map()
   for (const ev of righe) {
     const r = comeJson(ev.message)
     if (!r?.macchina) continue
     const chiave = `${r.macchina}/${r.lato ?? '?'}`
+    if (r.utente) {
+      if (!nomiVisti.has(chiave)) nomiVisti.set(chiave, new Set())
+      nomiVisti.get(chiave).add(r.utente)
+    }
     const precedente = perMacchina.get(chiave)
     if (!precedente || (ev.timestamp ?? 0) > precedente.quando) {
       perMacchina.set(chiave, {
@@ -241,10 +258,13 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     }
   }
 
-  const elenco = [...perMacchina.values()].sort((a, b) => b.quando - a.quando)
-  // Le versioni in giro: se sono piu' di una, qualcuno e' indietro e la mappa deve dirlo subito.
+  const elenco = [...perMacchina.entries()]
+    .map(([chiave, m]) => ({ ...m, utenti: [...(nomiVisti.get(chiave) ?? [])] }))
+    .sort((a, b) => b.quando - a.quando)
+  // Le versioni in giro: solo quelle DICHIARATE, perche' «sconosciuta» non e' una versione e contarla
+  // gonfia il numero che la pagina mostra piu' grande di tutti.
   const versioni = new Map()
-  for (const m of elenco) if (m.immagine) versioni.set(m.immagine, (versioni.get(m.immagine) ?? 0) + 1)
+  for (const m of elenco) if (versioneNota(m.immagine)) versioni.set(m.immagine, (versioni.get(m.immagine) ?? 0) + 1)
   return {
     giorni,
     // La versione ATTESA, se la config la dice. Serve a rispondere alla domanda che il ripiego non puo'
@@ -254,5 +274,8 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     macchine: elenco,
     versioni: [...versioni.entries()].map(([immagine, quante]) => ({ immagine, quante })).sort((a, b) => b.quante - a.quante),
     conToolMancanti: elenco.filter((m) => m.toolMancanti > 0).length,
+    // Le macchine che non hanno dichiarato la versione: non sono indietro, sono senza il dato, e
+    // vanno contate a parte invece di sparire dentro «versioni in giro».
+    senzaVersione: elenco.filter((m) => !versioneNota(m.immagine)).length,
   }
 }

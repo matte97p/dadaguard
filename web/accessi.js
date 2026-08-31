@@ -8,9 +8,21 @@
 //
 // Tutto puro: nessun React, nessuna fetch, nessuna data «adesso» letta da dentro.
 
+// Una versione VERA, cioè un digest. Serve perché l'heartbeat manda anche la parola con cui dichiara
+// di non sapere («sconosciuta», quando l'avvio non ha potuto leggere l'immagine), e trattarla come una
+// versione ha due conseguenze, entrambe viste sui dati veri il 31/08/2026: entra nel conteggio delle
+// «versioni in giro» come se fosse una versione, e fa marcare «indietro» una macchina che sta solo
+// senza il dato. Il riconoscimento è sulla FORMA (`algo:esadecimale`, oppure un esadecimale lungo) e
+// non sulla parola: la parola la scrive uno script che non è questo, e un giorno la cambia.
+const FORMA_DIGEST = /^(?:[a-z0-9]+:)?[A-Fa-f0-9]{12,}$/
+export const versioneNota = (immagine) => FORMA_DIGEST.test(String(immagine ?? '').trim())
+
 // `sha256:45486f792f3f2a…` → `45486f792f3f`. Il prefisso è identico su ogni riga: occupa la colonna
 // per niente, e sono i caratteri che servirebbero a distinguere due immagini a colpo d'occhio.
+// Quello che non è un digest torna vuoto: chi chiama mostra «non dichiarata», che è l'informazione
+// giusta, invece di stampare mezza parola come se fosse una versione.
 export function digestCorto(immagine, quanti = 12) {
+  if (!versioneNota(immagine)) return ''
   const nudo = String(immagine ?? '').replace(/^[a-z0-9]+:/i, '')
   return nudo.slice(0, quanti)
 }
@@ -31,14 +43,37 @@ export function immagineRiferimento(macchine = [], attesa = null) {
   if (attesa) return { immagine: attesa, fonte: 'config' }
   let piuRecente = null
   for (const m of macchine) {
-    if (!m?.immagine) continue
+    if (!versioneNota(m?.immagine)) continue
     if (!piuRecente || (m.quando ?? 0) > (piuRecente.quando ?? 0)) piuRecente = m
   }
   return { immagine: piuRecente?.immagine ?? null, fonte: 'vista' }
 }
 
-export const macchinaIndietro = (m, riferimento) =>
-  Boolean(riferimento && m?.immagine && m.immagine !== riferimento)
+// «Indietro» è un'accusa, e si può fare solo con la versione ATTESA in mano.
+//
+// ⚠️ Misurato sui dati veri il 31/08/2026, ed è la ragione di questa firma: con cinque macchine e
+// cinque digest diversi, il ripiego («la più recente vista») elegge il riferimento con l'OROLOGIO, e
+// il risultato era falso. Alle 12:37 una macchina aveva avviato l'immagine `36b245a8`, alle 12:42
+// un'altra la `45486f79`, che era stata pubblicata PRIMA: la seconda diventava il riferimento e la
+// prima veniva marcata «indietro» pur avendo l'immagine più nuova. Quattro righe su cinque accusate
+// da un ordine di avvio. Quindi: `fonte: 'config'` accusa, `fonte: 'vista'` dice solo «diversa».
+// Accetta anche un digest nudo (senza la fonte) per retro-compatibilità, e in quel caso NON accusa.
+export function macchinaIndietro(m, riferimento) {
+  const fonte = typeof riferimento === 'object' && riferimento ? riferimento.fonte : null
+  if (fonte !== 'config') return false
+  const atteso = riferimento.immagine
+  return Boolean(atteso && versioneNota(m?.immagine) && m.immagine !== atteso)
+}
+
+// «Diversa da quella del riferimento», che è tutto quel che si può dire senza la versione attesa: si
+// mostra in grigio, non in arancione, perché non è un problema di quella macchina.
+export function macchinaDiversa(m, riferimento) {
+  const atteso = typeof riferimento === 'object' && riferimento ? riferimento.immagine : riferimento
+  return Boolean(atteso && versioneNota(m?.immagine) && m.immagine !== atteso)
+}
+
+// La macchina non ha dichiarato la versione: non è indietro, non è pari, è senza il dato.
+export const senzaVersione = (m) => !versioneNota(m?.immagine)
 
 // Un avvio con esito diverso da `ok` è una macchina che è partita male, e va detto anche se il resto
 // della riga sembra sano. `null` (heartbeat vecchio, senza il campo) NON è un avvio storto: inventare
@@ -50,7 +85,7 @@ export const avvioStorto = (m) => Boolean(m?.esito && m.esito !== 'ok')
 // non sa distinguere è un allarme che si impara a ignorare).
 export function tuttiIndietro(macchine = [], riferimento) {
   if (!riferimento || riferimento.fonte !== 'config') return false
-  const conImmagine = macchine.filter((m) => m?.immagine)
+  const conImmagine = macchine.filter((m) => versioneNota(m?.immagine))
   return conImmagine.length > 0 && conImmagine.every((m) => m.immagine !== riferimento.immagine)
 }
 
@@ -62,7 +97,7 @@ export const problemaPersona = (p) => (p?.loginFallite ?? 0) > 0
 // mestiere, scriverci è la cosa che si guarda.
 export const problemaDatabase = (d) => (d?.scritture ?? 0) > 0 && d?.ambiente === 'prod'
 export const problemaMacchina = (m, riferimento) =>
-  macchinaIndietro(m, riferimento?.immagine ?? riferimento) || (m?.toolMancanti ?? 0) > 0 || avvioStorto(m)
+  macchinaIndietro(m, riferimento) || (m?.toolMancanti ?? 0) > 0 || avvioStorto(m)
 export const problemaSsh = (m) => (m?.aperte ?? 0) > 0
 
 // Ordinamento di default: prima le righe con un problema, poi le più recenti. In un guasto si guarda
@@ -131,4 +166,19 @@ export function linkAudit(modello, segnaposto, valore) {
   const chiave = `{${segnaposto}}`
   if (!modello.includes(chiave)) return null
   return modello.replaceAll(chiave, encodeURIComponent(valore))
+}
+
+// Il nome da mostrare per una macchina, e gli altri con cui la stessa persona e' comparsa.
+//
+// L'heartbeat manda l'utente Teleport quando c'e' una sessione e quello di SISTEMA quando non c'e',
+// quindi la stessa persona compare con due nomi e quale dei due finisce in tabella dipende da com'e'
+// andato l'ultimo avvio (visto sui dati veri il 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa
+// macchina). Si preferisce il nome che Teleport CONOSCE, cioe' quello che compare anche nell'audit del
+// cluster: e' l'unico dei due con cui la riga si collega al resto della pagina, e senza quel criterio
+// la stessa persona sembra due.
+export function personaMacchina(m, utentiNoti = new Set()) {
+  const visti = m?.utenti?.length ? m.utenti : m?.utente ? [m.utente] : []
+  const noto = visti.find((u) => utentiNoti.has(u))
+  const nome = noto ?? m?.utente ?? null
+  return { nome, altri: visti.filter((u) => u !== nome) }
 }
