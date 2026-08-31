@@ -18,7 +18,6 @@ import {
   problemaPersona,
   problemaSsh,
   tuttiIndietro,
-  macchinaDiversa,
   personaMacchina,
   riepilogo,
   senzaVersione,
@@ -97,10 +96,10 @@ test('immagineRiferimento: nessuna macchina non inventa un riferimento', () => {
 test('macchinaIndietro: si accusa solo con la versione ATTESA dalla config in mano', () => {
   assert.equal(macchinaIndietro({ immagine: VECCHIA }, CONFIG()), true)
   assert.equal(macchinaIndietro({ immagine: ATTESA }, CONFIG()), false)
-  // Col ripiego («la piu' recente vista») non si accusa nessuno: si dice solo «diversa».
+  // Col ripiego («la piu' recente vista») non si accusa nessuno, e non si mette nemmeno un'etichetta:
+  // che i digest siano diversi si vede dai digest, e sei etichette «diversa» direbbero solo «non lo
+  // sappiamo» su ogni riga.
   assert.equal(macchinaIndietro({ immagine: VECCHIA }, VISTA()), false)
-  assert.equal(macchinaDiversa({ immagine: VECCHIA }, VISTA()), true)
-  assert.equal(macchinaDiversa({ immagine: NUOVA }, VISTA()), false)
   // Senza riferimento, o senza versione sulla riga, non si e' «indietro»: si e' senza dato.
   assert.equal(macchinaIndietro({ immagine: VECCHIA }, null), false)
   assert.equal(macchinaIndietro({ immagine: 'sconosciuta' }, CONFIG()), false)
@@ -290,13 +289,19 @@ test('riepilogo: dice DOVE sono andate le scritture, e manda gli zeri fra le cos
   const { trovato, tranquillo } = riepilogo(audit, { conToolMancanti: 0, versioni: [{}, {}], macchine: [] }, VISTA())
   assert.equal(trovato.length, 1)
   // Fra i database che hanno scritture si nominano quelli di PRODUZIONE, non tutti.
-  assert.deepEqual(trovato[0], { k: 'scritture', n: 6, dove: ['orders'], prod: true, vista: 'database' })
-  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'tool', 'versioni'])
+  // ⚠️ Il numero e' quello dei database NOMINATI, non il totale della finestra: con 4 su produzione e
+  // 2 su staging, «6 scritture su <produzione>» sarebbe falso due volte. Le altre si dicono in coda.
+  assert.deepEqual(trovato[0], { k: 'scritture', n: 4, dove: ['orders'], prod: true, altrove: 1, vista: 'database' })
+  // Sei versioni in giro non sono «a posto»: da qui non si sa, e lo dice l'avviso, non la riga muta.
+  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'tool'])
 })
 
 test('riepilogo: le versioni in giro non sono «da guardare» senza la versione attesa', () => {
   const hb = { versioni: [{}, {}, {}], macchine: [{ immagine: VECCHIA }] }
-  assert.equal(riepilogo({}, hb, VISTA()).trovato.length, 0)
+  const senzaAttesa = riepilogo({}, hb, VISTA())
+  assert.equal(senzaAttesa.trovato.length, 0)
+  // E nemmeno «a posto»: tre versioni in giro non sono una cosa a posto, sono una cosa non sapibile.
+  assert.equal(senzaAttesa.tranquillo.some((v) => v.k === 'versioni'), false)
   // Con la versione attesa dalla config diventano un fatto, e allora salgono.
   const conConfig = riepilogo({}, hb, CONFIG())
   assert.deepEqual(conConfig.trovato.map((v) => v.k), ['versioni'])
@@ -306,6 +311,7 @@ test('riepilogo: le versioni in giro non sono «da guardare» senza la versione 
 test('riepilogo: la giornata in cui non c e niente non lascia la riga vuota', () => {
   const { trovato, tranquillo } = riepilogo({ loginFallite: 0, sshAperte: 0, database: [] }, {}, VISTA())
   assert.equal(trovato.length, 0)
+  // Con UNA versione sola (o nessuna) la riga muta la nomina, perche' li' e' davvero un a posto.
   // Cinque famiglie guardate e tutte a zero: e' una risposta, e va scritta come tale invece di
   // lasciare la riga vuota.
   assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'scritture', 'tool', 'versioni'])
