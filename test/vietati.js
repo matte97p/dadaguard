@@ -29,7 +29,11 @@ export const VIETATI = [
   // I NOMI delle persone quando compaiono NUDI: il pattern sull'email non li vede in
   // `members: ['matteo', 'mario']`, ed e' esattamente la forma in cui erano finiti nella demo.
   // Un handle di un collega dice chi lavora su quello stack quanto la sua email.
-  { re: /\b(mario|rossi|mrossi|ricci|neri|aneri23|annaneri|ferrari|bianchi|colombo)\b/i, cosa: 'nome di una persona del team' },
+  // ⚠️ Niente `\b` in CODA: il 31/08/2026 un nome del team attaccato a un cognome e' passato davanti
+  // a questa riga ed e' finito nel CHANGELOG di un repo pubblico, perche' il confine di parola non
+  // combacia fra una minuscola e la maiuscola che segue. Un nome attaccato a un altro pezzo
+  // e' lo stesso nome, quindi si vieta il PREFISSO.
+  { re: /\b(mario|rossi|mrossi|ricci|neri|aneri23|annaneri|ferrari|bianchi|colombo)/i, cosa: 'nome di una persona del team' },
   // `matteo` e' anche il nome dell'AUTORE, che nella licenza e nel README ci deve stare: si vieta il
   // nome nudo e la forma puntata (`matteo.perino`), non l'attribuzione «Matteo Perino» ne' il dominio
   // `matteoperino.dev`.
