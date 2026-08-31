@@ -67,6 +67,13 @@ jobs:
 
       - run: npm test
 
+      # ⚠️ La prova di FUMO: carica ogni pagina in Chrome e fallisce se la console ha un errore.
+      # Serve perche' il 31/08/2026 una pagina e' arrivata in produzione bianca, con un
+      # `ReferenceError` a ogni render: il bundler non lo vede (non e' un errore di sintassi) e le
+      # asserzioni di `npm test` nemmeno, perche' nessuna RENDERIZZA un componente. Chrome e' gia'
+      # installato sui runner, quindi non aggiunge dipendenze ne' tempo di setup.
+      - run: npm run smoke
+
       # L'immagine si costruiva SOLO dopo il merge (deploy.yml, release.yml), quindi un guasto che vive
       # solo dentro al container passava tutti i controlli e si scopriva in produzione: è così che dal
       # 29/06/2026 al 17/08/2026 nessun deploy è andato a buon fine, con `npm test` sempre verde

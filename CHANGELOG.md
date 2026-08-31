@@ -6,6 +6,22 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Una prova di fumo che carica ogni pagina in un browser vero e fallisce se la console ha un errore.**
+  Il 31/08/2026 una pagina è arrivata in produzione **bianca**, con un `ReferenceError` a ogni render:
+  il bundler non lo vede, perché non è un errore di sintassi, e le 848 asserzioni nemmeno, perché
+  nessuna RENDERIZZA un componente. Giravano tutte verdi su una pagina che esplodeva.
+  `npm run smoke` avvia il server in modalità demo, apre le dieci pagine in Chrome headless e raccoglie
+  tre cose: le eccezioni non gestite, i `console.error` (dove React scrive l'errore di render prima di
+  rilanciarlo) e gli errori del browser (una richiesta fallita, un CSP che blocca). Più una misura del
+  render: un `#root` vuoto è il sintomo anche quando l'eccezione non arriva in console.
+  **Zero dipendenze nuove**: Node 22 porta un client WebSocket nativo, quindi si parla direttamente col
+  protocollo di Chrome, che sui runner della CI è già installato. Un browser di prova da 300 MB nel
+  lockfile per leggere la console sarebbe stato il rimedio peggiore del male.
+  ⚠️ Provata al contrario, che è l'unico modo di sapere se una guardia serve: rimesso il guasto di
+  stasera, la prova esce con 1 e stampa la riga esatta; rimessa la correzione, dieci pagine su dieci con
+  la console pulita. E la prima stesura aspettava un tempo fisso e diceva «pagina vuota» su due pagine
+  su dieci, che sono solo quelle che caricano più dati: ora aspetta che il render ci sia, con un tetto.
+
 - **Gli accessi ora parlano, invece di aspettare che qualcuno apra la pagina.** Tre regole nel watchdog
   che c'è già, con una destinazione loro e uno stato suo: una **scrittura su un database di produzione**
   (con chi, quante e su quale servizio), una **sessione SSH aperta su una macchina che non è di chi è
