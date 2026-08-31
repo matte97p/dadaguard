@@ -106,6 +106,28 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **La pagina «Accessi» accusava quattro macchine su cinque di essere indietro, e non lo sapeva.**
+  Trovato leggendo i dati veri il 31/08/2026, non guardando la pagina. Senza una versione attesa in
+  config, «indietro» si calcolava contro l'immagine dell'avvio più RECENTE, cioè un riferimento eletto
+  dall'orologio: alle 12:37 una macchina aveva avviato l'immagine pubblicata dopo, alle 12:42 un'altra
+  quella pubblicata prima, quindi la seconda diventava il riferimento e la prima veniva marcata
+  «indietro» pur avendo la più nuova. Ora l'accusa si fa solo con `teleport.heartbeat.immagineAttesa`
+  in mano; col ripiego la colonna dice «diversa», in grigio, e l'avviso spiega che da lì non si può
+  dire chi è indietro e cosa mettere in config per poterlo dire. Il numero grande «versioni immagine»
+  si colora solo quando quel confronto è possibile: un arancione che non si traduce in un nome è un
+  allarme che si impara a ignorare.
+- **«sconosciuta» veniva contata come una versione dell'immagine.** È la parola con cui l'avvio dichiara
+  di non aver potuto leggerla, e sui dati veri c'era su tre righe di una macchina: il conteggio diceva
+  «cinque versioni in giro» su quattro versioni più una riga senza il dato, e quella macchina risultava
+  «indietro». Ora una versione è tale solo se ha la forma di un digest (riconosciuta dalla forma e non
+  dalla parola, che la scrive un altro script), la colonna mostra «non dichiarata» e quelle macchine si
+  contano a parte. Le prove usavano fixture tipo `sha256:vecchia`, che non somigliano a un digest: è la
+  ragione per cui passavano tutte mentre il codice sbagliava.
+- **La stessa persona compariva con due nomi.** L'avvio manda l'utente Teleport quando c'è una sessione
+  aperta e quello del sistema quando non c'è, quindi la stessa macchina mandava `BonfantiStefano` e
+  `bonfa`, e quale dei due finisse in tabella dipendeva da com'era andato l'ultimo avvio. Ora la riga
+  porta tutti i nomi visti e la pagina mostra quello che Teleport conosce (l'unico con cui la riga si
+  collega al resto della pagina), con gli altri nel tooltip.
 - **Il motivo dell'ultima login fallita era «l'ultimo letto», non «l'ultimo nel tempo».** È la frase con
   cui si capisce cosa sta succedendo adesso, e `FilterLogEvents` ordina le righe per stream e non fra
   stream diversi: con due tentativi finiti in stream diversi, la pagina mostrava il motivo del più

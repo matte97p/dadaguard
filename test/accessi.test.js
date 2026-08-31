@@ -18,7 +18,19 @@ import {
   problemaPersona,
   problemaSsh,
   tuttiIndietro,
+  macchinaDiversa,
+  personaMacchina,
+  senzaVersione,
+  versioneNota,
 } from '../web/accessi.js'
+
+// Digest VERI nella forma (`algo:esadecimale`): con fixture tipo 'sha256:vecchia' le prove passavano
+// e il codice sbagliava, perché nessuna assomigliava a quello che manda l'heartbeat.
+const NUOVA = 'sha256:45486f792f3f0f2a7d8ad363b7b72528945a2868c0316ca3079e8bb2ee970c7c'
+const VECCHIA = 'sha256:36b245a818c0f6b370feb916fca1374e0064c3b8b58f7698715e791d15afe2fc'
+const ATTESA = 'sha256:9b0e73d4a1c86f52e7d09a4b31c5f860aa11bb22cc33dd44ee55ff6600112233'
+const CONFIG = (immagine = ATTESA) => ({ immagine, fonte: 'config' })
+const VISTA = (immagine = NUOVA) => ({ immagine, fonte: 'vista' })
 
 // Le regole della pagina Accessi. Stavano dentro il componente, dove si potevano leggere e non
 // provare: sono quelle che decidono cosa una persona guarda per PRIMA durante un guasto, quindi sono
@@ -28,30 +40,52 @@ test('digestCorto: via il prefisso dell algoritmo, che su ogni riga e identico',
   assert.equal(digestCorto('sha256:45486f792f3f2a1b9c8d'), '45486f792f3f')
   assert.equal(digestCorto('45486f792f3f2a1b9c8d'), '45486f792f3f')
   assert.equal(digestCorto(null), '')
-  assert.equal(digestCorto('sha256:abc'), 'abc')
+})
+
+// ⚠️ L'heartbeat manda anche la parola con cui dichiara di NON sapere («sconosciuta»), e sui dati veri
+// del 31/08/2026 c'era: trattarla come una versione la fa entrare nel conteggio delle «versioni in
+// giro» e fa marcare «indietro» una macchina che sta solo senza il dato.
+test('versioneNota: una versione e un digest, non una parola', () => {
+  assert.equal(versioneNota(NUOVA), true)
+  assert.equal(versioneNota('45486f792f3f0f2a'), true)
+  assert.equal(versioneNota('sconosciuta'), false)
+  assert.equal(versioneNota(''), false)
+  assert.equal(versioneNota(null), false)
+  // Mezza parola non e' mezza versione: si mostra «non dichiarata», non 'sconosciut'.
+  assert.equal(digestCorto('sconosciuta'), '')
+  assert.equal(senzaVersione({ immagine: 'sconosciuta' }), true)
+  assert.equal(senzaVersione({ immagine: NUOVA }), false)
 })
 
 test('immagineRiferimento: senza versione attesa si usa l avvio piu RECENTE, non il primo dell elenco', () => {
   const macchine = [
-    { macchina: 'a', immagine: 'sha256:vecchia', quando: 1000 },
-    { macchina: 'b', immagine: 'sha256:nuova', quando: 9000 },
+    { macchina: 'a', immagine: VECCHIA, quando: 1000 },
+    { macchina: 'b', immagine: NUOVA, quando: 9000 },
   ]
-  assert.deepEqual(immagineRiferimento(macchine), { immagine: 'sha256:nuova', fonte: 'vista' })
+  assert.deepEqual(immagineRiferimento(macchine), { immagine: NUOVA, fonte: 'vista' })
+})
+
+test('immagineRiferimento: una versione non dichiarata non diventa il riferimento', () => {
+  const macchine = [
+    { macchina: 'a', immagine: NUOVA, quando: 1000 },
+    { macchina: 'b', immagine: 'sconosciuta', quando: 9000 },
+  ]
+  assert.deepEqual(immagineRiferimento(macchine), { immagine: NUOVA, fonte: 'vista' })
 })
 
 // ⚠️ La funzione non deve dipendere dall'ordine di chi la chiama: il server oggi ordina per `quando`
 // decrescente, ma una regola che si appoggia a quell'ordine si rompe in silenzio il giorno che cambia.
 test('immagineRiferimento: l ordine dell elenco non conta', () => {
   const giu = [
-    { immagine: 'sha256:nuova', quando: 9000 },
-    { immagine: 'sha256:vecchia', quando: 1000 },
+    { immagine: NUOVA, quando: 9000 },
+    { immagine: VECCHIA, quando: 1000 },
   ]
   assert.equal(immagineRiferimento(giu).immagine, immagineRiferimento([...giu].reverse()).immagine)
 })
 
 test('immagineRiferimento: la versione attesa dalla config vince, e lo dice', () => {
-  const macchine = [{ immagine: 'sha256:vecchia', quando: 9000 }]
-  assert.deepEqual(immagineRiferimento(macchine, 'sha256:attesa'), { immagine: 'sha256:attesa', fonte: 'config' })
+  const macchine = [{ immagine: VECCHIA, quando: 9000 }]
+  assert.deepEqual(immagineRiferimento(macchine, ATTESA), { immagine: ATTESA, fonte: 'config' })
 })
 
 test('immagineRiferimento: nessuna macchina non inventa un riferimento', () => {
@@ -59,27 +93,48 @@ test('immagineRiferimento: nessuna macchina non inventa un riferimento', () => {
   assert.deepEqual(immagineRiferimento([{ macchina: 'a', quando: 1 }]), { immagine: null, fonte: 'vista' })
 })
 
-test('macchinaIndietro: indietro solo se ha un immagine DIVERSA da quella di riferimento', () => {
-  assert.equal(macchinaIndietro({ immagine: 'x' }, 'y'), true)
-  assert.equal(macchinaIndietro({ immagine: 'x' }, 'x'), false)
-  // Senza riferimento, o senza immagine sulla riga, non si e' «indietro»: si e' senza dato.
-  assert.equal(macchinaIndietro({ immagine: 'x' }, null), false)
-  assert.equal(macchinaIndietro({}, 'y'), false)
+test('macchinaIndietro: si accusa solo con la versione ATTESA dalla config in mano', () => {
+  assert.equal(macchinaIndietro({ immagine: VECCHIA }, CONFIG()), true)
+  assert.equal(macchinaIndietro({ immagine: ATTESA }, CONFIG()), false)
+  // Col ripiego («la piu' recente vista») non si accusa nessuno: si dice solo «diversa».
+  assert.equal(macchinaIndietro({ immagine: VECCHIA }, VISTA()), false)
+  assert.equal(macchinaDiversa({ immagine: VECCHIA }, VISTA()), true)
+  assert.equal(macchinaDiversa({ immagine: NUOVA }, VISTA()), false)
+  // Senza riferimento, o senza versione sulla riga, non si e' «indietro»: si e' senza dato.
+  assert.equal(macchinaIndietro({ immagine: VECCHIA }, null), false)
+  assert.equal(macchinaIndietro({ immagine: 'sconosciuta' }, CONFIG()), false)
+  assert.equal(macchinaIndietro({}, CONFIG()), false)
+})
+
+// ⚠️ REGRESSIONE dai dati veri del 31/08/2026. Cinque macchine, cinque digest diversi: alle 12:37 una
+// aveva avviato l'immagine pubblicata DOPO, alle 12:42 un'altra quella pubblicata PRIMA. Il ripiego
+// elegge il riferimento con l'orologio, quindi la seconda diventava il riferimento e la prima veniva
+// marcata «indietro» pur avendo la piu' nuova: quattro righe su cinque accusate da un ordine di avvio.
+test('macchinaIndietro: il ripiego non accusa, perche eleggerebbe il riferimento con l orologio', () => {
+  const macchine = [
+    { macchina: 'stefano', immagine: VECCHIA, quando: 1237 }, // ha avviato prima, immagine piu' nuova
+    { macchina: 'gabriele', immagine: NUOVA, quando: 1242 }, // ha avviato dopo, immagine piu' vecchia
+  ]
+  const rif = immagineRiferimento(macchine)
+  assert.equal(rif.fonte, 'vista')
+  assert.equal(macchine.filter((m) => macchinaIndietro(m, rif)).length, 0)
+  assert.equal(macchine.filter((m) => problemaMacchina(m, rif)).length, 0)
 })
 
 // Il buco che il ripiego non puo' vedere: se la versione attesa la sa la config e non ce l'ha nessuno,
 // sono indietro TUTTI, mentre «la piu' nuova che qualcuno ha visto» direbbe che vanno tutti bene.
 test('tuttiIndietro: con la versione attesa dalla config, nessuno che la ha vuol dire tutti indietro', () => {
-  const macchine = [{ immagine: 'sha256:vecchia' }, { immagine: 'sha256:vecchia' }]
-  assert.equal(tuttiIndietro(macchine, { immagine: 'sha256:attesa', fonte: 'config' }), true)
-  assert.equal(tuttiIndietro(macchine, { immagine: 'sha256:vecchia', fonte: 'config' }), false)
+  const macchine = [{ immagine: VECCHIA }, { immagine: VECCHIA }]
+  assert.equal(tuttiIndietro(macchine, CONFIG()), true)
+  assert.equal(tuttiIndietro(macchine, CONFIG(VECCHIA)), false)
+  // Macchine senza il dato non contano ne' da una parte ne' dall'altra.
+  assert.equal(tuttiIndietro([{ immagine: 'sconosciuta' }], CONFIG()), false)
 })
 
 test('tuttiIndietro: senza versione attesa la domanda non si pone, e non si risponde si per prudenza', () => {
-  const macchine = [{ immagine: 'sha256:vecchia' }]
-  assert.equal(tuttiIndietro(macchine, { immagine: 'sha256:vecchia', fonte: 'vista' }), false)
-  assert.equal(tuttiIndietro(macchine, null), false)
-  assert.equal(tuttiIndietro([], { immagine: 'sha256:attesa', fonte: 'config' }), false)
+  assert.equal(tuttiIndietro([{ immagine: VECCHIA }], VISTA(VECCHIA)), false)
+  assert.equal(tuttiIndietro([{ immagine: VECCHIA }], null), false)
+  assert.equal(tuttiIndietro([], CONFIG()), false)
 })
 
 test('avvioStorto: solo un esito DIVERSO da ok, e il campo assente non e un problema inventato', () => {
@@ -99,13 +154,13 @@ test('problemi: una riga per tabella, e sono gli stessi criteri del pallino e de
   assert.equal(problemaSsh({ aperte: 0, sessioni: 40 }), false)
 })
 
-test('problemaMacchina: indietro, tool mancanti o avvio storto, e accetta sia il riferimento sia il suo digest', () => {
-  const rif = { immagine: 'sha256:nuova', fonte: 'vista' }
-  assert.equal(problemaMacchina({ immagine: 'sha256:vecchia' }, rif), true)
-  assert.equal(problemaMacchina({ immagine: 'sha256:vecchia' }, 'sha256:nuova'), true)
-  assert.equal(problemaMacchina({ immagine: 'sha256:nuova', toolMancanti: 2 }, rif), true)
-  assert.equal(problemaMacchina({ immagine: 'sha256:nuova', esito: 'parziale' }, rif), true)
-  assert.equal(problemaMacchina({ immagine: 'sha256:nuova', toolMancanti: 0, esito: 'ok' }, rif), false)
+test('problemaMacchina: indietro (solo con la config), tool mancanti o avvio storto', () => {
+  assert.equal(problemaMacchina({ immagine: VECCHIA }, CONFIG()), true)
+  // Col ripiego una versione diversa NON e' un problema di quella macchina.
+  assert.equal(problemaMacchina({ immagine: VECCHIA }, VISTA()), false)
+  assert.equal(problemaMacchina({ immagine: NUOVA, toolMancanti: 2 }, VISTA()), true)
+  assert.equal(problemaMacchina({ immagine: NUOVA, esito: 'parziale' }, VISTA()), true)
+  assert.equal(problemaMacchina({ immagine: NUOVA, toolMancanti: 0, esito: 'ok' }, VISTA()), false)
 })
 
 test('ordina*: prima le righe con un problema, poi le piu recenti', () => {
@@ -130,11 +185,12 @@ test('ordina*: prima le righe con un problema, poi le piu recenti', () => {
   assert.deepEqual(ordinaSsh(ssh).map((m) => m.macchina), ['b', 'a'])
 
   const macchine = [
-    { macchina: 'pari', immagine: 'sha256:nuova', quando: 9000 },
-    { macchina: 'indietro', immagine: 'sha256:vecchia', quando: 100 },
+    { macchina: 'pari', immagine: ATTESA, quando: 9000 },
+    { macchina: 'indietro', immagine: VECCHIA, quando: 100 },
   ]
-  const rif = immagineRiferimento(macchine)
-  assert.deepEqual(ordinaMacchine(macchine, rif).map((m) => m.macchina), ['indietro', 'pari'])
+  assert.deepEqual(ordinaMacchine(macchine, CONFIG()).map((m) => m.macchina), ['indietro', 'pari'])
+  // Col ripiego nessuno e' «indietro», quindi l'ordine e' quello delle date.
+  assert.deepEqual(ordinaMacchine(macchine, VISTA(ATTESA)).map((m) => m.macchina), ['pari', 'indietro'])
 })
 
 test('ordina*: non modificano l elenco che ricevono', () => {
@@ -177,8 +233,8 @@ test('daGuardare: zero solo quando non c e davvero niente', () => {
   assert.equal(daGuardare({}, { versioni: [{ immagine: 'a', quante: 5 }] }), 0)
   assert.equal(daGuardare({}, { versioni: [{ immagine: 'a' }, { immagine: 'b' }] }), 1)
   // E «sono indietro tutti» conta anche quando in giro c'e' una versione sola.
-  const heartbeat = { versioni: [{ immagine: 'sha256:vecchia', quante: 2 }], macchine: [{ immagine: 'sha256:vecchia' }] }
-  assert.equal(daGuardare({}, heartbeat, { immagine: 'sha256:attesa', fonte: 'config' }), 1)
+  const heartbeat = { versioni: [{ immagine: VECCHIA, quante: 2 }], macchine: [{ immagine: VECCHIA }] }
+  assert.equal(daGuardare({}, heartbeat, CONFIG()), 1)
 })
 
 test('durataFallite: tre fallite in due minuti e tre in un giorno non sono lo stesso guasto', () => {
@@ -197,4 +253,21 @@ test('linkAudit: senza modello nella config il link non c e, e il valore si scap
   assert.equal(linkAudit('https://x/audit', 'utente', 'alex'), null)
   assert.equal(linkAudit('https://x/audit?u={utente}', 'utente', 'a b'), 'https://x/audit?u=a%20b')
   assert.equal(linkAudit('https://x/{macchina}/a/{macchina}', 'macchina', 'm1'), 'https://x/m1/a/m1')
+})
+
+// ⚠️ Dai dati veri del 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa macchina, `gabboclaa` e
+// `gabrieleclaradigioacchino` su un'altra. Sono la stessa persona, e quale nome finiva in tabella
+// dipendeva da se l'ultimo avvio aveva trovato una sessione Teleport aperta.
+test('personaMacchina: fra due nomi della stessa persona vince quello che Teleport conosce', () => {
+  const m = { utente: 'bonfa', utenti: ['bonfa', 'BonfantiStefano'] }
+  const noti = new Set(['BonfantiStefano', 'matte97p'])
+  assert.deepEqual(personaMacchina(m, noti), { nome: 'BonfantiStefano', altri: ['bonfa'] })
+})
+
+test('personaMacchina: se Teleport non ne conosce nessuno resta quello dell ultimo avvio', () => {
+  const m = { utente: 'bonfa', utenti: ['bonfa', 'stefano-locale'] }
+  assert.deepEqual(personaMacchina(m, new Set()), { nome: 'bonfa', altri: ['stefano-locale'] })
+  // Heartbeat di una versione precedente, senza l'elenco: si usa il nome che c'e'.
+  assert.deepEqual(personaMacchina({ utente: 'bonfa' }, new Set()), { nome: 'bonfa', altri: [] })
+  assert.deepEqual(personaMacchina({}, new Set()), { nome: null, altri: [] })
 })

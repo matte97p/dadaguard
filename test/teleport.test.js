@@ -151,14 +151,46 @@ test('heartbeat: tiene la riga PIU RECENTE per macchina e per lato', async () =>
   assert.equal(host.toolMancanti, 0)
 })
 
+// Digest VERI nella forma: con fixture tipo 'sha256:nuova' la prova passava e il codice contava come
+// versione anche la parola «sconosciuta», che e' come l'heartbeat dichiara di non sapere.
+const IMG_A = 'sha256:45486f792f3f0f2a7d8ad363b7b72528945a2868c0316ca3079e8bb2ee970c7c'
+const IMG_B = 'sha256:36b245a818c0f6b370feb916fca1374e0064c3b8b58f7698715e791d15afe2fc'
+
 test('heartbeat: piu versioni in giro vuol dire che qualcuno e indietro, e si conta', async () => {
   const { heartbeat } = await conEventi([
-    riga({ macchina: 'uno', lato: 'host', immagine: 'sha256:nuova', esito: 'ok', tool_mancanti: 0 }, 3000),
-    riga({ macchina: 'due', lato: 'host', immagine: 'sha256:vecchia', esito: 'ok', tool_mancanti: 2 }, 2000),
+    riga({ macchina: 'uno', lato: 'host', immagine: IMG_A, esito: 'ok', tool_mancanti: 0 }, 3000),
+    riga({ macchina: 'due', lato: 'host', immagine: IMG_B, esito: 'ok', tool_mancanti: 2 }, 2000),
   ])
   const out = await heartbeat({}, { logGroup: '/finto' })
   assert.equal(out.versioni.length, 2)
   assert.equal(out.conToolMancanti, 1)
+})
+
+// ⚠️ Dai dati veri del 31/08/2026: una macchina aveva tre avvii con `"immagine": "sconosciuta"`, e
+// quella parola entrava fra le «versioni in giro». La pagina diceva «cinque versioni diverse» su
+// quattro versioni e una riga senza il dato, cioe' un numero gonfiato sul segnale piu' grosso.
+test('heartbeat: «sconosciuta» non e una versione, e si conta a parte', async () => {
+  const { heartbeat } = await conEventi([
+    riga({ macchina: 'uno', lato: 'host', immagine: IMG_A, esito: 'ok', tool_mancanti: 0 }, 3000),
+    riga({ macchina: 'due', lato: 'host', immagine: 'sconosciuta', esito: 'sconosciuto' }, 2000),
+  ])
+  const out = await heartbeat({}, { logGroup: '/finto' })
+  assert.equal(out.versioni.length, 1)
+  assert.equal(out.senzaVersione, 1)
+})
+
+// ⚠️ Stessa persona, due nomi: l'heartbeat manda l'utente Teleport se c'e' una sessione e altrimenti
+// quello di sistema. Sui dati veri erano `BonfantiStefano` e `bonfa` sulla stessa macchina, e quale
+// dei due finisse in tabella dipendeva da com'era andato l'ultimo avvio.
+test('heartbeat: la macchina porta TUTTI i nomi visti, non solo quello dell ultimo avvio', async () => {
+  const { heartbeat } = await conEventi([
+    riga({ macchina: 'uno', lato: 'host', utente: 'nome-di-sistema', immagine: IMG_A, esito: 'ok' }, 1000),
+    riga({ macchina: 'uno', lato: 'host', utente: 'nome-teleport', immagine: IMG_A, esito: 'ok' }, 3000),
+  ])
+  const out = await heartbeat({}, { logGroup: '/finto' })
+  assert.equal(out.macchine.length, 1)
+  assert.equal(out.macchine[0].utente, 'nome-teleport') // l'ultimo avvio
+  assert.deepEqual([...out.macchine[0].utenti].sort(), ['nome-di-sistema', 'nome-teleport'])
 })
 
 // ⚠️ Le credenziali di un account si compongono dai suoi CAMPI (roleArn + externalId in cloud,
