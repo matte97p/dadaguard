@@ -527,3 +527,22 @@ test('serviceKey: senza resourceId resta la chiave vecchia (servizi dichiarati a
   assert.equal(serviceKey(svc('api', 'Staging', 'up')), 'staging/api')
   assert.equal(serviceKey(risorsa('api', 'Staging', 'up', 'staging|ecs|||api')), 'staging/staging|ecs|||api')
 })
+
+// ⚠️ Il giro del watchdog costa quanto quello della dashboard (fra 7,6 e 28,2 secondi, misurati sul
+// servizio vero) e finiva solo in un confronto con lo stato precedente: se non lo regala alla cache
+// che serve le pagine, quel lavoro non lo vede nessuno e chi apre paga un giro suo.
+test('runOnce: lo stato appena calcolato finisce nella cache che serve le pagine', async () => {
+  const pubblicati = []
+  const stat = { services: [svc('cron', 'Production', 'up')] }
+  await runOnce(
+    { ...watchConfig({}), webhook: 'https://hooks.example/x', lang: 'it' },
+    {
+      getStatus: async () => stat,
+      loadState: async () => null,
+      saveState: async () => {},
+      postSlack: async () => true,
+      publishStatus: (lang, payload) => pubblicati.push([lang, payload]),
+    },
+  )
+  assert.deepEqual(pubblicati, [['it', stat]])
+})
