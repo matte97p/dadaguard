@@ -231,8 +231,8 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
   const perMacchina = new Map()
   // Tutti i nomi visti per quella macchina, non solo quello dell'ultimo avvio: l'heartbeat manda
   // l'utente Teleport se c'e' una sessione e altrimenti quello di SISTEMA, quindi la stessa persona
-  // compare con due nomi (visto il 31/08/2026: `BonfantiStefano` e `bonfa` sulla stessa macchina,
-  // `gabboclaa` e `gabrieleclaradigioacchino` su un'altra) e quale dei due finisce in tabella dipende
+  // compare con due nomi (visto il 31/08/2026 su due macchine su cinque: l'utente del cluster e quello
+  // del portatile, che non si somigliano) e quale dei due finisce in tabella dipende
   // da com'e' andato l'ultimo avvio. La pagina sceglie quello che Teleport conosce.
   const nomiVisti = new Map()
   for (const ev of righe) {

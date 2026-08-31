@@ -106,6 +106,18 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **Il guardiano dei nomi lasciava passare un nome attaccato a un cognome, e ci sono passato io.** La
+  regola cercava `\bnome\b`, e il confine di parola non combacia fra una minuscola e la maiuscola che
+  segue: la forma `<nome><Cognome>` gli passava davanti. Cosi' l'handle di un collega e' finito in un
+  CHANGELOG e in tre commenti di questo repo, che e' pubblico. Ora si vieta il PREFISSO, il repo e'
+  ripulito e le fixture usano nomi inventati. Restano nella storia di git dei commit precedenti: la
+  storia di un repo pubblico non si riscrive per un handle, ma va saputo.
+- **La riga in cima dice cosa la pagina ha trovato.** Su una giornata normale i cinque numeri grandi
+  sono tre zeri e due numeri, e per sapere cosa fossero le «6 scritture» bisognava aprire la tabella dei
+  database, poi quella delle persone, e incrociarle a mano. Ora la pagina scrive «Da guardare: 6
+  scritture su <database>, che e' di PRODUZIONE» e ogni voce porta alla sua tabella, con sotto la riga
+  muta di quel che ha guardato senza trovare niente. Le versioni salgono fra le cose da guardare solo
+  quando il confronto e' un fatto, cioe' con la versione attesa in config.
 - **La pagina «Accessi» accusava quattro macchine su cinque di essere indietro, e non lo sapeva.**
   Trovato leggendo i dati veri il 31/08/2026, non guardando la pagina. Senza una versione attesa in
   config, «indietro» si calcolava contro l'immagine dell'avvio più RECENTE, cioè un riferimento eletto
@@ -124,8 +136,9 @@ All notable changes to Dadaguard are documented here. Format based on
   contano a parte. Le prove usavano fixture tipo `sha256:vecchia`, che non somigliano a un digest: è la
   ragione per cui passavano tutte mentre il codice sbagliava.
 - **La stessa persona compariva con due nomi.** L'avvio manda l'utente Teleport quando c'è una sessione
-  aperta e quello del sistema quando non c'è, quindi la stessa macchina mandava `BonfantiStefano` e
-  `bonfa`, e quale dei due finisse in tabella dipendeva da com'era andato l'ultimo avvio. Ora la riga
+  aperta e quello del sistema quando non c'è, quindi la stessa macchina mandava due nomi diversi per la
+  stessa persona (l'utente del cluster e quello del portatile), e quale dei due finisse in tabella
+  dipendeva da com'era andato l'ultimo avvio. Ora la riga
   porta tutti i nomi visti e la pagina mostra quello che Teleport conosce (l'unico con cui la riga si
   collega al resto della pagina), con gli altri nel tooltip.
 - **Il motivo dell'ultima login fallita era «l'ultimo letto», non «l'ultimo nel tempo».** È la frase con
