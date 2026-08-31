@@ -5,7 +5,9 @@ import { publishStatus } from '../statusCache.js'
 import { makeT } from '../i18n.js'
 import { log } from '../log.js'
 import { diffStates, snapshot } from './diff.js'
-import { slackMessage, postSlack } from './slack.js'
+import { slackMessage, postSlack, messaggioAccessi } from './slack.js'
+import { loadConfig } from '../config.js'
+import { statoAccessi, segnali, daAnnunciare } from '../accessi.js'
 import { splitByRoute } from './route.js'
 
 // Il watchdog vero e proprio: guarda la flotta a intervalli, e quando qualcosa ATTRAVERSA il confine
@@ -137,9 +139,46 @@ export async function runOnce(cfg, deps = {}) {
   }
   // Se un invio FALLISCE non si salva lo stato nuovo: al giro dopo la transizione viene riprovata,
   // invece di essere persa per sempre perché Slack era irraggiungibile per dieci secondi.
-  if (!ok) return { transitions, sent: false, groups: gruppi }
+  // Gli accessi girano SEMPRE, anche quando l'invio dei servizi e' fallito: sono un canale diverso e
+  // una notizia diversa, e legarli vorrebbe dire perdere la seconda per colpa del primo.
+  let accessi = { spento: true }
+  try {
+    accessi = await giroAccessi(cfg, deps, prev)
+    if (accessi.stato) next.accessi = accessi.stato
+  } catch (err) {
+    log.error('watch: giro accessi fallito', { err: err.message })
+  }
+  if (!ok) return { transitions, sent: false, groups: gruppi, accessi }
   await writeState(cfg.stateFile, next)
-  return { transitions, sent: true, groups: gruppi }
+  return { transitions, sent: true, groups: gruppi, accessi }
+}
+
+// ── Il giro degli ACCESSI ──────────────────────────────────────────────────────────────────────────
+//
+// Tre regole che nessun altro puo' dire (vedi server/accessi.js), con una destinazione loro e uno stato
+// suo dentro lo stesso file. Sta a parte dal giro dei servizi per una ragione precisa: quelle sono
+// TRANSIZIONI di stato (su → giu → su), queste sono EVENTI (una scrittura e' avvenuta, e non «rientra»).
+// Passarle dal differ dei servizi vorrebbe dire inventargli un rientro che non esiste.
+//
+// ⚠️ Senza `teleport.slackWebhook` in config non fa NIENTE, e soprattutto non chiama AWS: chi non ha
+// configurato la destinazione non paga due letture di CloudWatch ogni cinque minuti.
+export async function giroAccessi(cfg, deps = {}, prev = null) {
+  const leggiConfig = deps.loadConfig ?? loadConfig
+  const stato = deps.statoAccessi ?? statoAccessi
+  const send = deps.postSlack ?? postSlack
+  const hook = leggiConfig().teleport?.slackWebhook ?? null
+  if (!hook) return { spento: true, nuovi: [], sent: null }
+
+  const dati = await stato({ ore: 24 })
+  const ora = segnali(dati)
+  const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null)
+  if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }
+
+  const testo = nuovi.map((s) => messaggioAccessi(s, { publicUrl: cfg.publicUrl })).join('\n')
+  const inviato = await send(hook, { text: testo })
+  log.info('watch: accessi', { n: nuovi.length, inviato, segnali: nuovi.map((s) => s.chiave) })
+  // Se l'invio fallisce lo stato NON avanza: al giro dopo si riprova, come per i servizi.
+  return { spento: false, nuovi, sent: inviato, stato: inviato ? statoNuovo : null }
 }
 
 export function startWatcher(env = process.env) {
