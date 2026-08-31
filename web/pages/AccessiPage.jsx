@@ -432,6 +432,25 @@ export default function AccessiPage({ t, lang }) {
     },
   ]
 
+  // ⚠️ QUESTE STANNO PRIMA di `viste`, e non e' una questione di stile: l'array `viste` viene
+  // valutato subito e legge `finestraDetta`. Dichiararlo piu' sotto lo fa cadere nella zona morta
+  // temporale del `const`, cioe' `ReferenceError: Cannot access '…' before initialization` a ogni
+  // render. E' successo il 31/08/2026 ed e' arrivato in produzione: il bundler non lo vede (non e'
+  // un errore di sintassi) e i test nemmeno, perche' qui nessuna prova RENDERIZZA un componente.
+  // I segnali che valgono per TUTTA la pagina, contati una volta: decidono se la riga verde «tutto
+  // tranquillo» ha il diritto di esserci. Un riepilogo che tace quando va tutto bene lascia chi guarda
+  // a chiedersi se la pagina ha caricato.
+  const quante = daGuardare(audit, battito, riferimento)
+  const sintesi = riepilogo(audit, battito, riferimento)
+  // La finestra del DATO, non quella chiesta: quando il server sta ancora rileggendo (sette giorni di
+  // log non sono istantanei) i numeri sono ancora quelli di prima, e va detto invece di lasciare
+  // l'interruttore su «7g» sopra dei numeri di 24 ore.
+  const finestraDetta =
+    audit.ore && audit.ore !== ore
+      ? `${t('accessi.ultimeOre', { n: audit.ore })} · ${t('accessi.inAggiornamento')}`
+      : t('accessi.ultimeOre', { n: audit.ore ?? ore })
+  const nessunoAggiornato = tuttiIndietro(battito.macchine ?? [], riferimento)
+
   // Le quattro tabelle come DATI, non come quattro blocchi copiati: l'interruttore, il conteggio, il
   // pallino, il filtro e la ricerca si scrivono una volta e valgono per tutte.
   const viste = [
@@ -501,19 +520,6 @@ export default function AccessiPage({ t, lang }) {
   })
   const filtrato = Boolean(query.trim()) || soloProblemi
 
-  // I segnali che valgono per TUTTA la pagina, contati una volta: decidono se la riga verde «tutto
-  // tranquillo» ha il diritto di esserci. Un riepilogo che tace quando va tutto bene lascia chi guarda
-  // a chiedersi se la pagina ha caricato.
-  const quante = daGuardare(audit, battito, riferimento)
-  const sintesi = riepilogo(audit, battito, riferimento)
-  // La finestra del DATO, non quella chiesta: quando il server sta ancora rileggendo (sette giorni di
-  // log non sono istantanei) i numeri sono ancora quelli di prima, e va detto invece di lasciare
-  // l'interruttore su «7g» sopra dei numeri di 24 ore.
-  const finestraDetta =
-    audit.ore && audit.ore !== ore
-      ? `${t('accessi.ultimeOre', { n: audit.ore })} · ${t('accessi.inAggiornamento')}`
-      : t('accessi.ultimeOre', { n: audit.ore ?? ore })
-  const nessunoAggiornato = tuttiIndietro(battito.macchine ?? [], riferimento)
 
   return (
     <>

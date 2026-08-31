@@ -127,6 +127,14 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **La pagina «Accessi» non renderizzava più, e il guasto è arrivato in produzione.**
+  `ReferenceError: Cannot access 'se' before initialization` a ogni render: l'array `viste` viene
+  valutato subito e leggeva `finestraDetta`, che era dichiarata sei righe più sotto, cioè nella zona
+  morta temporale del `const`. Le dichiarazioni ora stanno sopra, con scritto accanto perché l'ordine
+  conta.
+  ⚠️ Né la build né i test lo hanno visto, e non è un caso: non è un errore di sintassi, quindi il
+  bundler lo lascia passare, e in questo repo **nessuna prova renderizza un componente**. L'avevo preso
+  a mano col browser sulle modifiche precedenti e non su queste due, che sono proprio quelle rotte.
 - **Due numeri con lo stesso nome, uno di troppo.** Nella fila in cima c'erano «Sessioni SSH aperte»
   fra i segnali e «Sessioni SSH» fra i numeri di contesto: due etichette che differiscono per una parola
   si leggono come lo stesso numero contato due volte. Il totale se ne va: quante macchine hanno avuto
