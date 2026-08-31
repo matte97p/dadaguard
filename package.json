@@ -12,7 +12,8 @@
     "config:push": "node scripts/push-config.js",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "smoke": "node scripts/smoke.js"
   },
   "dependencies": {
     "@ant-design/icons": "^5.3.7",
