@@ -264,6 +264,10 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
         lato: r.lato ?? null,
         utente: r.utente ?? null,
         immagine: r.immagine ?? null,
+        // QUANDO e' stata costruita quell'immagine, se l'avvio l'ha mandata: e' il campo con cui
+        // «indietro» diventa un ordine invece di una stima, perche' fra due digest diversi non si sa
+        // quale sia il piu' nuovo mentre due date si confrontano.
+        creata: r.creata ?? null,
         esito: r.esito ?? null,
         toolMancanti: Number(r.tool_mancanti ?? 0),
         durata: r.durata != null ? Number(r.durata) : null,

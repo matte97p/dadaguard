@@ -14,8 +14,11 @@ import {
   filtraRighe,
   immagineRiferimento,
   linkAudit,
+  dataRiferimento,
+  giorniIndietro,
   macchinaIndietro,
   personaMacchina,
+  ritardo,
   riepilogo,
   senzaVersione,
   ordinaDatabase,
@@ -145,15 +148,23 @@ export default function AccessiPage({ t, lang }) {
     () => immagineRiferimento(battito.macchine ?? [], battito.attesa ?? null),
     [battito.macchine, battito.attesa],
   )
-  const indietro = (m) => macchinaIndietro(m, riferimento)
+  // La data piu' recente vista: con questa «indietro» e' un ordine e non una stima, quindi non serve
+  // piu' la versione attesa in config per poterlo dire (resta la forma piu' forte, se c'e').
+  const dataRif = useMemo(() => dataRiferimento(battito.macchine ?? []), [battito.macchine])
+  const indietro = (m) => ritardo(m, riferimento, dataRif).indietro
+  const quantoIndietro = (m) => ritardo(m, riferimento, dataRif).giorni
   const versioniInGiro = battito.versioni?.length ?? 0
+  const macchineIndietro = (battito.macchine ?? []).filter((m) => ritardo(m, riferimento, dataRif).indietro)
   // I nomi che Teleport conosce: servono a scegliere quale dei due nomi della stessa persona mostrare
   // sulla riga di una macchina (l'heartbeat manda l'utente di sistema quando non c'è una sessione).
   const utentiNoti = useMemo(() => new Set((audit.persone ?? []).map((p) => p.utente)), [audit.persone])
 
   const persone = useMemo(() => ordinaPersone(audit.persone ?? []), [audit.persone])
   const database = useMemo(() => ordinaDatabase(audit.database ?? []), [audit.database])
-  const macchine = useMemo(() => ordinaMacchine(battito.macchine ?? [], riferimento), [battito.macchine, riferimento])
+  const macchine = useMemo(
+    () => ordinaMacchine(battito.macchine ?? [], riferimento, dataRif),
+    [battito.macchine, riferimento, dataRif],
+  )
   const ssh = useMemo(() => ordinaSsh(audit.ssh ?? []), [audit.ssh])
 
   if (errore && !dati) return <Alert type="error" showIcon message={String(errore)} />
@@ -342,7 +353,9 @@ export default function AccessiPage({ t, lang }) {
               che aveva l'immagine più nuova di quella eletta. */}
           {indietro(r) ? (
             <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-              {t('accessi.img.indietro')}
+              {quantoIndietro(r) != null
+                ? frase('accessi.img.indietroGiorni', quantoIndietro(r))
+                : t('accessi.img.indietro')}
             </Tag>
           ) : null}
         </Space>
@@ -442,6 +455,10 @@ export default function AccessiPage({ t, lang }) {
   // a chiedersi se la pagina ha caricato.
   const quante = daGuardare(audit, battito, riferimento)
   const sintesi = riepilogo(audit, battito, riferimento)
+  // ⚠️ «1 macchine» e «1 login fallite» sono la prima cosa che si nota in una riga che deve leggersi in
+  // un colpo d'occhio. Il dizionario non ha i plurali: ogni frase ha la sua forma per UNO, e si scegle
+  // qui in base al numero.
+  const frase = (chiave, n, extra = {}) => t(n === 1 ? `${chiave}.uno` : chiave, { n, ...extra })
   // La finestra del DATO, non quella chiesta: quando il server sta ancora rileggendo (sette giorni di
   // log non sono istantanei) i numeri sono ancora quelli di prima, e va detto invece di lasciare
   // l'interruttore su «7g» sopra dei numeri di 24 ore.
@@ -487,12 +504,19 @@ export default function AccessiPage({ t, lang }) {
       righe: macchine,
       colonne: colonneMacchine,
       rowKey: (r) => `${r.macchina}/${r.lato}`,
-      problema: (m) => problemaMacchina(m, riferimento),
+      problema: (m) => problemaMacchina(m, riferimento, dataRif),
       livello: 'warn',
       cerca: (m) => [m.macchina, m.utente, m.immagine],
       vuoto: t('accessi.nessunAvvio'),
       finestra: `${t('accessi.ultimiGiorni', { n: battito.giorni ?? 7 })} · ${
-        riferimento.fonte === 'config' ? t('accessi.fonte.config') : t('accessi.fonte.vista')
+        // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la
+        // DATA dell'immagine più recente vista (che è un ordine, quindi «indietro di N giorni» è un
+        // fatto), oppure niente, quando gli avvii non mandano ancora la data.
+        riferimento.fonte === 'config'
+          ? t('accessi.fonte.config')
+          : dataRif != null
+            ? t('accessi.fonte.data')
+            : t('accessi.fonte.vista')
       }`,
     },
     {
@@ -606,14 +630,15 @@ export default function AccessiPage({ t, lang }) {
               tabIndex={0}
               onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && scegliVista(v.vista)}
             >
-              {v.k === 'scritture'
-                ? t(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', {
-                    n: v.n,
-                    dove: v.dove.join(', '),
-                  }) + (v.altrove > 0 ? ` ${t('accessi.sintesi.altrove', { n: v.altrove })}` : '')
-                : v.k === 'versioni'
-                  ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
-                  : t(`accessi.sintesi.${v.k}`, { n: v.n })}
+              {v.k === 'indietro'
+                ? frase('accessi.sintesi.indietro', v.n, { g: v.giorni })
+                : v.k === 'scritture'
+                  ? frase(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', v.n, {
+                      dove: v.dove.join(', '),
+                    }) + (v.altrove > 0 ? ` ${frase('accessi.sintesi.altrove', v.altrove)}` : '')
+                  : v.k === 'versioni'
+                    ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
+                    : frase(`accessi.sintesi.${v.k}`, v.n)}
             </a>
           ))}
         </div>
@@ -707,18 +732,33 @@ export default function AccessiPage({ t, lang }) {
           cinque digest diversi (dati veri del 31/08/2026) versioni diverse vuol dire solo che ognuno ha
           l'immagine che ha scaricato: chi è indietro lo si può dire solo con la versione attesa in
           config, e senza quella l'avviso lo dichiara e dice come metterla. */}
-      {versioniInGiro > 1 && (
-        <Alert
-          type={riferimento.fonte === 'config' ? 'warning' : 'info'}
-          showIcon
-          message={
-            riferimento.fonte === 'config'
-              ? t('accessi.versioniDiverse', { n: versioniInGiro })
-              : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
-          }
-          style={{ marginBottom: SPACE.md }}
-        />
-      )}
+      {/* Con le DATE l'avviso dice un fatto: quante macchine sono indietro e di quanto. Senza (dev-env
+          non ancora aggiornato, quindi nessuna data) resta la frase che spiega perche' da qui non si
+          puo' dire, che e' l'unica cosa onesta con dei soli digest in mano. */}
+      {dataRif != null
+        ? macchineIndietro.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={t('accessi.indietroN', {
+                n: macchineIndietro.length,
+                g: Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0)),
+              })}
+              style={{ marginBottom: SPACE.md }}
+            />
+          )
+        : versioniInGiro > 1 && (
+            <Alert
+              type={riferimento.fonte === 'config' ? 'warning' : 'info'}
+              showIcon
+              message={
+                riferimento.fonte === 'config'
+                  ? t('accessi.versioniDiverse', { n: versioniInGiro })
+                  : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
+              }
+              style={{ marginBottom: SPACE.md }}
+            />
+          )}
       {/* Le macchine che non hanno dichiarato la versione: contate a parte, perché non sono «indietro»
           e non sono «pari», e finivano dentro il conteggio delle versioni come se fossero una versione. */}
       {battito.senzaVersione > 0 && (

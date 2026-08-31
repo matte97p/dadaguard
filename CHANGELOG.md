@@ -27,6 +27,19 @@ All notable changes to Dadaguard are documented here. Format based on
   Riscriverli nel watchdog avrebbe voluto dire una seconda verità sugli stessi dati.
 
 ### Changed
+- **«Indietro» adesso è un ordine, non una stima: l'avvio manda la DATA dell'immagine.** Il digest non
+  ha un ordine, quindi fra `45486f79` e `36b245a8` non si sa quale sia il più nuovo, e confrontarli col
+  più recente avviato faceva eleggere il riferimento dall'orologio di chi avvia. Una data si ordina:
+  «indietro di 11 giorni» è vero da solo, anche quando nessuno ha l'immagine più nuova che esiste, e
+  non serve più la versione attesa in config per poterlo dire (resta come forma più forte, se c'è).
+  L'avvio la legge dal label OCI sull'host e dal file che l'immagine si porta dentro nel container.
+  La pagina di conseguenza: la colonna dice «indietro di N giorni» invece di un'etichetta senza numero,
+  l'avviso dice quante macchine sono indietro e di quanto invece di «N versioni in giro, e da qui non si
+  può dire chi è indietro», e la soglia è **sette giorni** perché l'immagine si ricostruisce a ogni
+  modifica del dev-env: due giorni di ritardo sono il caso normale di chi ha lavorato ieri.
+- **Le frasi della riga di sintesi hanno la forma per UNO.** «1 macchine indietro» e «1 sessioni SSH
+  aperte» erano la prima cosa che si notava in una riga che deve leggersi in un colpo d'occhio.
+
 - **La pagina «Accessi» si guarda invece di leggersi.** Mostrava tutto insieme: nove numeri in fila con
   lo stesso peso, quattro tabelle una sotto l'altra, un tag con lo zero dentro in ogni cella e la data
   assoluta al secondo in ogni riga. Con sette persone e cinque macchine erano già due schermate dove

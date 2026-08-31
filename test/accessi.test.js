@@ -20,6 +20,9 @@ import {
   tuttiIndietro,
   personaMacchina,
   riepilogo,
+  ritardo,
+  dataRiferimento,
+  giorniIndietro,
   senzaVersione,
   versioneNota,
 } from '../web/accessi.js'
@@ -304,8 +307,11 @@ test('riepilogo: le versioni in giro non sono «da guardare» senza la versione 
   assert.equal(senzaAttesa.tranquillo.some((v) => v.k === 'versioni'), false)
   // Con la versione attesa dalla config diventano un fatto, e allora salgono.
   const conConfig = riepilogo({}, hb, CONFIG())
-  assert.deepEqual(conConfig.trovato.map((v) => v.k), ['versioni'])
+  // La voce si chiama «indietro» e non «versioni»: e' il fatto contabile (quante macchine), non la
+  // statistica (quante versioni in giro), che e' una cosa su cui non si agisce.
+  assert.deepEqual(conConfig.trovato.map((v) => v.k), ['indietro'])
   assert.equal(conConfig.trovato[0].tutti, true)
+  assert.equal(conConfig.trovato[0].n, 1)
 })
 
 test('riepilogo: la giornata in cui non c e niente non lascia la riga vuota', () => {
@@ -326,4 +332,74 @@ test('riepilogo: ordina per urgenza, chi non entra prima di chi ha scritto', () 
   }
   const { trovato } = riepilogo(audit, { conToolMancanti: 4 }, VISTA())
   assert.deepEqual(trovato.map((v) => v.k), ['fallite', 'sshAperte', 'scritture', 'tool'])
+})
+
+// ── La data dell'immagine: «indietro» come ORDINE, non come stima ──────────────────────────────────
+//
+// ⚠️ E' la correzione strutturale del difetto del 31/08/2026: fra due digest non c'e' un ordine, e
+// confrontarli col piu' recente AVVIATO fa eleggere il riferimento dall'orologio. Fra due date l'ordine
+// c'e', quindi «indietro di otto giorni» e' vero da solo, anche se nessuno ha la piu' nuova che esiste.
+const GIORNO = 86_400_000
+const ISO = (ms) => new Date(ms).toISOString()
+
+test('dataRiferimento: e il massimo delle date viste, e ignora chi non la manda', () => {
+  const macchine = [
+    { macchina: 'a', creata: ISO(10 * GIORNO) },
+    { macchina: 'b', creata: ISO(30 * GIORNO) },
+    { macchina: 'c' },
+    { macchina: 'd', creata: 'sconosciuta' },
+  ]
+  assert.equal(dataRiferimento(macchine), 30 * GIORNO)
+  assert.equal(dataRiferimento([{ macchina: 'a' }]), null)
+  assert.equal(dataRiferimento([]), null)
+})
+
+test('giorniIndietro: giorni interi, e null quando una delle due date manca', () => {
+  const rif = 30 * GIORNO
+  assert.equal(giorniIndietro({ creata: ISO(22 * GIORNO) }, rif), 8)
+  assert.equal(giorniIndietro({ creata: ISO(30 * GIORNO) }, rif), 0)
+  // Sotto le 24 ore non e' «indietro»: e' la stessa immagine ricostruita.
+  assert.equal(giorniIndietro({ creata: ISO(30 * GIORNO - 3600_000) }, rif), 0)
+  assert.equal(giorniIndietro({}, rif), null)
+  assert.equal(giorniIndietro({ creata: ISO(1 * GIORNO) }, null), null)
+})
+
+test('ritardo: sette giorni e la soglia, e sotto non si accusa nessuno', () => {
+  const rif = 30 * GIORNO
+  assert.equal(ritardo({ creata: ISO(22 * GIORNO) }, VISTA(), rif).indietro, true)
+  assert.equal(ritardo({ creata: ISO(24 * GIORNO) }, VISTA(), rif).indietro, false)
+  assert.equal(ritardo({ creata: ISO(23 * GIORNO) }, VISTA(), rif).giorni, 7)
+  assert.equal(ritardo({ creata: ISO(23 * GIORNO) }, VISTA(), rif).indietro, true)
+  // Senza date non si accusa: e' il caso di chi non ha ancora aggiornato l'avvio.
+  assert.equal(ritardo({ immagine: VECCHIA }, VISTA(), null).indietro, false)
+  // La versione attesa dalla config resta la forma piu' forte: accusa anche a un giorno di distanza.
+  assert.equal(ritardo({ immagine: VECCHIA, creata: ISO(29 * GIORNO) }, CONFIG(), rif).indietro, true)
+})
+
+test('problemaMacchina: una macchina indietro di piu di una settimana e un problema', () => {
+  const rif = 30 * GIORNO
+  assert.equal(problemaMacchina({ immagine: NUOVA, creata: ISO(20 * GIORNO) }, VISTA(), rif), true)
+  assert.equal(problemaMacchina({ immagine: NUOVA, creata: ISO(29 * GIORNO) }, VISTA(), rif), false)
+})
+
+test('riepilogo: con le date dice quante macchine sono indietro e di quanto', () => {
+  const macchine = [
+    { macchina: 'a', immagine: NUOVA, creata: ISO(30 * GIORNO) },
+    { macchina: 'b', immagine: VECCHIA, creata: ISO(20 * GIORNO) },
+    { macchina: 'c', immagine: VECCHIA, creata: ISO(18 * GIORNO) },
+  ]
+  const { trovato, tranquillo } = riepilogo({}, { macchine, versioni: [{}, {}] }, VISTA())
+  const voce = trovato.find((v) => v.k === 'indietro')
+  assert.deepEqual({ n: voce.n, giorni: voce.giorni }, { n: 2, giorni: 12 })
+  assert.equal(tranquillo.some((v) => v.k === 'indietro'), false)
+})
+
+test('riepilogo: nessuno indietro e un a posto VERO, e si puo dire', () => {
+  const macchine = [
+    { macchina: 'a', immagine: NUOVA, creata: ISO(30 * GIORNO) },
+    { macchina: 'b', immagine: VECCHIA, creata: ISO(29 * GIORNO) },
+  ]
+  const { trovato, tranquillo } = riepilogo({}, { macchine, versioni: [{}, {}] }, VISTA())
+  assert.equal(trovato.some((v) => v.k === 'indietro'), false)
+  assert.deepEqual(tranquillo.find((v) => v.k === 'indietro'), { k: 'indietro', n: 0, vista: 'devEnv' })
 })
