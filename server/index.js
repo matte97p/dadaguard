@@ -465,7 +465,7 @@ app.get('/api/teleport', async (req, res) => {
           ).catch((err) => ({ errore: cleanAwsReason(err) }))
         : mancante(cfg.heartbeat?.account ?? '?'),
     ])
-    res.json({ configurato: true, webUrl: cfg.webUrl ?? null, audit, heartbeat })
+    res.json({ configurato: true, webUrl: cfg.webUrl ?? null, sshCommand: cfg.sshCommand ?? null, audit, heartbeat })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
