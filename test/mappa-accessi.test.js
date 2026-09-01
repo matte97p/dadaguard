@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { componiMappa, normalizza, rispostaMappa } from '../server/mappaAccessi.js'
+import { componiMappa, normalizza, pezzi, rispostaMappa } from '../server/mappaAccessi.js'
 
 // Le regole dell'incrocio fra le tre fonti degli accessi. Sono provate qui e non a mano sulla pagina
 // perche' sbagliano in silenzio: una riga accoppiata male non si vede come un errore, si legge come
@@ -158,4 +158,51 @@ test('ogni fonte rotta si dice per quello che e: errore, assente, tetto toccato'
 
   const tetto = rispostaMappa({ audit: { persone: [{ utente: 'alex' }], troncato: true } })
   assert.equal(tetto.fonti.teleport.troncato, true)
+})
+
+// ── L'abbinamento fra le due directory, sui casi VERI del 01/09/2026 ─────────────────────────────
+// La prima stesura confrontava solo il nome appiattito, e in produzione meta' delle persone usciva in
+// doppio: la stessa persona come utente Teleport e come utente del portale, con i permessi da una
+// parte sola. I tre casi qui sotto sono quelli che si sono visti, con i nomi cambiati.
+test('nome e cognome invertiti sono la stessa persona', () => {
+  const { persone } = componiMappa({
+    audit: AUDIT([{ utente: 'BianchiRenzo', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([{ name: 'ps-a', assignments: [{ account: 'Production', type: 'user', name: 'RenzoBianchi' }] }]),
+  })
+  assert.equal(persone.length, 1)
+  assert.equal(persone[0].ssoUtente, 'RenzoBianchi')
+})
+
+test('un login GitHub col solo nome si aggancia, ma solo se il candidato e uno', () => {
+  const solo = componiMappa({
+    audit: AUDIT([{ utente: 'Renzo1909', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([{ name: 'ps-a', assignments: [{ account: 'Production', type: 'user', name: 'RenzoBianchi' }] }]),
+  })
+  assert.equal(solo.persone.length, 1, 'un solo Renzo: si aggancia')
+
+  const due = componiMappa({
+    audit: AUDIT([{ utente: 'Renzo1909', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([
+      { name: 'ps-a', assignments: [{ account: 'Production', type: 'user', name: 'RenzoBianchi' }] },
+      { name: 'ps-b', assignments: [{ account: 'Production', type: 'user', name: 'RenzoVerdi' }] },
+    ]),
+  })
+  assert.equal(due.persone.length, 3, 'due Renzo: non si indovina, restano tre righe')
+  assert.equal(due.persone.find((p) => p.persona === 'Renzo1909').ssoUtente, null)
+})
+
+test('un login che non somiglia a niente resta scollegato, e lo aggancia solo la config', () => {
+  const argomenti = {
+    audit: AUDIT([{ utente: 'rb97x', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([{ name: 'ps-a', assignments: [{ account: 'Production', type: 'user', name: 'RenzoBianchi' }] }]),
+  }
+  assert.equal(componiMappa(argomenti).persone.length, 2)
+  const con = componiMappa({ ...argomenti, cfg: { persone: [{ github: 'rb97x', sso: 'RenzoBianchi' }] } })
+  assert.equal(con.persone.length, 1)
+})
+
+test('pezzi: taglia sul cambio di maiuscola e butta le cifre', () => {
+  assert.deepEqual(pezzi('BianchiRenzo'), ['bianchi', 'renzo'])
+  assert.deepEqual(pezzi('Fabio1909'), ['fabio'])
+  assert.deepEqual(pezzi('renzobianchi'), ['renzobianchi'], 'tutto minuscolo: un pezzo solo, non si inventa il taglio')
 })
