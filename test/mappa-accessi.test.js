@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { componiMappa, normalizza } from '../server/mappaAccessi.js'
+import { componiMappa, normalizza, rispostaMappa } from '../server/mappaAccessi.js'
 
 // Le regole dell'incrocio fra le tre fonti degli accessi. Sono provate qui e non a mano sulla pagina
 // perche' sbagliano in silenzio: una riga accoppiata male non si vede come un errore, si legge come
@@ -117,4 +117,45 @@ test('normalizza: minuscolo, senza separatori, senza le cifre in CODA', () => {
   assert.equal(normalizza('giulia.rossi'), 'giuliarossi')
   assert.equal(normalizza('m4rco'), 'm4rco', 'le cifre in mezzo distinguono davvero due persone')
   assert.equal(normalizza(null), '')
+})
+
+// ── La risposta della rotta ───────────────────────────────────────────────────────────────────────
+// Provata perche' e' dove si e' rotta davvero, il 01/09/2026: dopo un riordino il pezzo che elenca i
+// gruppi nominava una variabile che non esisteva piu' in quella funzione. La rotta rispondeva 500 e la
+// pagina mostrava due tabelle vuote col messaggio «nessuna persona», cioe' un guasto travestito da
+// assenza di dati. Le prove sull'incrocio erano tutte verdi: non passavano di qui.
+test('la risposta della rotta si monta tutta, gruppi compresi', () => {
+  const r = rispostaMappa({
+    audit: { persone: [{ utente: 'alex', teams: ['db-read'], ultimoLoginOk: 1 }] },
+    ruoli: { teams: { 'db-read': ['db-app-ro'] }, generato: '2026-09-01T00:00:00Z' },
+    sso: { available: true, permissionSets: [{ name: 'ps-a', assignments: [{ account: 'Production', type: 'group', name: 'gruppo', members: ['alex'] }] }] },
+    ore: 168,
+  })
+  assert.equal(r.configurato, true)
+  assert.equal(r.persone.length, 1)
+  assert.deepEqual(r.gruppiSso.map((g) => g.gruppo), ['gruppo'])
+  assert.deepEqual(r.fonti.teleport, { ok: true, persone: 1, troncato: false })
+  assert.equal(r.fonti.ruoli.ok, true)
+  assert.equal(r.fonti.sso.ok, true)
+})
+
+test('ogni fonte rotta si dice per quello che e: errore, assente, tetto toccato', () => {
+  const rotta = rispostaMappa({
+    audit: { errore: 'AccessDenied', persone: [] },
+    ruoli: { assente: true, teams: {} },
+    sso: { errore: 'no SSO' },
+    nomeParam: '/teleport/team-roles',
+  })
+  assert.deepEqual(rotta.fonti.teleport, { errore: 'AccessDenied' })
+  assert.deepEqual(rotta.fonti.ruoli, { assente: '/teleport/team-roles' })
+  assert.deepEqual(rotta.fonti.sso, { errore: 'no SSO' })
+  // Vuoto sì, ma montato: la pagina deve poter dire perché, non mostrare una tabella muta.
+  assert.deepEqual(rotta.persone, [])
+  assert.deepEqual(rotta.gruppiSso, [])
+
+  const lenta = rispostaMappa({ audit: { incompleta: 'Running', persone: [] } })
+  assert.deepEqual(lenta.fonti.teleport, { incompleta: 'Running' })
+
+  const tetto = rispostaMappa({ audit: { persone: [{ utente: 'alex' }], troncato: true } })
+  assert.equal(tetto.fonti.teleport.troncato, true)
 })
