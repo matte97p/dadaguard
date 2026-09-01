@@ -65,6 +65,59 @@ test('audit: separa le login fallite da quelle riuscite e tiene il motivo per in
   assert.equal(secondo.sessioniDb, 2)
 })
 
+// Un tentativo di sessione RIFIUTATO: stessa riga di una sessione, con `success: false` e il motivo.
+// E' la riga del 01/09/2026, accorciata: un utente del database che il ruolo non concede.
+const SESSIONE_DB_NEGATA = (utente, quando, dbUser = 'postgres') =>
+  riga(
+    {
+      event_type: 'db.session.start',
+      fields: {
+        event: 'db.session.start',
+        success: false,
+        user: utente,
+        db_user: dbUser,
+        db_name: 'postgres',
+        db_service: 'un-db-di-produzione',
+        error: 'access to db denied. User does not have permissions. Confirm database user and name.',
+      },
+    },
+    quando,
+  )
+
+test('audit: un tentativo rifiutato non e\' una sessione, e porta con se\' il motivo', async () => {
+  const { audit } = await conEventi([
+    SESSIONE_DB('chi-entra', 1000),
+    SESSIONE_DB_NEGATA('chi-sbatte', 2000, 'postgres'),
+    SESSIONE_DB_NEGATA('chi-sbatte', 3000, 'supabase_admin'),
+    SESSIONE_DB('chi-sbatte', 4000),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  // ⚠️ Il punto della prova: i rifiuti NON gonfiano il numero delle sessioni. Prima di questa riga
+  // erano tre sessioni per «chi-sbatte», di cui due mai avvenute.
+  assert.equal(out.sessioniDb, 2)
+  assert.equal(out.sessioniDbNegate, 2)
+  const sbatte = out.persone.find((p) => p.utente === 'chi-sbatte')
+  assert.equal(sbatte.sessioniDb, 1)
+  assert.equal(sbatte.sessioniDbNegate, 2)
+  // Il motivo sta nella stessa colonna delle login fallite: la domanda e' «perche' ha sbattuto».
+  assert.match(sbatte.motivo, /access to db denied/)
+  const entra = out.persone.find((p) => p.utente === 'chi-entra')
+  assert.equal(entra.sessioniDbNegate, 0)
+})
+
+test('audit: fra due motivi vince il piu\' RECENTE, non l\'ultimo letto', async () => {
+  // ⚠️ `FilterLogEvents` ordina per stream e non fra stream diversi, quindi le righe arrivano anche
+  // fuori ordine: senza il confronto sugli istanti il motivo mostrato dipende da come sono spezzati
+  // i log. Qui la piu' vecchia arriva per ultima.
+  const { audit } = await conEventi([
+    SESSIONE_DB_NEGATA('chi-sbatte', 9000, 'supabase_admin'),
+    LOGIN_FALLITA('chi-sbatte', 1000, 'role che-non-esiste is not found'),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const sbatte = out.persone.find((p) => p.utente === 'chi-sbatte')
+  assert.match(sbatte.motivo, /access to db denied/)
+})
+
 const QUERY = (utente, quando, testo, servizio = 'prod-db', nome = 'tenders') =>
   riga(
     {

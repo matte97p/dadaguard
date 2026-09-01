@@ -296,7 +296,7 @@ test('riepilogo: dice DOVE sono andate le scritture, e manda gli zeri fra le cos
   // 2 su staging, «6 scritture su <produzione>» sarebbe falso due volte. Le altre si dicono in coda.
   assert.deepEqual(trovato[0], { k: 'scritture', n: 4, dove: ['orders'], prod: true, altrove: 1, vista: 'database' })
   // Sei versioni in giro non sono «a posto»: da qui non si sa, e lo dice l'avviso, non la riga muta.
-  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'tool'])
+  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'dbNegate', 'sshAperte', 'tool'])
 })
 
 test('riepilogo: le versioni in giro non sono «da guardare» senza la versione attesa', () => {
@@ -318,9 +318,10 @@ test('riepilogo: la giornata in cui non c e niente non lascia la riga vuota', ()
   const { trovato, tranquillo } = riepilogo({ loginFallite: 0, sshAperte: 0, database: [] }, {}, VISTA())
   assert.equal(trovato.length, 0)
   // Con UNA versione sola (o nessuna) la riga muta la nomina, perche' li' e' davvero un a posto.
-  // Cinque famiglie guardate e tutte a zero: e' una risposta, e va scritta come tale invece di
-  // lasciare la riga vuota.
-  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'sshAperte', 'scritture', 'tool', 'versioni'])
+  // Sei famiglie guardate e tutte a zero: e' una risposta, e va scritta come tale invece di
+  // lasciare la riga vuota. `dbNegate` e' entrata il 01/09/2026: i tentativi verso un database
+  // rifiutati erano contati fra le sessioni riuscite, quindi non comparivano da nessuna parte.
+  assert.deepEqual(tranquillo.map((v) => v.k), ['fallite', 'dbNegate', 'sshAperte', 'scritture', 'tool', 'versioni'])
 })
 
 test('riepilogo: ordina per urgenza, chi non entra prima di chi ha scritto', () => {

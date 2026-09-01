@@ -217,7 +217,24 @@ export default function AccessiPage({ t, lang }) {
         </Space>
       ),
     },
-    { title: t('accessi.col.sessioniDb'), dataIndex: 'sessioniDb', key: 'sessioniDb', sorter: numerico('sessioniDb') },
+    // ⚠️ Le sessioni riuscite e i tentativi RIFIUTATI nella stessa cella, ma separati: sommarli e' il
+    // modo in cui un accesso negato sparisce (era cosi' fino al 01/09/2026, e sette rifiuti in un
+    // giorno non si vedevano da nessuna parte). Il tag rosso c'e' solo quando ce n'e' almeno uno.
+    {
+      title: t('accessi.col.sessioniDb'),
+      key: 'sessioniDb',
+      sorter: numerico('sessioniDb'),
+      render: (_, r) => (
+        <Space size={SPACE.xs}>
+          <Text type={r.sessioniDb ? undefined : 'secondary'}>{r.sessioniDb ?? 0}</Text>
+          {r.sessioniDbNegate > 0 && (
+            <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
+              {t('accessi.dbNegateN', { n: r.sessioniDbNegate })}
+            </Tag>
+          )}
+        </Space>
+      ),
+    },
     { title: t('accessi.col.query'), dataIndex: 'query', key: 'query', sorter: numerico('query') },
     // Le scritture in arancione: su un database di produzione sono la riga che si guarda per prima.
     {
@@ -665,6 +682,14 @@ export default function AccessiPage({ t, lang }) {
           label={t('accessi.kpi.falliteN')}
           value={audit.loginFallite ?? 0}
           color={audit.loginFallite ? LEVEL.crit.color : undefined}
+        />
+        {/* Gli accessi ai database NEGATI: un numero a se', accanto alle login fallite, perche' sono
+            la stessa domanda («chi ha sbattuto contro un permesso?») e prima non erano da nessuna
+            parte, sommati alle sessioni riuscite. */}
+        <HeroStat
+          label={t('accessi.kpi.dbNegate')}
+          value={audit.sessioniDbNegate ?? 0}
+          color={audit.sessioniDbNegate ? LEVEL.crit.color : undefined}
         />
         {/* Le sessioni SSH APERTE sono un numero a sé, e non il colore rosso appiccicato al totale:
             «Sessioni SSH 2» tinto di rosso si legge come «2 aperte adesso» anche quando sono chiuse
