@@ -235,3 +235,40 @@ services:
 # expectedHealthy:
 #   staging/acme-staging-postgres-writer: 1
 
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# Accessi: chi entra dove (audit del cluster Teleport) e chi ha il dev-env indietro (heartbeat).
+# Senza questa sezione la pagina Accessi non mostra un vuoto: dice che manca la config.
+# teleport:
+#   audit:     { account: security, logGroup: /ecs/teleport }
+#   heartbeat: { account: management, logGroup: /dev-env/heartbeat, immagineAttesa: sha256:... }
+#   webUrl: https://teleport.example.com          # il bottone «vai ad agire»
+#   sshCommand: tsh ssh dev@{macchina}
+#   auditUserUrl: https://teleport.example.com/web/audit?user={utente}
+#   auditNodeUrl: https://teleport.example.com/web/audit?node={macchina}
+#
+#   # La MAPPA «chi ha cosa»: team GitHub -> ruoli Teleport, letta da un parametro SSM che scrive chi
+#   # applica il connector SSO (cosi' non e' una copia che invecchia). Se manca, la pagina lo dice.
+#   ruoliParam: /teleport/team-roles              # default, si cambia solo se il parametro sta altrove
+#   ruoliAccount: security                        # default: lo stesso di `audit.account`
+#
+#   # ── AGGIUNGERE UNA PERSONA ALLA MAPPA (processo) ────────────────────────────────────────────
+#   # La mappa affianca due directory che chiamano la stessa persona in modo diverso: il login GitHub
+#   # (che Teleport vede al login) e l'utente di Identity Center (che ha i permission set). Dadaguard
+#   # li aggancia da solo in tre casi: nome uguale a parte le maiuscole e le cifre in coda, nome e
+#   # cognome INVERTITI, e login col solo nome quando il candidato e' uno solo.
+#   # Quello che resta fuori sono le SIGLE e i nomi di fantasia (`ab12cd`), che nessuna regola puo'
+#   # indovinare: se provasse, prima o poi attaccherebbe i permessi di una persona a un'altra.
+#   #
+#   # Il sintomo: nella tabella «Mappa» la stessa persona compare DUE volte, una con i ruoli Teleport
+#   # e zero permessi, l'altra marcata «solo portale» coi permessi e zero ruoli.
+#   #
+#   # Il rimedio, tre passi:
+#   #   1. prendi i due nomi come li scrivono le due directory: la colonna «Persona» della riga con i
+#   #      ruoli (login GitHub) e quella della riga «solo portale» (utente Identity Center);
+#   #   2. aggiungili qui sotto, una riga per persona;
+#   #   3. `npm run config:push`, che riscrive il parametro e fa ripartire il servizio da solo.
+#   # Il giro seguente le due righe diventano una. Se sbagli l'accoppiamento la mappa non se ne
+#   # accorge: dice che una persona ha permessi che sono di un'altra, quindi ricontrolla i due nomi.
+#   persone:
+#     - { github: ab12cd, sso: NomeCognome }
