@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { demoStatus, demoCosts, demoCostTrend, demoBudgets, demoPeriod, demoMonths, demoQuotas, demoLogs, demoEvents, demoTopology } from '../server/demo.js'
+import { demoRitmo, demoStatus, demoCosts, demoCostTrend, demoBudgets, demoPeriod, demoMonths, demoQuotas, demoLogs, demoEvents, demoTopology } from '../server/demo.js'
 import { budgetLevel } from '../server/budgets.js'
 
 const ymdOf = (d) => d.toISOString().slice(0, 10)
@@ -52,6 +52,17 @@ test('demo costi: periodo, trend e anomalie stanno nel mese che la pagina dichia
   }
 })
 
+test('demoRitmo: il primo del mese non proietta un mese intero da un giorno solo', () => {
+  // ⚠️ Il guasto del 01/09/2026: con un giorno di MTD il fattore vale 30, ogni budget demo finiva
+  // oltre il limite, nessuno restava verde e la prova dei quattro stati era rossa, insieme alla
+  // pipeline (`deploy` skipped, quindi in produzione restava il codice vecchio).
+  const marzo = 31
+  assert.equal(demoRitmo(new Date('2026-03-01T09:00:00Z')), marzo / 12)
+  assert.equal(demoRitmo(new Date('2026-03-05T09:00:00Z')), marzo / 12)
+  // Dal giorno 12 in poi il pavimento non serve piu': il ritmo e' quello vero della finestra.
+  assert.equal(demoRitmo(new Date('2026-03-28T09:00:00Z')), marzo / 12)
+})
+
 test('demoPeriod: il primo del mese non produce un MTD che copre giorni futuri', () => {
   // È l'edge che romperebbe il fix: start e end coincidono col mese, ma end resta a domani.
   assert.deepEqual(demoPeriod(new Date('2026-03-01T09:00:00Z')), { start: '2026-03-01', end: '2026-03-02' })
@@ -62,7 +73,10 @@ test('demoPeriod: il primo del mese non produce un MTD che copre giorni futuri',
 
 test('demo budget: proiezione e livello escono dallo stesso ritmo dei costi, non da cifre a mano', () => {
   const costi = demoCosts()
-  const rate = costi.prod.projection.daysInMonth / costi.prod.projection.daysElapsed
+  // ⚠️ Il ritmo si chiede a `demoRitmo()` e non si ricalcola qui: ha un PAVIMENTO, perché nei primi
+  // giorni del mese l'MTD è di un giorno solo e il fattore vale 30. Ricalcolarlo a mano da
+  // `daysElapsed` faceva fallire questa prova ogni primo del mese, e con lei tutta la pipeline.
+  const rate = demoRitmo()
   const tutti = Object.values(demoBudgets().accounts).flatMap((a) => a.budgets)
   for (const b of tutti.filter((x) => x.timeUnit === 'MONTHLY')) {
     assert.ok(Math.abs(b.forecast - b.actual * rate) < 0.01, `${b.name}: proiezione scollegata dal run-rate`)

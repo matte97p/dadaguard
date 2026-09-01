@@ -746,6 +746,23 @@ export function demoWaf() {
   }
 }
 
+// Il RITMO del mese per la demo: quante volte l'MTD sta in un mese intero.
+//
+// ⚠️ Ha un pavimento, e non è prudenza generica. `demoPeriod()` ferma la finestra al giorno 13 perché
+// un MTD non può coprire giorni futuri, ma sotto quel giorno la finestra è corta davvero: il primo
+// del mese l'MTD è di UN giorno, il fattore di proiezione vale 30, e ogni budget demo finisce oltre
+// il limite. Il 01/09/2026 la pagina mostrava un solo stato su quattro (nessun budget verde) e la
+// prova che li pretende tutti e quattro era rossa, insieme a tutta la pipeline.
+// Il pavimento è lo stesso giorno a cui la finestra si ferma: da lì in poi il ritmo è quello vero,
+// prima la demo non finge di conoscere un ritmo che con un giorno di dati non esiste. Il PERIODO non
+// si allunga, che è la regola opposta e resta valida.
+export const RITMO_GIORNI_MINIMI = 12
+export function demoRitmo(now = new Date()) {
+  const p = monthEndProjection({ gross: 1, total: 1, period: demoPeriod(now) })
+  const giorniMese = p?.daysInMonth ?? 30
+  return giorniMese / Math.max(p?.daysElapsed ?? RITMO_GIORNI_MINIMI, RITMO_GIORNI_MINIMI)
+}
+
 // Budget demo: uno già sforato, uno che ci finirà (proiezione oltre il limite mentre il consumo è
 // ancora sotto — il caso che si vede solo se mostri entrambe le cifre), uno tranquillo. Più due
 // anomalie di costo, quella grossa in cima.
@@ -754,9 +771,7 @@ export function demoBudgets() {
   // run-rate della pagina Spesa: prima i budget erano cifre a sé (4380 $ su un lordo di 837,60 $) e
   // due riquadri della stessa schermata raccontavano bolletta diverse. Il livello lo decide la stessa
   // budgetLevel() del percorso reale, così un badge non può smentire la sua barra.
-  const period = demoPeriod()
-  const p = monthEndProjection({ gross: 1, total: 1, period })
-  const rate = p ? p.gross : 1 // fine mese / MTD
+  const rate = demoRitmo() // fine mese / MTD, col pavimento: vedi demoRitmo()
   // forecastOverride serve ai budget NON mensili: il run-rate qui sopra è quello del mese, applicarlo
   // a un trimestre proietterebbe un periodo che non è il suo.
   const b = (name, limit, actual, timeUnit = 'MONTHLY', forecastOverride = null) => {
