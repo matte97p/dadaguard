@@ -46,6 +46,65 @@ export const normalizza = (nome) =>
     .replace(/[^a-z0-9]/g, '')
     .replace(/\d+$/, '')
 
+// I PEZZI di un nome, prima di appiattirlo: `BianchiRenzo` → ['bianchi', 'renzo'].
+// Si taglia sul cambio di maiuscola e sui separatori, e le cifre si buttano.
+// ⚠️ Va fatto PRIMA di abbassare tutto: dopo, il confine fra nome e cognome non esiste piu'.
+export const pezzi = (nome) =>
+  String(nome ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z]+/)
+    .map((p) => p.toLowerCase())
+    .filter(Boolean)
+
+// L'ABBINAMENTO fra un utente Teleport (login GitHub) e uno di Identity Center. Tre regole, in
+// ordine, e tutte con la stessa clausola: se i candidati sono piu' di uno non si abbina NIENTE, perche'
+// attaccare i permessi alla persona sbagliata e' peggio di due righe separate.
+//
+// Le tre regole nascono dai casi veri, guardati in produzione il 01/09/2026:
+//   1. stesso nome appiattito       `renzobianchi` = `RenzoBianchi`
+//   2. stessi pezzi in ordine DIVERSO `BianchiRenzo` = `RenzoBianchi` (il login GitHub mette il
+//      cognome davanti, la directory il nome: senza questa regola sono due persone)
+//   3. il login e' un pezzo SOLO che comincia uno dei pezzi dell'altro: `Fabio1909` = `FabioStefana`.
+//      Vale solo se il candidato e' unico: con due `Fabio` in azienda non si indovina.
+// Quello che resta fuori (`matte97p`, `gabboclaa`) non e' agganciabile da nessuna regola, e per quello
+// c'e' `teleport.persone` in config: sono nomi che non si somigliano affatto.
+export function abbina(nomeGithub, indice, scorciatoie = new Map()) {
+  const scorciatoia = scorciatoie.get(normalizza(nomeGithub))
+  if (scorciatoia) return indice.perNorma.get(scorciatoia) ?? null
+
+  const norma = normalizza(nomeGithub)
+  const diretto = indice.perNorma.get(norma)
+  if (diretto) return diretto
+
+  const miei = pezzi(nomeGithub)
+  const perPezzi = indice.perPezzi.get([...miei].sort().join('|'))
+  if (perPezzi?.length === 1) return perPezzi[0]
+
+  if (miei.length === 1 && miei[0].length >= 3) {
+    const inizia = indice.tutti.filter((c) => c.pezzi.some((t) => t.startsWith(miei[0])))
+    if (inizia.length === 1) return inizia[0]
+  }
+  return null
+}
+
+// L'indice delle persone di Identity Center, nelle tre forme che l'abbinamento confronta.
+// ⚠️ Se due utenze cadono sulla stessa chiave, la chiave tiene la PRIMA e le altre restano fuori: due
+// persone fuse in una direbbero che l'una ha i permessi dell'altra.
+export function indicizza(persone) {
+  const perNorma = new Map()
+  const perPezzi = new Map()
+  const tutti = []
+  for (const [nome, dati] of persone) {
+    const voce = { ...dati, pezzi: pezzi(nome) }
+    tutti.push(voce)
+    const n = normalizza(nome)
+    if (!perNorma.has(n)) perNorma.set(n, voce)
+    const k = [...voce.pezzi].sort().join('|')
+    perPezzi.set(k, [...(perPezzi.get(k) ?? []), voce])
+  }
+  return { perNorma, perPezzi, tutti }
+}
+
 // team → ruoli, dal parametro SSM scritto da chi applica il connector.
 // Legge per PATH e non per nome: `ssm:GetParametersByPath` e' il permesso che il ruolo read-only ha
 // gia' (vedi modules/cross-account-readonly-role), `GetParameter` no.
@@ -130,19 +189,11 @@ export function componiMappa({ audit = {}, ruoli = {}, sso = {}, cfg = {} } = {}
   const rovesciato = rovesciaSso(sso)
   const scorciatoie = eccezioni(cfg)
 
-  // Indice delle persone di Identity Center per nome normalizzato, per agganciarle a quelle di
-  // Teleport. Se due utenze normalizzano allo stesso nome l'indice tiene la prima e la seconda resta
-  // scollegata: meglio una riga in piu' che due persone fuse in una.
-  const ssoPerNome = new Map()
-  for (const [nome, dati] of rovesciato.persone) {
-    const k = normalizza(nome)
-    if (!ssoPerNome.has(k)) ssoPerNome.set(k, dati)
-  }
+  const indice = indicizza(rovesciato.persone)
 
   const usate = new Set()
   const persone = (audit.persone ?? []).map((p) => {
-    const k = scorciatoie.get(normalizza(p.utente)) ?? normalizza(p.utente)
-    const lato = ssoPerNome.get(k)
+    const lato = abbina(p.utente, indice, scorciatoie)
     if (lato) usate.add(lato.utente)
     const teams = p.teams ?? []
     // I ruoli sono l'UNIONE dei ruoli dei suoi team, che e' come li somma Teleport al login.
