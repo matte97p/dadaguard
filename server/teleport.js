@@ -12,7 +12,7 @@
 //
 // ⚠️ Niente nomi nostri qui dentro: log group e account arrivano dalla config (`teleport:` in
 // services.yaml o DADAGUARD_CONFIG). Senza quella sezione la superficie non esiste e la pagina lo dice.
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import { CloudWatchLogsClient, FilterLogEventsCommand, StartQueryCommand, GetQueryResultsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './runtime/awsClient.js'
 
 export const key = 'teleport'
@@ -265,6 +265,92 @@ function piuComune(valori) {
   let top = null
   for (const [v, n] of conta) if (!top || n > top.quante) top = { motivo: v, quante: n }
   return top
+}
+
+
+// Chi e' ENTRATO, quando, e con quali team GitHub. E' una lettura A PARTE da quella di `audit()`, e la
+// differenza non e' estetica: `audit()` chiede login, sessioni e query in un colpo solo e si ferma a
+// 5000 eventi, e su una settimana le sole query riempiono il tetto. Il campione che torna puo' non
+// contenere NESSUNA login, ed e' quello che e' successo in produzione il 01/09/2026: la pagina Accessi
+// mostrava nove persone e la mappa usciva vuota.
+//
+// ⚠️ E usa Logs Insights, non `FilterLogEvents`. Filtrare sette giorni di questo log group con
+// `FilterLogEvents` vuol dire scorrerlo tutto a pagine da 1 MB: misurato, 2 minuti e 46 secondi, cioe'
+// una richiesta che il browser abbandona prima. Insights la stessa finestra la macina in pochi secondi
+// perche' la esegue in parallelo, e costa ~0,005 $/GB letto (~120 MB a giro, cioe' spiccioli, e in piu'
+// il risultato sta in cache per dieci minuti).
+//
+// Ritorna `null` se il permesso manca: chi legge deve poter dire «non lo so» invece di «nessuno».
+const ATTESA_QUERY_MS = 20_000
+const PASSO_QUERY_MS = 500
+
+export async function login(aws, { logGroup, ore = 168, limite = 1000 } = {}) {
+  if (!logGroup) return null
+  const cw = new CloudWatchLogsClient(clientOpts(aws))
+  const fine = Math.floor(Date.now() / 1000)
+  const inizio = fine - Math.round(ore * 3600)
+
+  const avvio = await cw.send(
+    new StartQueryCommand({
+      logGroupName: logGroup,
+      startTime: inizio,
+      endTime: fine,
+      limit: limite,
+      // `filter` sul testo grezzo e non sui campi JSON: gli `attributes` sono un oggetto con dentro un
+      // array, e Insights lo spacchetta in `attributes.Org.0`, `.1`, ... che a leggerlo dopo e' peggio.
+      // Qui si riporta a casa il messaggio intero e lo si legge con lo stesso parser degli altri eventi.
+      queryString: 'filter @message like "user.login" | fields @timestamp, @message | sort @timestamp desc | limit ' + limite,
+    }),
+  )
+  const queryId = avvio.queryId
+  if (!queryId) return null
+
+  let esito
+  const scadenza = Date.now() + ATTESA_QUERY_MS
+  do {
+    await new Promise((r) => setTimeout(r, PASSO_QUERY_MS))
+    esito = await cw.send(new GetQueryResultsCommand({ queryId }))
+  } while (['Scheduled', 'Running'].includes(esito.status) && Date.now() < scadenza)
+
+  // Una query ancora in corso non e' un risultato vuoto: chi chiama deve distinguerli.
+  if (esito.status !== 'Complete') return { incompleta: esito.status, persone: [] }
+
+  const persone = new Map()
+  for (const riga of esito.results ?? []) {
+    const messaggio = riga.find((c) => c.field === '@message')?.value
+    const istante = riga.find((c) => c.field === '@timestamp')?.value
+    const dati = comeJson(messaggio)
+    const campi = dati?.fields ?? dati
+    if ((campi?.event ?? dati?.event_type) !== 'user.login' || campi?.success === false) continue
+    const utente = campi.user
+    if (!utente) continue
+    // Insights rende `@timestamp` in UTC senza fuso: senza la `Z` viene letto come ora locale.
+    const quando = istante ? Date.parse(istante.replace(' ', 'T') + 'Z') : null
+    const p = persone.get(utente) ?? { utente, loginOk: 0, teams: null, organizzazione: null, ultimoLoginOk: null }
+    p.loginOk += 1
+    // La query torna gia' dal piu' recente al piu' vecchio: i team li fissa la PRIMA riga che si vede
+    // per quella persona, che e' il suo ultimo login, cioe' i team che aveva l'ultima volta che e'
+    // entrata. Le righe piu' vecchie non li sovrascrivono.
+    if (p.teams == null) {
+      const org = campi.attributes && Object.keys(campi.attributes)[0]
+      const teams = org ? campi.attributes[org] : null
+      if (Array.isArray(teams)) {
+        p.teams = [...teams].sort()
+        p.organizzazione = org
+      }
+    }
+    p.ultimoLoginOk = Math.max(p.ultimoLoginOk ?? 0, quando ?? 0) || null
+    persone.set(utente, p)
+  }
+
+  return {
+    ore,
+    persone: [...persone.values()].sort((a, b) => (b.ultimoLoginOk ?? 0) - (a.ultimoLoginOk ?? 0)),
+    // Al tetto il campione e' parziale, e su una mappa di accessi va detto: mancherebbe chi e' entrato
+    // solo all'inizio della finestra.
+    troncato: (esito.results ?? []).length >= limite,
+    letti: esito.statistics?.recordsScanned ?? null,
+  }
 }
 
 // L'ultima riga di heartbeat per MACCHINA: chi e' partito, con che versione dell'immagine, con che

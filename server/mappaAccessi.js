@@ -9,6 +9,10 @@
 // Le tre fonti, tutte in SOLA LETTURA e tutte gia' raggiungibili (nessun token nuovo):
 //   1. audit del cluster Teleport (CloudWatch, account security) → persona → team GitHub. Il campo
 //      `attributes` dell'evento `user.login` porta i team che il connector ha visto in quel momento.
+//      La lettura e' `teleport.login()`, che interroga i SOLI eventi di login con Logs Insights: non
+//      e' la stessa di `audit()` apposta, e la ragione sta nel commento di quella funzione (in breve:
+//      audit si ferma a 5000 eventi e su una settimana le query si mangiano il tetto, quindi la mappa
+//      usciva vuota mentre la pagina accanto mostrava nove persone).
 //      ⚠️ Sa solo di chi ha fatto login DENTRO la finestra: chi manca non e' senza accessi, e' senza
 //      login recenti, e la pagina lo dice invece di far sembrare vuoto un permesso che c'e'.
 //   2. parametro SSM `/teleport/team-roles` (account security) → team → ruoli Teleport. Lo scrive lo
@@ -27,7 +31,8 @@ import { loadConfig } from './config.js'
 import { resolveServices } from './status.js'
 import { cached } from './util/ttlcache.js'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
-import { conto, statoAccessi } from './accessi.js'
+import { conto } from './accessi.js'
+import * as teleport from './teleport.js'
 import { ssoAccess } from './sso.js'
 
 const PARAM_DEFAULT = '/teleport/team-roles'
@@ -197,6 +202,37 @@ export function componiMappa({ audit = {}, ruoli = {}, sso = {}, cfg = {} } = {}
   return { persone, teams, gruppiSso: rovesciato.gruppi }
 }
 
+// La risposta della rotta, montata a parte dalle tre letture. E' una funzione perche' il primo giro
+// non lo era e si e' rotta proprio qui: il pezzo che elenca i gruppi nominava una variabile rimasta
+// dentro `componiMappa` dopo un riordino, quindi la rotta rispondeva 500 e la pagina mostrava due
+// tabelle vuote, che e' esattamente il modo in cui un guasto si traveste da «non c'e' niente».
+// Le prove la chiamano con le tre fonti finte, comprese quelle rotte.
+export function rispostaMappa({ audit, ruoli = {}, sso = {}, cfg = {}, ore = 168, nomeParam = PARAM_DEFAULT } = {}) {
+  const { persone, teams, gruppiSso } = componiMappa({ audit: audit ?? {}, ruoli, sso, cfg })
+  return {
+    configurato: true,
+    ore,
+    webUrl: cfg.webUrl ?? null,
+    persone,
+    teams,
+    gruppiSso,
+    // Cosa ha risposto e cosa no: senza questo, una fonte muta si legge come «nessun accesso».
+    fonti: {
+      teleport: audit?.errore
+        ? { errore: audit.errore }
+        : audit?.incompleta
+          ? { incompleta: audit.incompleta }
+          : { ok: true, persone: (audit?.persone ?? []).length, troncato: Boolean(audit?.troncato) },
+      ruoli: ruoli.errore
+        ? { errore: ruoli.errore }
+        : ruoli.assente
+          ? { assente: nomeParam }
+          : { ok: true, teams: Object.keys(ruoli.teams ?? {}).length, generato: ruoli.generato, scritto: ruoli.scritto },
+      sso: sso?.errore ? { errore: sso.errore } : sso?.available ? { ok: true, permissionSets: (sso.permissionSets ?? []).length } : { assente: true },
+    },
+  }
+}
+
 export async function mappaAccessi({ ore = 168 } = {}) {
   const cfg = loadConfig().teleport
   if (!cfg) return { configurato: false }
@@ -206,30 +242,20 @@ export async function mappaAccessi({ ore = 168 } = {}) {
   const nomeParam = cfg.ruoliParam ?? PARAM_DEFAULT
   const contoRuoli = conto(accounts, cfg.ruoliAccount ?? cfg.audit?.account)
 
-  const [stato, ruoli, sso] = await Promise.all([
-    statoAccessi({ ore: finestra }).catch((err) => ({ audit: { errore: cleanAwsReason(err) } })),
+  const contoAudit = conto(accounts, cfg.audit?.account)
+
+  const [audit, ruoli, sso] = await Promise.all([
+    contoAudit
+      ? cached(`mappa:login:${finestra}`, 600_000, () => teleport.login(contoAudit, { logGroup: cfg.audit?.logGroup, ore: finestra })).catch((err) => ({
+          errore: cleanAwsReason(err),
+          persone: [],
+        }))
+      : { errore: `account "${cfg.audit?.account ?? '?'}" non configurato in accounts`, persone: [] },
     contoRuoli
       ? cached(`mappa:ruoli:${nomeParam}`, 300_000, () => ruoliPerTeam(contoRuoli, nomeParam)).catch((err) => ({ errore: cleanAwsReason(err), teams: {} }))
       : { errore: `account "${cfg.ruoliAccount ?? cfg.audit?.account ?? '?'}" non configurato in accounts`, teams: {} },
     cached('mappa:sso', 300_000, () => ssoAccess(accounts)).catch((err) => ({ errore: cleanAwsReason(err) })),
   ])
 
-  const audit = stato?.audit ?? {}
-
-  const { persone, teams, gruppiSso } = componiMappa({ audit, ruoli, sso, cfg })
-
-  return {
-    configurato: true,
-    ore: finestra,
-    webUrl: cfg.webUrl ?? null,
-    persone,
-    teams,
-    gruppiSso: rovesciato.gruppi,
-    // Cosa ha risposto e cosa no: senza questo, una fonte muta si legge come «nessun accesso».
-    fonti: {
-      teleport: audit.errore ? { errore: audit.errore } : { ok: true, persone: (audit.persone ?? []).length },
-      ruoli: ruoli.errore ? { errore: ruoli.errore } : ruoli.assente ? { assente: nomeParam } : { ok: true, teams: Object.keys(ruoli.teams ?? {}).length, generato: ruoli.generato, scritto: ruoli.scritto },
-      sso: sso?.errore ? { errore: sso.errore } : sso?.available ? { ok: true, permissionSets: (sso.permissionSets ?? []).length } : { assente: true },
-    },
-  }
+  return rispostaMappa({ audit, ruoli, sso, cfg, ore: finestra, nomeParam })
 }
