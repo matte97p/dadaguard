@@ -105,6 +105,33 @@ test('audit: un tentativo rifiutato non e\' una sessione, e porta con se\' il mo
   assert.equal(entra.sessioniDbNegate, 0)
 })
 
+test('audit: del rifiuto si tiene la COPPIA utente-di-database + database, non solo il conteggio', async () => {
+  // ⚠️ Il punto: «2 accessi negati» non dice cosa fare. Il 01/09/2026 dietro quel numero c'erano
+  // richieste diverse (`postgres` e `supabase_admin`), cioe' due rimedi diversi, e la pagina mostrava
+  // un numero solo. Qui si prova che le coppie escono separate, contate e ordinate.
+  const { audit } = await conEventi([
+    SESSIONE_DB_NEGATA('chi-sbatte', 1000, 'postgres'),
+    SESSIONE_DB_NEGATA('chi-sbatte', 2000, 'supabase_admin'),
+    SESSIONE_DB_NEGATA('chi-sbatte', 3000, 'supabase_admin'),
+    SESSIONE_DB('chi-entra', 4000),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const sbatte = out.persone.find((p) => p.utente === 'chi-sbatte')
+  assert.deepEqual(
+    sbatte.negati.map((n) => [n.dbUser, n.nome, n.servizio, n.quante]),
+    [
+      ['supabase_admin', 'postgres', 'un-db-di-produzione', 2],
+      ['postgres', 'postgres', 'un-db-di-produzione', 1],
+    ],
+  )
+  assert.equal(sbatte.negati[0].ultima, 3000)
+  // Chi non ha sbattuto ha la lista VUOTA, non `undefined`: la pagina ci fa un `.map` sopra.
+  assert.deepEqual(out.persone.find((p) => p.utente === 'chi-entra').negati, [])
+  // Le stesse coppie anche a livello di pagina, per chi guarda «cosa si e' rotto» prima di «a chi».
+  assert.equal(out.negati.length, 2)
+  assert.equal(out.negati[0].utente, 'chi-sbatte')
+})
+
 test('audit: fra due motivi vince il piu\' RECENTE, non l\'ultimo letto', async () => {
   // ⚠️ `FilterLogEvents` ordina per stream e non fra stream diversi, quindi le righe arrivano anche
   // fuori ordine: senza il confronto sugli istanti il motivo mostrato dipende da come sono spezzati
