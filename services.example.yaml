@@ -235,7 +235,6 @@ services:
 # expectedHealthy:
 #   staging/acme-staging-postgres-writer: 1
 
-
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # Accessi: chi entra dove (audit del cluster Teleport) e chi ha il dev-env indietro (heartbeat).
 # Senza questa sezione la pagina Accessi non mostra un vuoto: dice che manca la config.
