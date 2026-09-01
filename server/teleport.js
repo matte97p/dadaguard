@@ -89,7 +89,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       // conteggio da solo le racconta identiche. Sono separati da `ultima`, che e' l'ultimo evento di
       // QUALSIASI tipo: una persona che dopo le fallite e' entrata ha `ultima` recente e la raffica
       // finita mezz'ora prima.
-      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: 0, sessioniDbNegate: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
+      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: 0, sessioniDbNegate: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null, teams: null, organizzazione: null, ultimoLoginOk: null })
     }
     return persone.get(nome)
   }
@@ -150,6 +150,22 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         }
       } else {
         p.loginOk += 1
+        const quando = ev.timestamp ?? 0
+        p.ultimoLoginOk = Math.max(p.ultimoLoginOk ?? 0, quando)
+        // I TEAM che il connector ha visto al login, dentro `attributes` come { organizzazione: [team] }.
+        // E' la fonte viva di «di che team fa parte questa persona» senza un token GitHub, ed e' anche
+        // quella giusta: i ruoli del certificato li decide esattamente questa lista, non l'organigramma.
+        // ⚠️ Sono i team di cui e' membro DIRETTO: GitHub, all'endpoint che Teleport usa, non risale ai
+        // team padre, ed e' il motivo per cui la scala dei ruoli ripete il baseline su ogni gradino.
+        const org = campi.attributes && Object.keys(campi.attributes)[0]
+        const teams = org ? campi.attributes[org] : null
+        // L'ultimo login per TEMPO vince: se qualcuno e' entrato in un team stamattina, la lista di
+        // stamattina e' quella vera, e `FilterLogEvents` non ordina fra stream diversi.
+        if (Array.isArray(teams) && quando >= (p.teamsQuando ?? 0)) {
+          p.teams = [...teams].sort()
+          p.organizzazione = org
+          p.teamsQuando = quando
+        }
       }
     } else if (tipo === 'db.session.start') {
       // ⚠️ Un tentativo RIFIUTATO non e' una sessione, e sommarlo alle altre e' il modo in cui
@@ -207,7 +223,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   }
 
   const elenco = [...persone.values()]
-    .map(({ motivoQuando, ...p }) => p)
+    .map(({ motivoQuando, teamsQuando, ...p }) => p)
     .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   const db = [...database.values()]
     .map((d) => ({ ...d, persone: d.persone.size, scriventi: [...d.scriventi] }))

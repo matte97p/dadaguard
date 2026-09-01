@@ -17,7 +17,7 @@ import * as teleport from './teleport.js'
 
 // ⚠️ Le credenziali di un account si compongono dai suoi CAMPI (`roleArn` + `externalId` in cloud,
 // `profile` in locale), come fa `awsForAccount` in iam.js.
-const conto = (accounts, nome) => {
+export const conto = (accounts, nome) => {
   const acc = accounts?.[nome]
   if (!acc) return null
   return { profile: acc.profile, roleArn: acc.roleArn, externalId: acc.externalId, region: acc.region || 'eu-central-1' }

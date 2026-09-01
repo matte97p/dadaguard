@@ -34,6 +34,7 @@ import { listLayers, startPlan, getJob } from './driftFull.js'
 import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
+import { demoMappaAccessi } from './demo.js'
 import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import * as teleport from './teleport.js'
@@ -43,6 +44,7 @@ import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { statoAccessi } from './accessi.js'
+import { mappaAccessi } from './mappaAccessi.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -436,6 +438,20 @@ app.get('/api/teleport', async (req, res) => {
     // La composizione sta in `server/accessi.js`, condivisa col watchdog: una regola che deve parlare
     // su Slack ha bisogno esattamente di questi numeri, e riscriverli la' sarebbe la seconda verita'.
     res.json(await statoAccessi({ ore: req.query.ore }))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// La MAPPA degli accessi: per ogni persona i team GitHub (e quindi i ruoli Teleport) e i permission
+// set di Identity Center, in una riga sola. Tre letture in sola lettura, gia' concesse: audit del
+// cluster, il parametro SSM che lo script del connector scrive, e Identity Center. La finestra e' piu'
+// larga di quella della pagina Accessi (7 giorni di default) perche' qui la domanda non e' «cosa sta
+// succedendo adesso» ma «chi ha cosa», e una persona che non entra da tre giorni deve comparire.
+app.get('/api/accessi/mappa', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoMappaAccessi())
+    res.json(await mappaAccessi({ ore: req.query.ore }))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
