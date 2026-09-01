@@ -117,6 +117,14 @@ function Nome({ href, children }) {
   )
 }
 
+// Le viste di PRIMA, che restano valide come indirizzo. Erano sei tabelle e sei interruttori, e per
+// sapere com'era andata la giornata bisognava aprirli tutti e sei; ora sono quattro domande, e due di
+// quelle raccolgono due tabelle ciascuna. Un `?vista=persone` mandato in chat il mese scorso deve
+// continuare ad aprire la pagina giusta invece di cadere sulla prima: un link rotto lo scopre chi lo
+// riceve, non chi lo ha mandato.
+const VISTE_VECCHIE = { persone: 'chi', ssh: 'chi', mappa: 'chiHaCosa', team: 'chiHaCosa' }
+const normalizzaVista = (v) => VISTE_VECCHIE[v] ?? v
+
 export default function AccessiPage({ t, lang }) {
   // La finestra la sceglie chi guarda, e vale solo per l'AUDIT: l'heartbeat è per definizione «l'ultima
   // riga di ogni macchina» su sette giorni, e restringerlo a 24 ore farebbe sparire dalla mappa proprio
@@ -127,17 +135,21 @@ export default function AccessiPage({ t, lang }) {
   // la pagina IAM prende la sua lente da `?view=`.
   const [params, setParams] = useSearchParams()
   const [ricordata, setRicordata] = useState(() =>
-    typeof localStorage === 'undefined' ? 'persone' : (localStorage.getItem('dadaguard-accessi-view') ?? 'persone'),
+    typeof localStorage === 'undefined' ? 'chi' : normalizzaVista(localStorage.getItem('dadaguard-accessi-view') ?? 'chi'),
   )
-  const vista = params.get('vista') ?? ricordata
+  const vista = normalizzaVista(params.get('vista') ?? ricordata)
   const [soloProblemi, setSoloProblemi] = useState(false)
   const [query, setQuery] = useState('')
 
+  // ⚠️ Si normalizza QUI e non solo in lettura: i link della sintesi in cima chiedono ancora la vista
+  // per NOME della tabella (`persone`, `ssh`), che e' il verso giusto per chi li scrive, e senza questo
+  // passaggio scriverebbero nell'URL una vista che non esiste piu'.
   const scegliVista = (v) => {
-    setRicordata(v)
-    if (typeof localStorage !== 'undefined') localStorage.setItem('dadaguard-accessi-view', v)
+    const scelta = normalizzaVista(v)
+    setRicordata(scelta)
+    if (typeof localStorage !== 'undefined') localStorage.setItem('dadaguard-accessi-view', scelta)
     const prossimi = new URLSearchParams(params)
-    prossimi.set('vista', v)
+    prossimi.set('vista', scelta)
     setParams(prossimi, { replace: true })
   }
 
@@ -151,7 +163,7 @@ export default function AccessiPage({ t, lang }) {
   // domanda non e' «cosa succede adesso» ma «chi ha cosa», quindi sette giorni e un giro ogni due
   // minuti. Si carica SOLO quando la sua tabella e' quella aperta: sono tre chiamate AWS, e farle a
   // ogni giro anche a chi guarda le login fallite sarebbe lavoro buttato.
-  const mappaAttiva = vista === 'mappa' || vista === 'team'
+  const mappaAttiva = vista === 'chiHaCosa'
   const { data: mappa, refreshing: mappaRefreshing, error: mappaErrore } = usePoll('/api/accessi/mappa?ore=168', {
     intervalMs: 120000,
     enabled: mappaAttiva,
@@ -686,125 +698,144 @@ export default function AccessiPage({ t, lang }) {
     },
   ]
 
+  // ── Le TABELLE, e poi le viste che le raccolgono ──────────────────────────────────────────────
+  //
+  // Prima erano sei tabelle e sei interruttori, in fila: per sapere com'era andata la giornata si
+  // aprivano tutti e sei, e nessuno dei sei diceva se negli altri cinque ci fosse qualcosa. Le domande
+  // pero' sono quattro, non sei: «chi entra» e' la stessa domanda per le login e per le sessioni sulle
+  // macchine, «chi ha cosa» la stessa per le persone e per i team. Quindi una vista puo' avere piu'
+  // tabelle, l'interruttore conta e segnala per tutte quelle che ha dentro, e il filtro le attraversa.
+  //
+  // L'ORDINE e' quello dell'urgenza, non quello in cui sono state scritte: prima chi non riesce a
+  // entrare o ha sbattuto contro un permesso, poi cosa si sta toccando sui database, poi chi ha il
+  // dev-env indietro, e in fondo gli elenchi da consultare, che non hanno mai una riga rotta.
+  const tabellaPersone = {
+    titolo: t('accessi.persone'),
+    righe: persone,
+    colonne: colonnePersone,
+    rowKey: (r) => r.utente,
+    problema: problemaPersona,
+    livello: 'crit',
+    // Cercare `dev_readwrite` deve trovare chi l'ha chiesto: e' il verso da cui arriva la domanda
+    // quando il nome della persona non lo si sa ancora.
+    cerca: (p) => [p.utente, p.motivo, ...(p.negati ?? []).flatMap((n) => [n.dbUser, n.nome, n.servizio])],
+    vuoto: t('accessi.nessunAccesso'),
+    finestra: finestraDetta,
+  }
+
+  const tabellaSsh = {
+    titolo: t('accessi.ssh'),
+    righe: ssh,
+    colonne: colonneSsh,
+    rowKey: (r) => r.macchina,
+    problema: problemaSsh,
+    livello: 'crit',
+    cerca: (m) => [m.macchina, ...(m.chi ?? [])],
+    vuoto: t('accessi.nessunaSsh'),
+    finestra: finestraDetta,
+    nota: t('accessi.sshRegistrate'),
+  }
+
+  const tabellaDatabase = {
+    titolo: t('accessi.database'),
+    righe: database,
+    colonne: colonneDatabase,
+    rowKey: (r) => `${r.servizio}/${r.nome}`,
+    problema: problemaDatabase,
+    livello: 'crit',
+    cerca: (d) => [d.nome, d.servizio, d.ambiente],
+    vuoto: t('accessi.nessunaQuery'),
+    finestra: finestraDetta,
+  }
+
+  const tabellaMacchine = {
+    titolo: t('accessi.devEnv'),
+    righe: macchine,
+    colonne: colonneMacchine,
+    rowKey: (r) => `${r.macchina}/${r.lato}`,
+    problema: (m) => problemaMacchina(m, riferimento, dataRif),
+    livello: 'warn',
+    cerca: (m) => [m.macchina, m.utente, m.immagine],
+    vuoto: t('accessi.nessunAvvio'),
+    // ⚠️ La data della GOLDEN IMAGE, in chiaro e non solo come «indietro di N giorni». La pagina
+    // sapeva gia' confrontare le immagini fra loro, ma non diceva da quando esiste quella buona:
+    // chi apre questa vista chiede prima di tutto «l'immagine e' stata aggiornata?», e un elenco di
+    // digest non risponde. Se nessun avvio manda la data si dice quello, invece di lasciare il buco.
+    nota:
+      dataRif != null
+        ? t('accessi.golden.del', {
+            digest: digestCorto(riferimento.immagine) || '—',
+            data: dataCorta(dataRif, lang),
+            quando: fmtAgo(dataRif, t),
+          })
+        : t('accessi.golden.senzaData'),
+    finestra: `${t('accessi.ultimiGiorni', { n: battito.giorni ?? 7 })} · ${
+      // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la
+      // DATA dell'immagine più recente vista (che è un ordine, quindi «indietro di N giorni» è un
+      // fatto), oppure niente, quando gli avvii non mandano ancora la data.
+      riferimento.fonte === 'config'
+        ? t('accessi.fonte.config')
+        : dataRif != null
+          ? t('accessi.fonte.data')
+          : t('accessi.fonte.vista')
+    }`,
+  }
+
+  // Le due tabelle di «chi ha cosa»: nessun pallino di allarme, e non e' una dimenticanza. Qui non
+  // c'e' una riga rotta da far emergere, c'e' un elenco da consultare, ed e' la ragione per cui sta
+  // in fondo e non in mezzo alle altre.
+  const tabellaMappa = {
+    titolo: t('accessi.mappa.persone'),
+    righe: mappa?.persone ?? [],
+    colonne: colonneMappa,
+    rowKey: (r) => r.persona,
+    problema: () => false,
+    livello: 'warn',
+    cerca: (r) => [r.persona, r.ssoUtente, ...(r.teams ?? []), ...(r.ruoli ?? []), ...(r.gruppiSso ?? [])],
+    vuoto: t('accessi.mappa.vuoto'),
+    finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
+    nota: notaFonti,
+  }
+
+  const tabellaTeam = {
+    titolo: t('accessi.mappa.team'),
+    righe: mappa?.teams ?? [],
+    colonne: colonneTeam,
+    rowKey: (r) => r.team,
+    problema: () => false,
+    livello: 'warn',
+    cerca: (r) => [r.team, ...(r.ruoli ?? []), ...(r.membri ?? [])],
+    vuoto: t('accessi.mappa.vuotoTeam'),
+    finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
+    nota: notaFonti,
+  }
+
+  // I nomi delle viste sono la DOMANDA a cui rispondono, non il nome della tabella: «Persone» e
+  // «SSH» dicono cosa c'e' dentro a chi gia' lo sa, e chi apre la pagina durante un guasto non lo sa.
   const viste = [
-    {
-      value: 'persone',
-      label: t('accessi.view.persone'),
-      titolo: t('accessi.persone'),
-      righe: persone,
-      colonne: colonnePersone,
-      rowKey: (r) => r.utente,
-      problema: problemaPersona,
-      livello: 'crit',
-      // Cercare `dev_readwrite` deve trovare chi l'ha chiesto: e' il verso da cui arriva la domanda
-      // quando il nome della persona non lo si sa ancora.
-      cerca: (p) => [p.utente, p.motivo, ...(p.negati ?? []).flatMap((n) => [n.dbUser, n.nome, n.servizio])],
-      vuoto: t('accessi.nessunAccesso'),
-      finestra: finestraDetta,
-    },
-    {
-      value: 'database',
-      label: t('accessi.view.database'),
-      titolo: t('accessi.database'),
-      righe: database,
-      colonne: colonneDatabase,
-      rowKey: (r) => `${r.servizio}/${r.nome}`,
-      problema: problemaDatabase,
-      livello: 'crit',
-      cerca: (d) => [d.nome, d.servizio, d.ambiente],
-      vuoto: t('accessi.nessunaQuery'),
-      finestra: finestraDetta,
-    },
-    {
-      value: 'devEnv',
-      label: t('accessi.view.devEnv'),
-      titolo: t('accessi.devEnv'),
-      righe: macchine,
-      colonne: colonneMacchine,
-      rowKey: (r) => `${r.macchina}/${r.lato}`,
-      problema: (m) => problemaMacchina(m, riferimento, dataRif),
-      livello: 'warn',
-      cerca: (m) => [m.macchina, m.utente, m.immagine],
-      vuoto: t('accessi.nessunAvvio'),
-      // ⚠️ La data della GOLDEN IMAGE, in chiaro e non solo come «indietro di N giorni». La pagina
-      // sapeva gia' confrontare le immagini fra loro, ma non diceva da quando esiste quella buona:
-      // chi apre questa vista chiede prima di tutto «l'immagine e' stata aggiornata?», e un elenco di
-      // digest non risponde. Se nessun avvio manda la data (dev-env non ancora aggiornato) si dice
-      // quello, invece di lasciare il posto vuoto.
-      nota:
-        dataRif != null
-          ? t('accessi.golden.del', {
-              digest: digestCorto(riferimento.immagine) || '—',
-              data: dataCorta(dataRif, lang),
-              quando: fmtAgo(dataRif, t),
-            })
-          : t('accessi.golden.senzaData'),
-      finestra: `${t('accessi.ultimiGiorni', { n: battito.giorni ?? 7 })} · ${
-        // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la
-        // DATA dell'immagine più recente vista (che è un ordine, quindi «indietro di N giorni» è un
-        // fatto), oppure niente, quando gli avvii non mandano ancora la data.
-        riferimento.fonte === 'config'
-          ? t('accessi.fonte.config')
-          : dataRif != null
-            ? t('accessi.fonte.data')
-            : t('accessi.fonte.vista')
-      }`,
-    },
-    {
-      value: 'ssh',
-      label: t('accessi.view.ssh'),
-      titolo: t('accessi.ssh'),
-      righe: ssh,
-      colonne: colonneSsh,
-      rowKey: (r) => r.macchina,
-      problema: problemaSsh,
-      livello: 'crit',
-      cerca: (m) => [m.macchina, ...(m.chi ?? [])],
-      vuoto: t('accessi.nessunaSsh'),
-      finestra: finestraDetta,
-      nota: t('accessi.sshRegistrate'),
-    },
-    // ── Le due tabelle della MAPPA. Stanno in fondo perche' rispondono a una domanda diversa dalle
-    // altre: non «cosa sta succedendo», ma «chi ha cosa». Nessun pallino di allarme, e non e' una
-    // dimenticanza: qui non c'e' una riga rotta da far emergere, c'e' un elenco da consultare.
-    {
-      value: 'mappa',
-      label: t('accessi.view.mappa'),
-      titolo: t('accessi.mappa.persone'),
-      righe: mappa?.persone ?? [],
-      colonne: colonneMappa,
-      rowKey: (r) => r.persona,
-      problema: () => false,
-      livello: 'warn',
-      cerca: (r) => [r.persona, r.ssoUtente, ...(r.teams ?? []), ...(r.ruoli ?? []), ...(r.gruppiSso ?? [])],
-      vuoto: t('accessi.mappa.vuoto'),
-      finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
-      nota: notaFonti,
-    },
-    {
-      value: 'team',
-      label: t('accessi.view.team'),
-      titolo: t('accessi.mappa.team'),
-      righe: mappa?.teams ?? [],
-      colonne: colonneTeam,
-      rowKey: (r) => r.team,
-      problema: () => false,
-      livello: 'warn',
-      cerca: (r) => [r.team, ...(r.ruoli ?? []), ...(r.membri ?? [])],
-      vuoto: t('accessi.mappa.vuotoTeam'),
-      finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
-      nota: notaFonti,
-    },
+    { value: 'chi', label: t('accessi.view.chi'), tabelle: [tabellaPersone, tabellaSsh] },
+    { value: 'database', label: t('accessi.view.database'), tabelle: [tabellaDatabase] },
+    { value: 'devEnv', label: t('accessi.view.devEnv'), tabelle: [tabellaMacchine] },
+    { value: 'chiHaCosa', label: t('accessi.view.chiHaCosa'), tabelle: [tabellaMappa, tabellaTeam] },
   ]
 
   const attiva = viste.find((v) => v.value === vista) ?? viste[0]
-  const righe = filtraRighe(attiva.righe, {
-    problema: attiva.problema,
-    cerca: attiva.cerca,
-    query,
-    soloProblemi,
-  })
+  // Il filtro e la ricerca attraversano TUTTE le tabelle della vista: una riga nascosta in una
+  // tabella e mostrata nell'altra sarebbe lo stesso interruttore con due significati.
+  const mostrate = attiva.tabelle.map((tb) => ({
+    ...tb,
+    filtrate: filtraRighe(tb.righe, { problema: tb.problema, cerca: tb.cerca, query, soloProblemi }),
+  }))
   const filtrato = Boolean(query.trim()) || soloProblemi
+  // Quante righe ha una vista e quante ne chiedono un intervento: il conteggio e il pallino
+  // dell'interruttore valgono per tutte le sue tabelle, sennò una tabella chiusa nasconde un segnale.
+  const quanteRighe = (v) => v.tabelle.reduce((n, tb) => n + tb.righe.length, 0)
+  const quantiGuasti = (v) => v.tabelle.reduce((n, tb) => n + tb.righe.filter(tb.problema).length, 0)
+  // Il colore del pallino: quello della tabella messa peggio fra le sue, non della prima.
+  const livelloVista = (v) =>
+    v.tabelle.find((tb) => tb.livello === 'crit' && tb.righe.some(tb.problema))?.livello ??
+    v.tabelle.find((tb) => tb.righe.some(tb.problema))?.livello ??
+    v.tabelle[0].livello
 
 
   return (
@@ -823,7 +854,7 @@ export default function AccessiPage({ t, lang }) {
               value={attiva.value}
               onChange={scegliVista}
               options={viste.map((v) => {
-                const guasti = v.righe.filter(v.problema).length
+                const guasti = quantiGuasti(v)
                 return {
                   value: v.value,
                   label: (
@@ -832,7 +863,7 @@ export default function AccessiPage({ t, lang }) {
                       title={guasti ? t('accessi.daGuardare', { n: guasti }) : undefined}
                     >
                       {v.label}
-                      <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{v.righe.length}</span>
+                      <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{quanteRighe(v)}</span>
                       {guasti > 0 && (
                         <span
                           aria-label={t('accessi.daGuardare', { n: guasti })}
@@ -841,7 +872,7 @@ export default function AccessiPage({ t, lang }) {
                             width: 6,
                             height: 6,
                             borderRadius: 3,
-                            background: LEVEL[v.livello].color,
+                            background: LEVEL[livelloVista(v)].color,
                             display: 'inline-block',
                           }}
                         />
@@ -983,7 +1014,12 @@ export default function AccessiPage({ t, lang }) {
 
       {audit.errore && <Alert type="warning" showIcon message={audit.errore} style={{ marginBottom: SPACE.md }} />}
       {battito.errore && <Alert type="warning" showIcon message={battito.errore} style={{ marginBottom: SPACE.md }} />}
-      {audit.motivoPiuComune && (
+      {/* ⚠️ Gli avvisi che seguono stanno DOVE si agisce, non in cima a qualunque vista. Prima erano
+          tutti sempre in pagina: chi apriva i database si prendeva tre righe sul dev-env prima di
+          arrivare alla tabella, e il quarto avviso di fila non lo legge piu' nessuno. Restano sopra a
+          tutto solo i guasti di lettura (l'audit che non risponde) e la riga verde: quelli parlano
+          della pagina intera. */}
+      {attiva.value === 'chi' && audit.motivoPiuComune && (
         <Alert
           type="error"
           showIcon
@@ -995,7 +1031,7 @@ export default function AccessiPage({ t, lang }) {
           («la più nuova che qualcuno ha visto») questo caso è invisibile, perché se nessuno ha
           aggiornato il riferimento è la vecchia e tutti risultano pari: è il buco che questa riga
           chiude, e la ragione per cui il campo di config esiste. */}
-      {nessunoAggiornato && (
+      {attiva.value === 'devEnv' && nessunoAggiornato && (
         <Alert type="error" showIcon message={t('accessi.nessunoAggiornato')} style={{ marginBottom: SPACE.md }} />
       )}
       {/* ⚠️ Prima diceva «qualcuno è rimasto indietro» su un dato che non lo sa. Con cinque macchine e
@@ -1005,33 +1041,34 @@ export default function AccessiPage({ t, lang }) {
       {/* Con le DATE l'avviso dice un fatto: quante macchine sono indietro e di quanto. Senza (dev-env
           non ancora aggiornato, quindi nessuna data) resta la frase che spiega perche' da qui non si
           puo' dire, che e' l'unica cosa onesta con dei soli digest in mano. */}
-      {dataRif != null
-        ? macchineIndietro.length > 0 && (
-            <Alert
-              type="warning"
-              showIcon
-              message={t('accessi.indietroN', {
-                n: macchineIndietro.length,
-                g: Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0)),
-              })}
-              style={{ marginBottom: SPACE.md }}
-            />
-          )
-        : versioniInGiro > 1 && (
-            <Alert
-              type={riferimento.fonte === 'config' ? 'warning' : 'info'}
-              showIcon
-              message={
-                riferimento.fonte === 'config'
-                  ? t('accessi.versioniDiverse', { n: versioniInGiro })
-                  : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
-              }
-              style={{ marginBottom: SPACE.md }}
-            />
-          )}
+      {attiva.value === 'devEnv' &&
+        (dataRif != null
+          ? macchineIndietro.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={t('accessi.indietroN', {
+                  n: macchineIndietro.length,
+                  g: Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0)),
+                })}
+                style={{ marginBottom: SPACE.md }}
+              />
+            )
+          : versioniInGiro > 1 && (
+              <Alert
+                type={riferimento.fonte === 'config' ? 'warning' : 'info'}
+                showIcon
+                message={
+                  riferimento.fonte === 'config'
+                    ? t('accessi.versioniDiverse', { n: versioniInGiro })
+                    : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
+                }
+                style={{ marginBottom: SPACE.md }}
+              />
+            ))}
       {/* Le macchine che non hanno dichiarato la versione: contate a parte, perché non sono «indietro»
           e non sono «pari», e finivano dentro il conteggio delle versioni come se fossero una versione. */}
-      {battito.senzaVersione > 0 && (
+      {attiva.value === 'devEnv' && battito.senzaVersione > 0 && (
         <Alert
           type="info"
           showIcon
@@ -1043,29 +1080,34 @@ export default function AccessiPage({ t, lang }) {
         <Alert type="success" showIcon message={t('accessi.tuttoTranquillo')} style={{ marginBottom: SPACE.md }} />
       )}
 
-      <Section
-        title={attiva.titolo}
-        aside={
-          <Text type="secondary" style={{ fontSize: FONT.small }}>
-            {attiva.finestra}
-          </Text>
-        }
-      >
-        <Table
-          size="small"
-          className="dg-sticky"
-          rowKey={attiva.rowKey}
-          pagination={false}
-          columns={attiva.colonne}
-          dataSource={righe}
-          locale={{ emptyText: filtrato && attiva.righe.length ? t('accessi.nessunRisultato') : attiva.vuoto }}
-        />
-        {attiva.nota && righe.length > 0 && (
-          <Text type="secondary" style={{ display: 'block', marginTop: SPACE.sm, fontSize: FONT.small }}>
-            {attiva.nota}
-          </Text>
-        )}
-      </Section>
+      {/* Una sezione per tabella: le viste che ne hanno due le mostrano una sotto l'altra, invece di
+          chiedere un altro clic per una domanda che e' la stessa. */}
+      {mostrate.map((tb) => (
+        <Section
+          key={tb.titolo}
+          title={tb.titolo}
+          aside={
+            <Text type="secondary" style={{ fontSize: FONT.small }}>
+              {tb.finestra}
+            </Text>
+          }
+        >
+          <Table
+            size="small"
+            className="dg-sticky"
+            rowKey={tb.rowKey}
+            pagination={false}
+            columns={tb.colonne}
+            dataSource={tb.filtrate}
+            locale={{ emptyText: filtrato && tb.righe.length ? t('accessi.nessunRisultato') : tb.vuoto }}
+          />
+          {tb.nota && tb.filtrate.length > 0 && (
+            <Text type="secondary" style={{ display: 'block', marginTop: SPACE.sm, fontSize: FONT.small }}>
+              {tb.nota}
+            </Text>
+          )}
+        </Section>
+      ))}
 
       {dati.webUrl && (
         <Space style={{ marginTop: SPACE.lg }}>
