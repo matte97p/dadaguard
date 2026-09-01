@@ -9,6 +9,7 @@ import { LEVEL, SPACE, FONT } from '../theme.js'
 import {
   avvioStorto,
   daGuardare,
+  dataImmagine,
   digestCorto,
   durataFallite,
   filtraRighe,
@@ -90,6 +91,11 @@ function Quando({ ts, t, lang }) {
     </Tooltip>
   )
 }
+
+// La data in chiaro, senza l'ora: per «quando e' stata costruita quest'immagine» il minuto non serve,
+// e una data assoluta e' quello che si chiede quando si vuole sapere se la golden image e' stata
+// aggiornata (il relativo, «8g fa», risponde a un'altra domanda e la pagina lo dice a parte).
+const dataCorta = (ts, lang) => new Date(ts).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB')
 
 // I comparatori delle colonne: servono ad antd per il riordino a mano, e non sono regole della pagina
 // (quelle stanno in `web/accessi.js`, provate).
@@ -238,13 +244,30 @@ export default function AccessiPage({ t, lang }) {
       key: 'sessioniDb',
       sorter: numerico('sessioniDb'),
       render: (_, r) => (
-        <Space size={SPACE.xs}>
-          <Text type={r.sessioniDb ? undefined : 'secondary'}>{r.sessioniDb ?? 0}</Text>
-          {r.sessioniDbNegate > 0 && (
-            <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
-              {t('accessi.dbNegateN', { n: r.sessioniDbNegate })}
-            </Tag>
-          )}
+        <Space direction="vertical" size={0}>
+          <Space size={SPACE.xs}>
+            <Text type={r.sessioniDb ? undefined : 'secondary'}>{r.sessioniDb ?? 0}</Text>
+            {r.sessioniDbNegate > 0 && (
+              <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
+                {t('accessi.dbNegateN', { n: r.sessioniDbNegate })}
+              </Tag>
+            )}
+          </Space>
+          {/* COSA ha chiesto, non solo quante volte: il rimedio sta nella coppia utente+database, e il
+              conteggio da solo la nasconde. Dietro i quattordici rifiuti del 01/09/2026 c'erano tre
+              problemi diversi (`dev_readwrite` chiesto al tunnel di sola lettura, il proprio nome dove
+              l'utente e' uno solo, `postgres` dove non si concede mai), e da «14 accessi negati» non se
+              ne ricavava nessuno. Si mostrano TUTTE le coppie: sono una o due, e un «+2» nascosto
+              rimanda a un'altra pagina proprio la persona che ha fretta. */}
+          {(r.negati ?? []).map((n) => (
+            <Text
+              key={`${n.dbUser}/${n.servizio}/${n.nome}`}
+              type="secondary"
+              style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}
+            >
+              {t('accessi.negatoCombo', { n: n.quante, dbUser: n.dbUser, db: n.nome, servizio: n.servizio })}
+            </Text>
+          ))}
         </Space>
       ),
     },
@@ -366,7 +389,8 @@ export default function AccessiPage({ t, lang }) {
       key: 'immagine',
       sorter: testuale('immagine'),
       render: (v, r) => (
-        <Space size={SPACE.xs}>
+        <Space direction="vertical" size={0}>
+          <Space size={SPACE.xs}>
           {/* Tre stati diversi, e prima erano due. «Non dichiarata» non è una versione vecchia: è una
               riga in cui l'avvio non ha potuto leggere l'immagine, e mostrarla come un digest a metà
               la faceva sembrare una versione (e contare fra quelle «in giro»). */}
@@ -388,6 +412,15 @@ export default function AccessiPage({ t, lang }) {
                 : t('accessi.img.indietro')}
             </Tag>
           ) : null}
+          </Space>
+          {/* QUANDO e' stata costruita l'immagine che ha in mano. Il digest non ha un ordine e «indietro
+              di 8 giorni» lo dice il tag solo quando c'e' un riferimento: senza la data in chiaro, chi
+              guarda una riga sola non sa se la sua immagine e' di ieri o di marzo. */}
+          {dataImmagine(r) != null && (
+            <Text type="secondary" style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}>
+              {t('accessi.img.del', { data: dataCorta(dataImmagine(r), lang) })}
+            </Text>
+          )}
         </Space>
       ),
     },
@@ -663,7 +696,9 @@ export default function AccessiPage({ t, lang }) {
       rowKey: (r) => r.utente,
       problema: problemaPersona,
       livello: 'crit',
-      cerca: (p) => [p.utente, p.motivo],
+      // Cercare `dev_readwrite` deve trovare chi l'ha chiesto: e' il verso da cui arriva la domanda
+      // quando il nome della persona non lo si sa ancora.
+      cerca: (p) => [p.utente, p.motivo, ...(p.negati ?? []).flatMap((n) => [n.dbUser, n.nome, n.servizio])],
       vuoto: t('accessi.nessunAccesso'),
       finestra: finestraDetta,
     },
@@ -691,6 +726,19 @@ export default function AccessiPage({ t, lang }) {
       livello: 'warn',
       cerca: (m) => [m.macchina, m.utente, m.immagine],
       vuoto: t('accessi.nessunAvvio'),
+      // ⚠️ La data della GOLDEN IMAGE, in chiaro e non solo come «indietro di N giorni». La pagina
+      // sapeva gia' confrontare le immagini fra loro, ma non diceva da quando esiste quella buona:
+      // chi apre questa vista chiede prima di tutto «l'immagine e' stata aggiornata?», e un elenco di
+      // digest non risponde. Se nessun avvio manda la data (dev-env non ancora aggiornato) si dice
+      // quello, invece di lasciare il posto vuoto.
+      nota:
+        dataRif != null
+          ? t('accessi.golden.del', {
+              digest: digestCorto(riferimento.immagine) || '—',
+              data: dataCorta(dataRif, lang),
+              quando: fmtAgo(dataRif, t),
+            })
+          : t('accessi.golden.senzaData'),
       finestra: `${t('accessi.ultimiGiorni', { n: battito.giorni ?? 7 })} · ${
         // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la
         // DATA dell'immagine più recente vista (che è un ordine, quindi «indietro di N giorni» è un

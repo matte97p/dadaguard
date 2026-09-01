@@ -114,6 +114,20 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     return database.get(k)
   }
 
+  // I tentativi RIFIUTATI, per coppia persona + utente-di-database + database. Il conteggio da solo
+  // dice che qualcuno ha sbattuto; il rimedio sta in QUESTA coppia. Il 01/09/2026 tre persone hanno
+  // preso quattordici rifiuti in un giorno e nessuno dei tre aveva lo stesso problema: chi chiedeva
+  // `dev_readwrite` al tunnel di sola lettura, chi il proprio nome dove l'utente e' uno solo, chi
+  // `postgres` o `supabase_admin`, che quel tunnel non concede mai. Tre rimedi diversi dietro lo
+  // stesso numero.
+  const negati = new Map()
+  const perNegato = (utente, dbUser, dbName, servizio) => {
+    const k = [utente, dbUser ?? '?', dbName ?? '?', servizio ?? '?'].join('\u0000')
+    if (!negati.has(k))
+      negati.set(k, { utente, dbUser: dbUser ?? '?', nome: dbName ?? '?', servizio: servizio ?? '?', quante: 0, ultima: null })
+    return negati.get(k)
+  }
+
   // Sessioni SSH per MACCHINA: chi e' entrato, quante volte, e quando l'ultima. La chiave e' il nodo e
   // non la persona, perche' la domanda arriva sempre da quel verso: «chi e' stato sul mio Mac?».
   const macchine = new Map()
@@ -175,6 +189,9 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       if (campi.success === false) {
         p.sessioniDbNegate += 1
         const quando = ev.timestamp ?? 0
+        const n = perNegato(utente, campi.db_user, campi.db_name, campi.db_service)
+        n.quante += 1
+        n.ultima = Math.max(n.ultima ?? 0, quando)
         // L'ultimo motivo per TEMPO, e nella stessa colonna delle login fallite: la domanda che
         // quella colonna risponde e' «perche' questa persona ha sbattuto», e un utente di database
         // che il ruolo non concede e' una risposta come «ruolo che non esiste». Il confronto sugli
@@ -222,8 +239,16 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     }
   }
 
+  // I rifiuti ordinati come si leggono: prima chi ha sbattuto di piu', poi il piu' recente.
+  const rifiuti = [...negati.values()].sort((a, b) => b.quante - a.quante || (b.ultima ?? 0) - (a.ultima ?? 0))
+  const rifiutiDi = new Map()
+  for (const n of rifiuti) rifiutiDi.set(n.utente, [...(rifiutiDi.get(n.utente) ?? []), n])
+
   const elenco = [...persone.values()]
-    .map(({ motivoQuando, teamsQuando, ...p }) => p)
+    // ⚠️ `negati` sta sulla riga della persona e non in una tabella a parte: la domanda arriva sempre
+    // da quel verso («perche' questa persona non entra»), e una seconda tabella vorrebbe dire
+    // incrociare due elenchi a mano proprio nel momento in cui si ha fretta.
+    .map(({ motivoQuando, teamsQuando, ...p }) => ({ ...p, negati: rifiutiDi.get(p.utente) ?? [] }))
     .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   const db = [...database.values()]
     .map((d) => ({ ...d, persone: d.persone.size, scriventi: [...d.scriventi] }))
@@ -251,6 +276,8 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     sessioniDb: elenco.reduce((n, p) => n + p.sessioniDb, 0),
     // I rifiuti stanno a parte dal totale delle sessioni, non dentro: sono la domanda opposta.
     sessioniDbNegate: elenco.reduce((n, p) => n + p.sessioniDbNegate, 0),
+    // Le coppie rifiutate di tutti, per chi guarda «cosa si e' rotto» prima di «a chi».
+    negati: rifiuti,
     // ⚠️ Se si e' toccato il tetto, quelli sotto sono un CAMPIONE e non un totale: dirlo, perche' un
     // numero parziale spacciato per totale e' peggio di nessun numero.
     troncato: righe.length >= MAX_EVENTI,
