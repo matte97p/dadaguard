@@ -89,7 +89,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       // conteggio da solo le racconta identiche. Sono separati da `ultima`, che e' l'ultimo evento di
       // QUALSIASI tipo: una persona che dopo le fallite e' entrata ha `ultima` recente e la raffica
       // finita mezz'ora prima.
-      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
+      persone.set(nome, { utente: nome, loginOk: 0, loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: 0, sessioniDbNegate: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: null })
     }
     return persone.get(nome)
   }
@@ -152,7 +152,25 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         p.loginOk += 1
       }
     } else if (tipo === 'db.session.start') {
-      p.sessioniDb += 1
+      // ⚠️ Un tentativo RIFIUTATO non e' una sessione, e sommarlo alle altre e' il modo in cui
+      // sparisce: chi ha sbattuto contro un permesso finisce dentro il numero di chi e' entrato. Il
+      // 01/09/2026 sette tentativi negati in un giorno, due persone, tre utenti di database diversi,
+      // e questa pagina diceva soltanto «sessioni». Il motivo lo porta il log dal primo tentativo.
+      if (campi.success === false) {
+        p.sessioniDbNegate += 1
+        const quando = ev.timestamp ?? 0
+        // L'ultimo motivo per TEMPO, e nella stessa colonna delle login fallite: la domanda che
+        // quella colonna risponde e' «perche' questa persona ha sbattuto», e un utente di database
+        // che il ruolo non concede e' una risposta come «ruolo che non esiste». Il confronto sugli
+        // istanti c'e' per la stessa ragione di la': `FilterLogEvents` ordina per stream, non fra
+        // stream diversi, quindi senza di lui il motivo mostrato dipende da come sono spezzati i log.
+        if (quando >= (p.motivoQuando ?? 0)) {
+          p.motivo = String(campi.error ?? '').split('\n').pop().trim() || null
+          p.motivoQuando = quando
+        }
+      } else {
+        p.sessioniDb += 1
+      }
     } else if (tipo === 'session.start' || tipo === 'session.end') {
       // ⚠️ Il nodo si legge da `server_hostname`, non da `server_id`: il secondo e' un UUID, cioe'
       // esattamente il nome che non aiuta chi legge «chi e' entrato dove».
@@ -215,6 +233,8 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     query: elenco.reduce((n, p) => n + p.query, 0),
     scritture: elenco.reduce((n, p) => n + p.scritture, 0),
     sessioniDb: elenco.reduce((n, p) => n + p.sessioniDb, 0),
+    // I rifiuti stanno a parte dal totale delle sessioni, non dentro: sono la domanda opposta.
+    sessioniDbNegate: elenco.reduce((n, p) => n + p.sessioniDbNegate, 0),
     // ⚠️ Se si e' toccato il tetto, quelli sotto sono un CAMPIONE e non un totale: dirlo, perche' un
     // numero parziale spacciato per totale e' peggio di nessun numero.
     troncato: righe.length >= MAX_EVENTI,

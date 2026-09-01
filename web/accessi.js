@@ -136,7 +136,10 @@ export function tuttiIndietro(macchine = [], riferimento) {
 // Chi ha un problema, per ciascuna delle quattro tabelle. Sono le stesse funzioni che decidono il
 // pallino sull'interruttore, l'ordine delle righe e cosa resta accendendo «solo da guardare»: se
 // fossero tre copie, il pallino direbbe una cosa e il filtro un'altra.
-export const problemaPersona = (p) => (p?.loginFallite ?? 0) > 0
+// ⚠️ Anche un accesso al DATABASE negato e' un problema di questa persona, non solo una login
+// fallita: e' lo stesso fatto (ha sbattuto contro un permesso) e finiva in nessuna delle due
+// viste, perche' i rifiuti erano contati fra le sessioni riuscite (01/09/2026).
+export const problemaPersona = (p) => (p?.loginFallite ?? 0) > 0 || (p?.sessioniDbNegate ?? 0) > 0
 // Le SCRITTURE su un `prod`, non le query: un database di produzione letto da sei persone è il
 // mestiere, scriverci è la cosa che si guarda.
 export const problemaDatabase = (d) => (d?.scritture ?? 0) > 0 && d?.ambiente === 'prod'
@@ -182,6 +185,7 @@ export function daGuardare(audit = {}, heartbeat = {}, riferimento = null) {
   const versioni = heartbeat.versioni?.length ?? 0
   return (
     (audit.loginFallite ?? 0) +
+    (audit.sessioniDbNegate ?? 0) +
     (audit.sshAperte ?? 0) +
     (heartbeat.conToolMancanti ?? 0) +
     (versioni > 1 ? 1 : 0) +
@@ -242,6 +246,7 @@ export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
   const spingi = (condizione, voce) => (condizione ? trovato : tranquillo).push(voce)
 
   spingi((audit.loginFallite ?? 0) > 0, { k: 'fallite', n: audit.loginFallite ?? 0, vista: 'persone' })
+  spingi((audit.sessioniDbNegate ?? 0) > 0, { k: 'dbNegate', n: audit.sessioniDbNegate ?? 0, vista: 'persone' })
   spingi((audit.sshAperte ?? 0) > 0, { k: 'sshAperte', n: audit.sshAperte ?? 0, vista: 'ssh' })
 
   // Le scritture: non il totale, ma DOVE sono andate e su quale ambiente, che è la differenza fra il
