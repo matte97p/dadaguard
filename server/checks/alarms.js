@@ -77,6 +77,26 @@ const targetGroupMatches = (cfg, dimension) => {
   return Boolean(nome) && nome.startsWith(`${cfg.cluster}-${cfg.service}`)
 }
 
+// «Questo allarme e' di questo servizio?»: le sue dimensioni ne nominano la risorsa. Estratta da `run`
+// perche' la stessa domanda serve anche al rovescio, per trovare quelli che non sono di nessuno.
+export function alarmDelServizio(alarm, cfgAws) {
+  const ids = new Set(resourceIds(cfgAws))
+  if (!ids.size) return false
+  return (alarm?.Dimensions ?? []).some((d) => ids.has(String(d.Value)) || targetGroupMatches(cfgAws, d))
+}
+
+// Gli allarmi che stanno urlando e che nessun servizio riconosce come suoi.
+//
+// ⚠️ Un allarme nato da un METRIC FILTER su un log group NON ha dimensioni: la sua metrica conta le
+// righe di un log, non lo stato di una risorsa, quindi non c'e' niente da correlare. Con la sola
+// correlazione per dimensione quegli allarmi venivano scaricati e poi buttati via, cioe' non
+// comparivano da nessuna parte: un allarme che nessuno vede e' un allarme che non esiste, ed e'
+// esattamente il caso in cui suona qualcosa che nessun servizio possiede (visto il 01/09/2026).
+// Restano fuori quelli di autoscaling, come in `fetchFiringAlarms`: li' sono gia' filtrati.
+export function alarmiSenzaServizio(firing = [], servizi = []) {
+  return firing.filter((a) => !servizi.some((s) => alarmDelServizio(a, s?.aws)))
+}
+
 export async function run(service, ctx) {
   const firing = ctx?.alarms // preload per account (undefined = non disponibile → salta)
   if (!firing) return null
@@ -84,9 +104,7 @@ export async function run(service, ctx) {
   if (!ids.size) return null
   const t = ctx?.t ?? ((k) => k)
 
-  const mine = firing.filter((a) =>
-    (a.Dimensions ?? []).some((d) => ids.has(String(d.Value)) || targetGroupMatches(service.aws, d)),
-  )
+  const mine = firing.filter((a) => alarmDelServizio(a, service.aws))
   if (!mine.length) return null // nessun allarme attivo per questa risorsa → niente riga
 
   // `truncateList` e non un `, +N` scritto a mano: la regola sta in un posto solo (`util/format.js`),

@@ -267,3 +267,38 @@ test('senza identità di risorsa l id resta quello di prima (account e nome)', (
   const services = [{ name: 'backend', overall: 'down', cause: 'runtime', checks: { runtime: {} }, account: { key: 'prod', label: 'Production' } }]
   assert.equal(buildSignals({ services, now: NOW, t })[0].id, 'svc:prod:backend')
 })
+
+// ── Allarmi che nessun servizio possiede ──────────────────────────────────────────────────────────
+// ⚠️ Sono l'unico posto in cui compaiono: la flotta li correla per DIMENSIONE, e un allarme nato da
+// un metric filter su un log group non ne ha nessuna. Prima venivano scaricati e buttati via.
+const ORFANO = {
+  nome: 'audit-sessioni-negate',
+  motivo: 'Threshold Crossed: 1 datapoint [2.0] was greater than the threshold (2.0).',
+  da: hoursAgo(1),
+  account: 'security',
+  accountLabel: 'Security',
+}
+
+test('un allarme senza servizio diventa un segnale, con il motivo che AWS ha scritto', () => {
+  const s = buildSignals({ alarmi: [ORFANO], now: NOW, t })
+  assert.equal(s.length, 1)
+  assert.equal(s[0].kind, 'alarm')
+  assert.equal(s[0].title, 'audit-sessioni-negate')
+  assert.match(s[0].detail, /Threshold Crossed/)
+  assert.equal(s[0].accountKey, 'security')
+})
+
+test('un allarme senza servizio NON porta a una pagina, e non finisce sopra un servizio giu\'', () => {
+  // `to` nullo di proposito: non c'e' una vista che ne sappia di piu', e mandare a una pagina che non
+  // lo elenca e' peggio che non offrire il link. La riga in pagina non deve essere cliccabile.
+  const giu = { overall: 'down', name: 'backend', account: { key: 'prod', label: 'Production' }, checks: {} }
+  const s = buildSignals({ services: [giu], alarmi: [ORFANO], now: NOW, t, nameOf: (x) => x.name })
+  assert.equal(s[0].kind, 'service', 'un servizio giu resta la prima riga')
+  assert.equal(s[1].kind, 'alarm')
+  assert.equal(s[1].to, null)
+})
+
+test('nessun allarme orfano: nessuna riga, e una fonte assente non spegne le altre', () => {
+  assert.deepEqual(buildSignals({ alarmi: null, now: NOW, t }), [])
+  assert.deepEqual(buildSignals({ now: NOW, t }), [])
+})

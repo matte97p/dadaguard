@@ -10,6 +10,7 @@ import {
   SafetyCertificateOutlined,
   DollarOutlined,
   LineChartOutlined,
+  AlertOutlined,
 } from '@ant-design/icons'
 import { PageIntro, HeroRow, HeroStat, Section, EmptyState } from './pageKit.jsx'
 import { buildSignals, countByLevel } from '../nowSignals.js'
@@ -29,6 +30,7 @@ const KIND_ICON = {
   waf: <SafetyCertificateOutlined />,
   budget: <DollarOutlined />,
   anomaly: <LineChartOutlined />,
+  alarm: <AlertOutlined />,
 }
 
 // Finestre: 1h e 6h ci sono perché è dentro un incidente che si apre questa pagina, e lì la domanda è
@@ -39,17 +41,22 @@ const WINDOWS = [1, 6, 24, 72, 168]
 
 function SignalRow({ s, t, onOpen }) {
   const color = levelColor(s.level)
+  // ⚠️ Non tutti i segnali portano da qualche parte: un allarme che nessun servizio possiede non ha
+  // una pagina che ne sappia di piu', e questa riga E' il posto dove compare. Senza la guardia la
+  // riga resterebbe cliccabile e la navigazione finirebbe su `null`; senza il resto (il ruolo, il
+  // focus, il titolo «apri») sembrerebbe cliccabile e non farebbe niente, che e' peggio.
+  const apribile = Boolean(s.to)
   return (
     <div
-      role="button"
-      tabIndex={0}
-      title={s.full ?? t('now.open')}
+      role={apribile ? 'button' : undefined}
+      tabIndex={apribile ? 0 : undefined}
+      title={s.full ?? (apribile ? t('now.open') : undefined)}
       // data-signal: ancora per il video demo, vedi pageKit.jsx.
       data-signal={s.kind}
-      onClick={() => onOpen(s)}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s))}
+      onClick={apribile ? () => onOpen(s) : undefined}
+      onKeyDown={apribile ? (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s)) : undefined}
       className="dg-signal"
-      style={{ borderInlineStart: `3px solid ${color}` }}
+      style={{ borderInlineStart: `3px solid ${color}`, cursor: apribile ? undefined : 'default' }}
     >
       <span style={{ color, flex: 'none', opacity: 0.85 }}>{KIND_ICON[s.kind] ?? null}</span>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -97,7 +104,7 @@ function SignalRow({ s, t, onOpen }) {
 // finestra in cui la flotta era vuota e nessuno stava ancora caricando — e questa pagina scriveva
 // «niente da segnalare · controllati 0 servizi», che è un ESITO, mentre i servizi non li aveva
 // nemmeno guardati. Cinque secondi dopo comparivano, giù e degradati, in cima all'elenco.
-export default function NowPage({ services = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = [], t = (k) => k, lang }) {
+export default function NowPage({ services = [], alarmiOrfani = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = [], t = (k) => k, lang }) {
   const navigate = useNavigate()
   const [hours, setHours] = useState(24)
   const [deploys, setDeploys] = useState(null)
@@ -133,6 +140,7 @@ export default function NowPage({ services = [], statusReady = false, statusLoad
       deploys: deploys ?? {},
       waf,
       budgets,
+      alarmi: alarmiOrfani,
       hours,
       t,
       nameOf: displayName,

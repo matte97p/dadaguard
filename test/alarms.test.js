@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isAutoscalingAlarm, run } from '../server/checks/alarms.js'
+import { alarmiSenzaServizio, isAutoscalingAlarm, run } from '../server/checks/alarms.js'
 
 // Un allarme su un ALB non porta il nome del servizio ECS: le sue dimensioni sono `LoadBalancer` e
 // `TargetGroup`. Il ponte è la convenzione di nome del target group, `<cluster>-<servizio>`.
@@ -70,4 +70,40 @@ test('allarmi sotto il tetto: nessun «+0» appiccicato in fondo', async () => {
   const due = ['a', 'b'].map((n) => allarmeAlb('acme-production-backend', `alb-${n}`))
   const r = await run(ecs('backend'), { alarms: due, t: (_k, v) => v.list })
   assert.equal(r.summary, 'alb-a, alb-b')
+})
+
+// ── Gli allarmi che non sono di nessuno ───────────────────────────────────────────────────────────
+// ⚠️ Un allarme nato da un METRIC FILTER su un log group non ha dimensioni: la sua metrica conta
+// righe di log, non lo stato di una risorsa. La correlazione per dimensione quindi non lo trova, e
+// prima del 01/09/2026 veniva scaricato e buttato via, cioe' suonava e non compariva da nessuna
+// parte. Queste prove tengono aperta quella strada.
+const allarmeSenzaDimensioni = (nome = 'audit-sessioni-negate') => ({ AlarmName: nome, Dimensions: [] })
+const allarmeEcs = (service) => ({ AlarmName: `${service}-cpu`, Dimensions: [{ Name: 'ServiceName', Value: service }] })
+
+test('senza servizio: un allarme senza dimensioni non e\' di nessuno, e resta in elenco', () => {
+  const orfani = alarmiSenzaServizio([allarmeSenzaDimensioni()], [ecs('backend')])
+  assert.equal(orfani.length, 1)
+  assert.equal(orfani[0].AlarmName, 'audit-sessioni-negate')
+})
+
+test('senza servizio: quello che UN servizio riconosce come suo non e\' orfano', () => {
+  const orfani = alarmiSenzaServizio([allarmeEcs('backend')], [ecs('backend'), ecs('frontend')])
+  assert.deepEqual(orfani, [])
+})
+
+test('senza servizio: basta che lo riconosca UNO dei servizi, non il primo', () => {
+  const orfani = alarmiSenzaServizio([allarmeEcs('frontend')], [ecs('backend'), ecs('frontend')])
+  assert.deepEqual(orfani, [])
+})
+
+test('senza servizio: anche un allarme su ALB trova il suo padrone, e non finisce fra gli orfani', () => {
+  const orfani = alarmiSenzaServizio([allarmeAlb('acme-production-backend')], [ecs('backend')])
+  assert.deepEqual(orfani, [])
+})
+
+test('senza servizio: nessun servizio configurato vuol dire che sono tutti orfani, non nessuno', () => {
+  // ⚠️ Il verso in cui sbagliare: senza servizi da confrontare l elenco NON e\' vuoto. Un allarme che
+  // suona su un account dove non monitoriamo niente e\' proprio quello che nessun altro mostrerebbe.
+  const orfani = alarmiSenzaServizio([allarmeEcs('backend')], [])
+  assert.equal(orfani.length, 1)
 })

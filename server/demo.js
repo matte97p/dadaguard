@@ -200,6 +200,20 @@ export function demoStatus(lang = 'it') {
       { key: 'management', label: 'Management (payer)', color: '#722ed1', region: 'eu-central-1', queryable: true },
     ],
     services,
+    // ⚠️ Un allarme che sta suonando e che NESSUN servizio possiede: e' il caso che la flotta non puo'
+    // mostrare, perche' li' gli allarmi si correlano per dimensione e questo non ne ha (nasce da un
+    // metric filter su un log group, cioe' conta righe e non risorse). Sta nella demo per la stessa
+    // ragione per cui ci stanno i quattro stati dei budget: se un pannello non lo si vede mai, chi
+    // guarda la demo non sa che esiste.
+    alarmiOrfani: [
+      {
+        nome: 'audit-sessioni-db-negate',
+        motivo: 'Threshold Crossed: 1 datapoint [3.0] was greater than or equal to the threshold (2.0).',
+        da: midnightDaysAgo(0),
+        account: 'security',
+        accountLabel: 'Security',
+      },
+    ],
   }
 }
 
