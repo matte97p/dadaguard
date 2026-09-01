@@ -128,6 +128,17 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     return negati.get(k)
   }
 
+  // Quali database ha toccato ciascuno, non solo quante query ha fatto. Un numero da solo («124
+  // query») non si traduce in niente: la domanda dopo e' sempre «su cosa?», e la risposta era in
+  // un'altra tabella da incrociare a mano.
+  const toccati = new Map()
+  const perToccato = (utente, nome) => {
+    if (!toccati.has(utente)) toccati.set(utente, new Map())
+    const suoi = toccati.get(utente)
+    if (!suoi.has(nome)) suoi.set(nome, { nome, query: 0, scritture: 0 })
+    return suoi.get(nome)
+  }
+
   // Sessioni SSH per MACCHINA: chi e' entrato, quante volte, e quando l'ultima. La chiave e' il nodo e
   // non la persona, perche' la domanda arriva sempre da quel verso: «chi e' stato sul mio Mac?».
   const macchine = new Map()
@@ -230,11 +241,16 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       d.persone.add(utente)
       d.ambiente = d.ambiente ?? campi.db_labels?.env ?? null
       p.query += 1
+      // Il nome con cui quel database si chiama in pagina: il `db_name` quando c'e', altrimenti il
+      // servizio (Redis non manda `db_name`, e «?» non e' un nome).
+      const suo = perToccato(utente, campi.db_name && campi.db_name !== '?' ? campi.db_name : (campi.db_service ?? '?'))
+      suo.query += 1
       if (SCRITTURE.has(mestiere(campi.db_query))) {
         d.scritture += 1
         d.scriventi.add(utente)
         d.ultimaScrittura = Math.max(d.ultimaScrittura ?? 0, ev.timestamp ?? 0)
         p.scritture += 1
+        suo.scritture += 1
       }
     }
   }
@@ -248,10 +264,17 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
     // ⚠️ `negati` sta sulla riga della persona e non in una tabella a parte: la domanda arriva sempre
     // da quel verso («perche' questa persona non entra»), e una seconda tabella vorrebbe dire
     // incrociare due elenchi a mano proprio nel momento in cui si ha fretta.
-    .map(({ motivoQuando, teamsQuando, ...p }) => ({ ...p, negati: rifiutiDi.get(p.utente) ?? [] }))
+    .map(({ motivoQuando, teamsQuando, ...p }) => ({
+      ...p,
+      negati: rifiutiDi.get(p.utente) ?? [],
+      // I database toccati, dal piu' usato: e' il valore dietro al numero delle query.
+      db: [...(toccati.get(p.utente)?.values() ?? [])].sort((a, b) => b.query - a.query),
+    }))
     .sort((a, b) => (b.ultima ?? 0) - (a.ultima ?? 0))
   const db = [...database.values()]
-    .map((d) => ({ ...d, persone: d.persone.size, scriventi: [...d.scriventi] }))
+    // `persone` resta il NUMERO (ci si ordina la colonna) e `chi` porta i nomi: un conteggio senza i
+    // nomi obbliga ad aprire l'altra tabella per sapere di chi si sta parlando.
+    .map((d) => ({ ...d, persone: d.persone.size, chi: [...d.persone].sort(), scriventi: [...d.scriventi] }))
     .sort((a, b) => b.query - a.query)
   // Aperta = ha uno `start` e nessun `end` con lo STESSO id. Un `end` il cui `start` e' fuori dalla
   // finestra non conta come apertura (non sta in `iniziate`), e uno `start` senza `end` resta aperto,
@@ -419,6 +442,10 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
         creata: r.creata ?? null,
         esito: r.esito ?? null,
         toolMancanti: Number(r.tool_mancanti ?? 0),
+        // ⚠️ I NOMI dei tool che mancano, quando l'avvio li manda: «2» non dice cosa installare, e la
+        // risposta non sta in nessun'altra pagina, va chiesta al proprietario del Mac. Li mandano solo
+        // i dev-env aggiornati, quindi il numero resta la forma che regge sempre.
+        toolMancantiNomi: Array.isArray(r.tool_mancanti_nomi) ? r.tool_mancanti_nomi : [],
         durata: r.durata != null ? Number(r.durata) : null,
         quando: ev.timestamp ?? 0,
       })

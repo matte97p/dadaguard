@@ -132,6 +132,26 @@ test('audit: del rifiuto si tiene la COPPIA utente-di-database + database, non s
   assert.equal(out.negati[0].utente, 'chi-sbatte')
 })
 
+test('audit: dietro ai numeri ci sono i nomi (chi ha toccato il database, e cosa ha toccato la persona)', async () => {
+  // ⚠️ Un conteggio da solo non si traduce in niente: «124 query» chiede «su cosa?» e «3 persone»
+  // chiede «chi?», e la risposta stava nell'altra tabella, da incrociare a mano.
+  const { audit } = await conEventi([
+    QUERY('chi-legge', 1000, 'select 1'),
+    QUERY('chi-scrive', 2000, 'update t set a = 1'),
+    QUERY('chi-scrive', 3000, 'select 2'),
+  ])
+  const out = await audit({}, { logGroup: '/finto', ore: 24 })
+  const db = out.database[0]
+  assert.deepEqual(db.chi, ['chi-legge', 'chi-scrive'])
+  assert.deepEqual(db.scriventi, ['chi-scrive'])
+  assert.equal(db.persone, 2) // il numero resta: ci si ordina la colonna
+  const scrive = out.persone.find((p) => p.utente === 'chi-scrive')
+  assert.deepEqual(
+    scrive.db.map((d) => [d.nome, d.query, d.scritture]),
+    [['tenders', 2, 1]],
+  )
+})
+
 test('audit: fra due motivi vince il piu\' RECENTE, non l\'ultimo letto', async () => {
   // ⚠️ `FilterLogEvents` ordina per stream e non fra stream diversi, quindi le righe arrivano anche
   // fuori ordine: senza il confronto sugli istanti il motivo mostrato dipende da come sono spezzati
