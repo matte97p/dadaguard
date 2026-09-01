@@ -46,7 +46,7 @@ export const normalizza = (nome) =>
     .replace(/[^a-z0-9]/g, '')
     .replace(/\d+$/, '')
 
-// I PEZZI di un nome, prima di appiattirlo: `BonfantiStefano` → ['bonfanti', 'stefano'].
+// I PEZZI di un nome, prima di appiattirlo: `BianchiRenzo` → ['bianchi', 'renzo'].
 // Si taglia sul cambio di maiuscola e sui separatori, e le cifre si buttano.
 // ⚠️ Va fatto PRIMA di abbassare tutto: dopo, il confine fra nome e cognome non esiste piu'.
 export const pezzi = (nome) =>
@@ -61,8 +61,8 @@ export const pezzi = (nome) =>
 // attaccare i permessi alla persona sbagliata e' peggio di due righe separate.
 //
 // Le tre regole nascono dai casi veri, guardati in produzione il 01/09/2026:
-//   1. stesso nome appiattito       `matteomidena` = `MatteoMidena`
-//   2. stessi pezzi in ordine DIVERSO `BonfantiStefano` = `StefanoBonfanti` (il login GitHub mette il
+//   1. stesso nome appiattito       `renzobianchi` = `RenzoBianchi`
+//   2. stessi pezzi in ordine DIVERSO `BianchiRenzo` = `RenzoBianchi` (il login GitHub mette il
 //      cognome davanti, la directory il nome: senza questa regola sono due persone)
 //   3. il login e' un pezzo SOLO che comincia uno dei pezzi dell'altro: `Fabio1909` = `FabioStefana`.
 //      Vale solo se il candidato e' unico: con due `Fabio` in azienda non si indovina.

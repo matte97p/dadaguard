@@ -202,7 +202,7 @@ test('un login che non somiglia a niente resta scollegato, e lo aggancia solo la
 })
 
 test('pezzi: taglia sul cambio di maiuscola e butta le cifre', () => {
-  assert.deepEqual(pezzi('BonfantiStefano'), ['bonfanti', 'stefano'])
+  assert.deepEqual(pezzi('BianchiRenzo'), ['bianchi', 'renzo'])
   assert.deepEqual(pezzi('Fabio1909'), ['fabio'])
-  assert.deepEqual(pezzi('matteomidena'), ['matteomidena'], 'tutto minuscolo: un pezzo solo, non si inventa il taglio')
+  assert.deepEqual(pezzi('renzobianchi'), ['renzobianchi'], 'tutto minuscolo: un pezzo solo, non si inventa il taglio')
 })
