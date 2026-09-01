@@ -1352,3 +1352,83 @@ export function demoApplyTypeComponents(comps, type) {
   }
   return out
 }
+
+// La MAPPA degli accessi in demo: stesso cast delle altre viste, nomi di team e di permessi generici.
+// ⚠️ L'immagine demo e' PUBBLICA: qui dentro non entra un nome vero di team, ruolo o account.
+// Le tre cose che la demo deve far vedere, perche' sono quelle che si sbagliano a leggere:
+//   · una persona con i due lati agganciati (Teleport + portale) e una con uno solo;
+//   · un team dei soli repository, che su Teleport non concede niente;
+//   · una persona senza login recenti, che ha comunque i permessi del portale.
+export function demoMappaAccessi() {
+  const now = Date.now()
+  const ruoli = {
+    'access-db-read': ['db-orders-ro', 'db-app-ro'],
+    'access-db-write': ['db-app-rw'],
+    'access-logs': ['logs-staging-read', 'logs-prod-read'],
+    'app-repos': [],
+  }
+  const persone = [
+    {
+      persona: 'alex',
+      organizzazione: 'acme',
+      ultimoLogin: now - 4 * 60_000,
+      teams: ['access-db-read', 'access-logs'],
+      teamsNoti: true,
+      ruoli: ['db-app-ro', 'db-orders-ro', 'logs-prod-read', 'logs-staging-read'],
+      teamsSenzaRuoli: [],
+      ssoUtente: 'alex',
+      gruppiSso: ['developers'],
+      permessi: [
+        { account: 'Staging', permissionSet: 'dev-logs-readonly', via: 'developers' },
+        { account: 'Production', permissionSet: 'dev-logs-readonly', via: 'developers' },
+      ],
+    },
+    {
+      persona: 'kim',
+      organizzazione: 'acme',
+      ultimoLogin: now - 3 * 3600_000,
+      teams: ['access-db-write', 'app-repos'],
+      teamsNoti: true,
+      ruoli: ['db-app-rw'],
+      // Il team dei repository non porta ruoli: la riga lo dice invece di sembrare una mappa rotta.
+      teamsSenzaRuoli: ['app-repos'],
+      ssoUtente: null,
+      gruppiSso: [],
+      permessi: [],
+    },
+    {
+      persona: 'rin',
+      organizzazione: null,
+      ultimoLogin: null,
+      teams: [],
+      teamsNoti: false,
+      ruoli: [],
+      teamsSenzaRuoli: [],
+      ssoUtente: 'rin',
+      gruppiSso: ['data'],
+      permessi: [{ account: 'Production', permissionSet: 'data-readonly', via: 'data' }],
+      soloSso: true,
+    },
+  ]
+  return {
+    configurato: true,
+    ore: 168,
+    webUrl: 'https://teleport.example.com/web',
+    persone,
+    teams: Object.entries(ruoli).map(([team, r]) => ({
+      team,
+      ruoli: r,
+      membri: persone.filter((p) => p.teams.includes(team)).map((p) => p.persona),
+      soloRepo: r.length === 0,
+    })),
+    gruppiSso: [
+      { gruppo: 'developers', membri: ['alex'], permessi: [{ account: 'Staging', permissionSet: 'dev-logs-readonly' }, { account: 'Production', permissionSet: 'dev-logs-readonly' }] },
+      { gruppo: 'data', membri: ['rin'], permessi: [{ account: 'Production', permissionSet: 'data-readonly' }] },
+    ],
+    fonti: {
+      teleport: { ok: true, persone: 2 },
+      ruoli: { ok: true, teams: 4, generato: new Date(now - 26 * 3600_000).toISOString(), scritto: now - 26 * 3600_000 },
+      sso: { ok: true, permissionSets: 3 },
+    },
+  }
+}

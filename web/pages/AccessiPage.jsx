@@ -94,6 +94,9 @@ function Quando({ ts, t, lang }) {
 // I comparatori delle colonne: servono ad antd per il riordino a mano, e non sono regole della pagina
 // (quelle stanno in `web/accessi.js`, provate).
 const numerico = (campo) => (a, b) => (a[campo] ?? 0) - (b[campo] ?? 0)
+// Ordina su QUANTI ne ha, non sul campo: le colonne della mappa contengono liste (team, ruoli,
+// permessi), e `numerico` su un array le confronterebbe tutte uguali a zero.
+const quanti = (campo) => (a, b) => (a[campo]?.length ?? 0) - (b[campo]?.length ?? 0)
 const testuale = (campo) => (a, b) => String(a[campo] ?? '').localeCompare(String(b[campo] ?? ''))
 
 // Un nome che porta al suo audit in Teleport, quando la config dice come. Senza modello resta testo:
@@ -136,6 +139,16 @@ export default function AccessiPage({ t, lang }) {
   // guarda durante un guasto non dice se quello che vedi e' di adesso o di dieci minuti fa.
   const { data: dati, loading, refreshing, error: errore, lastUpdated } = usePoll(`/api/teleport?ore=${ore}`, {
     intervalMs: 20000,
+  })
+
+  // La MAPPA (chi ha cosa) sta su un'altra lettura e su un'altra finestra: tre fonti incrociate, e la
+  // domanda non e' «cosa succede adesso» ma «chi ha cosa», quindi sette giorni e un giro ogni due
+  // minuti. Si carica SOLO quando la sua tabella e' quella aperta: sono tre chiamate AWS, e farle a
+  // ogni giro anche a chi guarda le login fallite sarebbe lavoro buttato.
+  const mappaAttiva = vista === 'mappa' || vista === 'team'
+  const { data: mappa, refreshing: mappaRefreshing, error: mappaErrore } = usePoll('/api/accessi/mappa?ore=168', {
+    intervalMs: 120000,
+    enabled: mappaAttiva,
   })
 
   const audit = dati?.audit ?? {}
@@ -487,6 +500,159 @@ export default function AccessiPage({ t, lang }) {
 
   // Le quattro tabelle come DATI, non come quattro blocchi copiati: l'interruttore, il conteggio, il
   // pallino, il filtro e la ricerca si scrivono una volta e valgono per tutte.
+  // ── La mappa: una riga per persona, una per team ────────────────────────────────────────────────
+  // I permessi del portale si mostrano RAGGRUPPATI per account e non uno per uno: con cinque
+  // permission set su due account la cella diventa una lista, e la domanda («quanto puo' fare qui
+  // dentro?») si risponde col numero, mentre i nomi stanno nel tooltip di chi li vuole.
+  const perAccount = (permessi = []) => {
+    const m = new Map()
+    for (const p of permessi) m.set(p.account, [...(m.get(p.account) ?? []), p.permissionSet])
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }
+  // Tanti tag uguali sono rumore: sopra i tre si mostra il conteggio e i nomi vanno nel tooltip.
+  const elencoCorto = (valori = [], vuoto = null) => {
+    if (!valori.length) return vuoto
+    if (valori.length <= 3)
+      return (
+        <Space size={SPACE.xs} wrap>
+          {valori.map((v) => (
+            <Tag key={v} style={{ marginInlineEnd: 0 }}>
+              {v}
+            </Tag>
+          ))}
+        </Space>
+      )
+    return (
+      <Tooltip title={valori.join(' · ')}>
+        <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.quanti', { n: valori.length })}</Tag>
+      </Tooltip>
+    )
+  }
+
+  // Cosa ha risposto e cosa no. Serve perche' una fonte muta si legge come «questa persona non ha
+  // niente»: il parametro con la mappa dei team che manca, o Identity Center non leggibile, devono
+  // dirsi in pagina, non restare un vuoto che sembra un fatto.
+  const fonti = mappa?.fonti ?? {}
+  const notaFonti = [
+    fonti.ruoli?.assente ? t('accessi.mappa.senzaMappa', { param: fonti.ruoli.assente }) : null,
+    fonti.ruoli?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'SSM', motivo: fonti.ruoli.errore }) : null,
+    fonti.sso?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Identity Center', motivo: fonti.sso.errore }) : null,
+    fonti.teleport?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Teleport', motivo: fonti.teleport.errore }) : null,
+    mappaErrore ? String(mappaErrore) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ') || null
+
+  const colonneMappa = [
+    {
+      title: t('accessi.col.persona'),
+      dataIndex: 'persona',
+      key: 'persona',
+      sorter: testuale('persona'),
+      render: (v, r) => (
+        <Space size={SPACE.xs}>
+          <Nome href={linkAudit(dati.auditUserUrl, 'utente', v)}>{v}</Nome>
+          {/* Chi non entra su Teleport non e' senza accessi: ha quelli del portale, e questa e' la
+              riga da guardare quando ci si chiede a chi e' rimasto addosso un permesso. */}
+          {r.soloSso && <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.soloPortale')}</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: t('accessi.mappa.col.team'),
+      key: 'team',
+      sorter: quanti('teams'),
+      render: (_, r) =>
+        r.teamsNoti
+          ? elencoCorto(r.teams, <Text type="secondary">{t('accessi.mappa.nessunTeam')}</Text>)
+          : <Text type="secondary">{t('accessi.mappa.senzaLogin')}</Text>,
+    },
+    {
+      title: t('accessi.mappa.col.ruoli'),
+      key: 'ruoli',
+      sorter: quanti('ruoli'),
+      render: (_, r) => (
+        <Space size={SPACE.xs} wrap>
+          {r.ruoli.length ? (
+            <Tooltip title={r.ruoli.join(' · ')}>
+              <Tag color={LEVEL.ok.tag} style={{ marginInlineEnd: 0 }}>
+                {t('accessi.mappa.quanti', { n: r.ruoli.length })}
+              </Tag>
+            </Tooltip>
+          ) : (
+            <Text type="secondary">0</Text>
+          )}
+          {/* Un team che la mappa non nomina non concede niente su Teleport: di norma e' un team dei
+              repository, e senza questa nota la riga sembra una mappa incompleta. */}
+          {r.teamsSenzaRuoli?.length > 0 && (
+            <Tooltip title={r.teamsSenzaRuoli.join(' · ')}>
+              <Text type="secondary" style={{ fontSize: FONT.micro }}>
+                {t('accessi.mappa.soloRepoN', { n: r.teamsSenzaRuoli.length })}
+              </Text>
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: t('accessi.mappa.col.portale'),
+      key: 'portale',
+      sorter: quanti('permessi'),
+      render: (_, r) =>
+        r.permessi.length ? (
+          <Space size={SPACE.xs} wrap>
+            {perAccount(r.permessi).map(([account, ps]) => (
+              <Tooltip key={account} title={ps.join(' · ')}>
+                <Tag style={{ marginInlineEnd: 0 }}>{`${account} · ${ps.length}`}</Tag>
+              </Tooltip>
+            ))}
+          </Space>
+        ) : (
+          <Text type="secondary">{t('accessi.mappa.nessunPortale')}</Text>
+        ),
+    },
+    {
+      title: t('accessi.mappa.col.ultimoLogin'),
+      key: 'ultimoLogin',
+      sorter: numerico('ultimoLogin'),
+      render: (_, r) =>
+        r.ultimoLogin ? (
+          <Tooltip title={new Date(r.ultimoLogin).toLocaleString()}>
+            <Text type="secondary">{fmtAgo(r.ultimoLogin)}</Text>
+          </Tooltip>
+        ) : (
+          <Text type="secondary">{t('accessi.mappa.mai')}</Text>
+        ),
+    },
+  ]
+
+  const colonneTeam = [
+    {
+      title: t('accessi.mappa.col.teamNome'),
+      dataIndex: 'team',
+      key: 'team',
+      sorter: testuale('team'),
+      render: (v, r) => (
+        <Space size={SPACE.xs}>
+          <Text strong>{v}</Text>
+          {r.soloRepo && <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.soloRepo')}</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: t('accessi.mappa.col.ruoli'),
+      key: 'ruoli',
+      sorter: quanti('ruoli'),
+      render: (_, r) => elencoCorto(r.ruoli, <Text type="secondary">0</Text>),
+    },
+    {
+      title: t('accessi.mappa.col.membri'),
+      key: 'membri',
+      sorter: quanti('membri'),
+      render: (_, r) => elencoCorto(r.membri, <Text type="secondary">{t('accessi.mappa.nessunMembro')}</Text>),
+    },
+  ]
+
   const viste = [
     {
       value: 'persone',
@@ -550,6 +716,37 @@ export default function AccessiPage({ t, lang }) {
       finestra: finestraDetta,
       nota: t('accessi.sshRegistrate'),
     },
+    // ── Le due tabelle della MAPPA. Stanno in fondo perche' rispondono a una domanda diversa dalle
+    // altre: non «cosa sta succedendo», ma «chi ha cosa». Nessun pallino di allarme, e non e' una
+    // dimenticanza: qui non c'e' una riga rotta da far emergere, c'e' un elenco da consultare.
+    {
+      value: 'mappa',
+      label: t('accessi.view.mappa'),
+      titolo: t('accessi.mappa.persone'),
+      righe: mappa?.persone ?? [],
+      colonne: colonneMappa,
+      rowKey: (r) => r.persona,
+      problema: () => false,
+      livello: 'warn',
+      cerca: (r) => [r.persona, r.ssoUtente, ...(r.teams ?? []), ...(r.ruoli ?? []), ...(r.gruppiSso ?? [])],
+      vuoto: t('accessi.mappa.vuoto'),
+      finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
+      nota: notaFonti,
+    },
+    {
+      value: 'team',
+      label: t('accessi.view.team'),
+      titolo: t('accessi.mappa.team'),
+      righe: mappa?.teams ?? [],
+      colonne: colonneTeam,
+      rowKey: (r) => r.team,
+      problema: () => false,
+      livello: 'warn',
+      cerca: (r) => [r.team, ...(r.ruoli ?? []), ...(r.membri ?? [])],
+      vuoto: t('accessi.mappa.vuotoTeam'),
+      finestra: t('accessi.mappa.finestra', { n: Math.round((mappa?.ore ?? 168) / 24) }),
+      nota: notaFonti,
+    },
   ]
 
   const attiva = viste.find((v) => v.value === vista) ?? viste[0]
@@ -569,7 +766,7 @@ export default function AccessiPage({ t, lang }) {
         desc={t('accessi.desc')}
         extra={
           <Toolbar>
-            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
+            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing || mappaRefreshing} t={t} />
             {/* L'interruttore fra le quattro tabelle porta il conteggio e, quando dentro c'è qualcosa da
                 guardare, un pallino colorato: così una tabella chiusa non nasconde un segnale, ed è la
                 condizione per mostrarne una sola invece di quattro in colonna. */}

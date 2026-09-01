@@ -6,6 +6,27 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **La pagina Accessi ora dice anche «chi ha cosa», non solo «chi non riesce a entrare».** Gli accessi
+  di una persona vivono su due strade che non si parlano: i team GitHub, che nel connector decidono i
+  ruoli Teleport con cui si arriva a database, log e cache, e i gruppi di Identity Center, che
+  decidono i permission set del portale AWS. Rispondere a «cosa vede Tizio?» voleva dire aprire due
+  console e incrociare due elenchi a mano, ed è il modo in cui un permesso resta addosso a chi ha
+  cambiato mestiere. Due tabelle nuove (**Mappa**, una riga per persona, e **Team**, una riga per
+  team) mettono le due strade sulla stessa riga.
+  **Nessun token nuovo e nessun permesso nuovo**: i team li porta già l'audit del cluster (il campo
+  `attributes` dell'evento `user.login` dice quali team GitHub il connector ha visto in quel momento),
+  la corrispondenza team → ruoli arriva da un parametro SSM che scrive chi applica il connector, e i
+  permission set sono la lettura di Identity Center che la pagina IAM fa già, rovesciata da «chi ha
+  questo permesso» a «cosa ha questa persona».
+  ⚠️ Le due directory chiamano la stessa persona con nomi diversi (`GiuliaVerdi88` su GitHub,
+  `GiuliaVerdi` in Identity Center): l'accoppiamento è sul nome normalizzato, più le eccezioni in
+  `teleport.persone` della config, e **quando non torna la riga resta scollegata invece di indovinare**
+  — un aggancio sbagliato direbbe che una persona ha i permessi di un'altra. Stesso principio sui
+  vuoti: chi non ha fatto login nella finestra compare lo stesso, marcato «solo portale», perché non
+  è senza accessi, è senza login recenti; e una fonte che non risponde lo dice in pagina, invece di
+  lasciare un vuoto che si legge come «questa persona non ha niente».
+  Le due tabelle si caricano solo quando sono quelle aperte: sono tre chiamate AWS, e farle anche a
+  chi sta guardando le login fallite sarebbe lavoro buttato.
 - **Una prova di fumo che carica ogni pagina in un browser vero e fallisce se la console ha un errore.**
   Il 31/08/2026 una pagina è arrivata in produzione **bianca**, con un `ReferenceError` a ogni render:
   il bundler non lo vede, perché non è un errore di sintassi, e le 848 asserzioni nemmeno, perché
@@ -693,8 +714,8 @@ All notable changes to Dadaguard are documented here. Format based on
   con l'autore. Resta l'intestazione; l'email intera è nel dettaglio della build.
 
   E chi committa con la noreply di GitHub non è più un numero di serie:
-  `81815192+matte97p@users.noreply.github.com` era mostrato come `81815192+matte97p`, ora è
-  `matte97p` (il valore grezzo nel tooltip). La regola è il gemello client di `shortActor`, con un
+  `81815192+gverdi23x@users.noreply.github.com` era mostrato come `81815192+gverdi23x`, ora è
+  `gverdi23x` (il valore grezzo nel tooltip). La regola è il gemello client di `shortActor`, con un
   test che confronta i due: se divergono, la stessa persona comparirebbe con due nomi in due punti
   della UI.
 
@@ -1214,7 +1235,7 @@ All notable changes to Dadaguard are documented here. Format based on
   valore intero nel tooltip della riga; il confronto con la versione attesa resta sul tag completo.
   Quel `:` rompeva anche il confronto (`:v2` ≠ `v2` → mismatch inventato su chi dichiara
   `expectedVersion`). Chi ha deployato perde il dominio email
-  (`81815192+matte97p@users.noreply.github.com` → `matte97p`): erano tre righe per card. E la card
+  (`81815192+gverdi23x@users.noreply.github.com` → `gverdi23x`): erano tre righe per card. E la card
   ora regge qualunque stringa lunga senza sfondare (`overflow-wrap`), non solo i casi noti.
 
 - **Artefatti nelle card** — sparkline di una serie piatta (disegnava un filetto orizzontale che
