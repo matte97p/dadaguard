@@ -203,6 +203,31 @@ function budgetSignals(budgets, t) {
   return out
 }
 
+// Gli allarmi CloudWatch che stanno urlando e che nessun servizio riconosce come suoi.
+//
+// ⚠️ Sono l'unico posto in cui compaiono. La flotta li mostra sulla card del servizio, correlandoli
+// per DIMENSIONE, e un allarme nato da un metric filter su un log group non ne ha nessuna: la sua
+// metrica conta righe di log, non lo stato di una risorsa. Fino al 01/09/2026 venivano scaricati e
+// buttati via, cioe' suonavano e non li vedeva nessuno.
+//
+// Livello `bad` e non `crit`: sta suonando adesso, ma non sappiamo di cosa — un servizio giu' e' una
+// notizia peggiore, e metterli sullo stesso gradino toglierebbe la prima riga a chi la merita.
+// `to: null`: non c'e' una pagina che ne sappia di piu', e mandare a una vista che non li elenca e'
+// peggio che non offrire il link.
+function alarmSignals(alarmi = [], t) {
+  return (alarmi ?? []).map((a) => ({
+    id: `alarm:${a.account ?? '-'}:${a.nome}`,
+    level: 'bad',
+    kind: 'alarm',
+    title: a.nome ?? t('now.alarm'),
+    detail: a.motivo ?? t('now.alarmDetail'),
+    when: a.da ?? null,
+    to: null,
+    accountKey: a.account ?? null,
+    accountLabel: a.accountLabel ?? null,
+  }))
+}
+
 // Tutti i segnali, ordinati per gravità e — a pari gravità — dal più recente. Le righe senza data
 // (gli stati in corso) vengono PRIMA delle datate del loro livello: uno stato che morde adesso batte
 // un evento di sei ore fa. Puro/testabile.
@@ -213,6 +238,7 @@ export function buildSignals({
   deploys = {},
   waf = null,
   budgets = null,
+  alarmi = null,
   hours = 24,
   now = Date.now(),
   t = (k) => k,
@@ -227,6 +253,7 @@ export function buildSignals({
     ...deploySignals(deploys ?? {}, opts, t),
     ...wafSignals(waf, t),
     ...budgetSignals(budgets, t),
+    ...alarmSignals(alarmi ?? [], t),
   ]
   return all.sort((a, b) => {
     const r = (LEVEL_RANK[a.level] ?? 9) - (LEVEL_RANK[b.level] ?? 9)

@@ -505,6 +505,27 @@ export async function getStatus(lang) {
     ),
   })
 
+  // Gli allarmi che stanno urlando e che nessun servizio riconosce come suoi. Senza questa riga
+  // venivano scaricati (il preload qui sopra) e poi buttati: `checks/alarms.js` li correla per
+  // DIMENSIONE, e un allarme nato da un metric filter su un log group non ne ha nessuna, perche' la
+  // sua metrica conta righe di log e non lo stato di una risorsa. Il risultato era che una cosa che
+  // suona non compariva da nessuna parte.
+  const alarmiOrfani = []
+  for (const [k, firing] of Object.entries(alarmsByAccount)) {
+    const dellAccount = services.filter((s) => s.account === k)
+    for (const a of alarms.alarmiSenzaServizio(firing ?? [], dellAccount)) {
+      alarmiOrfani.push({
+        nome: a.AlarmName ?? null,
+        // Il motivo che AWS scrive quando l'allarme scatta: e' la sola riga che dice COSA e' successo,
+        // e senza di lei resta un nome che chi guarda non sa interpretare.
+        motivo: a.StateReason ?? null,
+        da: a.StateUpdatedTimestamp ?? null,
+        account: k,
+        accountLabel: accounts[k]?.label ?? k,
+      })
+    }
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     ms: totalMs, // quanto è costata QUESTA risposta: la UI può dirlo, e si nota se peggiora
@@ -520,5 +541,8 @@ export async function getStatus(lang) {
     // "senza risorse" e un account "che non ho potuto leggere" sono due cose opposte.
     discoveryProblems,
     services: [...results, ...cfResults],
+    // Allarmi attivi che non appartengono a nessun servizio: la pagina «Adesso» li mostra, perche'
+    // sono l'unico posto in cui compaiono.
+    alarmiOrfani,
   }
 }
