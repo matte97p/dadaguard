@@ -221,7 +221,20 @@ export default function AccessiPage({ t, lang }) {
       dataIndex: 'utente',
       key: 'utente',
       sorter: testuale('utente'),
-      render: (v) => <Nome href={linkAudit(dati.auditUserUrl, 'utente', v)}>{v}</Nome>,
+      // ⚠️ Il motivo dell'ultimo rifiuto sta SOTTO AL NOME e non in una colonna sua: e' la frase che
+      // distingue «sessione scaduta» da «ruolo che non esiste», cioe' una persona sola da tutto il
+      // team fuori, e in fondo alla riga la leggeva solo chi arrivava fin la'. Per intero, non
+      // troncata. Con lei l'istante dell'ultima cosa fatta, che era l'ultima colonna di quattro
+      // tabelle: sempre relativo, con la data intera nel tooltip.
+      render: (v, r) => (
+        <Space direction="vertical" size={0}>
+          <Nome href={linkAudit(dati.auditUserUrl, 'utente', v)}>{v}</Nome>
+          {r.motivo && <Text style={{ fontSize: FONT.micro }}>{r.motivo}</Text>}
+          <Text type="secondary" style={{ fontSize: FONT.micro }}>
+            <Quando ts={r.ultima} t={t} lang={lang} />
+          </Text>
+        </Space>
+      ),
     },
     // Le fallite E le riuscite: la prima stesura mostrava un tag solo, quindi chi aveva otto login
     // buone e due fallite risultava «2 fallite» e sembrava fuori, mentre stava lavorando.
@@ -283,33 +296,38 @@ export default function AccessiPage({ t, lang }) {
         </Space>
       ),
     },
-    { title: t('accessi.col.query'), dataIndex: 'query', key: 'query', sorter: numerico('query') },
-    // Le scritture in arancione: su un database di produzione sono la riga che si guarda per prima.
+    // ⚠️ Query e scritture in una cella, e sotto i NOMI dei database. Erano due colonne di numeri, e
+    // «124 query» non si traduce in niente: la domanda dopo e' sempre «su cosa?», e la risposta stava
+    // nell'altra tabella, da incrociare a mano. Le scritture restano colorate, che e' la differenza
+    // fra il mestiere di tutti i giorni e la cosa che si guarda.
     {
-      title: t('accessi.col.scritture'),
-      dataIndex: 'scritture',
-      key: 'scritture',
-      sorter: numerico('scritture'),
-      render: (n) => <Conta n={n} />,
-    },
-    // Il motivo per intero, non troncato: è la riga che distingue «sessione scaduta» da «ruolo che non
-    // esiste», cioè una persona sola da tutto il team fuori.
-    {
-      title: t('accessi.col.motivo'),
-      dataIndex: 'motivo',
-      key: 'motivo',
-      render: (v) => (v ? <Text style={{ fontSize: FONT.small }}>{v}</Text> : <Text type="secondary">—</Text>),
-    },
-    {
-      title: t('accessi.col.ultima'),
-      dataIndex: 'ultima',
-      key: 'ultima',
-      sorter: numerico('ultima'),
-      render: (v) => <Quando ts={v} t={t} lang={lang} />,
+      title: t('accessi.col.attivita'),
+      key: 'attivita',
+      sorter: numerico('query'),
+      render: (_, r) =>
+        r.query ? (
+          <Space direction="vertical" size={0}>
+            <Space size={SPACE.xs}>
+              <Text>{t('accessi.queryN', { n: r.query })}</Text>
+              {r.scritture > 0 && (
+                <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
+                  {frase('accessi.scrittureN', r.scritture)}
+                </Tag>
+              )}
+            </Space>
+            {elencoCorto((r.db ?? []).map((d) => d.nome))}
+          </Space>
+        ) : (
+          <Text type="secondary">0</Text>
+        ),
     },
   ]
 
   const colonneDatabase = [
+    // Nome, ambiente e servizio in una cella sola. Erano tre colonne per identificare UNA cosa, e il
+    // servizio (`un-db-di-produzione-ro`) e' il dettaglio che serve dopo aver riconosciuto il database,
+    // non prima. L'ambiente resta un tag, perche' `prod` e' l'unica parola che cambia come si legge
+    // la riga.
     // Un `?` in colonna è il nome che il log non aveva (Redis non manda `db_name`): si scrive «—», che
     // è la stessa informazione senza sembrare un errore di lettura.
     {
@@ -317,35 +335,52 @@ export default function AccessiPage({ t, lang }) {
       dataIndex: 'nome',
       key: 'nome',
       sorter: testuale('nome'),
-      render: (v) => (v && v !== '?' ? v : <Text type="secondary">—</Text>),
+      render: (v, r) => (
+        <Space direction="vertical" size={0}>
+          <Space size={SPACE.xs}>
+            {v && v !== '?' ? <Text strong>{v}</Text> : <Text type="secondary">—</Text>}
+            {r.ambiente && (
+              <Tag color={r.ambiente === 'prod' ? LEVEL.crit.tag : undefined} style={{ marginInlineEnd: 0 }}>
+                {r.ambiente}
+              </Tag>
+            )}
+          </Space>
+          <Text type="secondary" style={{ fontSize: FONT.micro }}>
+            {r.servizio}
+          </Text>
+        </Space>
+      ),
     },
-    { title: t('accessi.col.servizio'), dataIndex: 'servizio', key: 'servizio', sorter: testuale('servizio') },
+    // Query e scritture insieme, come sulla riga della persona: la stessa domanda a due livelli di
+    // dettaglio non merita due colonne.
     {
-      title: t('accessi.col.ambiente'),
-      dataIndex: 'ambiente',
-      key: 'ambiente',
-      sorter: testuale('ambiente'),
-      render: (v) =>
-        v === 'prod' ? (
-          <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
-            {v}
-          </Tag>
-        ) : v ? (
-          <Tag style={{ marginInlineEnd: 0 }}>{v}</Tag>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
+      title: t('accessi.col.attivita'),
+      key: 'attivita',
+      sorter: numerico('query'),
+      render: (_, r) => (
+        <Space size={SPACE.xs}>
+          <Text>{t('accessi.queryN', { n: r.query ?? 0 })}</Text>
+          {r.scritture > 0 && (
+            <Tag color={r.ambiente === 'prod' ? LEVEL.crit.tag : LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
+              {frase('accessi.scrittureN', r.scritture)}
+            </Tag>
+          )}
+        </Space>
+      ),
     },
-    { title: t('accessi.col.query'), dataIndex: 'query', key: 'query', sorter: numerico('query') },
+    // ⚠️ I NOMI, non il numero. «3 persone» costringeva ad aprire l'altra tabella per sapere di chi si
+    // parla, ed e' la stessa cella su cui si risponde a «chi ha scritto in produzione?». Chi ha scritto
+    // e' in grassetto: sopra i tre nomi la lista diventa un conteggio col tooltip, come nella mappa.
     {
-      title: t('accessi.col.scritture'),
-      dataIndex: 'scritture',
-      key: 'scritture',
-      sorter: numerico('scritture'),
-      render: (n, r) => <Conta n={n} level={r.ambiente === 'prod' ? 'crit' : 'warn'} />,
+      title: t('accessi.col.quantePersone'),
+      dataIndex: 'persone',
+      key: 'persone',
+      sorter: numerico('persone'),
+      render: (_, r) =>
+        elencoCorto(r.chi ?? [], <Text type="secondary">—</Text>, (nome) => (r.scriventi ?? []).includes(nome)),
     },
-    { title: t('accessi.col.quantePersone'), dataIndex: 'persone', key: 'persone', sorter: numerico('persone') },
   ]
+
 
   const colonneMacchine = [
     {
@@ -353,25 +388,33 @@ export default function AccessiPage({ t, lang }) {
       dataIndex: 'macchina',
       key: 'macchina',
       sorter: testuale('macchina'),
+      // ⚠️ Il LATO e' un attributo della macchina, non una colonna: «host» e «container» sono due
+      // parole che si ripetono su ogni riga e occupavano una colonna intera per dire da che parte del
+      // mount sta quella riga. Come tag accanto al nome dice la stessa cosa e non toglie spazio ai
+      // dati. Con lui scende qui anche il comando per entrare, che era l'ultima colonna a destra.
       render: (v, r) => (
-        <Space size={SPACE.xs}>
-          <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>
-          {/* L'esito dell'avvio compare SOLO quando non è `ok`: una colonna che dice «ok» su ogni riga
-              è una colonna che nessuno legge, e il giorno che dice altro nessuno la nota. */}
-          {avvioStorto(r) && (
-            <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-              {t('accessi.esitoNonOk', { esito: r.esito })}
-            </Tag>
+        <Space direction="vertical" size={0}>
+          <Space size={SPACE.xs}>
+            <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>
+            {r.lato && <Tag style={{ marginInlineEnd: 0 }}>{r.lato}</Tag>}
+            {/* L'esito dell'avvio compare SOLO quando non è `ok`: una colonna che dice «ok» su ogni riga
+                è una colonna che nessuno legge, e il giorno che dice altro nessuno la nota. */}
+            {avvioStorto(r) && (
+              <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
+                {t('accessi.esitoNonOk', { esito: r.esito })}
+              </Tag>
+            )}
+          </Space>
+          {/* Il comando per entrare, copiabile. Il MODELLO arriva dalla config (`teleport.sshCommand`,
+              con `{macchina}` dentro) e non dal codice. Solo per `lato: host`: il container non e' una
+              macchina raggiungibile, e un comando che non funziona e' peggio di nessun comando. */}
+          {dati.sshCommand && r.lato === 'host' && (
+            <Text code copyable style={{ fontSize: FONT.micro }}>
+              {dati.sshCommand.replace('{macchina}', r.macchina)}
+            </Text>
           )}
         </Space>
       ),
-    },
-    {
-      title: t('accessi.col.lato'),
-      dataIndex: 'lato',
-      key: 'lato',
-      sorter: testuale('lato'),
-      render: (v) => (v ? <Text type="secondary">{v}</Text> : <Text type="secondary">—</Text>),
     },
     {
       title: t('accessi.col.persona'),
@@ -436,12 +479,23 @@ export default function AccessiPage({ t, lang }) {
         </Space>
       ),
     },
+    // ⚠️ Il numero e i NOMI, quando ci sono. «2» non dice cosa installare, e la risposta non e' in
+    // nessun'altra pagina: bisogna chiederla al proprietario del Mac. I nomi li manda l'heartbeat
+    // (`tool_mancanti_nomi`) e li mandano solo i dev-env aggiornati, quindi il numero resta la forma
+    // che regge sempre e i nomi si aggiungono a chi li ha.
     {
       title: t('accessi.col.tool'),
       dataIndex: 'toolMancanti',
       key: 'tool',
       sorter: numerico('toolMancanti'),
-      render: (n) => <Conta n={n} />,
+      render: (n, r) =>
+        n > 0 && (r.toolMancantiNomi ?? []).length ? (
+          <Tooltip title={r.toolMancantiNomi.join(' · ')}>
+            <span>{elencoCorto(r.toolMancantiNomi)}</span>
+          </Tooltip>
+        ) : (
+          <Conta n={n} />
+        ),
     },
     // Quando + quanto ci ha messo, nella stessa cella: la durata è un dato che il server manda da
     // sempre e che la pagina buttava via, e «il dev-env qui parte in quattro minuti» è metà dei «a me
@@ -462,28 +516,6 @@ export default function AccessiPage({ t, lang }) {
         </Space>
       ),
     },
-    // Il comando per entrare, copiabile. Il MODELLO arriva dalla config (`teleport.sshCommand`, con
-    // `{macchina}` dentro) e non dal codice: qui non stanno i nomi degli strumenti di nessuno, come
-    // per log group e account. Senza quel campo la colonna non c'è, invece di mostrare un comando
-    // inventato che non esiste su nessuna macchina.
-    // ⚠️ Solo per `lato: host`: il container non è una macchina raggiungibile, e un comando che non
-    // funziona è peggio che nessun comando.
-    ...(dati.sshCommand
-      ? [
-          {
-            title: t('accessi.col.comeEntri'),
-            key: 'comeEntri',
-            render: (_, r) =>
-              r.lato === 'host' ? (
-                <Text code copyable>
-                  {dati.sshCommand.replace('{macchina}', r.macchina)}
-                </Text>
-              ) : (
-                <Text type="secondary">—</Text>
-              ),
-          },
-        ]
-      : []),
   ]
 
   // Chi è entrato sulle macchine: la metà che l'heartbeat non copre. L'heartbeat dice chi è rimasto
@@ -494,31 +526,42 @@ export default function AccessiPage({ t, lang }) {
       dataIndex: 'macchina',
       key: 'macchina',
       sorter: testuale('macchina'),
-      render: (v) => <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>,
+      render: (v, r) => (
+        <Space direction="vertical" size={0}>
+          <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>
+          <Text type="secondary" style={{ fontSize: FONT.micro }}>
+            <Quando ts={r.ultima} t={t} lang={lang} />
+          </Text>
+        </Space>
+      ),
     },
+    // I nomi, e sopra i tre il conteggio col tooltip: una cella con otto nomi separati da virgole
+    // manda a capo la riga e non si legge comunque.
     {
       title: t('accessi.col.chiEntrato'),
       dataIndex: 'chi',
       key: 'chi',
-      render: (v) => (v?.length ? v.join(', ') : <Text type="secondary">—</Text>),
+      render: (v) => elencoCorto(v ?? [], <Text type="secondary">—</Text>),
     },
-    { title: t('accessi.col.quanteSessioni'), dataIndex: 'sessioni', key: 'sessioni', sorter: numerico('sessioni') },
-    // Le aperte in rosso: qualcuno è dentro adesso, ed è la riga a cui si reagisce subito.
+    // Sessioni e aperte nella stessa cella: «4 · 1 aperta» in rosso. Erano due colonne di numeri
+    // accanto, e la seconda e' l'unica delle due a cui si reagisce subito.
     {
-      title: t('accessi.col.aperte'),
-      dataIndex: 'aperte',
-      key: 'aperte',
-      sorter: numerico('aperte'),
-      render: (n) => <Conta n={n} level="crit" />,
-    },
-    {
-      title: t('accessi.col.ultima'),
-      dataIndex: 'ultima',
-      key: 'ultima',
-      sorter: numerico('ultima'),
-      render: (v) => <Quando ts={v} t={t} lang={lang} />,
+      title: t('accessi.col.quanteSessioni'),
+      key: 'sessioni',
+      sorter: numerico('sessioni'),
+      render: (_, r) => (
+        <Space size={SPACE.xs}>
+          <Text type={r.sessioni ? undefined : 'secondary'}>{r.sessioni ?? 0}</Text>
+          {r.aperte > 0 && (
+            <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
+              {frase('accessi.aperteN', r.aperte)}
+            </Tag>
+          )}
+        </Space>
+      ),
     },
   ]
+
 
   // ⚠️ QUESTE STANNO PRIMA di `viste`, e non e' una questione di stile: l'array `viste` viene
   // valutato subito e legge `finestraDetta`. Dichiararlo piu' sotto lo fa cadere nella zona morta
@@ -555,13 +598,15 @@ export default function AccessiPage({ t, lang }) {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }
   // Tanti tag uguali sono rumore: sopra i tre si mostra il conteggio e i nomi vanno nel tooltip.
-  const elencoCorto = (valori = [], vuoto = null) => {
+  // `marca`: quali voci contano piu' delle altre (chi ha SCRITTO, fra chi ha solo letto). Senza, la
+  // cella dice «tre persone» e la domanda vera («chi ha scritto?») resta senza risposta.
+  const elencoCorto = (valori = [], vuoto = null, marca = () => false) => {
     if (!valori.length) return vuoto
     if (valori.length <= 3)
       return (
         <Space size={SPACE.xs} wrap>
           {valori.map((v) => (
-            <Tag key={v} style={{ marginInlineEnd: 0 }}>
+            <Tag key={v} color={marca(v) ? LEVEL.warn.tag : undefined} style={{ marginInlineEnd: 0 }}>
               {v}
             </Tag>
           ))}
