@@ -18,8 +18,8 @@
 //      lettura della pagina IAM: qui viene ROVESCIATA, da «chi ha questo permission set» a «cosa ha
 //      questa persona», che e' la domanda con cui si arriva.
 //
-// ⚠️ Le due strade hanno nomi diversi per la stessa persona (`LorenzoRossetto97` su GitHub,
-// `LorenzoRossetto` in Identity Center). L'accoppiamento e' un confronto sul nome normalizzato piu'
+// ⚠️ Le due strade hanno nomi diversi per la stessa persona (`GiuliaVerdi88` su GitHub,
+// `GiuliaVerdi` in Identity Center). L'accoppiamento e' un confronto sul nome normalizzato piu'
 // le eccezioni scritte in config: quando non torna, la riga resta SCOLLEGATA invece di indovinare.
 // Un accoppiamento sbagliato qui direbbe che una persona ha permessi che sono di un'altra.
 import { SSMClient, GetParametersByPathCommand } from '@aws-sdk/client-ssm'
@@ -33,7 +33,7 @@ import { ssoAccess } from './sso.js'
 const PARAM_DEFAULT = '/teleport/team-roles'
 
 // Nome confrontabile fra le due directory: minuscolo, senza punti/trattini/underscore e senza le
-// cifre in coda (`LorenzoRossetto97` → `lorenzorossetto`). Le cifre in coda sono il rumore tipico dei
+// cifre in coda (`GiuliaVerdi88` → `giuliaverdi`). Le cifre in coda sono il rumore tipico dei
 // login GitHub; quelle in mezzo restano, perche' li' distinguono davvero due persone.
 export const normalizza = (nome) =>
   String(nome ?? '')
@@ -106,7 +106,7 @@ function rovesciaSso(sso) {
   }
 }
 
-// Le eccezioni all'accoppiamento, dalla config: `teleport.persone: [{ github: matte97p, sso: MatteoPerino }]`.
+// Le eccezioni all'accoppiamento, dalla config: `teleport.persone: [{ github: gverdi23x, sso: GiuliaRossi }]`.
 // Servono dove il nome normalizzato non basta, che e' la regola appena il login GitHub non e' nome e
 // cognome. Chiave e valore sono normalizzati, cosi' la config non deve azzeccare le maiuscole.
 function eccezioni(cfg) {

@@ -18,8 +18,8 @@ All notable changes to Dadaguard are documented here. Format based on
   la corrispondenza team → ruoli arriva da un parametro SSM che scrive chi applica il connector, e i
   permission set sono la lettura di Identity Center che la pagina IAM fa già, rovesciata da «chi ha
   questo permesso» a «cosa ha questa persona».
-  ⚠️ Le due directory chiamano la stessa persona con nomi diversi (`LorenzoRossetto97` su GitHub,
-  `LorenzoRossetto` in Identity Center): l'accoppiamento è sul nome normalizzato, più le eccezioni in
+  ⚠️ Le due directory chiamano la stessa persona con nomi diversi (`GiuliaVerdi88` su GitHub,
+  `GiuliaVerdi` in Identity Center): l'accoppiamento è sul nome normalizzato, più le eccezioni in
   `teleport.persone` della config, e **quando non torna la riga resta scollegata invece di indovinare**
   — un aggancio sbagliato direbbe che una persona ha i permessi di un'altra. Stesso principio sui
   vuoti: chi non ha fatto login nella finestra compare lo stesso, marcato «solo portale», perché non
@@ -714,8 +714,8 @@ All notable changes to Dadaguard are documented here. Format based on
   con l'autore. Resta l'intestazione; l'email intera è nel dettaglio della build.
 
   E chi committa con la noreply di GitHub non è più un numero di serie:
-  `81815192+matte97p@users.noreply.github.com` era mostrato come `81815192+matte97p`, ora è
-  `matte97p` (il valore grezzo nel tooltip). La regola è il gemello client di `shortActor`, con un
+  `81815192+gverdi23x@users.noreply.github.com` era mostrato come `81815192+gverdi23x`, ora è
+  `gverdi23x` (il valore grezzo nel tooltip). La regola è il gemello client di `shortActor`, con un
   test che confronta i due: se divergono, la stessa persona comparirebbe con due nomi in due punti
   della UI.
 
@@ -1235,7 +1235,7 @@ All notable changes to Dadaguard are documented here. Format based on
   valore intero nel tooltip della riga; il confronto con la versione attesa resta sul tag completo.
   Quel `:` rompeva anche il confronto (`:v2` ≠ `v2` → mismatch inventato su chi dichiara
   `expectedVersion`). Chi ha deployato perde il dominio email
-  (`81815192+matte97p@users.noreply.github.com` → `matte97p`): erano tre righe per card. E la card
+  (`81815192+gverdi23x@users.noreply.github.com` → `gverdi23x`): erano tre righe per card. E la card
   ora regge qualunque stringa lunga senza sfondare (`overflow-wrap`), non solo i casi noti.
 
 - **Artefatti nelle card** — sparkline di una serie piatta (disegnava un filetto orizzontale che

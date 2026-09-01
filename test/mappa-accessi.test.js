@@ -47,26 +47,26 @@ test('nessun login nella finestra non e nessun team: i due casi restano distinti
 
 test('le due directory si agganciano sul nome normalizzato, cifre in coda comprese', () => {
   const { persone } = componiMappa({
-    audit: AUDIT([{ utente: 'LorenzoRossetto97', teams: [], ultimoLoginOk: 1 }]),
-    sso: SSO([{ name: 'data-s3-readonly', assignments: [{ account: 'Production', type: 'group', name: 'data', members: ['LorenzoRossetto'] }] }]),
+    audit: AUDIT([{ utente: 'GiuliaVerdi88', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([{ name: 'data-readonly', assignments: [{ account: 'Production', type: 'group', name: 'data', members: ['GiuliaVerdi'] }] }]),
   })
   assert.equal(persone.length, 1, 'la stessa persona resta UNA riga, non due')
-  assert.equal(persone[0].ssoUtente, 'LorenzoRossetto')
+  assert.equal(persone[0].ssoUtente, 'GiuliaVerdi')
   assert.deepEqual(persone[0].gruppiSso, ['data'])
-  assert.deepEqual(persone[0].permessi, [{ account: 'Production', permissionSet: 'data-s3-readonly', via: 'data' }])
+  assert.deepEqual(persone[0].permessi, [{ account: 'Production', permissionSet: 'data-readonly', via: 'data' }])
 })
 
 test('quando il nome non basta, l eccezione in config aggancia lo stesso', () => {
   const argomenti = {
-    audit: AUDIT([{ utente: 'matte97p', teams: [], ultimoLoginOk: 1 }]),
-    sso: SSO([{ name: 'billing-admin', assignments: [{ account: 'AppaltiGPT', type: 'user', name: 'MatteoPerino' }] }]),
+    audit: AUDIT([{ utente: 'gverdi23x', teams: [], ultimoLoginOk: 1 }]),
+    sso: SSO([{ name: 'billing-admin', assignments: [{ account: 'Payer', type: 'user', name: 'GiuliaRossi' }] }]),
   }
   // Senza eccezione i due nomi non si somigliano: due righe, e nessuna inventa permessi dell'altra.
   const senza = componiMappa(argomenti)
   assert.equal(senza.persone.length, 2)
-  assert.equal(senza.persone.find((p) => p.persona === 'matte97p').permessi.length, 0)
+  assert.equal(senza.persone.find((p) => p.persona === 'gverdi23x').permessi.length, 0)
 
-  const con = componiMappa({ ...argomenti, cfg: { persone: [{ github: 'matte97p', sso: 'MatteoPerino' }] } })
+  const con = componiMappa({ ...argomenti, cfg: { persone: [{ github: 'gverdi23x', sso: 'GiuliaRossi' }] } })
   assert.equal(con.persone.length, 1)
   assert.equal(con.persone[0].permessi[0].permissionSet, 'billing-admin')
 })
@@ -113,8 +113,8 @@ test('un team mappato che nessuno usa compare comunque, con zero membri', () => 
 })
 
 test('normalizza: minuscolo, senza separatori, senza le cifre in CODA', () => {
-  assert.equal(normalizza('LorenzoRossetto97'), 'lorenzorossetto')
-  assert.equal(normalizza('matteo.perino'), 'matteoperino')
+  assert.equal(normalizza('GiuliaVerdi88'), 'giuliaverdi')
+  assert.equal(normalizza('giulia.rossi'), 'giuliarossi')
   assert.equal(normalizza('m4rco'), 'm4rco', 'le cifre in mezzo distinguono davvero due persone')
   assert.equal(normalizza(null), '')
 })
