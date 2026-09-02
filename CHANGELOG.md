@@ -64,6 +64,29 @@ All notable changes to Dadaguard are documented here. Format based on
   Riscriverli nel watchdog avrebbe voluto dire una seconda verità sugli stessi dati.
 
 ### Changed
+- **L'avviso sulle scritture in produzione dice COSA è stato scritto, e le temporanee non sono più una
+  scrittura.** «1 statement di scrittura da Tizio» diceva che era successo qualcosa e nient'altro: per
+  sapere se erano i dati dei clienti o un oggetto di lavoro bisognava aprire l'audit del cluster, ed è
+  quello che è successo due volte in un giorno il 02/09/2026. Una era un `CREATE TEMP VIEW` fatto in
+  sola lettura, cioè una view di appoggio dentro a una `SELECT`, che vive nella sessione e sparisce
+  alla disconnessione: adesso non conta come scrittura, e quel messaggio non parte. L'altra erano
+  quindici DDL che rifacevano una matview di reportistica dal writer, con zero righe di clienti
+  toccate, e aveva la stessa riga che avrebbe avuto un `UPDATE` sui dati veri.
+  Ora la riga porta quattro cose che il log diceva già: il **verbo** con l'oggetto (`UPDATE`,
+  `CREATE VIEW`, `ALTER INDEX`, e con tante azioni le due che contano più quante restano), la
+  **tabella** ma solo per le scritture sui dati (un `ALTER INDEX x RENAME TO y` non nomina la tabella,
+  e metterci l'indice sarebbe scrivere una cosa falsa), l'**utente di database e l'endpoint**
+  (`lettore su reader` non è `scrivente su writer`, ed è la prima domanda di chi legge), e il numero
+  **arrivato dall'ultimo messaggio** invece del totale della finestra, che uno script lungo faceva
+  ripetere a ogni giro. Due livelli invece di uno: i dati dei clienti chiamano in rosso, la struttura
+  si legge in giallo, e finché erano la stessa riga la seconda insegnava a ignorare la prima.
+  ⚠️ Della query continua a non uscire il **testo**, che è dove stanno i dati dei clienti: escono il
+  verbo e la parola dell'oggetto solo se sta in un vocabolario chiuso, quindi una parola scritta da chi
+  ha fatto la query non può passare per una che non è in elenco. Limite noto e detto: un `WITH … UPDATE`
+  comincia per `with` e qui passa per una lettura, perché riconoscerlo vorrebbe dire leggere dentro
+  alle parentesi. E se la divisione dati/struttura non c'è (payload di una versione precedente, cioè un
+  rilascio a metà) il livello **non** scende: non sapere cosa è stato scritto non è sapere che era
+  struttura.
 - **«Indietro» adesso è un ordine, non una stima: l'avvio manda la DATA dell'immagine.** Il digest non
   ha un ordine, quindi fra `45486f79` e `36b245a8` non si sa quale sia il più nuovo, e confrontarli col
   più recente avviato faceva eleggere il riferimento dall'orologio di chi avvia. Una data si ordina:

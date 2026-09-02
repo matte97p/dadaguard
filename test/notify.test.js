@@ -552,7 +552,21 @@ const CFG_ACCESSI = { ...watchConfig({}), publicUrl: 'https://esempio.test' }
 const DATI = {
   configurato: true,
   audit: {
-    database: [{ servizio: 'orders-prod-db-ro', nome: 'orders', ambiente: 'prod', scritture: 4, scriventi: ['tizio'], ultimaScrittura: 9000 }],
+    database: [
+      {
+        servizio: 'orders-prod-db-ro',
+        nome: 'orders',
+        ambiente: 'prod',
+        scritture: 4,
+        scrittureDati: 4,
+        scrittureStruttura: 0,
+        azioni: [{ etichetta: 'UPDATE', quante: 4 }],
+        bersagli: ['ordini'],
+        utentiDb: ['scrivente su writer'],
+        scriventi: ['tizio'],
+        ultimaScrittura: 9000,
+      },
+    ],
   },
   heartbeat: {},
 }
@@ -586,7 +600,7 @@ test('giroAccessi: al primo giro prende nota e non annuncia', async () => {
   })
   assert.equal(mandati, 0)
   assert.deepEqual(out.nuovi, [])
-  assert.deepEqual(out.stato, { 'scrittura:orders-prod-db-ro/orders': 9000 })
+  assert.deepEqual(out.stato, { 'scrittura:orders-prod-db-ro/orders': { quando: 9000, quante: 4 } })
 })
 
 test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del canale', async () => {
@@ -601,11 +615,60 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
         return true
       },
     },
-    { accessi: { 'scrittura:orders-prod-db-ro/orders': 8000 } },
+    { accessi: { 'scrittura:orders-prod-db-ro/orders': { quando: 8000, quante: 1 } } },
   )
   assert.equal(out.nuovi.length, 1)
-  assert.match(testo, /^:warning: `orders` \[PROD\] SCRITTURE — 4 statement di scrittura da tizio/)
+  // COSA (`UPDATE`), su cosa (la tabella), chi, e con che utente da quale endpoint: senza queste
+  // quattro cose il messaggio obbliga ad aprire i log per sapere se e' successo qualcosa o niente.
+  // `+3` e non `4`: tre sono arrivate dall'ultimo messaggio, una era gia' stata detta.
+  assert.match(testo, /^:red_circle: `orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
   assert.match(testo, /esempio\.test\/accessi\?vista=database\|Accessi/)
+})
+
+// La riga dell'altro caso vero: tanti DDL su una matview di reportistica. Colore diverso, parola
+// diversa, e le due azioni che contano invece di «15 statement».
+test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con le azioni', async () => {
+  let testo = null
+  const dati = {
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [
+        {
+          servizio: 'orders-prod-db',
+          nome: 'orders',
+          ambiente: 'prod',
+          scritture: 15,
+          scrittureDati: 0,
+          scrittureStruttura: 15,
+          azioni: [
+            { etichetta: 'ALTER INDEX', quante: 7 },
+            { etichetta: 'CREATE INDEX', quante: 5 },
+            { etichetta: 'DROP MATERIALIZED VIEW', quante: 1 },
+            { etichetta: 'ALTER MATERIALIZED VIEW', quante: 1 },
+            { etichetta: 'GRANT', quante: 1 },
+          ],
+          bersagli: [],
+          utentiDb: ['scrivente su writer'],
+          scriventi: ['tizio'],
+          ultimaScrittura: 9000,
+        },
+      ],
+    },
+  }
+  await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => dati,
+      postSlack: async (_hook, payload) => {
+        testo = payload.text
+        return true
+      },
+    },
+    { accessi: { 'scrittura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
+  )
+  assert.match(testo, /^:warning: `orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
 })
 
 // Se Slack non risponde lo stato non avanza: al giro dopo si riprova, invece di perdere la notizia

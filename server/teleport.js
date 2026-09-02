@@ -20,11 +20,35 @@ export const key = 'teleport'
 const ORE_DEFAULT = 24
 const MAX_EVENTI = 5000 // tetto duro: una giornata storta non deve diventare una pagina che non carica
 
-// La prima parola di una query dice il mestiere. Serve per separare «ha guardato» da «ha scritto», che
-// e' la domanda vera su un database di produzione.
-// ⚠️ Della query si tiene SOLO questa parola, mai il testo: dentro a una `WHERE` ci sono i dati dei
-// clienti, e questa pagina la guarda chi non ha (e non deve avere) accesso a quei dati.
-const SCRITTURE = new Set(['insert', 'update', 'delete', 'truncate', 'drop', 'alter', 'create', 'grant', 'revoke'])
+// Le prime parole di una query dicono il mestiere: separare «ha guardato» da «ha scritto» e' la
+// domanda vera su un database di produzione, e QUALE scrittura e' la seconda.
+//
+// ⚠️ Della query non esce il TESTO, mai: dentro a una `WHERE` ci sono i dati dei clienti, e questa
+// pagina la guarda chi non ha (e non deve avere) accesso a quei dati. Quello che esce e' il verbo, e
+// la parola dell'oggetto solo se sta nel vocabolario CHIUSO qui sotto: una parola scritta da chi ha
+// fatto la query non puo' passare per una che non e' in elenco.
+//
+// I due insiemi sono separati perche' sono due notizie diverse, e il 02/09/2026 il canale le ha dette
+// con la stessa riga: qualcuno ha rifatto una matview di reportistica (15 DDL, zero righe di clienti
+// toccate) e quella riga era identica a quella che avrebbe avuto un `UPDATE` sui dati veri.
+const VERBI_DATI = new Set(['insert', 'update', 'delete', 'truncate', 'merge'])
+const VERBI_STRUTTURA = new Set(['create', 'alter', 'drop', 'grant', 'revoke'])
+// Parole che stanno FRA il verbo e l'oggetto e non dicono niente: `create or replace view`.
+const RIEMPITIVI = new Set(['or', 'replace', 'if', 'not', 'exists', 'unique', 'concurrently', 'global', 'local', 'recursive'])
+// ⚠️ Una TEMPORANEA non e' una scrittura su produzione: vive nella sessione e sparisce alla
+// disconnessione. Il 02/09/2026 il canale ha suonato per un `CREATE TEMP VIEW` fatto come
+// `dev_readonly` sul reader, cioe' per una view di lavoro dentro a una lettura.
+const TEMPORANEE = new Set(['temp', 'temporary'])
+const OGGETTI = new Set([
+  'view', 'table', 'index', 'materialized', 'schema', 'function', 'procedure', 'trigger', 'sequence',
+  'policy', 'role', 'user', 'extension', 'type', 'database', 'publication', 'subscription',
+])
+// Dove punta una scrittura sui DATI: `insert into X`, `delete from X`, `truncate table X`. Queste
+// parole si scavalcano per arrivare al nome della tabella.
+const VERSO = new Set(['into', 'from', 'table', 'only'])
+// Il nome esce solo se e' un identificatore NUDO, eventualmente qualificato con lo schema. Tutto il
+// resto (virgolette, parentesi, un valore finito lì per un parse andato storto) non esce.
+const NOME_NUDO = /^[a-z_][a-z0-9_$]{0,62}(\.[a-z_][a-z0-9_$]{0,62})?$/
 
 // Una versione VERA e' un digest. L'heartbeat manda anche la parola con cui dichiara di non sapere
 // («sconosciuta», quando l'avvio non ha potuto leggere l'immagine), e sui dati veri del 31/08/2026 ce
@@ -32,9 +56,39 @@ const SCRITTURE = new Set(['insert', 'update', 'delete', 'truncate', 'drop', 'al
 // senza il dato. Si riconosce la FORMA e non la parola, perche' la parola la scrive un altro script.
 const FORMA_DIGEST = /^(?:[a-z0-9]+:)?[A-Fa-f0-9]{12,}$/
 const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
-function mestiere(query) {
-  const prima = String(query ?? '').trim().toLowerCase().match(/^[a-z]+/)
-  return prima ? prima[0] : ''
+// Cosa ha fatto una query, o `null` se non ha scritto (e una temporanea non ha scritto).
+//
+// Torna `{ tipo, etichetta, bersaglio }`: `tipo` divide i dati dei clienti dalla struttura,
+// `etichetta` e' quello che si legge nel messaggio (`UPDATE`, `CREATE VIEW`, `ALTER INDEX`), e
+// `bersaglio` e' la tabella, ma SOLO per le scritture sui dati: in un `ALTER INDEX x RENAME TO y` il
+// nome non e' quello della tabella, e metterlo lì vorrebbe dire scrivere una cosa falsa.
+//
+// ⚠️ Limite noto, e detto: un `WITH … UPDATE` (CTE che scrive) comincia per `with` e qui passa per una
+// lettura. Riconoscerlo vuol dire leggere dentro alle parentesi, cioe' dentro al testo della query.
+function azione(query) {
+  const parole = String(query ?? '').trim().toLowerCase().match(/[a-z_][a-z0-9_$.]*/g) ?? []
+  const verbo = parole[0] ?? ''
+  const dati = VERBI_DATI.has(verbo)
+  if (!dati && !VERBI_STRUTTURA.has(verbo)) return null
+
+  let oggetto = null
+  let bersaglio = null
+  for (let i = 1; i < Math.min(parole.length, 8); i++) {
+    const p = parole[i]
+    if (RIEMPITIVI.has(p)) continue
+    if (TEMPORANEE.has(p)) return null
+    if (dati) {
+      if (VERSO.has(p)) continue
+      if (NOME_NUDO.test(p)) bersaglio = p
+      break
+    }
+    if (!OGGETTI.has(p)) break
+    oggetto = p === 'materialized' && parole[i + 1] === 'view' ? 'materialized view' : p
+    break
+  }
+
+  const etichetta = [verbo, oggetto].filter(Boolean).join(' ').toUpperCase()
+  return { tipo: dati ? 'dati' : 'struttura', etichetta, bersaglio }
 }
 
 // Una riga di log JSON, o null se non e' JSON (il cluster scrive anche righe di testo).
@@ -104,6 +158,18 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         nome: nome ?? '?',
         query: 0,
         scritture: 0,
+        // Le scritture divise per COSA hanno toccato: i dati dei clienti o la struttura. `scritture`
+        // resta il totale, perche' e' la colonna su cui si ordina la tabella e il numero del
+        // riepilogo, ma non e' quello che decide il colore di un messaggio.
+        scrittureDati: 0,
+        scrittureStruttura: 0,
+        // Quali scritture, contate per etichetta (`ALTER INDEX` → 7): «+15 statement» non si traduce
+        // in niente, «7 ALTER INDEX» sì. `bersagli` sono le tabelle, solo per i dati (vedi `azione`).
+        azioni: new Map(),
+        bersagli: new Set(),
+        // Con che utente di database e da quale endpoint: e' la differenza fra chi era in lettura sul
+        // reader e chi ha aperto il writer, cioe' la prima domanda che si fa chi legge il messaggio.
+        utentiDb: new Set(),
         persone: new Set(),
         scriventi: new Set(),
         // L'istante dell'ultima scrittura su questo database: serve a chi annuncia, per dire una cosa
@@ -245,8 +311,14 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       // servizio (Redis non manda `db_name`, e «?» non e' un nome).
       const suo = perToccato(utente, campi.db_name && campi.db_name !== '?' ? campi.db_name : (campi.db_service ?? '?'))
       suo.query += 1
-      if (SCRITTURE.has(mestiere(campi.db_query))) {
+      const fatta = azione(campi.db_query)
+      if (fatta) {
         d.scritture += 1
+        if (fatta.tipo === 'dati') d.scrittureDati += 1
+        else d.scrittureStruttura += 1
+        if (fatta.etichetta) d.azioni.set(fatta.etichetta, (d.azioni.get(fatta.etichetta) ?? 0) + 1)
+        if (fatta.bersaglio) d.bersagli.add(fatta.bersaglio)
+        if (campi.db_user) d.utentiDb.add(`${campi.db_user} su ${campi.db_labels?.access ?? 'endpoint ignoto'}`)
         d.scriventi.add(utente)
         d.ultimaScrittura = Math.max(d.ultimaScrittura ?? 0, ev.timestamp ?? 0)
         p.scritture += 1
@@ -274,7 +346,19 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
   const db = [...database.values()]
     // `persone` resta il NUMERO (ci si ordina la colonna) e `chi` porta i nomi: un conteggio senza i
     // nomi obbliga ad aprire l'altra tabella per sapere di chi si sta parlando.
-    .map((d) => ({ ...d, persone: d.persone.size, chi: [...d.persone].sort(), scriventi: [...d.scriventi] }))
+    // Le azioni escono ORDINATE per quante sono: chi legge il messaggio ne vede due, e devono essere
+    // le due che contano, non le due che il log ha incontrato per prime.
+    .map((d) => ({
+      ...d,
+      persone: d.persone.size,
+      chi: [...d.persone].sort(),
+      scriventi: [...d.scriventi],
+      azioni: [...d.azioni.entries()]
+        .map(([etichetta, quante]) => ({ etichetta, quante }))
+        .sort((a, b) => b.quante - a.quante || a.etichetta.localeCompare(b.etichetta)),
+      bersagli: [...d.bersagli].sort(),
+      utentiDb: [...d.utentiDb].sort(),
+    }))
     .sort((a, b) => b.query - a.query)
   // Aperta = ha uno `start` e nessun `end` con lo STESSO id. Un `end` il cui `start` e' fuori dalla
   // finestra non conta come apertura (non sta in `iniziate`), e uno `start` senza `end` resta aperto,
