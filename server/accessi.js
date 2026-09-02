@@ -90,16 +90,28 @@ export function segnali(dati = {}) {
 
   // 1. Scritture su un database di PRODUZIONE. Su staging non si avvisa: è il lavoro di tutti i giorni,
   //    e un canale che parla del lavoro normale si spegne da solo nella testa di chi legge.
+  //    Due livelli, non uno: una riga sui DATI dei clienti (`insert`/`update`/`delete`/`truncate`) e
+  //    una sulla STRUTTURA (indici, view, grant) non meritano la stessa faccia, e finché l'hanno avuta
+  //    la seconda ha insegnato a ignorare la prima. Le due righe vere del 02/09/2026: un `CREATE TEMP
+  //    VIEW` in lettura (che adesso non è più una scrittura) e 15 DDL su una matview del BI.
   for (const d of audit.database ?? []) {
     if ((d.scritture ?? 0) <= 0 || d.ambiente !== 'prod') continue
+    // ⚠️ Se la divisione non c'è (payload di una versione precedente, cioè un rilascio a metà) NON si
+    // scende di livello: non sapere cosa è stato scritto non è la stessa cosa che sapere che era
+    // struttura, e fra i due errori il silenzioso è quello che costa.
+    const suiDati = d.scrittureDati === undefined ? true : d.scrittureDati > 0
     fuori.push({
       chiave: `scrittura:${d.servizio}/${d.nome}`,
       tipo: 'scrittura',
-      livello: 'attenzione',
+      livello: suiDati ? 'allarme' : 'attenzione',
+      natura: suiDati ? 'dati' : 'struttura',
       ambiente: d.ambiente,
       bersaglio: d.nome && d.nome !== '?' ? d.nome : d.servizio,
       servizio: d.servizio,
       quante: d.scritture,
+      azioni: d.azioni ?? [],
+      tabelle: d.bersagli ?? [],
+      utentiDb: d.utentiDb ?? [],
       chi: d.scriventi ?? [],
       quando: d.ultimaScrittura ?? null,
     })
@@ -147,7 +159,26 @@ export function segnali(dati = {}) {
   return fuori
 }
 
-// Cosa NON è già stato annunciato. Lo stato è `{ chiave: quando }`.
+// Lo stato di un segnale già annunciato: l'istante (serve al dedup) e QUANTE erano allora (serve al
+// delta del giro dopo). Le vecchie forme erano il solo istante e si leggono ancora: senza, il primo
+// giro dopo un rilascio ridirebbe il totale della finestra come se fosse tutto nuovo.
+const precQuando = (v) => (typeof v === 'number' ? v : (v?.quando ?? 0))
+const precQuante = (v) => (typeof v === 'number' ? 0 : (v?.quante ?? 0))
+
+// Quante ne sono arrivate DALL'ULTIMO messaggio, che è la domanda a cui il totale non risponde: uno
+// script che scrive per mezz'ora manda un messaggio ogni cinque minuti, e col totale delle 24h ogni
+// messaggio ripete le cifre già lette.
+//
+// ⚠️ La finestra è mobile: il totale può SCENDERE quando gli eventi vecchi ne escono, e la sottrazione
+// darebbe un numero negativo. Quando scende si riparte dal totale: al massimo dice più del vero una
+// volta, e non dice mai meno di quello che è appena successo.
+function delta(segnale, prec) {
+  const prima = precQuante(prec)
+  const ora = segnale.quante ?? 0
+  return ora > prima ? ora - prima : ora
+}
+
+// Cosa NON è già stato annunciato. Lo stato è `{ chiave: { quando, quante } }`.
 //
 // ⚠️ Primo giro (stato assente) → si prende nota e non si annuncia niente. È la stessa scelta del
 // watchdog dei servizi, e serve perché su ECS il filesystem del task è effimero: senza, a ogni
@@ -155,8 +186,10 @@ export function segnali(dati = {}) {
 // annuncio, e fra i due è il male minore.
 export function daAnnunciare(segnaliOra = [], statoPrec = null) {
   const stato = {}
-  for (const s of segnaliOra) stato[s.chiave] = s.quando ?? 0
+  for (const s of segnaliOra) stato[s.chiave] = { quando: s.quando ?? 0, quante: s.quante ?? 0 }
   if (!statoPrec) return { nuovi: [], stato }
-  const nuovi = segnaliOra.filter((s) => (s.quando ?? 0) > (statoPrec[s.chiave] ?? 0))
+  const nuovi = segnaliOra
+    .filter((s) => (s.quando ?? 0) > precQuando(statoPrec[s.chiave]))
+    .map((s) => ({ ...s, nuove: delta(s, statoPrec[s.chiave]) }))
   return { nuovi, stato }
 }

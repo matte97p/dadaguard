@@ -199,6 +199,67 @@ test('audit: separa chi ha guardato da chi ha SCRITTO, e non tiene il testo dell
   assert.doesNotMatch(JSON.stringify(out), /select \*/i)
 })
 
+// ⚠️ Una TEMPORANEA non e' una scrittura su produzione: vive nella sessione e sparisce alla
+// disconnessione. Il 02/09/2026 il canale ha suonato per un `CREATE TEMP VIEW` fatto in sola lettura,
+// cioe' per una view di lavoro dentro a una `SELECT`, e chi l'ha letto e' andato a cercare una
+// scrittura che non c'era.
+test('audit: una TEMPORANEA non e una scrittura, una view vera si', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, 'CREATE TEMP VIEW cf_di_lavoro AS SELECT 1'),
+    QUERY('utente-uno', 1100, 'CREATE TEMPORARY TABLE t AS SELECT 1'),
+    QUERY('utente-uno', 1200, 'CREATE OR REPLACE VIEW dev_views.riepilogo AS SELECT 1'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.scritture, 1, 'le due temporanee non contano, la view vera si')
+  assert.deepEqual(out.database[0].azioni, [{ etichetta: 'CREATE VIEW', quante: 1 }])
+})
+
+// Le due notizie che prima erano una sola riga: i dati dei clienti e la struttura.
+test('audit: divide le scritture sui DATI da quelle sulla STRUTTURA, e dice quali', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, "update tenders set stato = 'aperta' where email = 'x@y.z'"),
+    QUERY('utente-uno', 1100, 'INSERT INTO public.tenders (id) VALUES (3)'),
+    QUERY('utente-uno', 1200, 'ALTER INDEX ix_uno RENAME TO ix_due'),
+    QUERY('utente-uno', 1300, 'DROP MATERIALIZED VIEW bi_vecchia'),
+    QUERY('utente-uno', 1400, 'GRANT SELECT ON bi_nuova TO qualcuno'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  const d = out.database[0]
+  assert.equal(d.scritture, 5)
+  assert.deepEqual([d.scrittureDati, d.scrittureStruttura], [2, 3])
+  assert.deepEqual(d.azioni.map((a) => a.etichetta).sort(), ['ALTER INDEX', 'DROP MATERIALIZED VIEW', 'GRANT', 'INSERT', 'UPDATE'])
+  // La tabella esce SOLO per le scritture sui dati: un `ALTER INDEX` non nomina la tabella, e
+  // metterci il nome dell'indice vorrebbe dire scrivere una cosa falsa.
+  assert.deepEqual(d.bersagli, ['public.tenders', 'tenders'])
+  // ⚠️ E il testo della query continua a non uscire, nemmeno adesso che esce una parola in piu'.
+  assert.doesNotMatch(JSON.stringify(out), /x@y\.z/)
+  assert.doesNotMatch(JSON.stringify(out), /ix_uno|bi_vecchia|bi_nuova/)
+})
+
+// Con che utente e da quale endpoint: e' la prima domanda di chi legge il messaggio, e la risposta
+// era nel log dal primo statement.
+test('audit: le scritture portano l utente di database e l endpoint', async () => {
+  const { audit } = await conEventi([
+    riga(
+      {
+        event_type: 'db.session.query',
+        fields: {
+          event: 'db.session.query',
+          user: 'utente-uno',
+          db_service: 'prod-db',
+          db_name: 'tenders',
+          db_query: 'DELETE FROM tenders WHERE id = 4',
+          db_user: 'scrivente',
+          db_labels: { env: 'prod', access: 'writer' },
+        },
+      },
+      1000,
+    ),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].utentiDb, ['scrivente su writer'])
+})
+
 test('audit: i database si contano con QUANTE persone li toccano, non solo con quante query', async () => {
   const { audit } = await conEventi([
     QUERY('utente-uno', 1000, 'select 1', 'prod-db', 'tenders'),

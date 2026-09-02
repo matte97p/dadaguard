@@ -154,14 +154,41 @@ const EMOJI_ACCESSI = { allarme: ':red_circle:', attenzione: ':warning:' }
 
 const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
 
+// COSA e' stato scritto, in una manciata di caratteri. Una sola azione si dice per nome (`3 UPDATE`),
+// tante si dicono con le due che contano e quante restano: il messaggio deve stare su una riga, e
+// l'elenco intero sta nella pagina, che e' linkata in coda.
+function sommarioAzioni(azioni = [], natura) {
+  const righe = azioni.filter((a) => a?.etichetta)
+  const insieme = natura === 'struttura' ? 'DDL' : 'scritture'
+  if (!righe.length) return natura === 'struttura' ? 'DDL' : 'statement di scrittura'
+  if (righe.length === 1) return righe[0].etichetta
+  const testa = righe.slice(0, 2).map((a) => `${a.quante} ${a.etichetta}`)
+  const resto = righe.length - 2
+  return `${insieme} (${testa.join(', ')}${resto > 0 ? `, +${resto}` : ''})`
+}
+
+// Su COSA. Solo per le scritture sui dati: le tabelle le sa `azione()` da un `insert into X`, mentre
+// un `ALTER INDEX` non nomina la tabella e qui non si indovina.
+function sommarioTabelle(tabelle = []) {
+  if (!tabelle.length) return ''
+  const resto = tabelle.length - 2
+  return ` su ${tabelle.slice(0, 2).join(', ')}${resto > 0 ? ` e altre ${resto}` : ''}`
+}
+
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
   const emoji = EMOJI_ACCESSI[segnale.livello] ?? ':warning:'
   const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
   const testa = `${emoji} \`${segnale.bersaglio}\``
 
   if (segnale.tipo === 'scrittura') {
-    const quante = segnale.quante === 1 ? '1 statement' : `${segnale.quante} statement`
-    return `${testa}${envTag(segnale.ambiente)} SCRITTURE — ${quante} di scrittura da ${elenco(segnale.chi)}${coda}`
+    // `nuove` sono quelle arrivate dall'ultimo messaggio, e il `+` lo dice: senza, un secondo messaggio
+    // con un numero piu' piccolo del primo sembra un conteggio sbagliato invece di un delta.
+    const quante = segnale.nuove ?? segnale.quante ?? 0
+    const titolo = segnale.natura === 'struttura' ? 'STRUTTURA' : 'SCRITTURE'
+    const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
+    const dove = sommarioTabelle(segnale.tabelle)
+    const come = segnale.utentiDb?.length ? ` (${segnale.utentiDb.join(', ')})` : ''
+    return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${dove} da ${elenco(segnale.chi)}${come}${coda}`
   }
   if (segnale.tipo === 'ssh') {
     const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'

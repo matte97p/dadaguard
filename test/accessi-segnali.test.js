@@ -110,14 +110,14 @@ test('segnali: una versione non dichiarata non conta ne da una parte ne dall alt
 // ⚠️ Il primo giro tace: su ECS il filesystem del task e' effimero, quindi a ogni rilascio lo stato
 // riparte da zero. Senza questa regola il canale si riempirebbe di cose vecchie a ogni deploy.
 test('daAnnunciare: il primo giro prende nota e non annuncia', () => {
-  const ora = [{ chiave: 'scrittura:x', quando: 100 }]
+  const ora = [{ chiave: 'scrittura:x', quando: 100, quante: 3 }]
   const { nuovi, stato } = daAnnunciare(ora, null)
   assert.deepEqual(nuovi, [])
-  assert.deepEqual(stato, { 'scrittura:x': 100 })
+  assert.deepEqual(stato, { 'scrittura:x': { quando: 100, quante: 3 } })
 })
 
 test('daAnnunciare: si annuncia solo cio che e piu recente di quanto gia detto', () => {
-  const prec = { 'scrittura:x': 100 }
+  const prec = { 'scrittura:x': { quando: 100, quante: 1 } }
   assert.deepEqual(daAnnunciare([{ chiave: 'scrittura:x', quando: 100 }], prec).nuovi, [])
   assert.equal(daAnnunciare([{ chiave: 'scrittura:x', quando: 101 }], prec).nuovi.length, 1)
   // Una chiave mai vista e' nuova.
@@ -126,5 +126,40 @@ test('daAnnunciare: si annuncia solo cio che e piu recente di quanto gia detto',
 
 test('daAnnunciare: lo stato nuovo contiene solo i segnali di ADESSO, non la storia', () => {
   const { stato } = daAnnunciare([{ chiave: 'ssh:mac', quando: 5 }], { 'scrittura:vecchia': 1 })
-  assert.deepEqual(stato, { 'ssh:mac': 5 })
+  assert.deepEqual(stato, { 'ssh:mac': { quando: 5, quante: 0 } })
+})
+
+// Il numero che si annuncia e' il DELTA: uno script che scrive per mezz'ora manda un messaggio ogni
+// cinque minuti, e col totale della finestra ogni messaggio ripete le cifre del precedente.
+test('daAnnunciare: si annuncia quante ne sono arrivate dall ultimo messaggio, non il totale', () => {
+  const prec = { 'scrittura:x': { quando: 100, quante: 40 } }
+  const { nuovi } = daAnnunciare([{ chiave: 'scrittura:x', quando: 200, quante: 220 }], prec)
+  assert.equal(nuovi[0].nuove, 180)
+  // Primo messaggio in assoluto per quella chiave: il delta e' tutto quello che c'e'.
+  assert.equal(daAnnunciare([{ chiave: 'scrittura:y', quando: 200, quante: 7 }], prec).nuovi[0].nuove, 7)
+})
+
+// ⚠️ La finestra e' mobile: quando gli eventi vecchi ne escono il totale SCENDE, e la sottrazione
+// darebbe un negativo («-12 UPDATE»). Si riparte dal totale, che al massimo dice piu' del vero.
+test('daAnnunciare: se il totale della finestra SCENDE il delta non va sotto zero', () => {
+  const prec = { 'scrittura:x': { quando: 100, quante: 40 } }
+  const { nuovi } = daAnnunciare([{ chiave: 'scrittura:x', quando: 200, quante: 3 }], prec)
+  assert.equal(nuovi[0].nuove, 3)
+})
+
+// I due livelli: i dati dei clienti chiamano, la struttura si legge. Finche' erano la stessa riga
+// gialla, la seconda ha insegnato a ignorare la prima.
+test('segnali: le scritture sui DATI sono un allarme, quelle sulla STRUTTURA un avviso', () => {
+  const db = (dentro) => base({ audit: { database: [{ servizio: 's', nome: 'n', ambiente: 'prod', scriventi: ['tizio'], ultimaScrittura: 9000, ...dentro }] } })
+  const dati = segnali(db({ scritture: 2, scrittureDati: 2, scrittureStruttura: 0 }))[0]
+  const struttura = segnali(db({ scritture: 15, scrittureDati: 0, scrittureStruttura: 15 }))[0]
+  assert.deepEqual([dati.livello, dati.natura], ['allarme', 'dati'])
+  assert.deepEqual([struttura.livello, struttura.natura], ['attenzione', 'struttura'])
+})
+
+// ⚠️ Payload di una versione precedente (rilascio a metà): la divisione non c'e'. Non sapere cosa e'
+// stato scritto non e' sapere che era struttura, e fra i due errori il silenzioso e' quello che costa.
+test('segnali: senza la divisione dati/struttura NON si scende di livello', () => {
+  const out = segnali(base({ audit: { database: [{ servizio: 's', nome: 'n', ambiente: 'prod', scritture: 4, scriventi: ['tizio'], ultimaScrittura: 9000 }] } }))
+  assert.deepEqual([out[0].livello, out[0].natura], ['allarme', 'dati'])
 })
