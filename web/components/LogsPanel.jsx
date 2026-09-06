@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Switch, Segmented, Alert, Empty, Typography, Space, Button, Select } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { taskOfStream, instanceOptions } from '../format.js'
-import { NOISE, LogLines } from '../logline.jsx'
+import { LogLines } from '../logline.jsx'
+import { isNoise } from '../logNoise.js'
 import Loading from './Loading.jsx'
 
 const { Text } = Typography
@@ -187,7 +188,7 @@ export default function LogsPanel({
                   description={data.healthSkipped > 0 ? t('logs.onlyHealth', { n: data.healthSkipped }) : t('logs.empty')}
                 />
               )
-            const rows = all.filter((e) => showNoise || !NOISE.test((e.message ?? '').trimStart()))
+            const rows = all.filter((e) => showNoise || !isNoise(e.message))
             const hidden = all.length - rows.length
             return (
               <>
