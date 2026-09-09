@@ -90,31 +90,51 @@ export function segnali(dati = {}) {
 
   // 1. Scritture su un database di PRODUZIONE. Su staging non si avvisa: è il lavoro di tutti i giorni,
   //    e un canale che parla del lavoro normale si spegne da solo nella testa di chi legge.
-  //    Due livelli, non uno: una riga sui DATI dei clienti (`insert`/`update`/`delete`/`truncate`) e
-  //    una sulla STRUTTURA (indici, view, grant) non meritano la stessa faccia, e finché l'hanno avuta
-  //    la seconda ha insegnato a ignorare la prima. Le due righe vere del 02/09/2026: un `CREATE TEMP
-  //    VIEW` in lettura (che adesso non è più una scrittura) e 15 DDL su una matview del BI.
+  //    DUE segnali per database, non uno: una riga sui DATI dei clienti (`insert`/`update`/`delete`/
+  //    `truncate`) e una sulla STRUTTURA (indici, view, grant). Finché la riga era una sola, con il
+  //    colore deciso dal totale della finestra, la seconda ha insegnato a ignorare la prima, e poi ha
+  //    fatto di peggio: sullo stesso database il colore alternava rosso e giallo a seconda di cosa
+  //    fosse ancora dentro alle 24 ore, e una scrittura sui dati nuova poteva finire sotto un titolo
+  //    giallo che parlava di indici. Separate, ognuna ha il suo colore per sempre, il suo istante e la
+  //    sua calma: un `CREATE INDEX` non fa ripartire la riga rossa, e un `UPDATE` non aspetta che
+  //    finisca la calma dei DDL.
   for (const d of audit.database ?? []) {
-    if ((d.scritture ?? 0) <= 0 || d.ambiente !== 'prod') continue
-    // ⚠️ Se la divisione non c'è (payload di una versione precedente, cioè un rilascio a metà) NON si
-    // scende di livello: non sapere cosa è stato scritto non è la stessa cosa che sapere che era
-    // struttura, e fra i due errori il silenzioso è quello che costa.
-    const suiDati = d.scrittureDati === undefined ? true : d.scrittureDati > 0
-    fuori.push({
-      chiave: `scrittura:${d.servizio}/${d.nome}`,
+    if (d.ambiente !== 'prod') continue
+    const riga = (natura, quante, quando, azioni, tabelle) => ({
+      chiave: `scrittura-${natura}:${d.servizio}/${d.nome}`,
       tipo: 'scrittura',
-      livello: suiDati ? 'allarme' : 'attenzione',
-      natura: suiDati ? 'dati' : 'struttura',
+      livello: natura === 'dati' ? 'allarme' : 'attenzione',
+      natura,
       ambiente: d.ambiente,
       bersaglio: d.nome && d.nome !== '?' ? d.nome : d.servizio,
       servizio: d.servizio,
-      quante: d.scritture,
-      azioni: d.azioni ?? [],
-      tabelle: d.bersagli ?? [],
+      quante,
+      azioni,
+      tabelle,
       utentiDb: d.utentiDb ?? [],
       chi: d.scriventi ?? [],
-      quando: d.ultimaScrittura ?? null,
+      quando: quando ?? null,
     })
+    // ⚠️ Se la divisione non c'è (payload di una versione precedente, cioè un rilascio a metà) NON si
+    // scende di livello: non sapere cosa è stato scritto non è la stessa cosa che sapere che era
+    // struttura, e fra i due errori il silenzioso è quello che costa. Una riga sola, rossa, con la
+    // chiave di prima.
+    if (d.scrittureDati === undefined && d.scrittureStruttura === undefined) {
+      if ((d.scritture ?? 0) > 0)
+        fuori.push({
+          ...riga('dati', d.scritture, d.ultimaScrittura, d.azioni ?? [], d.bersagli ?? []),
+          chiave: `scrittura:${d.servizio}/${d.nome}`,
+        })
+      continue
+    }
+    // Le azioni si smistano per `tipo`. Senza `tipo` restano fuori da entrambe le righe invece di
+    // finire in tutte e due: il conteggio è quello giusto lo stesso (viene da `scrittureDati` e
+    // `scrittureStruttura`), e il messaggio dice «statement di scrittura» invece di una cifra falsa.
+    const perTipo = (t) => (d.azioni ?? []).filter((a) => a.tipo === t)
+    if ((d.scrittureDati ?? 0) > 0)
+      fuori.push(riga('dati', d.scrittureDati, d.ultimaScritturaDati ?? d.ultimaScrittura, perTipo('dati'), d.bersagli ?? []))
+    if ((d.scrittureStruttura ?? 0) > 0)
+      fuori.push(riga('struttura', d.scrittureStruttura, d.ultimaScritturaStruttura ?? d.ultimaScrittura, perTipo('struttura'), []))
   }
 
   // 2. Una sessione SSH APERTA su una macchina che non è di chi è entrato. La macchina dice chi la
@@ -159,11 +179,16 @@ export function segnali(dati = {}) {
   return fuori
 }
 
-// Lo stato di un segnale già annunciato: l'istante (serve al dedup) e QUANTE erano allora (serve al
-// delta del giro dopo). Le vecchie forme erano il solo istante e si leggono ancora: senza, il primo
-// giro dopo un rilascio ridirebbe il totale della finestra come se fosse tutto nuovo.
+// Lo stato di un segnale già annunciato: l'istante dell'ultimo evento detto (serve al dedup), QUANTE
+// erano allora e CON CHE COSA (servono al delta del giro dopo), e QUANDO lo si è detto (serve alla
+// calma). Le vecchie forme (il solo istante, e la coppia istante + quante) si leggono ancora: senza, il
+// primo giro dopo un rilascio ridirebbe il totale della finestra come se fosse tutto nuovo.
 const precQuando = (v) => (typeof v === 'number' ? v : (v?.quando ?? 0))
 const precQuante = (v) => (typeof v === 'number' ? 0 : (v?.quante ?? 0))
+const precDetto = (v) => (typeof v === 'number' ? 0 : (v?.detto ?? 0))
+const precAzioni = (v) => (typeof v === 'number' ? null : (v?.azioni ?? null))
+const precChi = (v) => (typeof v === 'number' ? [] : (v?.chi ?? []))
+const precTabelle = (v) => (typeof v === 'number' ? null : (v?.tabelle ?? null))
 
 // Quante ne sono arrivate DALL'ULTIMO messaggio, che è la domanda a cui il totale non risponde: uno
 // script che scrive per mezz'ora manda un messaggio ogni cinque minuti, e col totale delle 24h ogni
@@ -178,18 +203,116 @@ function delta(segnale, prec) {
   return ora > prima ? ora - prima : ora
 }
 
-// Cosa NON è già stato annunciato. Lo stato è `{ chiave: { quando, quante } }`.
+// Le azioni ARRIVATE dall'ultimo messaggio, non quelle della finestra, e QUANTE sono in tutto. È lo
+// stesso conto di `delta`, fatto etichetta per etichetta: il 09/09/2026 sette messaggi di fila hanno
+// riscritto «9 CREATE FUNCTION, 7 GRANT, +9» accanto a un «+1», cioè il totale delle 24h accanto al
+// delta, che è come dire due numeri diversi nella stessa riga e lasciare a chi legge il compito di
+// capire quale conta.
+//
+// ⚠️ Il numero e le azioni escono da QUI tutti e due, e non da due conti diversi. Con `delta()` per il
+// numero e questo per le azioni bastava una finestra che scorre (`UPDATE` 15 → 11, `INSERT` 5 → 7) per
+// stampare «+18 INSERT» dove gli INSERT arrivati erano 2: il totale scendeva, `delta()` ripiegava sul
+// totale della finestra, e l'etichetta accanto era quella del delta. Due misure diverse nella stessa
+// riga sono esattamente il difetto che questo giro doveva togliere.
+//
+// ⚠️ Se il conto non torna (nessuna etichetta è cresciuta, ma l'istante è avanzato: succede quando una
+// scrittura vecchia esce dalla finestra e una nuova entra con la stessa etichetta) si ripiega sulla
+// finestra, azioni e numero insieme. Meglio ridire una cifra che dire «+3» senza dire di che cosa.
+function arrivate(segnale, prec) {
+  const prima = precAzioni(prec)
+  const ora = segnale.azioni ?? []
+  const cresciute = prima
+    ? ora.map((a) => ({ ...a, quante: a.quante - (prima[a.etichetta] ?? 0) })).filter((a) => a.quante > 0)
+    : []
+  if (!cresciute.length) return { azioni: ora, nuove: delta(segnale, prec) }
+  return { azioni: cresciute, nuove: cresciute.reduce((n, a) => n + a.quante, 0) }
+}
+
+// Le azioni come vanno in stato: `{ etichetta: quante }`, cioè quello che si sa al momento in cui si
+// parla. Si scrivono SOLO quando il messaggio parte davvero (vedi sotto), sennò il delta del giro dopo
+// si misurerebbe da un messaggio che nessuno ha letto.
+const azioniInStato = (segnale) =>
+  Object.fromEntries((segnale.azioni ?? []).map((a) => [a.etichetta, a.quante]))
+
+const vocePerStato = (segnale, adesso) => ({
+  quando: segnale.quando ?? 0,
+  quante: segnale.quante ?? 0,
+  detto: adesso,
+  azioni: azioniInStato(segnale),
+  tabelle: segnale.tabelle ?? [],
+  chi: segnale.chi ?? [],
+  livello: segnale.livello ?? null,
+})
+
+// Le tabelle NUOVE, con lo stesso ripiego delle azioni: se non ce n'è nessuna mai vista prima si
+// ridicono quelle della finestra, perché «+3 UPDATE» senza dire su cosa non è una notizia.
+function tabelleNuove(segnale, prec) {
+  const prima = precTabelle(prec)
+  const ora = segnale.tabelle ?? []
+  if (!prima) return ora
+  const inedite = ora.filter((t) => !prima.includes(t))
+  return inedite.length ? inedite : ora
+}
+
+// Quanto sta zitto un segnale che continua ad arrivare. Non è un filtro sul rumore: è il passo con cui
+// una cosa che DURA (una sessione di migration, un backfill) si racconta. Il giro gira ogni cinque
+// minuti, quindi senza calma una mezz'ora di lavoro su un database di produzione sono sei messaggi che
+// dicono la stessa cosa con una cifra diversa, e il canale si legge come rumore proprio nei giorni in
+// cui c'è qualcosa da leggere. Niente si perde: quello che succede nel silenzio finisce nel messaggio
+// dopo, perché il delta si misura dall'ultimo messaggio MANDATO.
+export const CALMA_MS = 30 * 60_000
+
+// Quando la calma NON vale: scrive QUALCUNO CHE PRIMA NON C'ERA. «Anche Tizio sta scrivendo in
+// produzione» è la riga che fa alzare il telefono, e farla aspettare mezz'ora vuol dire darla quando è
+// già finita. Un'azione nuova o una tabella nuova invece NON rompono la calma: durante una migration ne
+// arriva una ogni due minuti, e sarebbero di nuovo sei messaggi.
+//
+// Il passaggio dalla struttura ai dati dei clienti non è più un caso da trattare qui: sono due segnali
+// con due chiavi, quindi il primo `UPDATE` è una chiave che non ha mai parlato e parla subito.
+function rompeLaCalma(segnale, prec) {
+  const gia = new Set(precChi(prec))
+  return (segnale.chi ?? []).some((c) => !gia.has(c))
+}
+
+// Cosa NON è già stato annunciato, e cosa non è ancora il momento di annunciare. Lo stato è
+// `{ chiave: { quando, quante, detto, azioni, chi } }`.
 //
 // ⚠️ Primo giro (stato assente) → si prende nota e non si annuncia niente. È la stessa scelta del
 // watchdog dei servizi, e serve perché su ECS il filesystem del task è effimero: senza, a ogni
 // rilascio il canale si riempirebbe di cose vecchie. Il prezzo è che un rilascio può mangiarsi un
 // annuncio, e fra i due è il male minore.
-export function daAnnunciare(segnaliOra = [], statoPrec = null) {
+//
+// ⚠️ Lo stato di un segnale TACIUTO resta quello di prima, intero: se avanzasse, il messaggio dopo
+// direbbe «+2» su mezz'ora di scritture, cioè meno di quello che è successo. Tacere è rimandare, non
+// buttare.
+export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.now(), calmaMs = CALMA_MS } = {}) {
   const stato = {}
-  for (const s of segnaliOra) stato[s.chiave] = { quando: s.quando ?? 0, quante: s.quante ?? 0 }
-  if (!statoPrec) return { nuovi: [], stato }
-  const nuovi = segnaliOra
-    .filter((s) => (s.quando ?? 0) > precQuando(statoPrec[s.chiave]))
-    .map((s) => ({ ...s, nuove: delta(s, statoPrec[s.chiave]) }))
+  if (!statoPrec) {
+    // `detto: 0` e non `adesso`: al primo giro non si è detto NIENTE, e datare il silenzio come se
+    // fosse un messaggio terrebbe zitto per mezz'ora il primo allarme vero dopo ogni rilascio.
+    for (const s of segnaliOra) stato[s.chiave] = { ...vocePerStato(s, adesso), detto: 0 }
+    return { nuovi: [], stato }
+  }
+  const nuovi = []
+  for (const s of segnaliOra) {
+    const prec = statoPrec[s.chiave]
+    const inedito = (s.quando ?? 0) > precQuando(prec)
+    // Il segnale COM'È ADESSO: quante ne sono arrivate, quali e su cosa. Il colore non si ricalcola:
+    // lo porta la chiave, che è per natura.
+    const { azioni, nuove } = arrivate(s, prec)
+    const adessoDetto = { ...s, nuove, azioni, tabelle: tabelleNuove(s, prec) }
+    const zitto = inedito && adesso - precDetto(prec) < calmaMs && !rompeLaCalma(adessoDetto, prec)
+    if (!inedito || zitto) {
+      // Niente da dire, oppure non adesso: si tiene quello che c'era. Una chiave sconosciuta che non ha
+      // niente di nuovo non esiste (`prec` è undefined solo se `inedito`), quindi il ramo è sicuro.
+      stato[s.chiave] = prec ?? vocePerStato(s, adesso)
+      continue
+    }
+    nuovi.push(adessoDetto)
+    // ⚠️ In stato vanno i totali della FINESTRA (`s`), non il delta appena detto: il conto del giro
+    // dopo si fa contro «quanto ne sapevo quando ho parlato». Con i numeri del delta il messaggio
+    // seguente ricomincerebbe da capo a ogni giro.
+    stato[s.chiave] = vocePerStato(s, adesso)
+  }
   return { nuovi, stato }
 }

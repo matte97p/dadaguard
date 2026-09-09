@@ -164,17 +164,30 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         scrittureDati: 0,
         scrittureStruttura: 0,
         // Quali scritture, contate per etichetta (`ALTER INDEX` → 7): «+15 statement» non si traduce
-        // in niente, «7 ALTER INDEX» sì. `bersagli` sono le tabelle, solo per i dati (vedi `azione`).
+        // in niente, «7 ALTER INDEX» sì. Ogni etichetta si porta dietro il suo `tipo`: senza, chi
+        // compone il messaggio sa che c'e' stata una scrittura sui dati ma non sa QUALE delle
+        // etichette lo era, e mostrando le due piu' numerose finiva per dire solo DDL sotto a un
+        // titolo rosso. `bersagli` sono le tabelle, solo per i dati (vedi `azione`).
         azioni: new Map(),
         bersagli: new Set(),
         // Con che utente di database e da quale endpoint: e' la differenza fra chi era in lettura sul
         // reader e chi ha aperto il writer, cioe' la prima domanda che si fa chi legge il messaggio.
-        utentiDb: new Set(),
+        //
+        // ⚠️ Strutturata (`{ utente, endpoint }`) e non una frase gia' scritta: chi compone il
+        // messaggio deve poter TOGLIERE quello che ha gia' detto. Con tre persone che scrivono col
+        // proprio login la frase pronta diceva «da tizio, caio, sempronio (dev_caio su endpoint
+        // ignoto, dev_tizio su endpoint ignoto, dev_readonly su endpoint ignoto)»: gli stessi nomi due
+        // volte, e tre volte la parola che dice di non sapere.
+        utentiDb: new Map(),
         persone: new Set(),
         scriventi: new Set(),
         // L'istante dell'ultima scrittura su questo database: serve a chi annuncia, per dire una cosa
-        // sola una volta invece di ripeterla a ogni giro per tutta la finestra.
+        // sola una volta invece di ripeterla a ogni giro per tutta la finestra. Diviso per NATURA,
+        // perche' le due notizie viaggiano separate: senza, un `CREATE INDEX` farebbe ripartire anche
+        // la riga rossa delle scritture sui dati, che non ha niente di nuovo da dire.
         ultimaScrittura: null,
+        ultimaScritturaDati: null,
+        ultimaScritturaStruttura: null,
         ambiente: null,
       })
     return database.get(k)
@@ -314,11 +327,26 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       const fatta = azione(campi.db_query)
       if (fatta) {
         d.scritture += 1
-        if (fatta.tipo === 'dati') d.scrittureDati += 1
-        else d.scrittureStruttura += 1
-        if (fatta.etichetta) d.azioni.set(fatta.etichetta, (d.azioni.get(fatta.etichetta) ?? 0) + 1)
+        if (fatta.tipo === 'dati') {
+          d.scrittureDati += 1
+          d.ultimaScritturaDati = Math.max(d.ultimaScritturaDati ?? 0, ev.timestamp ?? 0)
+        } else {
+          d.scrittureStruttura += 1
+          d.ultimaScritturaStruttura = Math.max(d.ultimaScritturaStruttura ?? 0, ev.timestamp ?? 0)
+        }
+        if (fatta.etichetta)
+          d.azioni.set(fatta.etichetta, {
+            tipo: fatta.tipo,
+            quante: (d.azioni.get(fatta.etichetta)?.quante ?? 0) + 1,
+          })
         if (fatta.bersaglio) d.bersagli.add(fatta.bersaglio)
-        if (campi.db_user) d.utentiDb.add(`${campi.db_user} su ${campi.db_labels?.access ?? 'endpoint ignoto'}`)
+        // L'endpoint e' `null` quando il db service non porta la label `access`, e resta `null`: la
+        // frase «su endpoint ignoto» occupava una riga per dire che non lo sappiamo.
+        if (campi.db_user)
+          d.utentiDb.set(`${campi.db_user}\u0000${campi.db_labels?.access ?? ''}`, {
+            utente: campi.db_user,
+            endpoint: campi.db_labels?.access ?? null,
+          })
         d.scriventi.add(utente)
         d.ultimaScrittura = Math.max(d.ultimaScrittura ?? 0, ev.timestamp ?? 0)
         p.scritture += 1
@@ -354,10 +382,10 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       chi: [...d.persone].sort(),
       scriventi: [...d.scriventi],
       azioni: [...d.azioni.entries()]
-        .map(([etichetta, quante]) => ({ etichetta, quante }))
+        .map(([etichetta, { quante, tipo }]) => ({ etichetta, quante, tipo }))
         .sort((a, b) => b.quante - a.quante || a.etichetta.localeCompare(b.etichetta)),
       bersagli: [...d.bersagli].sort(),
-      utentiDb: [...d.utentiDb].sort(),
+      utentiDb: [...d.utentiDb.values()].sort((a, b) => a.utente.localeCompare(b.utente)),
     }))
     .sort((a, b) => b.query - a.query)
   // Aperta = ha uno `start` e nessun `end` con lo STESSO id. Un `end` il cui `start` e' fuori dalla
