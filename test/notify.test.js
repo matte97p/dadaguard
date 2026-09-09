@@ -309,6 +309,21 @@ test('messaggio: la conferma dalla finestra lunga (degraded → down) si annunci
   assert.ok(!text.includes('<!channel>'))
 })
 
+test('messaggio: uno sforamento provvisorio lo DICE, in coda alla riga', () => {
+  // Prima quel flag serviva solo a non mettere il `<!channel>`: tolto il tag, senza questa nota
+  // sarebbe rimasto un dato calcolato, propagato e provato che nessuno legge.
+  const { text } = slackMessage(
+    [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', to: 'degraded', cause: 'runtime', provisional: true }],
+    { t: makeT('it') },
+  )
+  assert.match(text, /non ancora confermato dalla finestra lunga$/)
+  const { text: certo } = slackMessage(
+    [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', to: 'degraded', cause: 'runtime' }],
+    { t: makeT('it') },
+  )
+  assert.ok(!certo.includes('non ancora confermato'), 'un allarme confermato non porta la nota')
+})
+
 test('messaggio: nessuna riga tagga il canale, in nessun ambiente e per nessuna gravità', () => {
   // Il difetto che questo test impedisce è il ritorno del tag su un ramo solo: prima ce n'era uno
   // (produzione, allarme confermato), e da lì si era ricreato il canale che nessuno guarda più.

@@ -72,7 +72,8 @@ export function snapshot(services = []) {
       outcome: s.checks?.runtime?.outcome ?? null,
       // Il check dichiara il proprio sforamento PROVVISORIO: l'ha visto solo la finestra corta, e
       // quella lunga (l'unica che può dire «è finita») non l'ha ancora confermato. Non cambia lo
-      // stato né il routing, cambia solo se si strappa tutti dal lavoro: vedi `mention` in slack.js.
+      // stato né il routing: diventa una nota in coda alla riga (vedi `slackMessage` in slack.js),
+      // perché chi legge un allarme deve sapere che potrebbe richiudersi da solo.
       provisional: s.checks?.[s.cause]?.provisional === true,
     }
   }

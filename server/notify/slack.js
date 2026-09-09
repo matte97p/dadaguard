@@ -111,7 +111,12 @@ export function slackMessage(transitions, { url = null, t = (k) => k } = {}) {
     const causa = parola ? ` · ${parola}` : ''
     const pulito = cleanDetail(tr.detail)
     const dettaglio = pulito ? ` — ${pulito}` : ''
-    return `${mention()}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}`
+    // Lo sforamento visto dalla sola finestra corta si DICE, invece di cambiare come suona la riga.
+    // Prima quel flag serviva a non mettere il `<!channel>`, e tolto il tag sarebbe rimasto un dato
+    // calcolato, propagato e provato che nessuno legge. Da qui in poi è una nota in coda, che è il
+    // posto dello standard per la frase che dice cosa non sappiamo ancora.
+    const forse = tr.provisional ? ` · ${t('notify.provisional')}` : ''
+    return `${mention()}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}${forse}`
   })
   // Il link chiude l'ultima riga con lo stesso "·" e la stessa etichetta dei messaggi di deploy, che
   // già rimandano qui: chi li legge riconosce la porta.

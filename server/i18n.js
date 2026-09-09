@@ -100,6 +100,9 @@ const S = {
     'notify.status.idle': 'a riposo',
     'notify.status.disabled': 'spento di proposito',
     'notify.status.unknown': 'stato sconosciuto',
+    // La nota in coda a un allarme che ha visto solo la finestra corta: dice cosa NON sappiamo
+    // ancora, che e' l'unica cosa che quella riga aggiunge a chi la legge.
+    'notify.provisional': 'non ancora confermato dalla finestra lunga',
     'notify.cause.liveness': 'non risponde',
     'notify.cause.version': 'build',
     'notify.cause.runtime': 'esecuzione',
@@ -468,6 +471,7 @@ const S = {
     'notify.cause.type.sns': 'topic',
     'rule.fires': ' · fires at: {regola}',
     'notify.open': 'status on Dadaguard',
+    'notify.provisional': 'not yet confirmed by the long window',
     'm.inv': '{n#invocation#invocations}',
     'm.runs': '{n#run#runs}',
     'm.calls': '{n#call#calls}',
