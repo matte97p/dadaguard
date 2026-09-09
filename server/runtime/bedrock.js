@@ -23,7 +23,7 @@ const DEFAULT_WINDOW_MIN = 60
 const ACUTE_WINDOW_MIN = 15
 
 // Quando un errore diventa un GUASTO. Un errore isolato non è la piattaforma giù: 358 invocazioni con
-// 1 errore client è rumore normale, e allarmare lì (con `<!channel>`, perché Bedrock in prod è roba
+// 1 errore client è rumore normale, e allarmare lì (Bedrock in prod è roba
 // seria) è il modo più rapido per far ignorare gli allarmi veri.
 //
 // Ogni segnale ha DUE condizioni, percentuale E minimo assoluto, perché una sola non basta:
@@ -51,7 +51,7 @@ const SOGLIE = {
 //
 // Il caso reale del 23/08, terzo falso positivo in cinque giorni: UN 503 su 57 invocazioni nell'ora
 // (1,75%, pulita) ma su 8 invocazioni nei 15 minuti, cioè il 12,5%, che sfonda il 10% e in
-// produzione suona con `<!channel>`. La finestra corta ha un denominatore quattro volte più piccolo
+// produzione esce come rosso. La finestra corta ha un denominatore quattro volte più piccolo
 // di quella lunga: le soglie alzate nel #92 guardavano l'ora e hanno lasciato scoperta la finestra
 // che decide da sola. Senza pavimento, con `rate: 0.1`, QUALSIASI errore singolo sfonda finché le
 // invocazioni della finestra sono <= 10, che con questo traffico è la norma, non il caso raro.

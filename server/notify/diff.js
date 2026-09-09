@@ -25,7 +25,7 @@ export function stateClass(overall) {
 //    anche come conferma di un allarme entrato provvisorio (sotto): quello che tace all'ingresso
 //    suona qui, appena la finestra lunga gli dà ragione;
 //  · migliora (down → degraded) = «sembra rientrato, non è confermato»: si annuncia, ma SENZA sirena
-//    (in slack.js il `<!channel>` è legato a kind === 'alert'). È il segnale intermedio che mancava:
+//    (in slack.js `kind === 'alert'` decide il pallino rosso). È il segnale intermedio che mancava:
 //    prima o eri rosso o eri verde, e un rientro parziale non aveva modo di dirsi.
 // Il verde definitivo resta l'unica cosa che chiude l'allarme: qui non si esce mai dal rosso.
 const GRAVITA = { degraded: 1, down: 2 }
@@ -72,7 +72,8 @@ export function snapshot(services = []) {
       outcome: s.checks?.runtime?.outcome ?? null,
       // Il check dichiara il proprio sforamento PROVVISORIO: l'ha visto solo la finestra corta, e
       // quella lunga (l'unica che può dire «è finita») non l'ha ancora confermato. Non cambia lo
-      // stato né il routing, cambia solo se si strappa tutti dal lavoro: vedi `mention` in slack.js.
+      // stato né il routing: diventa una nota in coda alla riga (vedi `slackMessage` in slack.js),
+      // perché chi legge un allarme deve sapere che potrebbe richiudersi da solo.
       provisional: s.checks?.[s.cause]?.provisional === true,
     }
   }

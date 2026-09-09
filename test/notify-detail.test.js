@@ -138,7 +138,7 @@ test('la riga intera: causa e dettaglio non ripetono la stessa parola', () => {
   )
   assert.match(text, /ATTENZIONE · target — 1 target su 7 non sano: i-0abc \(Target\.FailedHealthChecks\)/)
   assert.ok(!text.includes('esecuzione'), 'la vecchia parola non torna')
-  assert.ok(!text.startsWith('<!channel>'), 'staging non suona la sirena')
+  assert.ok(!text.startsWith('<!channel>'), 'il canale non si tagga')
 })
 
 // Un servizio ECS con tutti i container su e un target fuori è degradato DAI TARGET: intestare la riga

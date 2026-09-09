@@ -198,7 +198,7 @@ test('alleggerimento di un allarme mai annunciato: silenzio, come per il rientro
 
 test('messaggio: un alleggerimento si legge come tale, e non chiama il canale', () => {
   const msg = slackMessage([{ kind: 'improvement', name: 'claude-opus-5', account: 'Production', to: 'degraded', from: 'down', detail: 'probabile rientro' }], { t: makeT('it') })
-  assert.ok(!msg.text.includes('<!channel>'), 'non è un allarme nuovo: niente sirena')
+  assert.ok(!msg.text.includes('<!channel>'), 'il canale non si tagga')
   assert.ok(msg.text.includes('IN RIENTRO'), 'e si distingue da un ATTENZIONE appena aperto')
 })
 
@@ -253,7 +253,7 @@ test('messaggio: cosa, dove, perché, e il link per continuare', () => {
   assert.match(text, /esecuzione/)
   assert.match(text, /ultima esecuzione FALLITA/)
   assert.match(text, /dadaguard\.example/)
-  assert.match(text, /^<!channel>/, 'un guasto in produzione chiama il canale')
+  assert.ok(!text.includes('<!channel>'), 'il canale non si tagga, nemmeno per un guasto in produzione')
 })
 
 // --- allarme PROVVISORIO: si annuncia, non chiama ----------------------------------------------
@@ -299,21 +299,43 @@ test('messaggio: un allarme provvisorio in produzione arriva, ma non chiama il c
   assert.match(text, /non è ancora una finestra da 60m/, 'e porta la frase che dice perché è provvisorio')
 })
 
-test('messaggio: la conferma dalla finestra lunga (degraded → down) chiama il canale', () => {
-  // È la metà che rende accettabile il silenzio all'ingresso: se il guasto è vero, la salita suona.
+test('messaggio: la conferma dalla finestra lunga (degraded → down) si annuncia, e non tagga', () => {
+  // La salita resta la notizia, e va detta: quello che non fa più è strappare tutti dal lavoro.
   const { text } = slackMessage(
     [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', from: 'degraded', to: 'down', cause: 'runtime' }],
     { t: makeT('it') },
   )
-  assert.match(text, /^<!channel>/)
+  assert.match(text, /:red_circle:/)
+  assert.ok(!text.includes('<!channel>'))
 })
 
-test('messaggio: niente <!channel> per staging né per un rientro', () => {
+test('messaggio: uno sforamento provvisorio lo DICE, in coda alla riga', () => {
+  // Prima quel flag serviva solo a non mettere il `<!channel>`: tolto il tag, senza questa nota
+  // sarebbe rimasto un dato calcolato, propagato e provato che nessuno legge.
+  const { text } = slackMessage(
+    [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', to: 'degraded', cause: 'runtime', provisional: true }],
+    { t: makeT('it') },
+  )
+  assert.match(text, /non ancora confermato dalla finestra lunga$/)
+  const { text: certo } = slackMessage(
+    [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', to: 'degraded', cause: 'runtime' }],
+    { t: makeT('it') },
+  )
+  assert.ok(!certo.includes('non ancora confermato'), 'un allarme confermato non porta la nota')
+})
+
+test('messaggio: nessuna riga tagga il canale, in nessun ambiente e per nessuna gravità', () => {
+  // Il difetto che questo test impedisce è il ritorno del tag su un ramo solo: prima ce n'era uno
+  // (produzione, allarme confermato), e da lì si era ricreato il canale che nessuno guarda più.
   const t = (k) => k
   const stg = slackMessage([{ kind: 'alert', name: 'api', account: 'Staging', to: 'down', cause: 'runtime' }], { t })
+  const prd = slackMessage([{ kind: 'alert', name: 'api', account: 'Production', to: 'down', cause: 'runtime' }], { t })
   const ok = slackMessage([{ kind: 'recovery', name: 'cron', account: 'Production', to: 'up' }], { t })
-  assert.ok(!stg.text.includes('<!channel>'), 'staging non sveglia nessuno')
-  assert.ok(!ok.text.includes('<!channel>'), 'un rientro non sveglia nessuno')
+  for (const [dove, msg] of [['staging', stg], ['produzione', prd], ['rientro', ok]]) {
+    for (const marchio of ['<!channel>', '<!here>', '<@']) {
+      assert.ok(!msg.text.includes(marchio), `${dove}: tagga il canale con ${marchio}`)
+    }
+  }
   assert.match(ok.text, /:white_check_mark:/)
 })
 

@@ -37,16 +37,18 @@ export function envTag(account) {
   return ` [${a.toUpperCase()}]`
 }
 
-// `<!channel>` solo per un guasto in PRODUZIONE, come nei cron: se suona sempre, non suona più.
+// NESSUNA menzione: il canale non si tagga, in nessun ambiente e per nessuna gravità (09/09/2026).
+// Prima un guasto in produzione portava `<!channel>`, «come nei cron». Il ragionamento si morde la
+// coda: se il canale fa così tanto rumore che un rosso ci si perde, la risposta è meno rumore, non
+// una sveglia per tutti, e una sveglia che suona spesso è una sveglia che si smette di guardare.
+// Un guasto si vede dove lo si vede scorrendo, cioè dal pallino in testa alla riga, e chi vuole
+// essere svegliato imposta le notifiche su questo canale nel PROPRIO Slack: così la sceglie chi la
+// riceve, invece di subirla per conto di altri otto.
 //
-// E nemmeno per un allarme PROVVISORIO, cioè visto dalla sola finestra corta: il messaggio stesso dice
-// «non è ancora una finestra da 60m», quindi strappare tutti dal lavoro contraddice la frase che porta.
-// Non si perde niente: se è un guasto vero la finestra lunga lo conferma al giro dopo, e la salita
-// `degraded → down` è già un `alert` con la sirena (regola 5 in diff.js). Il caso che questo toglie è
-// l'altro, quello che si richiude da solo: tre 503 in un quarto d'ora scarico, che sull'ora non sono
-// niente. Il messaggio arriva lo stesso, con il suo pallino giallo: non chiama, si legge.
-function mention(t) {
-  return t.kind === 'alert' && !t.provisional && /^prod/i.test(t.account ?? '') ? '<!channel> ' : ''
+// La funzione resta, e resta il posto dove si rimetterebbe una menzione MIRATA (una persona, non il
+// canale) il giorno in cui esistesse una reperibilità con un nome sopra.
+function mention() {
+  return ''
 }
 
 // La causa: quale SEGNALE ha fatto scattare l'allarme, detto come lo direbbe un umano. `runtime` è il
@@ -109,7 +111,12 @@ export function slackMessage(transitions, { url = null, t = (k) => k } = {}) {
     const causa = parola ? ` · ${parola}` : ''
     const pulito = cleanDetail(tr.detail)
     const dettaglio = pulito ? ` — ${pulito}` : ''
-    return `${mention(tr)}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}`
+    // Lo sforamento visto dalla sola finestra corta si DICE, invece di cambiare come suona la riga.
+    // Prima quel flag serviva a non mettere il `<!channel>`, e tolto il tag sarebbe rimasto un dato
+    // calcolato, propagato e provato che nessuno legge. Da qui in poi è una nota in coda, che è il
+    // posto dello standard per la frase che dice cosa non sappiamo ancora.
+    const forse = tr.provisional ? ` · ${t('notify.provisional')}` : ''
+    return `${mention()}${emoji} \`${tr.name}\`${envTag(tr.account)} ${stato}${causa}${dettaglio}${forse}`
   })
   // Il link chiude l'ultima riga con lo stesso "·" e la stessa etichetta dei messaggi di deploy, che
   // già rimandano qui: chi li legge riconosce la porta.

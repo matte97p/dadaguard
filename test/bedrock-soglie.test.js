@@ -4,7 +4,7 @@ import { bedrockRuntime } from '../server/runtime/bedrock.js'
 import { makeT } from '../server/i18n.js'
 
 // Le soglie di Bedrock esistono per una ragione precisa, vista dal vivo: 358 invocazioni con UN errore
-// client hanno prodotto un allarme rosso con `<!channel>` in produzione, più tardi 78 invocazioni con
+// client hanno prodotto un allarme rosso in produzione, più tardi 78 invocazioni con
 // UN errore server hanno fatto lo stesso, e il 23/08 ci è riuscito UN 503 su 57 invocazioni, passando
 // dalla finestra corta. Un errore isolato non è la piattaforma giù, e un allarme che suona per il
 // rumore normale insegna alla squadra a ignorarlo.
@@ -33,7 +33,7 @@ test('il caso reale #1: 1 errore client su 358 invocazioni NON è un guasto', as
 
 test('il caso reale #2: 1 errore server su 78 invocazioni NON è un guasto', async () => {
   // È l'allarme del 06/08 in canale. Con la coppia vecchia (min 2 / rate 1%) l'1% di 78 valeva 0,78:
-  // bastava UN 503, cioè il rumore normale di Bedrock, per svegliare tutti con un `<!channel>`.
+  // bastava UN 503, cioè il rumore normale di Bedrock, per far uscire un rosso di produzione.
   assert.equal(await stato({ inv: 78, serr: 1, lat: 15000 }), 'up')
 })
 
