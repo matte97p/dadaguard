@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asList, matchesAny, isFiltering } from '../web/filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl } from '../web/filters.js'
 
 // Il modello dei filtri: ELENCO VUOTO = TUTTI. Sembra una sciocchezza, ma prima ogni pagina scriveva a
 // mano `x === 'all' || y === x`, in sei file, e ognuno poteva sbagliarlo a modo suo. Qui si fissa il
@@ -44,4 +44,15 @@ test('isFiltering: dice se qualcuno ha scelto qualcosa (serve al tasto «azzera�
   assert.equal(isFiltering('all'), false)
   assert.equal(isFiltering(['staging']), true)
   assert.equal(isFiltering('staging'), true)
+})
+
+test('listaDaUrl legge i filtri che arrivano da un link', () => {
+  // I link delle notifiche #aws-deploy: `?service=frontend&account=staging`.
+  assert.deepEqual(listaDaUrl('?service=frontend&account=staging', 'account'), ['staging'])
+  assert.deepEqual(listaDaUrl('?service=backend,frontend', 'service'), ['backend', 'frontend'])
+  // Parametro assente, vuoto o `all`: nessun filtro, cioè la pagina di sempre.
+  assert.deepEqual(listaDaUrl('?service=backend', 'account'), [])
+  assert.deepEqual(listaDaUrl('?account=', 'account'), [])
+  assert.deepEqual(listaDaUrl('', 'account'), [])
+  assert.deepEqual(listaDaUrl(undefined, 'account'), [])
 })

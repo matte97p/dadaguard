@@ -24,7 +24,7 @@ import {
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import { antdTheme, SPACE, FONT } from './theme.js'
-import { asList, matchesAny, isFiltering } from './filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl } from './filters.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -169,7 +169,12 @@ export default function App() {
   // Elenco, non un valore singolo: «vuoto = tutti» (vedi web/filters.js). Regione, tipo e stato erano
   // già così; l'account no, ed era l'unico filtro che non si potesse aprire su due ambienti insieme —
   // che è la domanda normale qui (staging E produzione, non uno dei due).
-  const [accountFilter, setAccountFilter] = useState([])
+  // Filtro iniziale da `?account=`: lo usano i link che arrivano da fuori, cioe' le notifiche di
+  // #aws-deploy, che dicono gia' di quale ambiente parlano. Senza, il link atterrava sul servizio nei
+  // due account insieme e la meta' della pagina non c'entrava niente col messaggio.
+  const [accountFilter, setAccountFilter] = useState(() =>
+    typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'account'),
+  )
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…

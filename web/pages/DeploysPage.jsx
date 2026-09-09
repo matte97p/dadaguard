@@ -7,7 +7,7 @@ import { groupByService, isServiceRow } from '../deployRows.js'
 import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
 import { FONT } from '../theme.js'
-import { matchesAny, isFiltering, asList } from '../filters.js'
+import { matchesAny, isFiltering, asList, listaDaUrl } from '../filters.js'
 import PollStatus from '../components/PollStatus.jsx'
 
 const { Text } = Typography
@@ -534,7 +534,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // La guardia su `window` serve alla prova di rendering senza browser (l'unico controllo automatico che
   // questa UI puo' avere in questo repo).
   const [serviceFilter, setServiceFilter] = useState(() =>
-    typeof window === 'undefined' ? [] : asList((new URLSearchParams(window.location.search).get('service') ?? '').split(',')),
+    typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service'),
   )
   const [expanded, setExpanded] = useState(() => new Set())
   const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer

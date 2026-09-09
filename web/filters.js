@@ -26,3 +26,18 @@ export function matchesAny(value, list) {
 
 // Un filtro è ATTIVO se qualcuno ha scelto qualcosa: serve al bottone «azzera» e all'indicatore.
 export const isFiltering = (v) => asList(v).length > 0
+
+// Filtro iniziale da un parametro dell'URL: `?account=staging`, `?service=backend,frontend`.
+//
+// Serve ai LINK che arrivano da fuori, come le notifiche di #aws-deploy: un link che porta alla
+// pagina dei deploy senza filtri porta alla flotta intera in due account, e chi clicca deve
+// ritrovare a mano il servizio di cui parlava il messaggio. La virgola separa piu' valori, che e' la
+// forma naturale da quando i filtri sono multipli.
+//
+// Puro apposta: il parsing di un URL dentro un `useState` non lo prova nessuno, e questo sbaglia in
+// un modo solo, tacendo (nessun filtro applicato), che dal messaggio non si distingue da un link
+// scritto male.
+export function listaDaUrl(search, chiave) {
+  const grezzo = new URLSearchParams(search || '').get(chiave)
+  return asList((grezzo ?? '').split(','))
+}
