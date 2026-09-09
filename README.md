@@ -128,15 +128,19 @@ che dicono la stessa cosa insegnano a ignorarli entrambi. Quindi:
 | Cron **caduto** | nessuno | lo scrive il job stesso, con più dettaglio. `NOTIFY_CRON_FAILED=1` per riaccenderlo |
 | Tutto il resto | `WEBHOOK` | task ECS a 0/N, endpoint che non risponde, secret mancante, drift, backup vecchio, certificato in scadenza, bucket pubblico, Bedrock 5xx, worker Cloudflare: oggi non hanno voce da nessuna parte |
 
-Il **rientro** torna dove l'allarme è stato aperto: un `<!channel>` che nessuno chiude lascia un canale
-pieno di rossi di cui non sai quali sono ancora aperti.
+Il **rientro** torna dove l'allarme è stato aperto: un rosso che nessuno chiude lascia un canale pieno
+di allarmi di cui non sai quali sono ancora aperti.
 
 Tre comportamenti scelti di proposito, perché sono ciò che rende una notifica sopportabile:
 - **Al primo giro non annuncia niente**, prende solo nota. Su Fargate il filesystem del task è
   effimero: senza questa regola ogni rilascio rovescerebbe in chat lo stato del mondo.
 - **Debounce** (`WATCH_CONFIRM`): un throttle CloudWatch di trenta secondi non sveglia nessuno.
 - **Un messaggio per transizione, non per stato**: se resta rosso tre giorni, resta un messaggio.
-  `<!channel>` solo su un guasto in **produzione**; se suona sempre, non suona più.
+- **Il canale non si tagga**, in nessun ambiente e per nessuna gravità: niente `<!channel>` né
+  `<!here>`. Una sveglia che suona spesso è una sveglia che si smette di guardare, e sveglia dieci
+  persone per un guasto che ne riguarda una. Il rosso si vede dal pallino, che è la prima cosa della
+  riga; chi vuole essere avvisato imposta le notifiche di questo canale nel **proprio** Slack, dove
+  la sveglia se la sceglie invece di subirla.
 
 Se Slack è irraggiungibile lo stato **non** viene salvato: al giro dopo la transizione si riprova,
 invece di perdersi perché il webhook era giù per dieci secondi.
