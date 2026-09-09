@@ -24,7 +24,7 @@ import {
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import { antdTheme, SPACE, FONT } from './theme.js'
-import { asList, matchesAny, isFiltering, listaDaUrl } from './filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti } from './filters.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -172,8 +172,15 @@ export default function App() {
   // Filtro iniziale da `?account=`: lo usano i link che arrivano da fuori, cioe' le notifiche di
   // #aws-deploy, che dicono gia' di quale ambiente parlano. Senza, il link atterrava sul servizio nei
   // due account insieme e la meta' della pagina non c'entrava niente col messaggio.
+  //
+  // ⚠️ Non su `/iam`: li' `account` e' gia' un parametro SUO (lo scrive SecurityPage per aprire un
+  // ruolo preciso), e quella pagina non mostra la barra dei filtri, quindi il filtro globale si
+  // accenderebbe invisibile e si scoprirebbe pagine dopo, con la flotta tagliata a un account che
+  // nessuno ha scelto.
   const [accountFilter, setAccountFilter] = useState(() =>
-    typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'account'),
+    typeof window === 'undefined' || window.location.pathname.startsWith('/iam')
+      ? []
+      : listaDaUrl(window.location.search, 'account'),
   )
   const [regionFilter, setRegionFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
@@ -394,6 +401,19 @@ export default function App() {
   // (`groups.flatMap(...)`) invalidava i `useMemo` di chi la riceve: la Topologia rifaceva il layout
   // del grafo a ogni battuta nel campo di ricerca, perdendo zoom e trascinamenti.
   const flatServices = useMemo(() => groups.flatMap((g) => g.services), [groups])
+
+  // Una chiave d'account arrivata da un URL puo' non esistere (rinominata, sbagliata, di un'altra
+  // installazione): non filtrerebbe «niente», filtrerebbe TUTTO VIA, e le pagine per-account
+  // direbbero «nessun account configurato» su dati che ci sono. Appena la lista vera arriva, le
+  // scelte che non esistono si potano: meglio nessun filtro che una pagina vuota senza spiegazione.
+  useEffect(() => {
+    const note = (data?.accounts ?? []).map((a) => a.key)
+    if (note.length === 0) return
+    setAccountFilter((scelte) => {
+      const potato = potaSconosciuti(scelte, note)
+      return potato.length === asList(scelte).length ? scelte : potato
+    })
+  }, [data])
 
   // Account (per label) dopo il filtro servizi completo → per la Topologia (che filtra i servizi).
   const visibleLabels = useMemo(() => new Set(groups.map((g) => g.label)), [groups])
