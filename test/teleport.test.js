@@ -211,7 +211,7 @@ test('audit: una TEMPORANEA non e una scrittura, una view vera si', async () => 
   ])
   const out = await audit({}, { logGroup: '/finto' })
   assert.equal(out.scritture, 1, 'le due temporanee non contano, la view vera si')
-  assert.deepEqual(out.database[0].azioni, [{ etichetta: 'CREATE VIEW', quante: 1 }])
+  assert.deepEqual(out.database[0].azioni, [{ etichetta: 'CREATE VIEW', quante: 1, tipo: 'struttura' }])
 })
 
 // Le due notizie che prima erano una sola riga: i dati dei clienti e la struttura.
@@ -228,6 +228,9 @@ test('audit: divide le scritture sui DATI da quelle sulla STRUTTURA, e dice qual
   assert.equal(d.scritture, 5)
   assert.deepEqual([d.scrittureDati, d.scrittureStruttura], [2, 3])
   assert.deepEqual(d.azioni.map((a) => a.etichetta).sort(), ['ALTER INDEX', 'DROP MATERIALIZED VIEW', 'GRANT', 'INSERT', 'UPDATE'])
+  // Ogni etichetta si porta dietro il suo tipo: senza, chi compone il messaggio sa che c'e' stata una
+  // scrittura sui dati ma non quale delle etichette lo era, e mostra le due piu' numerose, che sono DDL.
+  assert.deepEqual(d.azioni.filter((a) => a.tipo === 'dati').map((a) => a.etichetta).sort(), ['INSERT', 'UPDATE'])
   // La tabella esce SOLO per le scritture sui dati: un `ALTER INDEX` non nomina la tabella, e
   // metterci il nome dell'indice vorrebbe dire scrivere una cosa falsa.
   assert.deepEqual(d.bersagli, ['public.tenders', 'tenders'])
@@ -257,7 +260,33 @@ test('audit: le scritture portano l utente di database e l endpoint', async () =
     ),
   ])
   const out = await audit({}, { logGroup: '/finto' })
-  assert.deepEqual(out.database[0].utentiDb, ['scrivente su writer'])
+  // ⚠️ Strutturato, non una frase gia' scritta: chi compone il messaggio deve poter togliere il login
+  // che ripete il nome di chi ha scritto, e dire l'endpoint una volta sola invece che per persona.
+  assert.deepEqual(out.database[0].utentiDb, [{ utente: 'scrivente', endpoint: 'writer' }])
+})
+
+// ⚠️ Senza la label `access` sul db service l'endpoint non si sa, e resta `null`: la frase «su endpoint
+// ignoto» occupava una riga per persona per dire che non lo sappiamo, tre volte nello stesso messaggio.
+test('audit: senza la label access l endpoint resta vuoto, non diventa una frase', async () => {
+  const { audit } = await conEventi([
+    riga(
+      {
+        event_type: 'db.session.query',
+        fields: {
+          event: 'db.session.query',
+          user: 'utente-uno',
+          db_service: 'prod-db',
+          db_name: 'tenders',
+          db_query: 'GRANT SELECT ON t TO qualcuno',
+          db_user: 'dev_utente_uno',
+          db_labels: { env: 'prod' },
+        },
+      },
+      1000,
+    ),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].utentiDb, [{ utente: 'dev_utente_uno', endpoint: null }])
 })
 
 test('audit: i database si contano con QUANTE persone li toccano, non solo con quante query', async () => {

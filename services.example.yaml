@@ -246,6 +246,20 @@ services:
 #   auditUserUrl: https://teleport.example.com/web/audit?user={utente}
 #   auditNodeUrl: https://teleport.example.com/web/audit?node={macchina}
 #
+#   # Dove finiscono i messaggi degli accessi (scritture su un database di produzione, sessioni SSH su
+#   # una macchina di un altro, versione del dev-env). Senza questa riga il giro NON parte e non chiama
+#   # AWS: chi non ha una destinazione non paga due letture di CloudWatch ogni cinque minuti.
+#   slackWebhook: https://hooks.slack.com/services/...
+#
+#   # Quanto sta zitto un segnale che CONTINUA ad arrivare. Il giro gira ogni cinque minuti, quindi
+#   # senza calma una sessione di migration di mezz'ora sono sei messaggi che dicono la stessa cosa con
+#   # una cifra diversa. Niente si perde: quello che succede nel silenzio finisce nel messaggio dopo,
+#   # perche' il delta si misura dall'ultimo messaggio MANDATO. Una cosa non aspetta mai: una persona
+#   # che prima non scriveva. E la riga rossa dei dati dei clienti ha una chiave sua, quindi non la
+#   # zittisce la calma dei DDL.
+#   # `0` = un messaggio a ogni giro, cioe' il comportamento di prima.
+#   calmaMinuti: 30                               # default
+#
 #   # La MAPPA «chi ha cosa»: team GitHub -> ruoli Teleport, letta da un parametro SSM che scrive chi
 #   # applica il connector SSO (cosi' non e' una copia che invecchia). Se manca, la pagina lo dice.
 #   ruoliParam: /teleport/team-roles              # default, si cambia solo se il parametro sta altrove

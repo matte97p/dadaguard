@@ -157,13 +157,23 @@ const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non
 // COSA e' stato scritto, in una manciata di caratteri. Una sola azione si dice per nome (`3 UPDATE`),
 // tante si dicono con le due che contano e quante restano: il messaggio deve stare su una riga, e
 // l'elenco intero sta nella pagina, che e' linkata in coda.
+//
+// ⚠️ Sotto un titolo rosso le azioni sui DATI vengono per prime, anche se sono le meno numerose. Il
+// 09/09/2026 il canale ha scritto «SCRITTURE (9 CREATE FUNCTION, 7 GRANT, +9) su utenti»: il rosso era
+// acceso da un `UPDATE` su una tabella di clienti, e le due azioni mostrate erano le due piu' numerose,
+// cioe' due DDL. La riga diceva il colore giusto e il motivo sbagliato, che e' il modo piu' veloce per
+// insegnare a non fidarsi del colore.
 function sommarioAzioni(azioni = [], natura) {
   const righe = azioni.filter((a) => a?.etichetta)
   const insieme = natura === 'struttura' ? 'DDL' : 'scritture'
   if (!righe.length) return natura === 'struttura' ? 'DDL' : 'statement di scrittura'
-  if (righe.length === 1) return righe[0].etichetta
-  const testa = righe.slice(0, 2).map((a) => `${a.quante} ${a.etichetta}`)
-  const resto = righe.length - 2
+  const ordinate =
+    natura === 'struttura'
+      ? righe
+      : [...righe].sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'dati' ? -1 : 1))
+  if (ordinate.length === 1) return ordinate[0].etichetta
+  const testa = ordinate.slice(0, 2).map((a) => `${a.quante} ${a.etichetta}`)
+  const resto = ordinate.length - 2
   return `${insieme} (${testa.join(', ')}${resto > 0 ? `, +${resto}` : ''})`
 }
 
@@ -173,6 +183,39 @@ function sommarioTabelle(tabelle = []) {
   if (!tabelle.length) return ''
   const resto = tabelle.length - 2
   return ` su ${tabelle.slice(0, 2).join(', ')}${resto > 0 ? ` e altre ${resto}` : ''}`
+}
+
+// L'utente di database di una persona, quando il login e' il suo nome: `dev_<utente github>` sui
+// database dove i login sono per persona. Il confronto e' senza maiuscole perche' GitHub le tiene e
+// Postgres no.
+const suoLogin = (utenteDb, chi = []) => {
+  const u = String(utenteDb ?? '').toLowerCase()
+  return chi.some((c) => `dev_${String(c).toLowerCase()}` === u)
+}
+
+// CON CHE COSA hanno scritto, tolto quello che il messaggio ha gia' detto. Tre cose, in quest'ordine
+// di importanza per chi legge:
+//   · l'endpoint (`writer`, `reader`), che e' la prima domanda vera e si dice UNA volta anche se le
+//     persone sono sei;
+//   · i login che NON sono il nome di chi ha scritto (`dev_readonly`, `dev_readwrite` condivisi), che
+//     sono l'informazione che il nome della persona non porta;
+//   · niente, quando non c'e' nessuna delle due.
+// Quello che spariva sotto la ripetizione: «da tizio, caio, sempronio (dev_caio su endpoint ignoto,
+// dev_tizio su endpoint ignoto, dev_readonly su endpoint ignoto)» dice tre volte «endpoint ignoto»,
+// due volte gli stessi nomi, e nasconde in fondo l'unica riga che vale: qualcuno ha scritto passando
+// da `dev_readonly`.
+function sommarioLogin(utentiDb = [], chi = []) {
+  // La forma vecchia era una frase gia' scritta (`"tizio su writer"`): si legge ancora, perche' uno
+  // stato o un payload di ieri non deve far sparire la riga.
+  const voci = utentiDb.map((u) => (typeof u === 'string' ? { utente: u, endpoint: null } : u)).filter((u) => u?.utente)
+  if (!voci.length) return ''
+  const endpoint = [...new Set(voci.map((u) => u.endpoint).filter(Boolean))]
+  const estranei = [...new Set(voci.filter((u) => !suoLogin(u.utente, chi)).map((u) => u.utente))]
+  const pezzi = []
+  if (estranei.length) pezzi.push(estranei.join(', '))
+  if (endpoint.length) pezzi.push(`su ${endpoint.join(', ')}`)
+  if (!pezzi.length) return ''
+  return ` (${pezzi.join(' ')})`
 }
 
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
@@ -186,8 +229,10 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const quante = segnale.nuove ?? segnale.quante ?? 0
     const titolo = segnale.natura === 'struttura' ? 'STRUTTURA' : 'SCRITTURE'
     const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
-    const dove = sommarioTabelle(segnale.tabelle)
-    const come = segnale.utentiDb?.length ? ` (${segnale.utentiDb.join(', ')})` : ''
+    // Le tabelle solo sotto al rosso: sono i bersagli delle scritture sui DATI, e accanto a un elenco
+    // di DDL si leggerebbero come la tabella che le DDL hanno toccato, che non e' quello che dicono.
+    const dove = segnale.natura === 'struttura' ? '' : sommarioTabelle(segnale.tabelle)
+    const come = sommarioLogin(segnale.utentiDb, segnale.chi)
     return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${dove} da ${elenco(segnale.chi)}${come}${coda}`
   }
   if (segnale.tipo === 'ssh') {

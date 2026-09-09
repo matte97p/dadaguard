@@ -7,7 +7,7 @@ import { log } from '../log.js'
 import { diffStates, snapshot } from './diff.js'
 import { slackMessage, postSlack, messaggioAccessi } from './slack.js'
 import { loadConfig } from '../config.js'
-import { statoAccessi, segnali, daAnnunciare } from '../accessi.js'
+import { statoAccessi, segnali, daAnnunciare, CALMA_MS } from '../accessi.js'
 import { splitByRoute } from './route.js'
 
 // Il watchdog vero e proprio: guarda la flotta a intervalli, e quando qualcosa ATTRAVERSA il confine
@@ -166,12 +166,27 @@ export async function giroAccessi(cfg, deps = {}, prev = null) {
   const leggiConfig = deps.loadConfig ?? loadConfig
   const stato = deps.statoAccessi ?? statoAccessi
   const send = deps.postSlack ?? postSlack
-  const hook = leggiConfig().teleport?.slackWebhook ?? null
+  const cfgTeleport = leggiConfig().teleport ?? {}
+  const hook = cfgTeleport.slackWebhook ?? null
   if (!hook) return { spento: true, nuovi: [], sent: null }
+
+  // Quanto sta zitto un segnale che continua ad arrivare (vedi `CALMA_MS`). In config perche' il passo
+  // giusto lo decide chi legge il canale, non chi scrive il codice: `teleport.calmaMinuti: 0` per
+  // tornare al comportamento di prima, cioe' un messaggio a ogni giro.
+  //
+  // ⚠️ Il valore ASSENTE si riconosce prima di passare da `Number`, che di `null` e di `''` fa `0`:
+  // una riga `calmaMinuti:` lasciata senza valore si legge come «tieni il default» e avrebbe spento la
+  // calma del tutto, cioe' il contrario. Un valore che non e' un numero (`mezzora`) e' un errore di
+  // chi scrive la config: si tiene il default e lo si dice, invece di decidere al posto suo.
+  const grezzo = cfgTeleport.calmaMinuti
+  const minuti = grezzo === null || grezzo === undefined || grezzo === '' ? null : Number(grezzo)
+  if (minuti !== null && !(Number.isFinite(minuti) && minuti >= 0))
+    log.warn('watch: teleport.calmaMinuti non e un numero di minuti, uso il default', { valore: grezzo, default: CALMA_MS / 60_000 })
+  const calmaMs = minuti !== null && Number.isFinite(minuti) && minuti >= 0 ? minuti * 60_000 : CALMA_MS
 
   const dati = await stato({ ore: 24 })
   const ora = segnali(dati)
-  const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null)
+  const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null, { calmaMs })
   if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }
 
   const testo = nuovi.map((s) => messaggioAccessi(s, { publicUrl: cfg.publicUrl })).join('\n')

@@ -560,9 +560,9 @@ const DATI = {
         scritture: 4,
         scrittureDati: 4,
         scrittureStruttura: 0,
-        azioni: [{ etichetta: 'UPDATE', quante: 4 }],
+        azioni: [{ etichetta: 'UPDATE', quante: 4, tipo: 'dati' }],
         bersagli: ['ordini'],
-        utentiDb: ['scrivente su writer'],
+        utentiDb: [{ utente: 'scrivente', endpoint: 'writer' }],
         scriventi: ['tizio'],
         ultimaScrittura: 9000,
       },
@@ -600,7 +600,19 @@ test('giroAccessi: al primo giro prende nota e non annuncia', async () => {
   })
   assert.equal(mandati, 0)
   assert.deepEqual(out.nuovi, [])
-  assert.deepEqual(out.stato, { 'scrittura:orders-prod-db-ro/orders': { quando: 9000, quante: 4 } })
+  assert.deepEqual(out.stato, {
+    'scrittura-dati:orders-prod-db-ro/orders': {
+      quando: 9000,
+      quante: 4,
+      // ⚠️ `detto: 0`: al primo giro non si e' detto niente, e datare il silenzio come un messaggio
+      // terrebbe zitta la calma per mezz'ora dopo ogni rilascio.
+      detto: 0,
+      azioni: { UPDATE: 4 },
+      tabelle: ['ordini'],
+      chi: ['tizio'],
+      livello: 'allarme',
+    },
+  })
 })
 
 test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del canale', async () => {
@@ -615,7 +627,7 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
         return true
       },
     },
-    { accessi: { 'scrittura:orders-prod-db-ro/orders': { quando: 8000, quante: 1 } } },
+    { accessi: { 'scrittura-dati:orders-prod-db-ro/orders': { quando: 8000, quante: 1 } } },
   )
   assert.equal(out.nuovi.length, 1)
   // COSA (`UPDATE`), su cosa (la tabella), chi, e con che utente da quale endpoint: senza queste
@@ -642,14 +654,14 @@ test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con
           scrittureDati: 0,
           scrittureStruttura: 15,
           azioni: [
-            { etichetta: 'ALTER INDEX', quante: 7 },
-            { etichetta: 'CREATE INDEX', quante: 5 },
-            { etichetta: 'DROP MATERIALIZED VIEW', quante: 1 },
-            { etichetta: 'ALTER MATERIALIZED VIEW', quante: 1 },
-            { etichetta: 'GRANT', quante: 1 },
+            { etichetta: 'ALTER INDEX', quante: 7, tipo: 'struttura' },
+            { etichetta: 'CREATE INDEX', quante: 5, tipo: 'struttura' },
+            { etichetta: 'DROP MATERIALIZED VIEW', quante: 1, tipo: 'struttura' },
+            { etichetta: 'ALTER MATERIALIZED VIEW', quante: 1, tipo: 'struttura' },
+            { etichetta: 'GRANT', quante: 1, tipo: 'struttura' },
           ],
           bersagli: [],
-          utentiDb: ['scrivente su writer'],
+          utentiDb: [{ utente: 'scrivente', endpoint: 'writer' }],
           scriventi: ['tizio'],
           ultimaScrittura: 9000,
         },
@@ -666,7 +678,7 @@ test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con
         return true
       },
     },
-    { accessi: { 'scrittura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
+    { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
   )
   assert.match(testo, /^:warning: `orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
 })
@@ -681,7 +693,7 @@ test('giroAccessi: invio fallito, stato NON avanzato', async () => {
       statoAccessi: async () => DATI,
       postSlack: async () => false,
     },
-    { accessi: { 'scrittura:orders-prod-db-ro/orders': 8000 } },
+    { accessi: { 'scrittura-dati:orders-prod-db-ro/orders': 8000 } },
   )
   assert.equal(out.sent, false)
   assert.equal(out.stato, null)
@@ -703,4 +715,160 @@ test('giroAccessi: niente da dire, niente messaggio', async () => {
   )
   assert.equal(mandati, 0)
   assert.deepEqual(out.nuovi, [])
+})
+
+// ── La riga che il canale ha davvero letto il 09/09/2026 ────────────────────────────────────────────
+//
+// Sette messaggi in cinque ore sullo stesso database, e quello che dicevano:
+//   «+1 scritture (9 CREATE FUNCTION, 7 GRANT, +9) su utenti da tizio, caio, sempronio (dev_caio su
+//    endpoint ignoto, dev_tizio su endpoint ignoto, dev_readonly su endpoint ignoto)»
+// Quattro difetti in una riga sola: il `+1` e' il delta e la parentesi il totale delle 24h; sotto un
+// titolo rosso si leggono due DDL, mentre il rosso lo accende un UPDATE che non compare; gli stessi
+// nomi ci sono due volte; e «endpoint ignoto» occupa tre volte lo spazio dell'unica cosa che valeva,
+// cioe' che qualcuno ha scritto passando da `dev_readonly`.
+test('giroAccessi: sotto al rosso si leggono le scritture sui DATI, e i login non ripetono le persone', async () => {
+  let testo = null
+  const dati = {
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [
+        {
+          servizio: 'main-prod-db',
+          nome: 'postgres',
+          ambiente: 'prod',
+          scritture: 21,
+          scrittureDati: 2,
+          scrittureStruttura: 19,
+          azioni: [
+            { etichetta: 'CREATE FUNCTION', quante: 10, tipo: 'struttura' },
+            { etichetta: 'GRANT', quante: 9, tipo: 'struttura' },
+            { etichetta: 'UPDATE', quante: 2, tipo: 'dati' },
+          ],
+          bersagli: ['utenti'],
+          utentiDb: [
+            { utente: 'dev_caio', endpoint: null },
+            { utente: 'dev_readonly', endpoint: null },
+            { utente: 'dev_tizio', endpoint: null },
+          ],
+          scriventi: ['tizio', 'caio'],
+          ultimaScrittura: 9000,
+        },
+      ],
+    },
+  }
+  await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => dati,
+      postSlack: async (_hook, payload) => {
+        testo = payload.text
+        return true
+      },
+    },
+    {
+      accessi: {
+        'scrittura-dati:main-prod-db/postgres': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio', 'caio'], livello: 'allarme' },
+        'scrittura-struttura:main-prod-db/postgres': { quando: 8000, quante: 19, azioni: { 'CREATE FUNCTION': 10, GRANT: 9 }, chi: ['tizio', 'caio'], livello: 'attenzione' },
+      },
+    },
+  )
+  // Due righe, e il rosso e il motivo del rosso sono la stessa cosa: sotto `SCRITTURE` si legge
+  // l'UPDATE, non le DDL, che hanno la loro riga gialla e non entrano piu' in quella rossa.
+  const [rossa, gialla] = testo.split('\n')
+  assert.match(rossa, /^:red_circle: `postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
+  assert.doesNotMatch(rossa, /CREATE FUNCTION|GRANT/)
+  assert.match(gialla, /^:warning: `postgres` \[PROD\] STRUTTURA — /)
+  assert.doesNotMatch(gialla, /UPDATE|su utenti/)
+  // I login che ripetono il nome di chi ha scritto non si ridicono, e «endpoint ignoto» non esiste.
+  assert.doesNotMatch(testo, /dev_tizio|dev_caio|ignoto/)
+})
+
+// L'endpoint si dice UNA volta anche se le persone sono sei: e' una proprieta' della porta, non della
+// persona, ed e' la prima domanda vera di chi legge (reader o writer?).
+test('giroAccessi: l endpoint si dice una volta sola, non per persona', async () => {
+  let testo = null
+  const dati = {
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [
+        {
+          servizio: 'orders-prod-db',
+          nome: 'orders',
+          ambiente: 'prod',
+          scritture: 3,
+          scrittureDati: 0,
+          scrittureStruttura: 3,
+          azioni: [{ etichetta: 'CREATE INDEX', quante: 3, tipo: 'struttura' }],
+          // ⚠️ Nella finestra c'e' una tabella (una scrittura sui dati piu' vecchia, gia' annunciata),
+          // ma questo messaggio parla di indici: accanto a un elenco di DDL «su ordini» si leggerebbe
+          // come la tabella che le DDL hanno toccato, che non e' quello che dice.
+          bersagli: ['ordini'],
+          utentiDb: [
+            { utente: 'dev_readwrite', endpoint: 'writer' },
+            { utente: 'dev_tizio', endpoint: 'writer' },
+          ],
+          scriventi: ['tizio'],
+          ultimaScrittura: 9000,
+        },
+      ],
+    },
+  }
+  await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+      statoAccessi: async () => dati,
+      postSlack: async (_hook, payload) => {
+        testo = payload.text
+        return true
+      },
+    },
+    { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } } },
+  )
+  assert.match(testo, /^:warning: `orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
+  assert.doesNotMatch(testo, /su ordini/)
+})
+
+// La calma, dal capo opposto: due giri di fila con roba nuova, un messaggio solo. E' la regola che
+// trasforma sette messaggi in due, e non perde niente (il delta si misura dall'ultimo MANDATO).
+test('giroAccessi: un secondo giro dentro alla calma non manda un secondo messaggio', async () => {
+  let mandati = 0
+  const dati = (quando, quante) => ({
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [
+        {
+          servizio: 'orders-prod-db',
+          nome: 'orders',
+          ambiente: 'prod',
+          scritture: quante,
+          scrittureDati: 0,
+          scrittureStruttura: quante,
+          azioni: [{ etichetta: 'CREATE INDEX', quante, tipo: 'struttura' }],
+          bersagli: [],
+          utentiDb: [{ utente: 'dev_readwrite', endpoint: 'writer' }],
+          scriventi: ['tizio'],
+          ultimaScrittura: quando,
+        },
+      ],
+    },
+  })
+  const deps = (quando, quante) => ({
+    loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+    statoAccessi: async () => dati(quando, quante),
+    postSlack: async () => {
+      mandati += 1
+      return true
+    },
+  })
+  const primo = await giroAccessi(CFG_ACCESSI, deps(9000, 3), { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } } })
+  const secondo = await giroAccessi(CFG_ACCESSI, deps(9500, 7), { accessi: primo.stato })
+  assert.equal(mandati, 1)
+  assert.deepEqual(secondo.nuovi, [])
+  // Lo stato non avanza: le quattro del silenzio finiscono nel messaggio dopo, non nel nulla.
+  assert.deepEqual(secondo.stato, primo.stato)
 })

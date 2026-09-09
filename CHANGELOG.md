@@ -64,6 +64,38 @@ All notable changes to Dadaguard are documented here. Format based on
   Riscriverli nel watchdog avrebbe voluto dire una seconda verità sugli stessi dati.
 
 ### Changed
+- **Gli avvisi sulle scritture in produzione parlano del DELTA, non della finestra, e uno che dura non
+  si ripete a ogni giro.** Il 09/09/2026 lo stesso database ha prodotto sette messaggi in cinque ore, e
+  la riga era sempre questa: «+1 scritture (9 CREATE FUNCTION, 7 GRANT, +9) su utenti da tizio, caio,
+  sempronio (dev_caio su endpoint ignoto, dev_tizio su endpoint ignoto, dev_readonly su endpoint
+  ignoto)». Quattro difetti in una riga sola, e chi l'ha letta ha chiesto cosa fossero quei messaggi,
+  non cosa dicessero.
+  · **Il numero e la parentesi rispondevano a due domande diverse**: `+1` è quello che è arrivato
+  dall'ultimo messaggio, `9 CREATE FUNCTION, 7 GRANT` il totale delle 24 ore. Ora anche le azioni e le
+  tabelle sono il delta, contate etichetta per etichetta contro quello che si sapeva quando si è
+  parlato l'ultima volta.
+  · **Il colore diceva il vero e il motivo diceva il falso**: il rosso lo accende una scrittura sui
+  dati dei clienti, ma le azioni mostrate erano le due più numerose, cioè due DDL. La causa era una
+  riga sola per database che teneva insieme due notizie, col colore deciso dal totale delle 24 ore:
+  sullo stesso database il canale alternava rosso e giallo a seconda di cosa fosse ancora dentro alla
+  finestra, e una scrittura sui dati **nuova** poteva finire sotto un titolo giallo che parlava di
+  indici. Ora i segnali sono **due, con due chiavi**: la riga rossa dei dati dei clienti e quella
+  gialla della struttura hanno ognuna il suo colore per sempre, il suo istante, il suo delta e la sua
+  calma. Un `CREATE INDEX` non fa ripartire la riga rossa, e un `UPDATE` non aspetta che finisca la
+  calma dei DDL: è una chiave che non ha mai parlato, quindi parla subito.
+  · **Gli stessi nomi due volte, e tre volte la parola che dice di non sapere**: dove i login sono per
+  persona (`dev_<utente github>`) la seconda metà della riga ripeteva la prima, e «endpoint ignoto»
+  occupava tre volte lo spazio dell'unica cosa che valeva, cioè che qualcuno aveva scritto passando da
+  `dev_readonly`. Ora l'endpoint si dice una volta sola (è una proprietà della porta, non della
+  persona), i login che ripetono il nome di chi ha scritto spariscono, e un endpoint che non sappiamo
+  non si scrive.
+  · **La calma**: il giro gira ogni cinque minuti, quindi una sessione di migration di mezz'ora erano
+  sei messaggi. Un segnale che continua ad arrivare adesso sta zitto `teleport.calmaMinuti` (30 di
+  default, `0` per tornare a prima) e poi dice tutto in una volta. **Niente si perde**: il delta si
+  misura dall'ultimo messaggio MANDATO, e lo stato di un segnale taciuto resta intero quello di prima.
+  Una cosa non aspetta mai: **una persona che prima non scriveva**, perché «anche Tizio sta scrivendo in
+  produzione» è la riga che fa alzare il telefono, e darla mezz'ora dopo vuol dire darla a cose finite.
+  Misurato su cinque ore di migration come quelle del 09/09/2026: **59 messaggi contro 11**.
 - **L'avviso sulle scritture in produzione dice COSA è stato scritto, e le temporanee non sono più una
   scrittura.** «1 statement di scrittura da Tizio» diceva che era successo qualcosa e nient'altro: per
   sapere se erano i dati dei clienti o un oggetto di lavoro bisognava aprire l'audit del cluster, ed è
