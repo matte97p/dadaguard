@@ -25,7 +25,7 @@ export function stateClass(overall) {
 //    anche come conferma di un allarme entrato provvisorio (sotto): quello che tace all'ingresso
 //    suona qui, appena la finestra lunga gli dà ragione;
 //  · migliora (down → degraded) = «sembra rientrato, non è confermato»: si annuncia, ma SENZA sirena
-//    (in slack.js il `<!channel>` è legato a kind === 'alert'). È il segnale intermedio che mancava:
+//    (in slack.js `kind === 'alert'` decide il pallino rosso). È il segnale intermedio che mancava:
 //    prima o eri rosso o eri verde, e un rientro parziale non aveva modo di dirsi.
 // Il verde definitivo resta l'unica cosa che chiude l'allarme: qui non si esce mai dal rosso.
 const GRAVITA = { degraded: 1, down: 2 }
