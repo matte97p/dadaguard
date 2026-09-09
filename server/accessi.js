@@ -37,7 +37,13 @@ export async function statoAccessi({ ore = 24 } = {}) {
   const [audit, heartbeat] = await Promise.all([
     conto(accounts, cfg.audit?.account)
       ? cached(`teleport:audit:${finestra}`, 120_000, () =>
-          teleport.audit(conto(accounts, cfg.audit?.account), { logGroup: cfg.audit?.logGroup, ore: finestra }),
+          teleport.audit(conto(accounts, cfg.audit?.account), {
+            logGroup: cfg.audit?.logGroup,
+            ore: finestra,
+            // Gli utenti di database che non possono scrivere, DICHIARATI: i loro statement di
+            // scrittura sono tentativi, non scritture (vedi `rifiutata` in teleport.js).
+            utentiSolaLettura: cfg.utentiSolaLettura ?? [],
+          }),
         ).catch((err) => ({ errore: cleanAwsReason(err) }))
       : mancante(cfg.audit?.account ?? '?'),
     conto(accounts, cfg.heartbeat?.account)
@@ -113,6 +119,11 @@ export function segnali(dati = {}) {
       tabelle,
       utentiDb: d.utentiDb ?? [],
       chi: d.scriventi ?? [],
+      // Le scritture mandate e rifiutate viaggiano con la riga, ma non ne sono la notizia: nessuna
+      // riga NASCE da loro (una scrittura che non e' avvenuta non e' un allarme), e se c'e' gia' una
+      // riga si dicono in coda, perche' spiegano il login che non torna.
+      tentate: d.tentate ?? 0,
+      motiviTentate: d.motiviTentate ?? [],
       quando: quando ?? null,
     })
     // ⚠️ Se la divisione non c'è (payload di una versione precedente, cioè un rilascio a metà) NON si

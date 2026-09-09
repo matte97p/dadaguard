@@ -65,6 +65,13 @@ const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
 //
 // ⚠️ Limite noto, e detto: un `WITH … UPDATE` (CTE che scrive) comincia per `with` e qui passa per una
 // lettura. Riconoscerlo vuol dire leggere dentro alle parentesi, cioe' dentro al testo della query.
+//
+// ⚠️ Secondo limite, piu' importante: questo dice cosa e' stato MANDATO, non cosa il database ha
+// accettato. L'audit di Teleport registra la query quando la inoltra, prima della risposta: sui dati
+// veri (27.293 eventi `db.session.query` in sette giorni, codice `TDB02I`) il campo `success` e' `true`
+// in tutti quanti, e un evento per la query fallita non esiste. Quindi uno statement rifiutato da
+// Postgres conta come una scrittura, ed e' cosi' che `dev_readonly` e' finito fra chi scrive in
+// produzione. Quello che si puo' dedurre senza indovinare sta in `rifiutata()` qui sotto.
 function azione(query) {
   const parole = String(query ?? '').trim().toLowerCase().match(/[a-z_][a-z0-9_$.]*/g) ?? []
   const verbo = parole[0] ?? ''
@@ -89,6 +96,26 @@ function azione(query) {
 
   const etichetta = [verbo, oggetto].filter(Boolean).join(' ').toUpperCase()
   return { tipo: dati ? 'dati' : 'struttura', etichetta, bersaglio }
+}
+
+// Una scrittura che NON puo' essere andata a buon fine, e il perche' in due parole. `null` quando non
+// lo sappiamo, che e' il caso normale: qui non si indovina, si deduce da due fatti.
+//
+//   · l'endpoint e' il `reader`: e' una replica fisica in sola lettura, e QUALSIASI scrittura ci muore
+//     sopra con `cannot execute UPDATE in a read-only transaction`. Non e' un permesso, e' il nodo.
+//     Succede per davvero, ed e' sempre la stessa causa: una connessione salvata nel client SQL che
+//     punta alla porta di lettura mentre l'utente e' quello che scrive (visto il 27/08 e il 01/09/2026).
+//   · l'utente di database e' dichiarato di sola lettura in config (`teleport.utentiSolaLettura`).
+//     DICHIARATO, non dedotto dal nome: `dev_readonly` si chiama cosi' per convenzione nostra, e un
+//     giorno qualcuno chiamera' `reporting` un utente che non scrive. Chi conosce il database lo
+//     scrive in config; il codice non lo immagina.
+//
+// Una scrittura rifiutata non conta fra le scritture: non e' successo niente, e un allarme rosso su
+// niente e' il modo piu' veloce per far ignorare gli allarmi rossi.
+export function rifiutata(campi, solaLettura = new Set()) {
+  if (campi.db_labels?.access === 'reader') return 'sul reader, che e in sola lettura'
+  if (campi.db_user && solaLettura.has(campi.db_user)) return `${campi.db_user} non ha la scrittura`
+  return null
 }
 
 // Una riga di log JSON, o null se non e' JSON (il cluster scrive anche righe di testo).
@@ -128,9 +155,10 @@ async function eventi(aws, { logGroup, filterPattern, da, limite = MAX_EVENTI })
 //
 // ⚠️ Il motivo della login fallita si tiene per intero, e non si accorcia a «errore»: e' la differenza
 // fra «una sessione scaduta» (normale) e «un ruolo che sul cluster non esiste» (tutto il team fuori).
-export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
+export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettura = [] } = {}) {
   if (!logGroup) return null
   const da = Date.now() - ore * 3600_000
+  const solaLettura = new Set(utentiSolaLettura)
   // `session.start` e `session.end` sono le sessioni SSH sulle macchine (nodi `mac-dev`): la parte che
   // risponde a «chi e' entrato sul computer di chi», che per un accesso del genere non e' un extra.
   const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start" ?"db.session.query" ?"session.start" ?"session.end"', da })
@@ -170,6 +198,12 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         // titolo rosso. `bersagli` sono le tabelle, solo per i dati (vedi `azione`).
         azioni: new Map(),
         bersagli: new Set(),
+        // Le scritture MANDATE e non andate a buon fine (vedi `rifiutata`), coi loro perche'. Stanno
+        // fuori da `scritture`: contarle vorrebbe dire chiamare scrittura una cosa che non e'
+        // successa. Restano perche' sono un'informazione loro: qualcuno sta lavorando dalla porta
+        // sbagliata e non lo sa.
+        tentate: 0,
+        motiviTentate: new Set(),
         // Con che utente di database e da quale endpoint: e' la differenza fra chi era in lettura sul
         // reader e chi ha aperto il writer, cioe' la prima domanda che si fa chi legge il messaggio.
         //
@@ -325,7 +359,11 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
       const suo = perToccato(utente, campi.db_name && campi.db_name !== '?' ? campi.db_name : (campi.db_service ?? '?'))
       suo.query += 1
       const fatta = azione(campi.db_query)
-      if (fatta) {
+      const perche = fatta ? rifiutata(campi, solaLettura) : null
+      if (fatta && perche) {
+        d.tentate += 1
+        d.motiviTentate.add(perche)
+      } else if (fatta) {
         d.scritture += 1
         if (fatta.tipo === 'dati') {
           d.scrittureDati += 1
@@ -385,6 +423,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
         .map(([etichetta, { quante, tipo }]) => ({ etichetta, quante, tipo }))
         .sort((a, b) => b.quante - a.quante || a.etichetta.localeCompare(b.etichetta)),
       bersagli: [...d.bersagli].sort(),
+      motiviTentate: [...d.motiviTentate].sort(),
       utentiDb: [...d.utentiDb.values()].sort((a, b) => a.utente.localeCompare(b.utente)),
     }))
     .sort((a, b) => b.query - a.query)

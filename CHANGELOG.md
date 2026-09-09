@@ -64,6 +64,20 @@ All notable changes to Dadaguard are documented here. Format based on
   Riscriverli nel watchdog avrebbe voluto dire una seconda verità sugli stessi dati.
 
 ### Changed
+- **Una scrittura che il database ha rifiutato non e' piu' una scrittura.** L'audit di Teleport registra
+  la query quando la **inoltra**, prima della risposta: sui dati veri (27.293 eventi `db.session.query`
+  in sette giorni, tutti col codice `TDB02I`) il campo `success` e' `true` in tutti quanti, e un evento
+  per la query fallita non esiste. Quindi uno statement che Postgres rifiuta contava come una scrittura
+  in produzione, ed e' cosi' che `dev_readonly` e' finito fra chi scrive: chi leggeva quella riga andava
+  a cercare un permesso rotto, mentre non era successo niente. **L'esito non si puo' sapere da quel log**,
+  quindi non si indovina: si deducono i due casi che sono fatti. Una scrittura mandata al `reader` non
+  puo' essere andata a buon fine (e' una replica fisica: qualsiasi scrittura ci muore sopra con
+  `cannot execute UPDATE in a read-only transaction`, ed e' il guasto della connessione salvata sulla
+  porta sbagliata, visto il 27/08 e il 01/09/2026); e un utente di database **dichiarato** di sola
+  lettura in `teleport.utentiSolaLettura` non scrive, per quanto ci provi. Dichiarato, non dedotto dal
+  nome: un giorno qualcuno chiamera' `reporting` un utente che non scrive. Le rifiutate stanno fuori dal
+  conto delle scritture e si leggono in coda alla riga (`· 4 rifiutate (dev_readonly non ha la
+  scrittura)`), mai da sole: una scrittura che non e' avvenuta non merita un messaggio.
 - **Gli avvisi sulle scritture in produzione parlano del DELTA, non della finestra, e uno che dura non
   si ripete a ogni giro.** Il 09/09/2026 lo stesso database ha prodotto sette messaggi in cinque ore, e
   la riga era sempre questa: «+1 scritture (9 CREATE FUNCTION, 7 GRANT, +9) su utenti da tizio, caio,

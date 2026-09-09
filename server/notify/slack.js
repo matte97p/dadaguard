@@ -218,6 +218,19 @@ function sommarioLogin(utentiDb = [], chi = []) {
   return ` (${pezzi.join(' ')})`
 }
 
+// Le scritture MANDATE e non arrivate. Non e' un dettaglio da nascondere: e' la riga che spiega un
+// login che non torna. Senza, il canale scriveva `dev_readonly` fra chi scrive in produzione e chi lo
+// leggeva andava a cercare un permesso rotto, mentre erano statement che il database ha rifiutato.
+//
+// ⚠️ Sono un'aggiunta a una riga che esiste gia', mai una riga da sole: una scrittura che non e'
+// avvenuta non merita un messaggio, e un allarme su niente insegna a ignorare gli allarmi.
+function sommarioTentate(segnale) {
+  const n = segnale.tentate ?? 0
+  if (n <= 0) return ''
+  const perche = (segnale.motiviTentate ?? [])[0]
+  return ` · ${n} rifiutate${perche ? ` (${perche})` : ''}`
+}
+
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
   const emoji = EMOJI_ACCESSI[segnale.livello] ?? ':warning:'
   const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
@@ -233,7 +246,8 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // di DDL si leggerebbero come la tabella che le DDL hanno toccato, che non e' quello che dicono.
     const dove = segnale.natura === 'struttura' ? '' : sommarioTabelle(segnale.tabelle)
     const come = sommarioLogin(segnale.utentiDb, segnale.chi)
-    return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${dove} da ${elenco(segnale.chi)}${come}${coda}`
+    const respinte = sommarioTentate(segnale)
+    return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${dove} da ${elenco(segnale.chi)}${come}${respinte}${coda}`
   }
   if (segnale.tipo === 'ssh') {
     const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'
