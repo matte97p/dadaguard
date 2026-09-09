@@ -232,6 +232,16 @@ All notable changes to Dadaguard are documented here. Format based on
   balancer classificati), 6,5s invece di 7,1s.
 
 ### Fixed
+- **La prova di fumo non si blocca piu' aspettando un Chrome che non parte.** Il 09/09/2026 il deploy e'
+  fallito due volte di fila con `la porta di DevTools non è arrivato in tempo`, verde al rilancio sullo
+  stesso commit: la forma classica di una prova che nessuno guarda piu'. La causa era nostra e stava in
+  una riga: Chrome veniva avviato con `stdio: 'pipe'` e **nessuno leggeva il suo output**, quindi al
+  riempirsi del buffer della pipe (64 KB) il processo si fermava sulla `write` e non arrivava mai a
+  scrivere `DevToolsActivePort`. Ora il suo output si legge sempre (e le ultime venti righe si tengono
+  da parte, perche' sono la sola cosa che spiega un browser che non parte), l'attesa si accorge se il
+  processo e' gia' uscito invece di consumare il tetto, il tetto passa da 15 a 60 secondi, e se il primo
+  tentativo va male se ne fa **uno** solo con un profilo nuovo, stampando comunque il primo fallimento:
+  un guasto che si ripara al secondo giro non deve diventare invisibile.
 - **La pagina «Accessi» non renderizzava più, e il guasto è arrivato in produzione.**
   `ReferenceError: Cannot access 'se' before initialization` a ogni render: l'array `viste` viene
   valutato subito e leggeva `finestraDetta`, che era dichiarata sei righe più sotto, cioè nella zona
