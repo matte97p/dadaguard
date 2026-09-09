@@ -39,5 +39,21 @@ export const isFiltering = (v) => asList(v).length > 0
 // scritto male.
 export function listaDaUrl(search, chiave) {
   const grezzo = new URLSearchParams(search || '').get(chiave)
-  return asList((grezzo ?? '').split(','))
+  // `trim` per ogni pezzo: `?service=backend, frontend` e' un link scritto a mano o passato per una
+  // chat che ci mette lo spazio, e `matchesAny` confronta le stringhe esatte: senza, meta' filtro non
+  // corrisponde a niente e nella tendina compare una voce fantasma con lo spazio davanti.
+  return asList((grezzo ?? '').split(',').map((x) => x.trim()))
+}
+
+// Toglie da un filtro le scelte che non esistono fra le chiavi vere. Serve ai filtri che arrivano da
+// un URL: una chiave stantia o sbagliata (`prod` per `production`, un account rinominato) non filtra
+// «niente», filtra TUTTO VIA, e la pagina dice «nessun account configurato», che e' una frase falsa
+// su un dato che c'e'. Meglio nessun filtro che una pagina vuota senza spiegazione.
+//
+// `chiaviNote` vuoto vuol dire «non lo so ancora» (i dati stanno arrivando): li' non si pota niente,
+// sennò il filtro sparirebbe al primo render e il link non varrebbe mai.
+export function potaSconosciuti(scelte, chiaviNote) {
+  const note = asList(chiaviNote)
+  if (note.length === 0) return asList(scelte)
+  return asList(scelte).filter((s) => note.includes(s))
 }

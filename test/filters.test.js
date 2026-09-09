@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asList, matchesAny, isFiltering, listaDaUrl } from '../web/filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti } from '../web/filters.js'
 
 // Il modello dei filtri: ELENCO VUOTO = TUTTI. Sembra una sciocchezza, ma prima ogni pagina scriveva a
 // mano `x === 'all' || y === x`, in sei file, e ognuno poteva sbagliarlo a modo suo. Qui si fissa il
@@ -55,4 +55,15 @@ test('listaDaUrl legge i filtri che arrivano da un link', () => {
   assert.deepEqual(listaDaUrl('?account=', 'account'), [])
   assert.deepEqual(listaDaUrl('', 'account'), [])
   assert.deepEqual(listaDaUrl(undefined, 'account'), [])
+})
+
+test('listaDaUrl non si fa fregare dallo spazio dopo la virgola', () => {
+  assert.deepEqual(listaDaUrl('?service=backend, frontend', 'service'), ['backend', 'frontend'])
+})
+
+test('potaSconosciuti toglie le chiavi che non esistono, e aspetta i dati', () => {
+  assert.deepEqual(potaSconosciuti(['prod'], ['production', 'staging']), [])
+  assert.deepEqual(potaSconosciuti(['staging'], ['production', 'staging']), ['staging'])
+  // Chiavi non ancora note (dati in arrivo): non si pota niente, sennò il link non varrebbe mai.
+  assert.deepEqual(potaSconosciuti(['staging'], []), ['staging'])
 })
