@@ -289,6 +289,65 @@ test('audit: senza la label access l endpoint resta vuoto, non diventa una frase
   assert.deepEqual(out.database[0].utentiDb, [{ utente: 'dev_utente_uno', endpoint: null }])
 })
 
+// ⚠️ L'audit dice cosa e' stato MANDATO, non cosa il database ha accettato: `success` e' `true` anche
+// sugli statement che Postgres rifiuta (verificato sui dati veri, 27.293 eventi in sette giorni, tutti
+// `TDB02I` e nessun evento di query fallita). Le due deduzioni che si possono fare senza indovinare.
+test('audit: una scrittura sul READER non e una scrittura, e dice perche', async () => {
+  const QUERY_RW = (endpoint, dbUser, quando) =>
+    riga(
+      {
+        event_type: 'db.session.query',
+        fields: {
+          event: 'db.session.query',
+          user: 'utente-uno',
+          db_service: 'prod-db',
+          db_name: 'tenders',
+          db_query: 'UPDATE tenders SET stato = 1',
+          db_user: dbUser,
+          db_labels: { env: 'prod', ...(endpoint ? { access: endpoint } : {}) },
+        },
+      },
+      quando,
+    )
+  const { audit } = await conEventi([QUERY_RW('reader', 'dev_readwrite', 1000), QUERY_RW('writer', 'dev_readwrite', 1100)])
+  const out = await audit({}, { logGroup: '/finto' })
+  const d = out.database.find((x) => x.nome === 'tenders')
+  assert.deepEqual([d.scritture, d.tentate], [1, 1], 'quella sul reader non e andata a buon fine')
+  assert.deepEqual(d.motiviTentate, ['sul reader, che e in sola lettura'])
+  // E chi ha solo tentato non finisce fra chi ha scritto.
+  assert.deepEqual(d.utentiDb, [{ utente: 'dev_readwrite', endpoint: 'writer' }])
+})
+
+// ⚠️ DICHIARATO in config, non dedotto dal nome: `dev_readonly` si chiama cosi' per convenzione nostra,
+// e un giorno qualcuno chiamera' `reporting` un utente che non scrive.
+test('audit: un utente dichiarato di sola lettura non scrive, per quanto ci provi', async () => {
+  const q = (dbUser, quando) =>
+    riga(
+      {
+        event_type: 'db.session.query',
+        fields: {
+          event: 'db.session.query',
+          user: 'utente-uno',
+          db_service: 'prod-db',
+          db_name: 'postgres',
+          db_query: 'CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql',
+          db_user: dbUser,
+          db_labels: { env: 'prod', access: 'writer' },
+        },
+      },
+      quando,
+    )
+  const eventi = [q('dev_solalettura', 1000), q('dev_tizio', 1100)]
+  // Senza la dichiarazione sono due scritture: il codice non immagina niente.
+  const senza = await (await conEventi(eventi)).audit({}, { logGroup: '/finto' })
+  assert.deepEqual([senza.database[0].scritture, senza.database[0].tentate], [2, 0])
+  // Con la dichiarazione, una sola.
+  const con = await (await conEventi(eventi)).audit({}, { logGroup: '/finto', utentiSolaLettura: ['dev_solalettura'] })
+  assert.deepEqual([con.database[0].scritture, con.database[0].tentate], [1, 1])
+  assert.deepEqual(con.database[0].motiviTentate, ['dev_solalettura non ha la scrittura'])
+  assert.deepEqual(con.database[0].scriventi, ['utente-uno'])
+})
+
 test('audit: i database si contano con QUANTE persone li toccano, non solo con quante query', async () => {
   const { audit } = await conEventi([
     QUERY('utente-uno', 1000, 'select 1', 'prod-db', 'tenders'),

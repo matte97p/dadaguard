@@ -45,7 +45,11 @@ const attendi = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // Aspetta che qualcosa risponda, invece di dormire un tempo fisso: un `sleep 5` è la prova che diventa
 // intermittente sul runner lento e lunga su quello veloce.
-async function aspettaChe(cosa, prova, tentativi = 60) {
+//
+// ⚠️ `morto` è la differenza fra aspettare e aspettare INUTILMENTE: se il processo che deve rispondere
+// è già uscito, i secondi che restano sono solo secondi persi, e il messaggio che arriva alla fine
+// («non è arrivato in tempo») manda a cercare un problema di lentezza dove c'è un processo morto.
+async function aspettaChe(cosa, prova, { tentativi = 60, morto = () => null } = {}) {
   for (let i = 0; i < tentativi; i++) {
     try {
       const out = await prova()
@@ -53,9 +57,11 @@ async function aspettaChe(cosa, prova, tentativi = 60) {
     } catch {
       /* non è ancora su */
     }
+    const finito = morto()
+    if (finito) throw new Error(`${cosa}: il processo è uscito prima (${finito})`)
     await attendi(250)
   }
-  throw new Error(`${cosa} non è arrivato in tempo`)
+  throw new Error(`${cosa} non è arrivato in tempo (${Math.round((tentativi * 250) / 1000)}s)`)
 }
 
 // ── Il server di prova: modalità demo, quindi zero AWS e dati finti ma completi ────────────────────
@@ -70,8 +76,16 @@ function avviaServer() {
 }
 
 // ── Il browser, guidato col protocollo di Chrome ────────────────────────────────────────────────────
+//
+// ⚠️ Il suo output si LEGGE, sempre, anche quando non serve a niente. Con `stdio: 'pipe'` e nessuno che
+// legge, il buffer della pipe (64 KB) si riempie e il processo si ferma sulla `write`: Chrome headless
+// scrive parecchio, e un Chrome fermo non arriva mai a scrivere `DevToolsActivePort`. Il sintomo è la
+// prova che fallisce con «non è arrivato in tempo» su una macchina lenta e passa su quella veloce, cioè
+// esattamente la forma che ha avuto il 09/09/2026 sui runner della CI (rossa due volte, verde al
+// rilancio, stesso commit). Le ultime righe si tengono da parte: sono la sola cosa che spiega un
+// Chrome che non parte (una libreria che manca, un profilo non scrivibile).
 function avviaChrome(bin, profilo) {
-  return spawn(
+  const p = spawn(
     bin,
     [
       '--headless=old', // esce da sé al termine, e non ha bisogno di un display
@@ -85,17 +99,40 @@ function avviaChrome(bin, profilo) {
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   )
+  p.ultimeRighe = []
+  const raccogli = (pezzo) => {
+    for (const riga of String(pezzo).split('\n')) if (riga.trim()) p.ultimeRighe.push(riga.trim())
+    if (p.ultimeRighe.length > 20) p.ultimeRighe.splice(0, p.ultimeRighe.length - 20)
+  }
+  p.stdout.on('data', raccogli)
+  p.stderr.on('data', raccogli)
+  return p
+}
+
+// Perché Chrome non c'è più, detto con le sue parole. `null` se sta ancora girando.
+const chromeMorto = (p) => {
+  if (p.exitCode === null && p.signalCode === null) return null
+  const come = p.signalCode ? `segnale ${p.signalCode}` : `codice ${p.exitCode}`
+  const ultima = p.ultimeRighe.at(-1)
+  return ultima ? `${come}: ${ultima.slice(0, 160)}` : come
 }
 
 // La porta vera la scrive Chrome in `DevToolsActivePort` dentro al profilo: chiedergliela evita di
 // litigare per una porta fissa quando due prove girano insieme.
-async function portaDevTools(profilo) {
+async function portaDevTools(profilo, chrome) {
   const { readFile } = await import('node:fs/promises')
-  return aspettaChe('la porta di DevTools', async () => {
-    const testo = await readFile(join(profilo, 'DevToolsActivePort'), 'utf8')
-    const porta = Number(testo.split('\n')[0])
-    return Number.isFinite(porta) && porta > 0 ? porta : null
-  })
+  return aspettaChe(
+    'la porta di DevTools',
+    async () => {
+      const testo = await readFile(join(profilo, 'DevToolsActivePort'), 'utf8')
+      const porta = Number(testo.split('\n')[0])
+      return Number.isFinite(porta) && porta > 0 ? porta : null
+    },
+    // 60s invece di 15: su un runner scarico Chrome parte in meno di un secondo, ma su uno carico
+    // l'avvio a freddo ci mette parecchio di piu', e il prezzo dell'attesa lunga lo paga solo chi e'
+    // gia' rotto (perche' un Chrome morto si scopre subito, senza aspettare il tetto).
+    { tentativi: 240, morto: () => chromeMorto(chrome) },
+  )
 }
 
 // Una pagina: apre una scheda, ascolta gli errori, naviga, e aspetta che il render sia FINITO.
@@ -185,20 +222,57 @@ if (!bin) {
   process.exit(2)
 }
 
-const profilo = await mkdtemp(join(tmpdir(), 'dadaguard-smoke-'))
 const server = avviaServer()
-const chrome = avviaChrome(bin, profilo)
 let usciteRosse = 0
+let aperto = null
+
+// Un browser pronto: profilo nuovo, Chrome, e la sua porta. Il profilo e' NUOVO a ogni tentativo,
+// perche' `DevToolsActivePort` sta li' dentro e un file rimasto da un avvio andato male darebbe una
+// porta che non risponde, cioe' un guasto piu' difficile da leggere di quello che stiamo riparando.
+async function apriBrowser() {
+  const profilo = await mkdtemp(join(tmpdir(), 'dadaguard-smoke-'))
+  const chrome = avviaChrome(bin, profilo)
+  try {
+    return { profilo, chrome, portaCdp: await portaDevTools(profilo, chrome) }
+  } catch (err) {
+    chrome.kill('SIGKILL')
+    await rm(profilo, { recursive: true, force: true }).catch(() => {})
+    err.ultimeRighe = chrome.ultimeRighe
+    throw err
+  }
+}
 
 const chiudi = async () => {
-  chrome.kill('SIGKILL')
+  aperto?.chrome.kill('SIGKILL')
   server.kill('SIGTERM')
-  await rm(profilo, { recursive: true, force: true }).catch(() => {})
+  if (aperto) await rm(aperto.profilo, { recursive: true, force: true }).catch(() => {})
 }
 
 try {
   await aspettaChe('il server di prova', async () => (await fetch(`${BASE}/healthz`)).ok)
-  const portaCdp = await portaDevTools(profilo)
+  // Un secondo tentativo, e uno solo: un browser che non parte due volte di fila non e' sfortuna, e
+  // riprovare all'infinito trasformerebbe un guasto in un job che scade dopo sei ore. Il primo
+  // fallimento si STAMPA comunque, sennò un guasto che si ripara al secondo giro diventa invisibile e
+  // nessuno lo va a cercare finché non capita in un momento peggiore.
+  try {
+    aperto = await apriBrowser()
+  } catch (err) {
+    console.log(`⚠ il browser non e' partito al primo tentativo: ${err.message}`)
+    for (const riga of (err.ultimeRighe ?? []).slice(-3)) console.log(`    ${riga}`)
+    console.log('  riprovo con un profilo nuovo')
+    try {
+      aperto = await apriBrowser()
+    } catch (secondo) {
+      // Due volte di fila non e' sfortuna: e' il browser che su questa macchina non parte. Si esce con
+      // 2 e con le sue ultime righe, come quando il browser non si trova affatto: uno stack di Node
+      // parlerebbe di `aspettaChe`, cioe' del posto sbagliato dove andare a guardare.
+      console.error(`✗ il browser non parte: ${secondo.message}`)
+      for (const riga of (secondo.ultimeRighe ?? []).slice(-5)) console.error(`    ${riga}`)
+      await chiudi()
+      process.exit(2)
+    }
+  }
+  const { portaCdp } = aperto
 
   for (const percorso of PAGINE) {
     const { errori, lunghezza } = await provaPagina(portaCdp, percorso)

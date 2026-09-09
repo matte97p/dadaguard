@@ -260,6 +260,17 @@ services:
 #   # `0` = un messaggio a ogni giro, cioe' il comportamento di prima.
 #   calmaMinuti: 30                               # default
 #
+#   # Gli utenti di DATABASE che non possono scrivere. Serve perche' l'audit di Teleport registra la
+#   # query quando la INOLTRA, prima della risposta: uno statement che Postgres rifiuta finisce nel log
+#   # con `success: true` come tutti gli altri, e senza questa riga il canale scrive quell'utente fra
+#   # chi ha scritto in produzione. Chi legge va a cercare un permesso rotto, e invece non e' successo
+#   # niente.
+#   # ⚠️ DICHIARATI qui, non dedotti dal nome: `dev_readonly` si chiama cosi' per convenzione, e un
+#   # giorno qualcuno chiamera' `reporting` un utente che non scrive. Chi conosce il database lo scrive
+#   # qui; il codice non lo immagina. (La scrittura mandata al `reader` invece si riconosce da se': e'
+#   # una replica in sola lettura, e qualsiasi scrittura ci muore sopra.)
+#   utentiSolaLettura: [dev_readonly]
+#
 #   # La MAPPA «chi ha cosa»: team GitHub -> ruoli Teleport, letta da un parametro SSM che scrive chi
 #   # applica il connector SSO (cosi' non e' una copia che invecchia). Se manca, la pagina lo dice.
 #   ruoliParam: /teleport/team-roles              # default, si cambia solo se il parametro sta altrove

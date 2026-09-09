@@ -872,3 +872,51 @@ test('giroAccessi: un secondo giro dentro alla calma non manda un secondo messag
   // Lo stato non avanza: le quattro del silenzio finiscono nel messaggio dopo, non nel nulla.
   assert.deepEqual(secondo.stato, primo.stato)
 })
+
+// Le scritture rifiutate stanno in coda a una riga che esiste gia', e mai da sole: spiegano il login
+// che non torna («perche' `dev_readonly` compare fra chi scrive in produzione?»), ma una scrittura che
+// non e' avvenuta non merita un messaggio suo.
+test('giroAccessi: le scritture rifiutate si dicono in coda, e da sole non fanno nessuna riga', async () => {
+  let testo = null
+  const dati = (dentro) => ({
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [
+        {
+          servizio: 'orders-prod-db', nome: 'orders', ambiente: 'prod',
+          bersagli: [], utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }], scriventi: ['tizio'],
+          ultimaScritturaStruttura: 9000, ultimaScrittura: 9000, ...dentro,
+        },
+      ],
+    },
+  })
+  const manda = async (d, prec) => {
+    testo = null
+    await giroAccessi(
+      CFG_ACCESSI,
+      {
+        loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x' } }),
+        statoAccessi: async () => d,
+        postSlack: async (_hook, payload) => {
+          testo = payload.text
+          return true
+        },
+      },
+      { accessi: prec },
+    )
+  }
+  // Solo tentativi: nessuna scrittura, quindi nessuna riga.
+  await manda(dati({ scritture: 0, scrittureDati: 0, scrittureStruttura: 0, azioni: [], tentate: 4, motiviTentate: ['sul reader, che e in sola lettura'] }), {})
+  assert.equal(testo, null)
+  // Con una scrittura vera, i tentativi si leggono in coda alla sua riga.
+  await manda(
+    dati({
+      scritture: 3, scrittureDati: 0, scrittureStruttura: 3,
+      azioni: [{ etichetta: 'CREATE INDEX', quante: 3, tipo: 'struttura' }],
+      tentate: 4, motiviTentate: ['dev_readonly non ha la scrittura'],
+    }),
+    { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } },
+  )
+  assert.match(testo, /\+3 CREATE INDEX da tizio \(su writer\) · 4 rifiutate \(dev_readonly non ha la scrittura\)/)
+})
