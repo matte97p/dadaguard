@@ -306,7 +306,7 @@ app.get('/api/costs/categories', async (req, res) => {
 // I deploy per account, una volta sola: la usano sia `/api/deploys` (la vista) sia `/api/rilasci`
 // (staging contro produzione). Estratta dall'handler perché due endpoint che rifanno lo stesso giro
 // CodeBuild sono due giri di rete per lo stesso dato.
-async function deploysPerAccount(t) {
+async function deploysPerAccount(t, ore = null) {
   // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
   // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
   const { accounts } = await resolveServices()
@@ -315,7 +315,10 @@ async function deploysPerAccount(t) {
     Object.entries(accounts).map(async ([key, a]) => {
       if (!isQueryable(a)) return
       try {
-        const { builds, noProjects } = await listDeploys({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
+        const { builds, noProjects } = await listDeploys(
+          { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region },
+          { ore },
+        )
         out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }
       } catch (err) {
         out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
@@ -336,7 +339,7 @@ async function deploysPerAccount(t) {
 app.get('/api/deploys', async (req, res) => {
   try {
     if (isDemo) return res.json(demoDeploys())
-    res.json(await deploysPerAccount(makeT(req.query.lang)))
+    res.json(await deploysPerAccount(makeT(req.query.lang), entroLimiti('deploys', req.query.ore)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

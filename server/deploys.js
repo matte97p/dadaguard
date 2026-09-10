@@ -123,7 +123,11 @@ const byRecent = (a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 
 // Elenca i deploy di un account, dal più recente: le build dei progetti `*-deploy` (ultime
 // `perProject` per progetto) PIÙ i riavvii forzati a mano, che non sono build e prima non si
 // vedevano da nessuna parte.
-export async function listDeploys({ profile, roleArn, externalId, region } = {}, { perProject = 15 } = {}) {
+// `ore` = la finestra, che arriva da `finestre.conf` attraverso la rotta. Prima non c'era affatto:
+// si prendevano le ultime `perProject` build di ogni progetto qualunque fosse la loro eta', quindi
+// la pagina apriva su build di settimane prima come se fossero di oggi. Il default e' la giornata di
+// lavoro, che e' la finestra in cui la domanda «i rilasci stanno passando?» ha senso.
+export async function listDeploys({ profile, roleArn, externalId, region } = {}, { perProject = 15, ore = null } = {}) {
   const aws = { profile, roleArn, externalId, region }
   const cb = new CodeBuildClient(clientOpts(aws))
 
@@ -146,7 +150,13 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
   // `noProjects` lo distingue dal "ci sono progetti ma nessuna build" → la UI mostra il messaggio giusto.
   if (deployProjects.length === 0) {
     const { restarts } = await manual
-    return { builds: restarts.sort(byRecent), noProjects: true }
+    const soglia0 = ore ? Date.now() - ore * 3600_000 : null
+    return {
+      builds: restarts
+        .filter((b) => !soglia0 || b.startTime == null || new Date(b.startTime).getTime() >= soglia0)
+        .sort(byRecent),
+      noProjects: true,
+    }
   }
 
   // 2. ultimi N id build per progetto (in parallelo)
@@ -168,5 +178,12 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
 
   const { restarts, startedBy } = await manual
   const builds = raw.map((b) => mapBuild(b, startedBy.get(b.arn) ?? startedBy.get(b.id)))
-  return { builds: [...builds, ...restarts].sort(byRecent) }
+  // Il taglio si fa QUI e non a monte: CodeBuild non filtra per data, quindi le build arrivano
+  // comunque e si tengono solo quelle dentro la finestra. Senza `ore` non si taglia niente, che e' il
+  // comportamento di prima e serve a chi chiama senza finestra (il pannello dei rilasci in Adesso).
+  // ⚠️ Una build SENZA data non si butta: «non so quando» non e' «vecchia», e scartarla farebbe
+  // sparire dalla pagina proprio le righe malformate, che sono quelle da guardare.
+  const soglia = ore ? Date.now() - ore * 3600_000 : null
+  const dentro = (b) => !soglia || b.startTime == null || new Date(b.startTime).getTime() >= soglia
+  return { builds: [...builds, ...restarts].filter(dentro).sort(byRecent) }
 }
