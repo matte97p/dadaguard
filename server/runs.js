@@ -166,6 +166,48 @@ async function anyFailure(logs, params) {
   return false
 }
 
+// I task di un CLUSTER, raggruppati per famiglia. In cache per la durata di una vista, e condivisa
+// fra tutti i cron di quel cluster.
+//
+// ⚠️ Il TETTO c'e' e va saputo: si leggono al massimo `MAX_PAGINE_TASK` pagine per stato. Senza,
+// un cluster con molti task fermi diventerebbe una scansione, che e' proprio cio' da cui si scappa.
+// I task STOPPED su ECS restano poco piu' di un'ora, quindi il tetto morde di rado; quando morde, si
+// perdono le run PIU VECCHIE dell'ultima ora, che la lista prende comunque dai log.
+//
+// ⚠️ La chiave porta il ruolo oltre al cluster: due account possono avere un cluster con lo stesso
+// nome, e servire a uno la risposta ottenuta con le credenziali dell'altro sarebbe peggio che lento.
+const MAX_PAGINE_TASK = 5
+
+async function tasksPerCluster(ecs, cluster, aws) {
+  return cached(`ecs-tasks:${aws?.roleArn ?? aws?.profile ?? 'default'}:${cluster}`, 30_000, async () => {
+    const arns = []
+    for (const desiredStatus of ['RUNNING', 'STOPPED']) {
+      let nextToken
+      for (let pagina = 0; pagina < MAX_PAGINE_TASK; pagina++) {
+        const r = await ecs.send(new ListTasksCommand({ cluster, desiredStatus, maxResults: 100, nextToken }))
+        arns.push(...(r.taskArns ?? []))
+        nextToken = r.nextToken
+        if (!nextToken) break
+      }
+    }
+    const perFamiglia = new Map()
+    if (!arns.length) return perFamiglia
+    // `DescribeTasks` accetta 100 ARN per chiamata: oltre, si spezza.
+    const chunks = []
+    for (let i = 0; i < arns.length; i += 100) chunks.push(arns.slice(i, i + 100))
+    const tasks = (await Promise.all(chunks.map((c) => ecs.send(new DescribeTasksCommand({ cluster, tasks: c })))))
+      .flatMap((r) => r.tasks ?? [])
+    for (const task of tasks) {
+      // La famiglia sta nell'ARN della task definition: `.../famiglia:revisione`.
+      const famiglia = familyOfTaskDef(task.taskDefinitionArn ?? '')
+      if (!famiglia) continue
+      if (!perFamiglia.has(famiglia)) perFamiglia.set(famiglia, [])
+      perFamiglia.get(famiglia).push(task)
+    }
+    return perFamiglia
+  })
+}
+
 // Run di un cron su ECS RunTask. `scanFailures` = per quante run (le più recenti) si va a cercare
 // l'errore nei log: è una chiamata a testa, e su una lista lunga non serve saperlo per tutte subito.
 export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailures = 6, t = (k) => k } = {}) {
@@ -189,23 +231,18 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
 
   // API ECS: le run vive e quelle finite nell'ultima ora, con l'esito esatto. Best-effort, senza
   // `ecs:ListTasks` restano le run dal log, che è la maggior parte della lista.
+  //
+  // ⚠️ UNA LETTURA PER CLUSTER, non per cron. Prima ogni cron faceva le SUE `ListTasks` filtrate per
+  // `family`, due (RUNNING e STOPPED) piu' le `DescribeTasks`: con quaranta cron sullo stesso cluster
+  // erano ottanta chiamate dove ne bastano due, ed era il grosso di cio' che rendeva lenta la pagina
+  // Esecuzioni. Adesso il cluster si legge una volta sola e ogni cron pesca la sua famiglia da li'.
+  // Le chiamate concorrenti condividono la promessa (vedi `cached`), quindi il primo cron che arriva
+  // paga per tutti e gli altri trovano pronto: senza quello, quaranta cron in parallelo farebbero
+  // quaranta letture identiche prima che la prima finisca.
   let apiRuns = []
   try {
-    const arns = (
-      await Promise.all(
-        ['RUNNING', 'STOPPED'].map((desiredStatus) =>
-          ecs.send(new ListTasksCommand({ cluster: cfg.cluster, family, desiredStatus, maxResults: 50 })),
-        ),
-      )
-    ).flatMap((r) => r.taskArns ?? [])
-    if (arns.length) {
-      // `DescribeTasks` accetta 100 ARN per chiamata: oltre, si spezza.
-      const chunks = []
-      for (let i = 0; i < arns.length; i += 100) chunks.push(arns.slice(i, i + 100))
-      const tasks = (await Promise.all(chunks.map((c) => ecs.send(new DescribeTasksCommand({ cluster: cfg.cluster, tasks: c })))))
-        .flatMap((r) => r.tasks ?? [])
-      apiRuns = tasks.map((task) => runFromTask(task, { container }))
-    }
+    const perFamiglia = await tasksPerCluster(ecs, cfg.cluster, aws)
+    apiRuns = (perFamiglia.get(family) ?? []).map((task) => runFromTask(task, { container }))
   } catch (err) {
     if (!isDenied(err)) throw err
   }
