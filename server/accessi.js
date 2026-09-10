@@ -12,6 +12,7 @@
 import { loadConfig } from './config.js'
 import { resolveServices } from './status.js'
 import { cached } from './util/ttlcache.js'
+import { entroLimiti, tetto } from './finestre.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import * as teleport from './teleport.js'
 
@@ -33,13 +34,18 @@ export async function statoAccessi({ ore = 24 } = {}) {
   const { accounts } = await resolveServices()
   const cfg = loadConfig().teleport
   if (!cfg) return { configurato: false }
-  const finestra = Math.min(168, Math.max(1, Number(ore) || 24))
+  // La finestra e il tetto NON stanno piu' qui: li dichiara `finestre.conf`, che e' l'unico posto
+  // dove si decide quanto indietro guarda una chiamata e quante righe puo' scaricare. Prima erano
+  // due numeri scritti a mano in questo file e in `teleport.js`, e nessuno dei due lo sapeva
+  // dell'altro. Il default e' sceso da 24 ore a 1: questa pagina si apre durante un guasto.
+  const finestra = entroLimiti('teleport', ore)
   const [audit, heartbeat] = await Promise.all([
     conto(accounts, cfg.audit?.account)
       ? cached(`teleport:audit:${finestra}`, 120_000, () =>
           teleport.audit(conto(accounts, cfg.audit?.account), {
             logGroup: cfg.audit?.logGroup,
             ore: finestra,
+            limite: tetto('teleport'),
             // Gli utenti di database che non possono scrivere, DICHIARATI: i loro statement di
             // scrittura sono tentativi, non scritture (vedi `rifiutata` in teleport.js).
             utentiSolaLettura: cfg.utentiSolaLettura ?? [],

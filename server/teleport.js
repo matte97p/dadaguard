@@ -131,6 +131,52 @@ function comeJson(messaggio) {
 
 // Gli eventi che ci interessano, in UNA chiamata: `?a ?b` in un filter pattern e' un OR.
 // Il tetto vale sia sul numero sia sul tempo: senza, un log group grosso si porta via il minuto.
+// Gli stessi eventi, ma chiesti a INSIGHTS invece che a FilterLogEvents.
+//
+// Perche'. `FilterLogEvents` scorre il log group a pagine da 1 MB, IN SERIE: sulla pagina Accessi
+// erano cinque o sei viaggi prima che comparisse qualcosa, ed e' la ragione per cui quella pagina
+// «va, ma lentissima». Non e' una scoperta nuova in questo file: la stessa misura sta gia' venti
+// righe sotto per `login()`, dove FilterLogEvents costava 2 minuti e 46 secondi e Insights pochi
+// secondi, perche' la finestra la macina in parallelo.
+//
+// ⚠️ Torna a casa `@message` INTERO, come fa `login()`: il parser che sta sotto non cambia di una
+// riga, e quindi non cambia nemmeno cosa la pagina mostra. Aggregare dentro Insights (contare per
+// persona con `stats`) sarebbe piu' veloce ancora, ma vorrebbe dire riscrivere quel parser e con lui
+// le regole su cosa e' una scrittura e cosa un tentativo: un'altra volta, e con le sue prove.
+async function eventiInsights(aws, { logGroup, filtro, da, limite = MAX_EVENTI }) {
+  const cw = new CloudWatchLogsClient(clientOpts(aws))
+  const fine = Math.floor(Date.now() / 1000)
+  const avvio = await cw.send(
+    new StartQueryCommand({
+      logGroupName: logGroup,
+      startTime: Math.floor(da / 1000),
+      endTime: fine,
+      limit: limite,
+      queryString: `${filtro} | fields @timestamp, @message | sort @timestamp desc | limit ${limite}`,
+    }),
+  )
+  const queryId = avvio.queryId
+  if (!queryId) return []
+  let esito
+  const scadenza = Date.now() + ATTESA_QUERY_MS
+  do {
+    await new Promise((r) => setTimeout(r, PASSO_QUERY_MS))
+    esito = await cw.send(new GetQueryResultsCommand({ queryId }))
+  } while (['Scheduled', 'Running'].includes(esito.status) && Date.now() < scadenza)
+  // Una query ancora in corso non e' un risultato vuoto: si alza, e chi chiama lo vede come errore
+  // invece che come «non e' successo niente», che sulla pagina degli accessi e' una bugia pesante.
+  if (esito.status !== 'Complete') throw new Error(`query non completata (${esito.status})`)
+  return (esito.results ?? []).map((riga) => {
+    const istante = riga.find((c) => c.field === '@timestamp')?.value
+    return {
+      // Insights rende `@timestamp` in UTC senza fuso: senza la `Z` viene letto come ora locale, e
+      // ogni evento risulterebbe spostato di un paio d'ore. Stessa trappola gia' segnata in `login()`.
+      timestamp: istante ? Date.parse(istante.replace(' ', 'T') + 'Z') : null,
+      message: riga.find((c) => c.field === '@message')?.value,
+    }
+  })
+}
+
 async function eventi(aws, { logGroup, filterPattern, da, limite = MAX_EVENTI }) {
   const cw = new CloudWatchLogsClient(clientOpts(aws))
   const fuori = []
@@ -155,13 +201,23 @@ async function eventi(aws, { logGroup, filterPattern, da, limite = MAX_EVENTI })
 //
 // ⚠️ Il motivo della login fallita si tiene per intero, e non si accorcia a «errore»: e' la differenza
 // fra «una sessione scaduta» (normale) e «un ruolo che sul cluster non esiste» (tutto il team fuori).
-export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettura = [] } = {}) {
+export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettura = [], limite } = {}) {
   if (!logGroup) return null
   const da = Date.now() - ore * 3600_000
   const solaLettura = new Set(utentiSolaLettura)
   // `session.start` e `session.end` sono le sessioni SSH sulle macchine (nodi `mac-dev`): la parte che
   // risponde a «chi e' entrato sul computer di chi», che per un accesso del genere non e' un extra.
-  const righe = await eventi(aws, { logGroup, filterPattern: '?"user.login" ?"db.session.start" ?"db.session.query" ?"session.start" ?"session.end"', da })
+  // Il tetto arriva da `finestre.conf` attraverso chi chiama: MAX_EVENTI resta come rete di
+  // sicurezza per i chiamanti che non lo passano (il watchdog), ma la decisione sta nel catalogo.
+  const massimo = Number.isFinite(limite) ? limite : MAX_EVENTI
+  const righe = await eventiInsights(aws, {
+    logGroup,
+    // Lo stesso insieme di eventi del vecchio `filterPattern`, scritto nella lingua di Insights.
+    filtro:
+      'filter @message like /user\\.login|db\\.session\\.start|db\\.session\\.query|session\\.start|session\\.end/',
+    da,
+    limite: massimo,
+  })
 
   const persone = new Map()
   const chiave = (nome) => {
@@ -454,7 +510,10 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
     negati: rifiuti,
     // ⚠️ Se si e' toccato il tetto, quelli sotto sono un CAMPIONE e non un totale: dirlo, perche' un
     // numero parziale spacciato per totale e' peggio di nessun numero.
-    troncato: righe.length >= MAX_EVENTI,
+    // ⚠️ Si confronta col tetto EFFETTIVO, non con MAX_EVENTI: da quando il tetto lo dichiara il
+    // catalogo, confrontarlo con la costante direbbe «completo» su una risposta tagliata a 1500,
+    // cioe' un dato parziale che si legge come completo.
+    troncato: righe.length >= massimo,
     // Il motivo piu' frequente fra le fallite: e' la riga che risponde a «cosa sta succedendo adesso».
     motivoPiuComune: piuComune(elenco.filter((p) => p.motivo).map((p) => p.motivo)),
   }
