@@ -640,3 +640,56 @@ test('heartbeat: la versione attesa arriva dalla config, e senza quella il campo
   const senza = await heartbeat({}, { logGroup: '/finto' })
   assert.equal(senza.attesa, null)
 })
+
+// ── i guasti del dev-env, dentro all heartbeat ────────────────────────────────────────────────────
+//
+// ⚠️ Le due funzioni sbagliano in modi opposti e tutti e due silenziosi: troppo larghe riempiono il
+// canale di rumore (e un canale che grida per il lavoro normale si spegne nella testa di chi legge),
+// troppo strette lasciano una persona ferma senza che nessuno lo sappia, che e' il guasto di partenza.
+
+test('classiNuove: nuova e una classe che nelle 24 ore prima non c era', async () => {
+  const { classiNuove } = await import('../server/teleport.js')
+  const ora = 1_000_000_000_000
+  const guasti = [
+    { classe: 'compose-up', quando: ora - 3_600_000, macchina: 'mac-1' },
+    { classe: 'porta-occupata', quando: ora - 3_600_000, macchina: 'mac-2' },
+    { classe: 'porta-occupata', quando: ora - 5 * 86_400_000, macchina: 'mac-2' },
+  ]
+  const fuori = classiNuove(guasti, ora).map((g) => g.classe)
+  assert.deepEqual(fuori, ['compose-up'])
+})
+
+test('classiNuove: la stessa classe su piu macchine resta UNA riga', async () => {
+  const { classiNuove } = await import('../server/teleport.js')
+  const ora = 1_000_000_000_000
+  const guasti = [
+    { classe: 'compose-up', quando: ora - 1000, macchina: 'mac-1' },
+    { classe: 'compose-up', quando: ora - 2000, macchina: 'mac-2' },
+  ]
+  assert.equal(classiNuove(guasti, ora).length, 1)
+})
+
+test('bloccate: due KO di fila si', async () => {
+  const { bloccate } = await import('../server/teleport.js')
+  const m = new Map([['mac-1/host', [
+    { esito: 'ko', quando: 3000, classe: 'compose-up' },
+    { esito: 'ko', quando: 2000, classe: 'compose-up' },
+    { esito: 'ok', quando: 1000 },
+  ]]])
+  assert.deepEqual(bloccate(m).map((x) => x.macchina), ['mac-1'])
+})
+
+test('bloccate: un KO solo, o un degradato in mezzo, NON e una persona ferma', async () => {
+  const { bloccate } = await import('../server/teleport.js')
+  const unoSolo = new Map([['mac-1/host', [{ esito: 'ko', quando: 3000 }, { esito: 'ok', quando: 2000 }]]])
+  assert.deepEqual(bloccate(unoSolo), [])
+  // `degradato` e' un avvio RIUSCITO con un pezzo spento: chiamarlo fermo vorrebbe dire svegliare
+  // qualcuno per una sessione Teleport scaduta, che il dev si rifa' da solo in dieci secondi.
+  const degradato = new Map([['mac-1/host', [{ esito: 'degradato', quando: 3000 }, { esito: 'ko', quando: 2000 }]]])
+  assert.deepEqual(bloccate(degradato), [])
+})
+
+test('bloccate: con un avvio solo non si decide', async () => {
+  const { bloccate } = await import('../server/teleport.js')
+  assert.deepEqual(bloccate(new Map([['mac-1/host', [{ esito: 'ko', quando: 3000 }]]])), [])
+})

@@ -619,12 +619,48 @@ export async function login(aws, { logGroup, ore = 168, limite = 1000 } = {}) {
 // ⚠️ Per macchina e non per persona: la stessa persona ha il portatile e il container, e sono due
 // stati diversi. Una versione vecchia su una sola delle due e' esattamente il caso che spiega meta'
 // dei «a me non funziona».
+// Le classi comparse nelle ultime 24 ore e mai prima, dentro alla finestra guardata.
+export function classiNuove(guasti, ora = Date.now(), recenti = 86_400_000) {
+  const prima = new Set()
+  const dopo = new Map()
+  for (const g of guasti) {
+    if (!g.classe) continue
+    if (ora - g.quando > recenti) prima.add(g.classe)
+    else dopo.set(g.classe, g)
+  }
+  return [...dopo.entries()]
+    .filter(([classe]) => !prima.has(classe))
+    .map(([classe, g]) => ({ classe, passo: g.passo, macchina: g.macchina, utente: g.utente, primaRiga: g.primaRiga, quando: g.quando }))
+    .sort((a, b) => b.quando - a.quando)
+}
+
+// Le macchine i cui ULTIMI DUE avvii sono finiti male. `degradato` non conta: quello e' un avvio
+// riuscito con un pezzo spento, e metterlo qui vorrebbe dire chiamare "fermo" chi sta lavorando.
+export function bloccate(avviiPerMacchina) {
+  const fuori = []
+  for (const [chiave, avvii] of avviiPerMacchina) {
+    const ultimi = [...avvii].sort((a, b) => b.quando - a.quando).slice(0, 2)
+    if (ultimi.length < 2) continue
+    if (!ultimi.every((a) => a.esito === 'ko')) continue
+    const [macchina, lato] = chiave.split('/')
+    fuori.push({ macchina, lato, classe: ultimi[0].classe ?? null, quando: ultimi[0].quando })
+  }
+  return fuori.sort((a, b) => b.quando - a.quando)
+}
+
 export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = null } = {}) {
   if (!logGroup) return null
   const da = Date.now() - giorni * 86_400_000
   const righe = await eventi(aws, { logGroup, filterPattern: '', da })
 
   const perMacchina = new Map()
+  // I GUASTI, non solo l'ultimo esito per macchina: dal 10/09/2026 il dev-env manda anche `passo`,
+  // `classe` e la prima riga ripulita quando un avvio non parte. Senza raccoglierli qui, la pagina
+  // sa CHI e' rotto e non COSA si e' rotto, che era il difetto di partenza.
+  const guasti = []
+  // Gli avvii per macchina in ordine di tempo: servono a distinguere «e' inciampato una volta» da
+  // «non parte piu'», che sono due notizie diverse e meritano colori diversi.
+  const avviiPerMacchina = new Map()
   // Tutti i nomi visti per quella macchina, non solo quello dell'ultimo avvio: l'heartbeat manda
   // l'utente Teleport se c'e' una sessione e altrimenti quello di SISTEMA, quindi la stessa persona
   // compare con due nomi (visto il 31/08/2026 su due macchine su cinque: l'utente del cluster e quello
@@ -639,6 +675,23 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
       if (!nomiVisti.has(chiave)) nomiVisti.set(chiave, new Set())
       nomiVisti.get(chiave).add(r.utente)
     }
+    if (r.classe) {
+      guasti.push({
+        classe: r.classe,
+        passo: r.passo ?? null,
+        macchina: r.macchina,
+        utente: r.utente ?? null,
+        // La riga arriva gia' ripulita dal dev-env (path, host, token, numeri lunghi): qui non si
+        // ripulisce una seconda volta, si mostra. Se un giorno arrivasse sporca il posto da correggere
+        // e' `pulisci_riga` nel heartbeat, non questa pagina.
+        primaRiga: r.prima_riga ?? null,
+        esito: r.esito ?? null,
+        quando: ev.timestamp ?? 0,
+      })
+    }
+    if (!avviiPerMacchina.has(chiave)) avviiPerMacchina.set(chiave, [])
+    avviiPerMacchina.get(chiave).push({ esito: r.esito ?? null, quando: ev.timestamp ?? 0, classe: r.classe ?? null })
+
     const precedente = perMacchina.get(chiave)
     if (!precedente || (ev.timestamp ?? 0) > precedente.quando) {
       perMacchina.set(chiave, {
@@ -678,6 +731,18 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     macchine: elenco,
     versioni: [...versioni.entries()].map(([immagine, quante]) => ({ immagine, quante })).sort((a, b) => b.quante - a.quante),
     conToolMancanti: elenco.filter((m) => m.toolMancanti > 0).length,
+    // I guasti, dal piu' recente. La pagina li mostra e i segnali ci lavorano sopra.
+    guasti: guasti.sort((a, b) => b.quando - a.quando),
+    // Una classe MAI VISTA prima e' la notizia piu' preziosa qui dentro: e' un guasto che non sappiamo
+    // ancora di avere. «Mai vista» si misura DENTRO la finestra (le classi comparse nelle ultime 24
+    // ore contro quelle di prima): senza memoria fuori dalla finestra e' l'unica definizione onesta, e
+    // il giorno in cui la finestra scorre oltre la prima apparizione la classe torna nuova una volta
+    // sola. Meglio ridirla una volta che non dirla mai.
+    classiNuove: classiNuove(guasti),
+    // Chi non parte PIU': gli ultimi due avvii di quella macchina sono andati male tutti e due. Uno
+    // solo non basta, ed e' la differenza fra «e' inciampato» e «e' fermo»: la porta occupata di un
+    // minuto fa la libera lui, e un canale che parla al primo inciampo si spegne da solo.
+    bloccate: bloccate(avviiPerMacchina),
     // Le macchine che non hanno dichiarato la versione: non sono indietro, sono senza il dato, e
     // vanno contate a parte invece di sparire dentro «versioni in giro».
     senzaVersione: elenco.filter((m) => !versioneNota(m.immagine)).length,

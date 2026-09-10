@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { segnali, daAnnunciare, CALMA_MS } from '../server/accessi.js'
+import { messaggioAccessi } from '../server/notify/slack.js'
 
 // Le tre regole che meritano un messaggio, e il dedup che decide se dirlo. Sono la parte che, se
 // sbaglia, riempie un canale di rumore: e un canale che grida per il lavoro normale si spegne da se'
@@ -349,4 +350,86 @@ test('segnali: azioni senza tipo non finiscono in nessuna delle due righe, e i n
     }),
   )
   assert.deepEqual(out.map((s) => [s.natura, s.quante, s.azioni.length]), [['dati', 2, 0], ['struttura', 3, 0]])
+})
+
+// ── i guasti del dev-env ──────────────────────────────────────────────────────────────────────────
+//
+// ⚠️ La ragione per cui queste due righe esistono, ed e' la stessa per cui il canale non deve gridare:
+// un avvio che non parte sul Mac di qualcun altro oggi si scopre SOLO se quella persona lo racconta.
+// Ma un inciampo non e' una persona ferma, e appiattirli su una riga sola rende inutile quella rossa.
+
+test('segnali: una classe di guasto MAI VISTA merita una riga, con la riga d errore', () => {
+  const dati = base({
+    heartbeat: {
+      classiNuove: [
+        { classe: 'compose-up', passo: 'avvio-stack', macchina: 'mac-di-gio', utente: 'gio',
+          primaRiga: 'listen tcp4 <host>:<n>: bind: address already in use', quando: 7000 },
+      ],
+    },
+  })
+  const s = segnali(dati).filter((x) => x.tipo === 'guasto')
+  assert.equal(s.length, 1)
+  assert.equal(s[0].chiave, 'guasto:compose-up')
+  assert.equal(s[0].livello, 'attenzione')
+  assert.equal(s[0].dettaglio, 'listen tcp4 <host>:<n>: bind: address already in use')
+  assert.deepEqual(s[0].chi, ['gio'])
+})
+
+test('segnali: una riga per CLASSE, anche se la stessa classe colpisce piu macchine', () => {
+  // Se l'immagine nuova rompe l'avvio a tutti e nove, la notizia e' una sola: nove righe la
+  // nasconderebbero, ed e' cosi' che un canale diventa rumore.
+  const dati = base({
+    heartbeat: {
+      classiNuove: [
+        { classe: 'compose-up', macchina: 'mac-1', quando: 7000 },
+        { classe: 'compose-up', macchina: 'mac-2', quando: 8000 },
+      ],
+    },
+  })
+  const chiavi = segnali(dati).filter((x) => x.tipo === 'guasto').map((x) => x.chiave)
+  assert.deepEqual(chiavi, ['guasto:compose-up'])
+})
+
+test('segnali: due avvii KO di fila sono una persona FERMA, e sono rossi', () => {
+  const dati = base({
+    heartbeat: {
+      macchine: [{ macchina: 'mac-di-ste', lato: 'host', utente: 'ste', immagine: NUOVA, esito: 'ko', quando: 9000 }],
+      bloccate: [{ macchina: 'mac-di-ste', lato: 'host', classe: 'compose-up', quando: 9000 }],
+    },
+  })
+  const s = segnali(dati).filter((x) => x.tipo === 'dev-fermo')
+  assert.equal(s.length, 1)
+  assert.equal(s[0].livello, 'allarme')
+  assert.equal(s[0].chiave, 'dev-fermo:mac-di-ste/host')
+  assert.equal(s[0].bersaglio, 'mac-di-ste')
+})
+
+test('segnali: senza guasti il dev-env non dice niente', () => {
+  const s = segnali(base({ heartbeat: { macchine: [{ macchina: 'mac-1', immagine: NUOVA, esito: 'ok', quando: 9000 }] } }))
+  assert.deepEqual(s.filter((x) => x.tipo === 'guasto' || x.tipo === 'dev-fermo'), [])
+})
+
+// Il messaggio che arriva in chat: non e' decorazione, e' l'unico posto in cui quel guasto esiste per
+// chi lo legge. `messaggioAccessi` non aveva un ramo per questi due tipi e cadeva nel ripiego, che
+// stampa il tipo e basta: un `dev-env — guasto` non dice ne' cosa si e' rotto ne' a chi.
+test('messaggio: un guasto mai visto porta classe, passo e riga d errore', () => {
+  const m = messaggioAccessi(
+    { tipo: 'guasto', livello: 'attenzione', bersaglio: 'dev-env', classe: 'compose-up', passo: 'avvio-stack',
+      chi: ['gio'], dettaglio: 'listen tcp4 <host>:<n>: bind: address already in use' },
+    { publicUrl: 'https://dg' },
+  )
+  assert.match(m, /GUASTO MAI VISTO/)
+  assert.match(m, /`compose-up`/)
+  assert.match(m, /`avvio-stack`/)
+  assert.match(m, /bind: address already in use/)
+})
+
+test('messaggio: due avvii falliti di fila dicono che quella persona e ferma', () => {
+  const m = messaggioAccessi(
+    { tipo: 'dev-fermo', livello: 'allarme', bersaglio: 'mac-di-ste', classe: 'compose-up', chi: ['ste'] },
+    { publicUrl: 'https://dg' },
+  )
+  assert.match(m, /IL DEV-ENV NON PARTE/)
+  assert.match(m, /due avvii di fila/)
+  assert.match(m, /ste/)
 })

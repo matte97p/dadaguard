@@ -193,6 +193,48 @@ export function segnali(dati = {}) {
     })
   }
 
+  // 4. Un guasto del dev-env MAI VISTO prima. E' la riga per cui questo canale esiste: un avvio che non
+  //    parte sulla macchina di qualcun altro oggi si scopre solo se quel qualcuno lo racconta.
+  //    ⚠️ Una riga per CLASSE e non per macchina: se domani l'immagine nuova rompe l'avvio a tutti e
+  //    nove, la notizia e' una sola e nove righe la nasconderebbero.
+  const classiDette = new Set()
+  for (const g of battito.classiNuove ?? []) {
+    // ⚠️ Il dedup sta anche QUI e non solo nella sonda: la chiave e' la classe, e due righe con la
+    // stessa chiave sono una riga detta due volte. La sonda gia' raggruppa, ma un payload di una
+    // versione precedente puo' arrivare non raggruppato, e la riga doppia si vedrebbe in chat.
+    if (classiDette.has(g.classe)) continue
+    classiDette.add(g.classe)
+    fuori.push({
+      chiave: `guasto:${g.classe}`,
+      tipo: 'guasto',
+      livello: 'attenzione',
+      bersaglio: 'dev-env',
+      classe: g.classe,
+      passo: g.passo ?? null,
+      chi: g.utente ? [g.utente] : [],
+      macchina: g.macchina ?? null,
+      // La riga d'errore arriva gia' ripulita dal dev-env: qui e' quello che fa capire in un secondo
+      // se e' roba nostra o del Mac di quella persona.
+      dettaglio: g.primaRiga ?? null,
+      quando: g.quando ?? null,
+    })
+  }
+
+  // 5. Una macchina che non parte PIU': due avvii di fila finiti male. Rosso, perche' li' qualcuno non
+  //    sta lavorando, e la differenza con la riga qui sopra e' voluta: una dice «c'e' un guasto nuovo»,
+  //    l'altra «c'e' una persona ferma», e sono due cose da fare diverse.
+  for (const m of battito.bloccate ?? []) {
+    fuori.push({
+      chiave: `dev-fermo:${m.macchina}/${m.lato ?? '?'}`,
+      tipo: 'dev-fermo',
+      livello: 'allarme',
+      bersaglio: m.macchina,
+      classe: m.classe ?? null,
+      chi: chiLaAvvia.get(m.macchina) ? [chiLaAvvia.get(m.macchina)] : [],
+      quando: m.quando ?? null,
+    })
+  }
+
   return fuori
 }
 
