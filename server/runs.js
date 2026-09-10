@@ -43,6 +43,7 @@ import { getLambdaConfig } from './runtime/lambdaConfig.js'
 import { awslogsFromTaskDef, readWindow } from './logs.js'
 import { FAILURE_PATTERN } from './runtime/ecsScheduled.js'
 import { mapLimit } from './util/pool.js'
+import { cached } from './util/ttlcache.js'
 
 // Family dalla task-def (ARN o `family:rev`): serve a `ListTasks`, che filtra per family e non per ARN.
 export function familyOfTaskDef(taskDefinition) {
@@ -171,7 +172,18 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
   const since = Date.now() - minutes * 60 * 1000
   const ecs = new ECSClient(clientOpts(aws))
 
-  const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition
+  // ⚠️ IN CACHE, e a lungo: una revisione di task definition e' IMMUTABILE, quindi rileggerla non
+  // puo' dare una risposta diversa. Senza, la pagina Esecuzioni ne chiedeva una PER CRON a ogni
+  // apertura (fino a quaranta chiamate che tornano sempre lo stesso oggetto), dentro un ventaglio
+  // che gia' fa cinque o sei chiamate AWS per cron: e' la parte del costo che si toglie senza
+  // cambiare cosa la pagina mostra.
+  // La chiave porta il ruolo oltre al nome: lo stesso ARN letto da due account e' la stessa cosa,
+  // ma le credenziali no, e mescolarle vorrebbe dire servire a uno la risposta ottenuta con l'altro.
+  const td = await cached(
+    `taskdef:${aws.roleArn ?? aws.profile ?? 'default'}:${cfg.taskDefinition}`,
+    3600_000,
+    async () => (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition,
+  )
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cfg.container)
   const family = familyOfTaskDef(cfg.taskDefinition)
 

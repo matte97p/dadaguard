@@ -53,12 +53,18 @@ export function tetto(chiave) {
 // pagine e' un elenco che fra un mese ne dice quattordici versioni diverse.
 const GRADINI_ORE = [1, 6, 24, 168, 720]
 
+// ⚠️ Mai gradini PIU STRETTI del default. Il default e' la finestra che risponde alla domanda della
+// pagina: offrire sotto significa offrire una vista che non risponde, e su Rilasci voleva dire
+// proporre «1h» e «6h» dove il default e' la giornata di lavoro. Sopra invece si sale sempre fino al
+// massimo, perche' allargare e' proprio il motivo per cui questo controllo esiste.
 export function gradini(chiave) {
   const f = finestra(chiave)
   if (f.max === 0) return []
   const inOre = (v) => (f.unita === 'giorni' ? v * 24 : v)
-  const scelti = GRADINI_ORE.filter((g) => g <= inOre(f.max))
-  if (!scelti.includes(inOre(f.def))) scelti.push(inOre(f.def))
+  const dal = inOre(f.def)
+  const scelti = GRADINI_ORE.filter((g) => g >= dal && g <= inOre(f.max))
+  if (!scelti.includes(dal)) scelti.push(dal)
+  if (!scelti.includes(inOre(f.max))) scelti.push(inOre(f.max))
   return [...new Set(scelti)].sort((a, b) => a - b)
 }
 
