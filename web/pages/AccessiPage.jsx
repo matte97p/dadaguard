@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Alert, Typography, Table, Tag, Space, Skeleton, Button, Segmented, Switch, Input, Tooltip } from 'antd'
-import { PageIntro, Toolbar, Section, HeroRow, HeroStat, EmptyState, Verdetto } from './pageKit.jsx'
+import { PageIntro, Toolbar, Section, HeroRow, HeroStat, EmptyState, Verdetto, FinestraSwitch } from './pageKit.jsx'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
@@ -63,11 +63,11 @@ const { Text } = Typography
 // E la finestra ora si sceglie: il server accettava `?ore=` da sempre (1..168) e la pagina chiedeva
 // per sempre 24 ore, quindi «chi è entrato questa settimana» non era una domanda che si potesse fare.
 
-const FINESTRE = (lang) => [
-  { label: '24h', value: 24 },
-  { label: '48h', value: 48 },
-  { label: lang === 'it' ? '7g' : '7d', value: 168 },
-]
+// I gradini della finestra NON stanno piu' qui: li dichiara `server/finestre.conf` e li serve
+// `/api/finestre`, cosi' la stessa decisione vale per tutte le pagine invece di essere ricopiata in
+// ognuna. Il ripiego serve al primo caricamento e al caso in cui quella chiamata non risponda: senza,
+// il controllo sparirebbe e la pagina resterebbe inchiodata al suo default.
+const FINESTRE_RIPIEGO = [1, 6, 24, 168]
 
 // Un conteggio che parla solo quando non è zero. Lo zero dentro un `Tag` pesa come il cinque: su una
 // colonna dove quasi ogni cella è zero i tag diventano una texture, e la cella che conta si perde.
@@ -129,7 +129,20 @@ export default function AccessiPage({ t, lang }) {
   // La finestra la sceglie chi guarda, e vale solo per l'AUDIT: l'heartbeat è per definizione «l'ultima
   // riga di ogni macchina» su sette giorni, e restringerlo a 24 ore farebbe sparire dalla mappa proprio
   // le macchine ferme, cioè quelle rimaste indietro.
-  const [ore, setOre] = useState(24)
+  // ⚠️ Parte da UN'ORA e non da 24: questa pagina si apre durante un guasto, e la finestra larga
+  // costava l'attesa che l'ha fatta sembrare rotta. Chi vuole guardare indietro lo chiede col
+  // controllo qui sopra, e il massimo lo impone il server.
+  const [ore, setOre] = useState(1)
+  const [gradini, setGradini] = useState(FINESTRE_RIPIEGO)
+  useEffect(() => {
+    fetch('/api/finestre')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const f = d?.finestre?.find((x) => x.chiave === 'teleport')
+        if (f?.max) setGradini(FINESTRE_RIPIEGO.filter((g) => g <= f.max))
+      })
+      .catch(() => {})
+  }, [])
   // La tabella scelta sta nell'URL, e in mancanza nell'ultima scelta ricordata: così «guarda la riga
   // di quella macchina» si manda come link invece che come istruzione, che è lo stesso motivo per cui
   // la pagina IAM prende la sua lente da `?view=`.
@@ -932,7 +945,7 @@ export default function AccessiPage({ t, lang }) {
                 spariva dal lavoro pur restando in pagina: cambiarlo non muoveva una riga, e un comando
                 che non risponde si legge come rotto. Quindi lì non c'è. */}
             {attiva.value !== 'devEnv' && (
-              <Segmented size="small" value={ore} onChange={setOre} options={FINESTRE(lang)} />
+              <FinestraSwitch ore={ore} gradini={gradini} onChange={setOre} t={t} />
             )}
             <Space size={SPACE.xs}>
               <Switch size="small" checked={soloProblemi} onChange={setSoloProblemi} />

@@ -1,4 +1,4 @@
-import { Typography, Empty, Space } from 'antd'
+import { Typography, Empty, Space, Segmented } from 'antd'
 import { SPACE, FONT, levelColor } from '../theme.js'
 
 const { Title, Text } = Typography
@@ -181,6 +181,44 @@ export function Verdetto({ livello = 'ok', titolo, dettaglio, numeri, extra }) {
       {numeri?.length ? <HeroRow>{numeri.slice(0, 3).map((n) => <HeroStat key={n.label} {...n} />)}</HeroRow> : null}
       {extra}
     </div>
+  )
+}
+
+// IL CONTROLLO DI FINESTRA, uguale su tutte le pagine che ne hanno una.
+//
+// I gradini NON stanno qui: li dichiara `server/finestre.conf` e li serve `/api/finestre`, perche' un
+// elenco ricopiato in quattordici pagine diventa quattordici elenchi diversi al primo che ne cambia
+// uno. Qui c'e' solo la forma: etichette corte, il valore corrente evidente, e nient'altro.
+//
+// ⚠️ Il default e' STRETTO apposta (un'ora sugli accessi): queste pagine si aprono durante un guasto,
+// e aspettare mezzo minuto per vedere una settimana di eventi quando la domanda era «cosa succede
+// adesso» era il motivo per cui erano lente. Chi vuole guardare indietro lo chiede.
+export function FinestraSwitch({ ore, gradini, onChange, t }) {
+  if (!gradini?.length || gradini.length < 2) return null
+  const etichetta = (h) => (h < 24 ? `${h}h` : h % 24 === 0 && h < 168 ? `${h / 24}g` : h === 168 ? '7g' : `${Math.round(h / 24)}g`)
+  return (
+    <Space size={SPACE.sm}>
+      <Text type="secondary" style={{ fontSize: FONT.small }}>
+        {t ? t('finestra.label') : 'Finestra'}
+      </Text>
+      <Segmented
+        size="small"
+        value={ore}
+        onChange={onChange}
+        options={gradini.map((h) => ({ label: etichetta(h), value: h }))}
+      />
+    </Space>
+  )
+}
+
+// Il dato e' stato TAGLIATO dal tetto: si dice, sempre. Un dato parziale letto come completo e'
+// peggio di un dato che manca, e il tetto senza questa riga e' esattamente quello.
+export function Troncato({ children }) {
+  if (!children) return null
+  return (
+    <Text type="warning" style={{ fontSize: FONT.small, display: 'block', marginBottom: SPACE.sm }}>
+      {children}
+    </Text>
   )
 }
 

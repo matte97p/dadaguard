@@ -44,6 +44,7 @@ import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { statoAccessi } from './accessi.js'
+import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 
 const PORT = process.env.PORT ?? 3001
@@ -432,6 +433,14 @@ app.get('/api/network', async (_req, res) => {
 // (heartbeat). Due letture di log, read-only, e nessun nome cablato: log group e account arrivano
 // dalla sezione `teleport:` della config. Senza quella, la pagina lo dice invece di mostrare il vuoto.
 // Cache breve: e' una vista che si guarda durante un guasto, dove due minuti di ritardo sono tanti.
+// Le finestre dichiarate, per la UI: il controllo che sta in cima a ogni pagina prende da qui i
+// gradini e il default, invece di avere il suo elenco. Un elenco ricopiato in quattordici pagine
+// diventa quattordici elenchi diversi al primo che ne cambia uno, ed e' esattamente il difetto che
+// il catalogo esiste per togliere: prima erano sedici numeri sparsi nei file del server.
+app.get('/api/finestre', (_req, res) => {
+  res.json({ finestre: elencoFinestre() })
+})
+
 app.get('/api/teleport', async (req, res) => {
   try {
     if (isDemo) return res.json(demoTeleport(Math.min(168, Math.max(1, Number(req.query.ore) || 24))))
@@ -451,7 +460,7 @@ app.get('/api/teleport', async (req, res) => {
 app.get('/api/accessi/mappa', async (req, res) => {
   try {
     if (isDemo) return res.json(demoMappaAccessi())
-    res.json(await mappaAccessi({ ore: req.query.ore }))
+    res.json(await mappaAccessi({ ore: entroLimiti('accessi-mappa', req.query.ore) }))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
