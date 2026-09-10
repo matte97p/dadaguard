@@ -27,6 +27,8 @@ const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
 // produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
 const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
+// Le stesse finestre in ORE, che e' l'unita' con cui il server le dichiara in `finestre.conf`.
+const PERIOD_ORE = { '24h': 24, '7d': 168, '30d': 720 }
 const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
 
 // Durata di una build: `fmtMs` più la regola di questa pagina, dove «non lo so» si scrive vuoto e non
@@ -515,10 +517,17 @@ function DeploysSkeleton() {
 export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
   // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
-  const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(`/api/deploys?lang=${lang}`, {
-    intervalMs: 15000,
-  })
+  // ⚠️ La finestra la porta anche il SERVER, non solo il filtro qui. Prima `/api/deploys` tornava
+  // sempre le ultime 15 build per progetto qualunque fosse la loro eta', e il filtro tagliava quelle:
+  // scegliere «30g» non mostrava niente di piu', perche' le build vecchie non erano mai state chieste.
+  // Adesso il periodo scelto viaggia in `?ore=` e il server taglia alla fonte.
+  const [periodFilter, setPeriodFilter] = useState('24h')
+  const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(
+    `/api/deploys?lang=${lang}&ore=${PERIOD_ORE[periodFilter] ?? 24}`,
+    { intervalMs: 15000 },
+  )
   const [statusFilter, setStatusFilter] = useState('all')
+  // NB: il default e' sceso a 24h, e la nota qui sotto spiega perche' prima non poteva esserlo.
   // 7 giorni, non «sempre» e non 24h. «Sempre» prometteva tutto lo storico e ne consegnava due
   // orizzonti diversi nella stessa lista: le build sono le ultime 15 per progetto (che su un servizio
   // che rilascia spesso sono tre giorni, su uno fermo sono mesi) mentre le azioni a mano arrivano da
@@ -526,7 +535,6 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte»: che non è
   // un fatto, è il fatto che non abbiamo guardato. 24h invece taglia troppo: si rilascia qualche volta
   // a settimana, e la pagina sarebbe vuota il lunedì mattina.
-  const [periodFilter, setPeriodFilter] = useState('7d')
   // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
   // arriveresti sui deploy di tutta la flotta da cercare a mano.
   // Deep-link `?service=`: arriva dalla pagina dei servizi, e ora accetta anche più nomi separati da
@@ -581,6 +589,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     () => [
       { value: '24h', label: t('deploys.period.24h') },
       { value: '7d', label: t('deploys.period.7d') },
+      { value: '30d', label: t('deploys.period.30d') },
     ],
     [t],
   )
@@ -632,7 +641,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     ]
   }, [accounts, periodFilter, statusFilter, serviceFilter, t])
 
-  const anyFilter = statusFilter !== 'all' || periodFilter !== '7d' || isFiltering(serviceFilter)
+  const anyFilter = statusFilter !== 'all' || periodFilter !== '24h' || isFiltering(serviceFilter)
   const toggleExpand = (key) =>
     setExpanded((prev) => {
       const n = new Set(prev)
