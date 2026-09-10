@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Table, Tag, Space, Typography, Segmented, Switch, Input, Alert, Skeleton, Button, Tooltip } from 'antd'
 import { FileTextOutlined, SyncOutlined, BarsOutlined, DashboardOutlined } from '@ant-design/icons'
-import { PageIntro, HeroRow, HeroStat, Section, Toolbar, EmptyState } from './pageKit.jsx'
+import { PageIntro, HeroRow, HeroStat, Section, Toolbar, EmptyState, Verdetto } from './pageKit.jsx'
 import { usePoll } from '../usePoll.js'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { familyPrefixes, splitFamily } from '../serviceName.js'
@@ -348,6 +348,19 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         <Skeleton active paragraph={{ rows: 6 }} />
       ) : (
         <>
+          {/* Il verdetto: «e' fallito qualcosa in questa finestra?». I quattro numeri restavano da
+              interpretare, e «2» sotto «fallite» non dice se e' il caso di aprire i log. */}
+          <Verdetto
+            livello={falliteFinestra ? 'bad' : inCorso.length ? 'info' : 'ok'}
+            titolo={
+              falliteFinestra
+                ? t('runs.v.falliteTitolo', { n: falliteFinestra })
+                : inCorso.length
+                  ? t('runs.v.inCorsoTitolo', { n: inCorso.length })
+                  : t('runs.v.okTitolo')
+            }
+            dettaglio={falliteFinestra ? t('runs.v.fallite') : inCorso.length ? t('runs.v.inCorso') : t('runs.v.ok')}
+          />
           <HeroRow>
             <HeroStat
               label={t('runs.hero.running')}

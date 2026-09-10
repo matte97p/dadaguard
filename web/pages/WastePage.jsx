@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { List, Tag, Alert, Space, Typography, Spin } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
 
 const { Text } = Typography
 
@@ -91,16 +91,26 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, embedded 
       {error && <Alert type="error" message={error} showIcon />}
 
       {data && entries.length === 0 && <EmptyState description={t('waste.noAccounts')} />}
-      {data && entries.length > 0 && (
-        <HeroRow>
-          <HeroStat label={t('waste.h.total')} value={`$${total.toFixed(2)}`} color={total > 0 ? '#faad14' : undefined} />
-          <HeroStat
-            label={t('waste.h.count')}
-            value={entries.reduce((s, [, v]) => s + (v.error ? 0 : buildItems(v, t).reduce((a, sec) => a + (sec.names?.length || 0), 0)), 0)}
-            size={18}
-          />
-        </HeroRow>
-      )}
+      {/* Il verdetto: «quanto stiamo buttando, e su quante risorse». Il totale in dollari da solo
+          non dice se vale la pena aprire la pagina: zero e' una risposta, e va detta come tale. */}
+      {data && entries.length > 0 &&
+        (() => {
+          const quante = entries.reduce(
+            (s, [, v]) => s + (v.error ? 0 : buildItems(v, t).reduce((a, sec) => a + (sec.names?.length || 0), 0)),
+            0,
+          )
+          return (
+            <Verdetto
+              livello={total > 0 ? 'warn' : 'ok'}
+              titolo={total > 0 ? t('waste.v.titolo', { euro: `$${total.toFixed(2)}` }) : t('waste.v.okTitolo')}
+              dettaglio={total > 0 ? t('waste.v.dettaglio', { n: quante }) : t('waste.v.ok')}
+              numeri={[
+                { label: t('waste.h.total'), value: `$${total.toFixed(2)}`, color: total > 0 ? '#faad14' : undefined },
+                { label: t('waste.h.count'), value: quante },
+              ]}
+            />
+          )
+        })()}
       {data && entries.length > 0 && (
         <div style={PANEL_GRID}>
           {entries.map(([key, v]) => {

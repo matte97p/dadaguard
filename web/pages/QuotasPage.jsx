@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, Typography, Space, Badge, Progress } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import { PageIntro, PANEL_GRID, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
@@ -35,18 +35,25 @@ export default function QuotasPage({ accountLabels, t = (k) => k, lang, embedded
       {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
       {data && accounts.length === 0 && <EmptyState description={t('quotas.noAccounts')} />}
       {data && accounts.length > 0 && !anyQuota && !loading && (
-        <EmptyState description={t('quotas.none')} />
+        <Verdetto livello="ok" titolo={t('quotas.v.okTitolo')} dettaglio={t('quotas.none')} />
       )}
 
+      {/* Il verdetto della pagina: «ci sono quote da guardare?». I numeri stavano gia' qui, mancava
+          la frase che li interpreta, e un 3 accanto a «critiche» non dice da solo se e' un problema. */}
       {anyQuota &&
         (() => {
           const all = accounts.flatMap((a) => a.quotas ?? [])
           const crit = all.filter((q) => q.pct >= 90).length
           return (
-            <HeroRow>
-              <HeroStat label={t('quotas.h.near')} value={all.length} />
-              <HeroStat label={t('quotas.h.crit')} value={crit} color={crit ? '#ff4d4f' : undefined} size={18} />
-            </HeroRow>
+            <Verdetto
+              livello={crit ? 'crit' : 'warn'}
+              titolo={crit ? t('quotas.v.critTitolo', { n: crit }) : t('quotas.v.vicineTitolo', { n: all.length })}
+              dettaglio={crit ? t('quotas.v.crit') : t('quotas.v.vicine')}
+              numeri={[
+                { label: t('quotas.h.near'), value: all.length },
+                { label: t('quotas.h.crit'), value: crit, color: crit ? '#ff4d4f' : undefined },
+              ]}
+            />
           )
         })()}
 
