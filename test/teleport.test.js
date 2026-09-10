@@ -36,11 +36,32 @@ const SSH_INIZIO = (utente, macchina, quando, sid = 'sid-1') =>
 const SSH_FINE = (utente, macchina, quando, sid = 'sid-1') =>
   riga({ event_type: 'session.end', fields: { event: 'session.end', user: utente, server_hostname: macchina, sid } }, quando)
 
+// Il finto client parla come INSIGHTS, perche' `audit()` da li' prende gli eventi: `FilterLogEvents`
+// scorreva il log group a pagine da 1 MB in serie, ed era la ragione per cui la pagina Accessi
+// «andava, ma lentissima». Le prove pero' non provano il trasporto: provano le REGOLE che stanno
+// sotto (cosa e' una scrittura, cosa un tentativo, quando una sessione resta aperta), e quelle non
+// cambiano. Quindi il finto restituisce le stesse righe nella forma che Insights usa: una lista di
+// campi `@timestamp` e `@message`.
+//
+// ⚠️ `@timestamp` va reso come lo rende Insights, cioe' UTC SENZA fuso: e' la trappola gia' segnata
+// in `login()`, e se il finto scrivesse una `Z` la prova passerebbe mentre la produzione sbaglia di
+// un paio d'ore.
+const comeInsights = (eventi) =>
+  (eventi ?? []).map((e) => [
+    { field: '@timestamp', value: new Date(e.timestamp ?? 0).toISOString().replace('T', ' ').replace('Z', '') },
+    { field: '@message', value: e.message },
+  ])
+
 async function conEventi(eventi) {
-  // Il finto client: risponde una pagina sola e nessun token.
   const modulo = await import('../server/teleport.js?' + Math.random())
   const sdk = await import('@aws-sdk/client-cloudwatch-logs')
-  mock.method(sdk.CloudWatchLogsClient.prototype, 'send', async () => ({ events: eventi }))
+  mock.method(sdk.CloudWatchLogsClient.prototype, 'send', async (cmd) => {
+    // `StartQuery` risponde un id, `GetQueryResults` le righe: due comandi, una sola finzione.
+    if (cmd?.constructor?.name === 'StartQueryCommand') return { queryId: 'q-finta' }
+    if (cmd?.constructor?.name === 'GetQueryResultsCommand') return { status: 'Complete', results: comeInsights(eventi) }
+    // Chi usa ancora FilterLogEvents (l'heartbeat) continua a vedere la forma di prima.
+    return { events: eventi }
+  })
   return modulo
 }
 
