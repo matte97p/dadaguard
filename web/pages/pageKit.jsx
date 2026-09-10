@@ -1,5 +1,5 @@
 import { Typography, Empty, Space } from 'antd'
-import { SPACE, FONT } from '../theme.js'
+import { SPACE, FONT, levelColor } from '../theme.js'
 
 const { Title, Text } = Typography
 
@@ -132,6 +132,54 @@ export function HeroRow({ children }) {
       }}
     >
       {children}
+    </div>
+  )
+}
+
+// IL VERDETTO: la prima cosa che si legge aprendo una pagina, e la risposta alla domanda che quella
+// pagina esiste per rispondere. Una riga, un numero, un colore.
+//
+// Perché esiste. Il 10/09/2026 le quattordici pagine si aprivano con **39 banner `Alert`** in totale
+// (dieci nella sola Accessi) e ZERO blocchi di sintesi: ognuno diceva una fetta della stessa cosa,
+// e la risposta andava ricomposta leggendoli tutti, più la riga di nota, più una colonna della
+// tabella. Chi apre una pagina durante un guasto non ricompone niente: guarda la prima riga.
+//
+// La regola che ne segue, e vale su TUTTE le pagine: sotto il titolo c'è un verdetto, e sotto il
+// verdetto il dettaglio. L'`Alert` resta per l'eccezione vera (i dati non si sono caricati), al
+// massimo uno per pagina: tutto il resto è una riga di questo blocco o una colonna della tabella.
+//
+// `livello` colora SOLO il bordo sinistro e il valore, mai lo sfondo: un blocco pieno di colore in
+// cima a ogni pagina è un allarme che suona sempre, e un allarme che suona sempre non si sente più.
+export function Verdetto({ livello = 'ok', titolo, dettaglio, numeri, extra }) {
+  const colore = levelColor(livello)
+  return (
+    <div
+      data-view="verdetto"
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: SPACE.lg,
+        flexWrap: 'wrap',
+        borderInlineStart: `3px solid ${colore}`,
+        paddingInlineStart: SPACE.lg,
+        margin: `0 0 ${SPACE.lg}px`,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: FONT.lead, fontWeight: 600, color: colore, letterSpacing: '-0.01em' }}>{titolo}</div>
+        {/* Il dettaglio è una frase, non un secondo titolo: dice COSA fare o chi è messo male, e sta
+            in grigio perché la decisione l'ha già data la riga sopra. */}
+        {dettaglio && (
+          <Text type="secondary" style={{ fontSize: FONT.small, display: 'block', marginTop: 2 }}>
+            {dettaglio}
+          </Text>
+        )}
+      </div>
+      {/* I numeri che contano, al massimo tre: oltre non si leggono in un colpo d'occhio, e il quarto
+          numero è sempre quello che spinge il verdetto sotto la piega. */}
+      {numeri?.length ? <HeroRow>{numeri.slice(0, 3).map((n) => <HeroStat key={n.label} {...n} />)}</HeroRow> : null}
+      {extra}
     </div>
   )
 }

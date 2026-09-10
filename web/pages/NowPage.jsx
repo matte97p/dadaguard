@@ -12,7 +12,7 @@ import {
   LineChartOutlined,
   AlertOutlined,
 } from '@ant-design/icons'
-import { PageIntro, HeroRow, HeroStat, Section, EmptyState } from './pageKit.jsx'
+import { PageIntro, HeroRow, HeroStat, Section, EmptyState, Verdetto } from './pageKit.jsx'
 import { buildSignals, countByLevel } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
@@ -175,13 +175,31 @@ export default function NowPage({ services = [], alarmiOrfani = [], statusReady 
         <Alert type="warning" showIcon message={t('now.partial')} description={errors.join(' · ')} style={{ marginBottom: 12 }} />
       )}
 
-      {signals.length > 0 && (
-        <HeroRow>
-          {counts.crit > 0 && <HeroStat label={t('now.level.crit')} value={counts.crit} color={levelColor('crit')} size={18} />}
-          {counts.bad > 0 && <HeroStat label={t('now.level.bad')} value={counts.bad} color={levelColor('bad')} size={18} />}
-          {counts.warn > 0 && <HeroStat label={t('now.level.warn')} value={counts.warn} color={levelColor('warn')} size={18} />}
-          {counts.info > 0 && <HeroStat label={t('now.level.info')} value={counts.info} color={levelColor('info')} size={18} />}
-        </HeroRow>
+      {/* Il verdetto: «sta succedendo qualcosa adesso?». I conteggi per livello c'erano gia', ma
+          quattro numeri affiancati non dicono da soli se guardare o chiudere la pagina: il livello
+          piu' alto e' l'unica cosa che decide, e va detto prima dei numeri. */}
+      {signals.length > 0 &&
+        (() => {
+          const livello = counts.crit ? 'crit' : counts.bad ? 'bad' : counts.warn ? 'warn' : 'info'
+          const gravi = counts.crit + counts.bad
+          return (
+            <Verdetto
+              livello={livello}
+              titolo={gravi ? t('now.v.graviTitolo', { n: gravi }) : t('now.v.minoriTitolo', { n: signals.length })}
+              dettaglio={gravi ? t('now.v.gravi') : t('now.v.minori')}
+              numeri={[
+                counts.crit > 0 && { label: t('now.level.crit'), value: counts.crit, color: levelColor('crit') },
+                counts.bad > 0 && { label: t('now.level.bad'), value: counts.bad, color: levelColor('bad') },
+                counts.warn > 0 && { label: t('now.level.warn'), value: counts.warn, color: levelColor('warn') },
+                counts.info > 0 && { label: t('now.level.info'), value: counts.info, color: levelColor('info') },
+              ].filter(Boolean)}
+            />
+          )
+        })()}
+      {/* Niente segnali e' la risposta migliore che questa pagina possa dare, e va detta: una pagina
+          vuota si legge come «non lo so», non come «va tutto bene». */}
+      {!waiting && signals.length === 0 && !statusError && (
+        <Verdetto livello="ok" titolo={t('now.v.okTitolo')} dettaglio={t('now.v.ok')} />
       )}
 
       {waiting && signals.length === 0 && <Skeleton active paragraph={{ rows: 4 }} />}
