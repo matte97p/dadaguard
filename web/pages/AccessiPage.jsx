@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Alert, Typography, Table, Tag, Space, Skeleton, Button, Segmented, Switch, Input, Tooltip } from 'antd'
-import { PageIntro, Toolbar, Section, HeroRow, HeroStat, EmptyState } from './pageKit.jsx'
+import { PageIntro, Toolbar, Section, HeroRow, HeroStat, EmptyState, Verdetto } from './pageKit.jsx'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
@@ -1072,57 +1072,78 @@ export default function AccessiPage({ t, lang }) {
           style={{ marginBottom: SPACE.md }}
         />
       )}
-      {/* «Sono indietro TUTTI»: si può dire solo quando la versione attesa la sa la config. Col ripiego
-          («la più nuova che qualcuno ha visto») questo caso è invisibile, perché se nessuno ha
-          aggiornato il riferimento è la vecchia e tutti risultano pari: è il buco che questa riga
-          chiude, e la ragione per cui il campo di config esiste. */}
-      {attiva.value === 'devEnv' && nessunoAggiornato && (
-        <Alert type="error" showIcon message={t('accessi.nessunoAggiornato')} style={{ marginBottom: SPACE.md }} />
-      )}
-      {/* ⚠️ Prima diceva «qualcuno è rimasto indietro» su un dato che non lo sa. Con cinque macchine e
-          cinque digest diversi (dati veri del 31/08/2026) versioni diverse vuol dire solo che ognuno ha
-          l'immagine che ha scaricato: chi è indietro lo si può dire solo con la versione attesa in
-          config, e senza quella l'avviso lo dichiara e dice come metterla. */}
-      {/* Con le DATE l'avviso dice un fatto: quante macchine sono indietro e di quanto. Senza (dev-env
-          non ancora aggiornato, quindi nessuna data) resta la frase che spiega perche' da qui non si
-          puo' dire, che e' l'unica cosa onesta con dei soli digest in mano. */}
+      {/* IL VERDETTO della vista dev-env, al posto dei TRE banner che stavano qui (indietro tutti,
+          indietro in N / versioni diverse, senza versione). Ognuno diceva una fetta della stessa
+          risposta, e chi apriva la pagina doveva ricomporla leggendoli tutti: la domanda e' una
+          sola, «chi non ha aggiornato», e ora la risposta e' la prima riga.
+          ⚠️ I casi restano quattro e nessuno e' stato fuso: «non si puo' dire» NON e' «va tutto
+          bene», ed e' la distinzione che il ripiego sulla data ha reso necessaria (senza date
+          l'ordine fra le immagini non esiste, quindi indietro non si dichiara). */}
       {attiva.value === 'devEnv' &&
-        (dataRif != null
-          ? macchineIndietro.length > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                message={t('accessi.indietroN', {
-                  n: macchineIndietro.length,
-                  g: Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0)),
-                })}
-                style={{ marginBottom: SPACE.md }}
+        (() => {
+          const tot = (battito.macchine ?? []).length
+          if (tot === 0) return null
+          const senza = battito.senzaVersione ?? 0
+          const numeri = senza > 0 ? [{ label: t('accessi.verdetto.senzaVersione'), value: senza }] : null
+          // Nessuna data e nessuna versione attesa: qui non si puo' dichiarare nessun ritardo, e
+          // dirlo e' l'unica cosa onesta. Il perche' resta la frase gia' scritta per la fonte.
+          if (dataRif == null && riferimento.fonte !== 'config') {
+            return (
+              <Verdetto
+                livello="info"
+                titolo={t('accessi.verdetto.nonSiSaTitolo', { n: versioniInGiro })}
+                dettaglio={t('accessi.verdetto.nonSiSa')}
+                numeri={numeri}
               />
             )
-          : versioniInGiro > 1 && (
-              <Alert
-                type={riferimento.fonte === 'config' ? 'warning' : 'info'}
-                showIcon
-                message={
-                  riferimento.fonte === 'config'
-                    ? t('accessi.versioniDiverse', { n: versioniInGiro })
-                    : t('accessi.versioniSenzaAttesa', { n: versioniInGiro })
-                }
-                style={{ marginBottom: SPACE.md }}
+          }
+          if (nessunoAggiornato) {
+            return (
+              <Verdetto
+                livello="crit"
+                titolo={t('accessi.verdetto.nessunoTitolo', { n: tot })}
+                dettaglio={t('accessi.verdetto.nessuno')}
+                numeri={numeri}
               />
-            ))}
-      {/* Le macchine che non hanno dichiarato la versione: contate a parte, perché non sono «indietro»
-          e non sono «pari», e finivano dentro il conteggio delle versioni come se fossero una versione. */}
-      {attiva.value === 'devEnv' && battito.senzaVersione > 0 && (
-        <Alert
-          type="info"
-          showIcon
-          message={t('accessi.senzaVersioneN', { n: battito.senzaVersione })}
-          style={{ marginBottom: SPACE.md }}
+            )
+          }
+          if (macchineIndietro.length > 0) {
+            const giorni = Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0))
+            // I NOMI di chi manca, non solo quanti: e' la domanda successiva, sempre, e senza di
+            // loro si torna a leggere la tabella per una cosa che stava in mezza riga.
+            const chi = [...new Set(macchineIndietro.map((m) => m.utente).filter(Boolean))]
+            return (
+              <Verdetto
+                livello="warn"
+                titolo={t('accessi.verdetto.inPariTitolo', { ok: tot - macchineIndietro.length, tot })}
+                dettaglio={
+                  chi.length
+                    ? t('accessi.verdetto.indietroChi', { n: macchineIndietro.length, g: giorni, chi: chi.join(', ') })
+                    : t('accessi.verdetto.indietro', { n: macchineIndietro.length, g: giorni })
+                }
+                numeri={numeri}
+              />
+            )
+          }
+          return (
+            <Verdetto
+              livello="ok"
+              titolo={t('accessi.verdetto.tuttiTitolo', { n: tot })}
+              dettaglio={dataRif != null ? t('accessi.verdetto.tutti', { quando: fmtAgo(dataRif, t) }) : undefined}
+              numeri={numeri}
+            />
+          )
+        })()}
+
+      {/* Il verdetto delle viste diverse da dev-env, che ha il suo qui sopra: «c'e' qualcosa da
+          guardare?». Prima questo caso era un banner verde e il caso opposto non esisteva affatto,
+          quindi «tutto tranquillo» si vedeva e «tre righe da guardare» no. */}
+      {attiva.value !== 'devEnv' && !audit.errore && !battito.errore && (
+        <Verdetto
+          livello={quante === 0 ? 'ok' : 'warn'}
+          titolo={quante === 0 ? t('accessi.tuttoTranquillo') : t('accessi.verdetto.daGuardareTitolo', { n: quante })}
+          dettaglio={quante === 0 ? undefined : t('accessi.verdetto.daGuardare')}
         />
-      )}
-      {quante === 0 && !audit.errore && !battito.errore && (
-        <Alert type="success" showIcon message={t('accessi.tuttoTranquillo')} style={{ marginBottom: SPACE.md }} />
       )}
 
       {/* Una sezione per tabella: le viste che ne hanno due le mostrano una sotto l'altra, invece di

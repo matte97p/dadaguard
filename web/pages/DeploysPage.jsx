@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
 import { shortActor, fmtAgo, fmtMs, awsErrorText, accountShort } from '../format.js'
 import { groupByService, isServiceRow } from '../deployRows.js'
 import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
@@ -701,6 +701,22 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
 
       {accounts.length > 0 && (
         <>
+          {/* Il verdetto: «i rilasci stanno passando?». `byHand` resta un numero e non entra nel
+              giudizio: un hotfix a mano non e' un guasto, e' una scelta, e marcarlo rosso
+              insegnerebbe a ignorare il rosso. */}
+          <Verdetto
+            livello={hero.failed ? 'bad' : hero.running ? 'info' : 'ok'}
+            titolo={
+              hero.failed
+                ? t('deploys.v.falliteTitolo', { n: hero.failed })
+                : hero.running
+                  ? t('deploys.v.inCorsoTitolo', { n: hero.running })
+                  : t('deploys.v.okTitolo', { n: hero.ok })
+            }
+            dettaglio={
+              hero.failed ? t('deploys.v.fallite') : hero.running ? t('deploys.v.inCorso') : t('deploys.v.ok')
+            }
+          />
           <HeroRow>
             {hero.running > 0 && <HeroStat label={t('deploys.running')} value={hero.running} color="#1677ff" size={18} />}
             <HeroStat label={t('deploys.ok')} value={hero.ok} color={hero.ok ? '#52c41a' : undefined} size={18} />

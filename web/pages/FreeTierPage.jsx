@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, Typography, Space, Progress } from 'antd'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState } from './pageKit.jsx'
+import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
 import Loading from '../components/Loading.jsx'
 
 const { Text } = Typography
@@ -41,23 +41,32 @@ export default function FreeTierPage({ t = (k) => k, lang, embedded = false }) {
         <EmptyState description={t('freetier.none')} />
       )}
 
-      {items.length > 0 && (
-        <HeroRow>
-          <HeroStat label={t('freetier.h.offers')} value={items.length} />
-          <HeroStat
-            label={t('freetier.h.near')}
-            value={items.filter((i) => i.pct >= 85 && i.pct < 100).length}
-            color={items.some((i) => i.pct >= 85 && i.pct < 100) ? '#faad14' : undefined}
-            size={18}
-          />
-          <HeroStat
-            label={t('freetier.h.over')}
-            value={items.filter((i) => i.pct >= 100).length}
-            color={items.some((i) => i.pct >= 100) ? '#ff4d4f' : undefined}
-            size={18}
-          />
-        </HeroRow>
-      )}
+      {/* Il verdetto: «sto per pagare qualcosa che finora era gratis?». Le tre cifre c'erano gia',
+          ma «2» accanto a «oltre» non dice se la bolletta e' gia' partita o no. */}
+      {items.length > 0 &&
+        (() => {
+          const oltre = items.filter((i) => i.pct >= 100).length
+          const vicine = items.filter((i) => i.pct >= 85 && i.pct < 100).length
+          const livello = oltre ? 'crit' : vicine ? 'warn' : 'ok'
+          return (
+            <Verdetto
+              livello={livello}
+              titolo={
+                oltre
+                  ? t('freetier.v.oltreTitolo', { n: oltre })
+                  : vicine
+                    ? t('freetier.v.vicineTitolo', { n: vicine })
+                    : t('freetier.v.okTitolo', { n: items.length })
+              }
+              dettaglio={oltre ? t('freetier.v.oltre') : vicine ? t('freetier.v.vicine') : t('freetier.v.ok')}
+              numeri={[
+                { label: t('freetier.h.offers'), value: items.length },
+                { label: t('freetier.h.near'), value: vicine, color: vicine ? '#faad14' : undefined },
+                { label: t('freetier.h.over'), value: oltre, color: oltre ? '#ff4d4f' : undefined },
+              ]}
+            />
+          )
+        })()}
 
       {items.length > 0 && (
         <div style={{ ...PANEL_CARD, maxWidth: 720 }}>

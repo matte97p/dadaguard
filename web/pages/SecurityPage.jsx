@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Typography, Tag, Segmented, Space } from 'antd'
-import { PageIntro, EmptyState } from './pageKit.jsx'
+import { PageIntro, EmptyState, Verdetto } from './pageKit.jsx'
 import WafPanel from '../components/WafPanel.jsx'
 import Loading from '../components/Loading.jsx'
 
@@ -60,7 +60,16 @@ export default function SecurityPage({ t = (k) => k, lang }) {
         </div>
       )}
       {error && <Alert type="error" showIcon message={error} />}
-      {data && findings.length === 0 && <EmptyState description={t('sec.none')} />}
+      {/* Il verdetto: «quante cose di sicurezza sono aperte». Zero e' una risposta e va detta come
+          tale, non come uno stato vuoto: la pagina che non dice niente si legge come «non lo so». */}
+      {data && findings.length === 0 && <Verdetto livello="ok" titolo={t('sec.v.okTitolo')} dettaglio={t('sec.none')} />}
+      {data && findings.length > 0 && (
+        <Verdetto
+          livello="warn"
+          titolo={t('sec.v.titolo', { n: findings.length })}
+          dettaglio={t('sec.v.dettaglio', { n: categories.length })}
+        />
+      )}
 
       {shown.length > 0 && (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
