@@ -264,6 +264,23 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const q = segnale.quante === 1 ? "l'unica macchina" : `nessuna delle ${segnale.quante} macchine`
     return `${testa} VERSIONE ATTESA — non ce l'ha ${q}${coda}`
   }
+  if (segnale.tipo === 'guasto') {
+    // La CLASSE per prima: e' il nome con cui quel guasto tornera' domani, e quello che si cerca in
+    // chat fra un mese. La riga d'errore in coda arriva gia' ripulita dal dev-env, e serve a capire in
+    // un secondo se e' roba nostra o del Mac di quella persona.
+    const dove = segnale.passo ? ` nel passo \`${segnale.passo}\`` : ''
+    const chi = segnale.chi?.length ? ` da ${elenco(segnale.chi)}` : ''
+    const riga = segnale.dettaglio ? ` · \`${segnale.dettaglio}\`` : ''
+    return `${testa} GUASTO MAI VISTO — \`${segnale.classe}\`${dove}${chi}${riga}${coda}`
+  }
+  if (segnale.tipo === 'dev-fermo') {
+    // ⚠️ Due avvii falliti di fila, non uno: qui si sta dicendo che una persona non sta lavorando, e
+    // se lo si dicesse al primo inciampo (una porta occupata che si libera da sola) il messaggio dopo
+    // non lo leggerebbe piu' nessuno.
+    const perche = segnale.classe ? ` — \`${segnale.classe}\`` : ''
+    const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
+    return `${testa} IL DEV-ENV NON PARTE${chi}${perche} · due avvii di fila${coda}`
+  }
   return `${testa} — ${segnale.tipo}${coda}`
 }
 
