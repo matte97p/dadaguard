@@ -580,7 +580,10 @@ app.get('/api/runs', async (req, res) => {
     const num = (v, d, max) => (Number.isFinite(Number(v)) ? Math.min(Number(v), max) : d)
     res.json(
       await runsOverview(accounts, {
-        minutes: num(req.query.minutes, 1440, 43200), // fino a 30 giorni: è la retention dei log dei cron
+        // La finestra la dichiara `finestre.conf` come per tutti gli altri: qui c'era l'ennesima
+        // coppia default/massimo scritta a mano, e due posti che decidono la stessa cosa sono il
+        // modo in cui uno dei due resta indietro senza che nessuno se ne accorga.
+        minutes: entroLimiti('runs', req.query.minutes ? Number(req.query.minutes) / 60 : undefined) * 60,
         limit: num(req.query.limit, req.query.cron ? 25 : 6, 50),
         only: req.query.cron || null,
         t: makeT(req.query.lang),
