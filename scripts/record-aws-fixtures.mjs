@@ -42,6 +42,8 @@ const arg = (name, def = null) => {
   const i = process.argv.indexOf(`--${name}`)
   return i > 0 ? process.argv[i + 1] : def
 }
+import { ORGANIZZAZIONE, DOMINIO_INTERNO } from '../test/vietati.js'
+
 const OUT = 'test/fixtures/aws'
 const region = arg('region', 'eu-central-1')
 // Nessun `credentials`: catena di default dell'SDK (env → profilo → ruolo). Il registratore non
@@ -49,16 +51,16 @@ const region = arg('region', 'eu-central-1')
 const opts = { region }
 
 // --- sanificazione: la forma resta, l'identita' va via ---------------------------------------------
+// I nomi veri arrivano da `test/vietati.js`, che li tiene in base64 e non in chiaro: il sanificatore
+// deve nominarli per toglierli, ma scriverli qui li rimetterebbe nel repo pubblico che sta ripulendo.
 const RE = [
   [/\b\d{12}\b/g, '111122223333'], // account id
-  [/\/cato\//g, '/acme/'], // path SSM/param: /acme/<env>/...
+  [new RegExp(`/${ORGANIZZAZIONE}/`, 'g'), '/acme/'], // path SSM/param: /acme/<env>/...
   [/AWSReservedSSO_[^/"\s]+\/[^/"\s]+/g, 'AWSReservedSSO_Ruolo_0000/persona'], // sessione SSO = una PERSONA
   [/\/ecs\/[^"\s]+/g, '/ecs/acme-production/cron-example'], // log group
   [/[0-9a-f]{32}/g, 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf'], // task id / uuid compatti
-  [/acme-production/g, 'acme-production'],
-  [/cato-staging/g, 'acme-staging'],
-  [/cato-/g, 'acme-'],
-  [/get-cato\.com/g, 'example.com'],
+  [new RegExp(`${ORGANIZZAZIONE}-`, 'g'), 'acme-'],
+  [new RegExp(DOMINIO_INTERNO.replace('.', '\\.'), 'g'), 'example.com'],
   [/refresh-bi-mvs/g, 'cron-example'],
   [/scrape-volume-monitor/g, 'cron-weekday'],
 ]
