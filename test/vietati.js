@@ -9,10 +9,28 @@
 // MODALITÀ DEMO — l'immagine pubblica che chiunque lancia con `docker run` — e lì non guardava
 // nessuno: i dati finti erano cresciuti con nomi di servizi veri, budget veri e handle di persone
 // vere. Ora la lista è una, e la usano entrambi i guardiani.
+// ⚠️ I nomi veri NON stanno in chiaro qui dentro (15/09/2026). Questo file e' l'unico posto del repo
+// che deve nominarli per poterli vietare, e finche' erano scritti in chiaro bastava una ricerca su
+// GitHub per ottenere, da un file solo, l'organizzazione, il dominio, il prodotto, gli id account e
+// i nomi del team: esattamente l'elenco che il file esiste per proteggere. Ora sono in base64.
+// Non e' cifratura e non vuole esserlo: chiunque li decodifica in un secondo. Toglie la ricerca per
+// parola, che e' il modo in cui quei nomi venivano trovati davvero.
+// Per aggiungerne uno: `node -e "console.log(Buffer.from('parola').toString('base64'))"`.
+const d = (b64) => Buffer.from(b64, 'base64').toString('utf8')
+
+export const ORGANIZZAZIONE = d('YWNtZQ==')
+export const DOMINIO_INTERNO = d('ZXhhbXBsZS5jb20=')
+const ORGANIZZAZIONE_VECCHIA = d('YWNtZWdwdA==')
+const PRODOTTO_INTERNO = d('d2lkZ2V0')
+const PERSONE_DEL_TEAM = d(
+  'bWFyaW98cm9zc2l8bXJvc3NpfHJpY2NpfG5lcml8YW5lcmkyM3xhbm5hbmVyaXxmZXJyYXJpfGJpYW5jaGl8Y29sb21ibw==',
+)
+const AUTORE = d('bWF0dGVv')
+
 export const VIETATI = [
-  { re: /\bcato\b|acme-|\/acme\//i, cosa: 'nome interno dell’organizzazione' },
-  { re: /get-acme\.com|acmegpt/i, cosa: 'dominio interno' },
-  { re: /widget/i, cosa: 'nome di prodotto interno' },
+  { re: new RegExp(`\\b${ORGANIZZAZIONE}\\b|${ORGANIZZAZIONE}-|/${ORGANIZZAZIONE}/`, 'i'), cosa: 'nome interno dell’organizzazione' },
+  { re: new RegExp(`${DOMINIO_INTERNO.replace('.', '\\.')}|${ORGANIZZAZIONE_VECCHIA}`, 'i'), cosa: 'dominio interno' },
+  { re: new RegExp(PRODOTTO_INTERNO, 'i'), cosa: 'nome di prodotto interno' },
   // Il PREFISSO `AWSReservedSSO_` è di AWS e il codice deve poterlo cercare: si vieta il NOME di un
   // permission set vero, cioè prefisso + nome + suffisso esadecimale dell'istanza.
   { re: /AWSReservedSSO_(?!Ruolo_0000)[A-Za-z]+_[0-9a-f]{6,}/, cosa: 'permission set SSO reale' },
@@ -33,15 +51,15 @@ export const VIETATI = [
   // a questa riga ed e' finito nel CHANGELOG di un repo pubblico, perche' il confine di parola non
   // combacia fra una minuscola e la maiuscola che segue. Un nome attaccato a un altro pezzo
   // e' lo stesso nome, quindi si vieta il PREFISSO.
-  { re: /\b(mario|rossi|mrossi|ricci|neri|aneri23|annaneri|ferrari|bianchi|colombo)/i, cosa: 'nome di una persona del team' },
+  { re: new RegExp(`\\b(${PERSONE_DEL_TEAM})`, 'i'), cosa: 'nome di una persona del team' },
   // `matteo` e' anche il nome dell'AUTORE, che nella licenza e nel README ci deve stare: si vieta il
   // nome nudo e la forma puntata (`matteo.perino`), non l'attribuzione «Matteo Perino» ne' il dominio
   // `matteoperino.dev`.
-  { re: /\bmatteo(?!\s+perino\b)(?!perino)/i, cosa: 'nome di una persona nei dati' },
+  { re: new RegExp(`\\b${AUTORE}(?!\\s+perino\\b)(?!perino)`, 'i'), cosa: 'nome di una persona nei dati' },
 ]
 
 // Gli id account veri: se compaiono, la sostituzione non ha funzionato.
-export const ACCOUNT_VIETATI = ['111122223333', '444455556666', '777788889999', '123456789012']
+export const ACCOUNT_VIETATI = ['MTExMTIyMjIzMzMz', 'NDQ0NDU1NTU2NjY2', 'Nzc3Nzg4ODg5OTk5', 'MTIzNDU2Nzg5MDEy'].map(d)
 
 // Applica le regole a un testo. Ritorna la prima violazione trovata, o null. Pura/testabile.
 export function violazione(testo) {
