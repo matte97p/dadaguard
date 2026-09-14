@@ -5,6 +5,27 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **I segnali degli accessi vanno in `#tech-devops-alert`** (15/09/2026). Scritture su un database di
+  produzione, DDL, sessioni SSH e dev-env fermo finivano in un canale diverso da quello dove la
+  squadra guarda gia' gli alert di Teleport, quindi la stessa storia si leggeva in due posti. Il
+  webhook e' quello che usano gia' `teleport-alerts` e `teleport-audit-alarms`, in SSM come
+  come parametro SSM nell'account di sicurezza, copiato nel campo
+  `teleport.slackWebhook` di `/dadaguard/services-yaml` (account `management`). ⚠️ Cambiare il
+  parametro NON basta: `DADAGUARD_CONFIG` entra come secret all'avvio del task, quindi un container
+  gia' su tiene la config vecchia finche' non lo si rifa'. E il riavvio non passa dallo strumento di
+  deploy interno, che conosce solo `staging` e `production` e sull'ambiente di management esce con
+  «Ambiente sconosciuto»: si usa `npm run config:push`, oppure `aws ecs update-service --cluster
+  $DADAGUARD_CLUSTER --service dadaguard --force-new-deployment`.
+
+### Fixed
+- **`config:push` puntava a un cluster ECS che non esiste**: il default era `dadaguard`, mentre il
+  servizio gira su un cluster con un altro nome, quindi il redeploy falliva dopo aver gia' scritto su
+  SSM, cioe' nel modo peggiore: parametro nuovo, container con la config vecchia, e nessun errore che
+  dica che le due cose non coincidono piu'. Ora `DADAGUARD_CLUSTER` e' **obbligatorio** e lo script si
+  ferma prima di toccare SSM se manca: un default sbagliato e' peggio di un default assente, e il nome
+  vero di un cluster non sta in un repo pubblico.
+
 ### Added
 - **La pagina Accessi ora dice anche «chi ha cosa», non solo «chi non riesce a entrare».** Gli accessi
   di una persona vivono su due strade che non si parlano: i team GitHub, che nel connector decidono i
