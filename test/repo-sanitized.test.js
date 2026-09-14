@@ -25,7 +25,9 @@ const ESCLUSI = new Set([
   'test/fixtures-sanitized.test.js',
   'scripts/record-aws-fixtures.mjs',
 ])
-const ESTENSIONI = /\.(js|jsx|mjs|cjs|md|ya?ml|json|tf|sh|dockerfile|example)$/i
+// ⚠️ `css` e `html` sono nell'elenco dal 15/09/2026: i commenti di `web/app.css` nominavano un
+// cluster vero da mesi e nessun guardiano li guardava, perche' l'estensione non era qui.
+const ESTENSIONI = /\.(js|jsx|mjs|cjs|md|ya?ml|json|tf|sh|css|html|txt|dockerfile|example)$/i
 
 // `git ls-files`: solo i file TRACCIATI. Quello che non è committato non è pubblicato, e includere
 // build/ o node_modules renderebbe il test lentissimo e rumoroso.

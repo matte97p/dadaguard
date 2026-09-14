@@ -10,7 +10,8 @@
 // Config via env (default generici; i tuoi valori in un .env locale, niente ID nel repo):
 //   AWS_PROFILE, AWS_REGION (default eu-central-1)
 //   DADAGUARD_SSM_PARAM   (default /dadaguard/services-yaml)
-//   DADAGUARD_CLUSTER     (default dadaguard)
+//   DADAGUARD_CLUSTER     (OBBLIGATORIO: il cluster ECS dove gira il servizio. Nessun default:
+//                          uno sbagliato fa fallire il redeploy DOPO aver gia' scritto su SSM)
 //   DADAGUARD_SERVICE     (default dadaguard)
 //   DADAGUARD_KMS_KEY     (opz.: KeyId/alias per la SecureString; default = chiave SSM di AWS)
 import { readFileSync } from 'node:fs'
@@ -21,7 +22,7 @@ import { clientOpts } from '../server/runtime/awsClient.js'
 
 const file = process.argv[2] || 'services.yaml'
 const param = process.env.DADAGUARD_SSM_PARAM || '/dadaguard/services-yaml'
-const cluster = process.env.DADAGUARD_CLUSTER || 'dadaguard'
+const cluster = process.env.DADAGUARD_CLUSTER
 const service = process.env.DADAGUARD_SERVICE || 'dadaguard'
 const region = process.env.AWS_REGION || 'eu-central-1'
 const kmsKey = process.env.DADAGUARD_KMS_KEY || undefined
@@ -30,6 +31,13 @@ const aws = { profile: process.env.AWS_PROFILE, region } // l'operatore usa le S
 const die = (msg) => {
   console.error(`✗ ${msg}`)
   process.exit(1)
+}
+
+// 0) Il cluster non ha un default, e si controlla PRIMA di scrivere su SSM: un cluster sbagliato
+// fa fallire il redeploy quando il parametro nuovo e' gia' pubblicato, cioe' lascia il container con
+// la config vecchia e nessuno che lo dica.
+if (!cluster) {
+  die('DADAGUARD_CLUSTER non impostata: mettici il cluster ECS dove gira il servizio (nel tuo .env locale)')
 }
 
 // 1) VALIDA prima di toccare il cloud: una config rotta non deve mai raggiungere il task live.

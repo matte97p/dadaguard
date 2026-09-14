@@ -163,7 +163,7 @@ body {
   text-transform: uppercase;
 }
 
-/* Titolo delle card: va a capo invece di troncare i nomi lunghi (es. cato-production-cron-…).
+/* Titolo delle card: va a capo invece di troncare i nomi lunghi (es. acme-production-cron-…).
    antd di default mette ellipsis su .ant-card-head-title; qui lo lasciamo andare su 2 righe. */
 .ant-card-head-title {
   white-space: normal !important;
@@ -192,7 +192,7 @@ body {
   padding: 9px 12px 10px;
 }
 
-/* Famiglia del nome (cato-staging-cron-): piccola e muta, su una riga sola. Non nasconde niente —
+/* Famiglia del nome (acme-staging-cron-): piccola e muta, su una riga sola. Non nasconde niente —
    il nome intero è testa + coda, letto di fila. */
 .dg-fam {
   font-size: 10.5px;
@@ -949,7 +949,7 @@ details[open] > .dg-summary .dg-chev {
   text-overflow: ellipsis;
 }
 
-/* Righe del pannello: una riga per risorsa, non tre. I nomi qui sono lunghi (`cato-production-cron-…`)
+/* Righe del pannello: una riga per risorsa, non tre. I nomi qui sono lunghi (`acme-production-cron-…`)
    e andando a capo si portavano dietro il pallino dello stato e il tipo, che finivano su righe loro: il
    pannello diventava un elenco illeggibile di frammenti. */
 .dg-topo-panel-row {
