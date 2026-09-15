@@ -235,6 +235,22 @@ test('audit: una TEMPORANEA non e una scrittura, una view vera si', async () => 
   assert.deepEqual(out.database[0].azioni, [{ etichetta: 'CREATE VIEW', quante: 1, tipo: 'struttura' }])
 })
 
+// ⚠️ Lo schema temporaneo dice «temporanea» senza usare la parola: `pg_temp.count_estimate` lo crea
+// TablePlus da se' per stimare i conteggi, e il 15/09/2026 otto di quelle sono finite nel canale come
+// DDL su produzione, col nome di chi non aveva cambiato niente accanto a chi creava tabelle vere.
+test('audit: un oggetto nello schema temporaneo non e una scrittura, uno nello schema vero si', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, 'CREATE OR REPLACE FUNCTION pg_temp.count_estimate(query text) RETURNS integer AS $$ $$'),
+    QUERY('utente-uno', 1100, 'CREATE TABLE pg_temp_3.appoggio (id int)'),
+    QUERY('utente-uno', 1200, 'INSERT INTO pg_temp.appoggio (id) VALUES (1)'),
+    QUERY('utente-uno', 1300, 'CREATE OR REPLACE FUNCTION public.cerca(p text) RETURNS integer AS $$ $$'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.scritture, 1, 'le tre temporanee non contano, la funzione vera si')
+  assert.deepEqual(out.database[0].azioni, [{ etichetta: 'CREATE FUNCTION', quante: 1, tipo: 'struttura' }])
+  assert.deepEqual(out.database[0].oggettiStruttura, ['public.cerca'])
+})
+
 // Le due notizie che prima erano una sola riga: i dati dei clienti e la struttura.
 test('audit: divide le scritture sui DATI da quelle sulla STRUTTURA, e dice quali', async () => {
   const { audit } = await conEventi([

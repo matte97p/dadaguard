@@ -39,6 +39,14 @@ const RIEMPITIVI = new Set(['or', 'replace', 'if', 'not', 'exists', 'unique', 'c
 // disconnessione. Il 02/09/2026 il canale ha suonato per un `CREATE TEMP VIEW` fatto come
 // `dev_readonly` sul reader, cioe' per una view di lavoro dentro a una lettura.
 const TEMPORANEE = new Set(['temp', 'temporary'])
+// La parola `temp` non e' l'unico modo di dire «temporanea»: un oggetto creato NELLO SCHEMA temporaneo
+// lo e' altrettanto, e li' la parola non c'e'. `CREATE OR REPLACE FUNCTION pg_temp.count_estimate(...)`
+// lo manda TablePlus da se' a ogni tabella aperta, per stimare i conteggi: vive nella sessione, sparisce
+// alla disconnessione e non tocca la struttura. Il 15/09/2026 il canale ha contato otto di quelle come
+// DDL su produzione e ha nominato chi non aveva cambiato niente, accanto a chi invece stava creando
+// tabelle vere: un nome in piu' in una riga rossa costa la fiducia nella riga.
+// Postgres lo scrive anche numerato (`pg_temp_3`), che e' il nome vero dello schema di quella sessione.
+const SCHEMA_TEMPORANEO = /^pg_(?:temp|toast_temp)(?:_\d+)?\./
 const OGGETTI = new Set([
   'view', 'table', 'index', 'materialized', 'schema', 'function', 'procedure', 'trigger', 'sequence',
   'policy', 'role', 'user', 'extension', 'type', 'database', 'publication', 'subscription',
@@ -96,6 +104,7 @@ function azione(query) {
     if (TEMPORANEE.has(p)) return null
     if (dati) {
       if (VERSO.has(p)) continue
+      if (SCHEMA_TEMPORANEO.test(p)) return null
       if (NOME_NUDO.test(p)) bersaglio = p
       break
     }
@@ -110,6 +119,7 @@ function azione(query) {
     let j = i + (doppio ? 2 : 1)
     while (PRIMA_DEL_NOME.has(parole[j])) j++
     const candidato = parole[j]
+    if (candidato && SCHEMA_TEMPORANEO.test(candidato)) return null
     if (candidato && !NON_NOMI.has(candidato) && NOME_NUDO.test(candidato)) bersaglio = candidato
     break
   }
