@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/diff.js'
-import { slackMessage, envTag } from '../server/notify/slack.js'
+import { slackMessage, envTag, messaggioAccessi } from '../server/notify/slack.js'
 import { runOnce, watchConfig, giroAccessi } from '../server/notify/watch.js'
 import { makeT } from '../server/i18n.js'
 
@@ -655,7 +655,7 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
   // COSA (`UPDATE`), su cosa (la tabella), chi, e con che utente da quale endpoint: senza queste
   // quattro cose il messaggio obbliga ad aprire i log per sapere se e' successo qualcosa o niente.
   // `+3` e non `4`: tre sono arrivate dall'ultimo messaggio, una era gia' stata detta.
-  assert.match(testo, /^:red_circle: `orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
+  assert.match(testo, /^:red_circle: `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
   assert.match(testo, /esempio\.test\/accessi\?vista=database\|Accessi/)
 })
 
@@ -702,7 +702,7 @@ test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
   )
-  assert.match(testo, /^:warning: `orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
+  assert.match(testo, /^:warning: `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
 })
 
 // Se Slack non risponde lo stato non avanza: al giro dopo si riprova, invece di perdere la notizia
@@ -799,9 +799,9 @@ test('giroAccessi: sotto al rosso si leggono le scritture sui DATI, e i login no
   // Due righe, e il rosso e il motivo del rosso sono la stessa cosa: sotto `SCRITTURE` si legge
   // l'UPDATE, non le DDL, che hanno la loro riga gialla e non entrano piu' in quella rossa.
   const [rossa, gialla] = testo.split('\n')
-  assert.match(rossa, /^:red_circle: `postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
+  assert.match(rossa, /^:red_circle: `main-prod-db\/postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
   assert.doesNotMatch(rossa, /CREATE FUNCTION|GRANT/)
-  assert.match(gialla, /^:warning: `postgres` \[PROD\] STRUTTURA — /)
+  assert.match(gialla, /^:warning: `main-prod-db\/postgres` \[PROD\] STRUTTURA — /)
   assert.doesNotMatch(gialla, /UPDATE|su utenti/)
   // I login che ripetono il nome di chi ha scritto non si ridicono, e «endpoint ignoto» non esiste.
   assert.doesNotMatch(testo, /dev_tizio|dev_caio|ignoto/)
@@ -850,7 +850,7 @@ test('giroAccessi: l endpoint si dice una volta sola, non per persona', async ()
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } } },
   )
-  assert.match(testo, /^:warning: `orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
+  assert.match(testo, /^:warning: `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
   assert.doesNotMatch(testo, /su ordini/)
 })
 
@@ -941,4 +941,42 @@ test('giroAccessi: le scritture rifiutate si dicono in coda, e da sole non fanno
     { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } },
   )
   assert.match(testo, /\+3 CREATE INDEX da tizio \(su writer\) · 4 rifiutate \(dev_readonly non ha la scrittura\)/)
+})
+
+// Due cose che il messaggio non diceva e che sono la prima domanda di chi lo legge: QUALE cluster
+// (`postgres` e' il nome del database logico e ce l'hanno quasi tutti) e QUALE oggetto e' nato.
+test('messaggioAccessi: la riga porta il cluster e i nomi degli oggetti delle DDL', () => {
+  const testo = messaggioAccessi({
+    tipo: 'scrittura',
+    natura: 'struttura',
+    livello: 'attenzione',
+    ambiente: 'prod',
+    servizio: 'orders-prod-db',
+    bersaglio: 'postgres',
+    nuove: 2,
+    azioni: [{ etichetta: 'CREATE FUNCTION', quante: 2, tipo: 'struttura' }],
+    oggetti: ['public.una', 'public.due'],
+    chi: ['tizio'],
+    utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }],
+  })
+  assert.match(testo, /^:warning: `orders-prod-db\/postgres` \[PROD\] STRUTTURA — \+2 CREATE FUNCTION su public\.una, public\.due da tizio \(su writer\)$/)
+})
+
+// Il cluster non si ripete quando e' gia' la parola che c'e': `dev-env/dev-env` sarebbe rumore, e la
+// stessa riga la scrivono anche i segnali che un servizio non ce l'hanno.
+test('messaggioAccessi: niente prefisso quando il servizio e il database sono la stessa parola', () => {
+  const testo = messaggioAccessi({
+    tipo: 'scrittura',
+    natura: 'dati',
+    livello: 'allarme',
+    ambiente: 'prod',
+    servizio: 'ordini',
+    bersaglio: 'ordini',
+    nuove: 1,
+    azioni: [{ etichetta: 'UPDATE', quante: 1, tipo: 'dati' }],
+    tabelle: ['clienti'],
+    chi: ['tizio'],
+    utentiDb: [],
+  })
+  assert.match(testo, /^:red_circle: `ordini` \[PROD\]/)
 })
