@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Un oggetto creato nello schema temporaneo non e' piu' una DDL su produzione** (15/09/2026). Il
+  filtro delle temporanee guardava la parola (`CREATE TEMP VIEW`), e la parola in `CREATE OR REPLACE
+  FUNCTION pg_temp.count_estimate(...)` non c'e': quella funzione la manda TablePlus da se' per stimare
+  i conteggi delle tabelle che apri, vive nella sessione e sparisce alla disconnessione. Il 15/09/2026
+  il canale ne ha contate otto come DDL sul Postgres di produzione e ha messo il nome di chi non aveva
+  cambiato niente accanto a quello di chi stava creando tabelle vere, cioe' il modo piu' veloce per far
+  ignorare una riga rossa. Ora si riconosce anche lo SCHEMA temporaneo (`pg_temp`, `pg_temp_3`,
+  `pg_toast_temp_*`), sia come oggetto di una DDL sia come bersaglio di una scrittura sui dati
+  (`INSERT INTO pg_temp.appoggio`).
+
 ### Changed
 - **La riga degli accessi dice QUALE database e QUALE oggetto** (15/09/2026). Il messaggio nominava il
   solo database logico (`postgres`), che e' il nome che hanno quasi tutti i cluster, quindi chi leggeva
