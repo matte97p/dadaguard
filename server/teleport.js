@@ -49,6 +49,14 @@ const VERSO = new Set(['into', 'from', 'table', 'only'])
 // Il nome esce solo se e' un identificatore NUDO, eventualmente qualificato con lo schema. Tutto il
 // resto (virgolette, parentesi, un valore finito lì per un parse andato storto) non esce.
 const NOME_NUDO = /^[a-z_][a-z0-9_$]{0,62}(\.[a-z_][a-z0-9_$]{0,62})?$/
+// Parole che stanno DOVE starebbe un nome e nome non sono. Senza questo elenco il messaggio direbbe
+// «su on», che e' peggio del silenzio: sembra un nome vero e manda a cercare un oggetto che non esiste.
+// ⚠️ `on` FERMA e non si scavalca: in `create index on t (...)` l'indice non ha nome e `t` e' la
+// tabella, quindi scavalcando si stamperebbe una tabella sotto la parola «oggetto», che e' falso.
+const NON_NOMI = new Set(['on', 'to', 'from', 'as', 'in', 'with', 'owner', 'set', 'rename', 'add', 'column', 'and', 'or', 'all', 'default', 'using'])
+// Queste invece si SCAVALCANO: stanno fra la parola dell'oggetto e il suo nome senza dire niente
+// (`alter table only tenders`, `drop table if exists x`).
+const PRIMA_DEL_NOME = new Set(['only', 'if', 'not', 'exists'])
 
 // Una versione VERA e' un digest. L'heartbeat manda anche la parola con cui dichiara di non sapere
 // («sconosciuta», quando l'avvio non ha potuto leggere l'immagine), e sui dati veri del 31/08/2026 ce
@@ -60,8 +68,10 @@ const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
 //
 // Torna `{ tipo, etichetta, bersaglio }`: `tipo` divide i dati dei clienti dalla struttura,
 // `etichetta` e' quello che si legge nel messaggio (`UPDATE`, `CREATE VIEW`, `ALTER INDEX`), e
-// `bersaglio` e' la tabella, ma SOLO per le scritture sui dati: in un `ALTER INDEX x RENAME TO y` il
-// nome non e' quello della tabella, e metterlo lì vorrebbe dire scrivere una cosa falsa.
+// `bersaglio` e' il nome, che pero' vuol dire due cose diverse: per le scritture sui DATI e' la
+// TABELLA (`insert into x`), per le DDL e' l'OGGETTO stesso (`create function public.foo`). In un
+// `ALTER INDEX x RENAME TO y` la tabella non e' nominata affatto, quindi chi accumula tiene i due
+// insiemi separati (`bersagli` e `oggettiStruttura`): confonderli direbbe una cosa falsa.
 //
 // ⚠️ Limite noto, e detto: un `WITH … UPDATE` (CTE che scrive) comincia per `with` e qui passa per una
 // lettura. Riconoscerlo vuol dire leggere dentro alle parentesi, cioe' dentro al testo della query.
@@ -90,7 +100,17 @@ function azione(query) {
       break
     }
     if (!OGGETTI.has(p)) break
-    oggetto = p === 'materialized' && parole[i + 1] === 'view' ? 'materialized view' : p
+    const doppio = p === 'materialized' && parole[i + 1] === 'view'
+    oggetto = doppio ? 'materialized view' : p
+    // Il nome DELL'OGGETTO, che per una DDL sta subito dopo la parola dell'oggetto: `CREATE FUNCTION
+    // public.foo`, `ALTER INDEX idx_x`, `DROP VIEW v`. Non e' la tabella (vedi sopra: in un `ALTER
+    // INDEX x RENAME TO y` la tabella non e' nominata affatto), ed e' per questo che viaggia come
+    // `oggetto` e non come `bersaglio`: chiamarlo tabella direbbe una cosa falsa.
+    // ⚠️ Vale la stessa regola del resto: esce solo un identificatore NUDO, mai il testo della query.
+    let j = i + (doppio ? 2 : 1)
+    while (PRIMA_DEL_NOME.has(parole[j])) j++
+    const candidato = parole[j]
+    if (candidato && !NON_NOMI.has(candidato) && NOME_NUDO.test(candidato)) bersaglio = candidato
     break
   }
 
@@ -251,9 +271,12 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
         // in niente, «7 ALTER INDEX» sì. Ogni etichetta si porta dietro il suo `tipo`: senza, chi
         // compone il messaggio sa che c'e' stata una scrittura sui dati ma non sa QUALE delle
         // etichette lo era, e mostrando le due piu' numerose finiva per dire solo DDL sotto a un
-        // titolo rosso. `bersagli` sono le tabelle, solo per i dati (vedi `azione`).
+        // titolo rosso. `bersagli` sono le tabelle, solo per i dati, e `oggettiStruttura` i nomi
+        // degli oggetti creati o modificati dalle DDL: due insiemi e non uno, perche' una funzione
+        // non e' una tabella e mostrarla come tale manderebbe a cercare la cosa sbagliata.
         azioni: new Map(),
         bersagli: new Set(),
+        oggettiStruttura: new Set(),
         // Le scritture MANDATE e non andate a buon fine (vedi `rifiutata`), coi loro perche'. Stanno
         // fuori da `scritture`: contarle vorrebbe dire chiamare scrittura una cosa che non e'
         // successa. Restano perche' sono un'informazione loro: qualcuno sta lavorando dalla porta
@@ -433,7 +456,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
             tipo: fatta.tipo,
             quante: (d.azioni.get(fatta.etichetta)?.quante ?? 0) + 1,
           })
-        if (fatta.bersaglio) d.bersagli.add(fatta.bersaglio)
+        if (fatta.bersaglio) (fatta.tipo === 'dati' ? d.bersagli : d.oggettiStruttura).add(fatta.bersaglio)
         // L'endpoint e' `null` quando il db service non porta la label `access`, e resta `null`: la
         // frase «su endpoint ignoto» occupava una riga per dire che non lo sappiamo.
         if (campi.db_user)
@@ -479,6 +502,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
         .map(([etichetta, { quante, tipo }]) => ({ etichetta, quante, tipo }))
         .sort((a, b) => b.quante - a.quante || a.etichetta.localeCompare(b.etichetta)),
       bersagli: [...d.bersagli].sort(),
+      oggettiStruttura: [...d.oggettiStruttura].sort(),
       motiviTentate: [...d.motiviTentate].sort(),
       utentiDb: [...d.utentiDb.values()].sort((a, b) => a.utente.localeCompare(b.utente)),
     }))

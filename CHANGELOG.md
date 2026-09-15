@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **La riga degli accessi dice QUALE database e QUALE oggetto** (15/09/2026). Il messaggio nominava il
+  solo database logico (`postgres`), che e' il nome che hanno quasi tutti i cluster, quindi chi leggeva
+  non sapeva di quale si stesse parlando; e sulle DDL diceva il verbo e il tipo di oggetto (`+2 CREATE
+  FUNCTION`) ma non il nome, cioe' proprio la cosa che si va a cercare. Ora in testa c'e' il servizio
+  (`<cluster>/postgres`, quando non e' gia' la stessa parola) e sotto al giallo escono i nomi degli
+  oggetti toccati. ⚠️ Restano DUE insiemi separati: le tabelle per le scritture sui dati, i nomi degli
+  oggetti per le DDL. Confonderli direbbe una cosa falsa, perche' un `ALTER INDEX x RENAME TO y` la
+  tabella non la nomina affatto. Del testo della query continua a non uscire niente: passa un solo
+  identificatore nudo, e le parole di servizio (`on`, `to`, `set`) sono escluse per nome, perche' «su
+  on» sembra un nome vero e manda a cercare un oggetto che non esiste.
 - **I segnali degli accessi vanno in `#tech-devops-alert`** (15/09/2026). Scritture su un database di
   produzione, DDL, sessioni SSH e dev-env fermo finivano in un canale diverso da quello dove la
   squadra guarda gia' gli alert di Teleport, quindi la stessa storia si leggeva in due posti. Il

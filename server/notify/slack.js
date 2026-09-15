@@ -192,6 +192,15 @@ function sommarioTabelle(tabelle = []) {
   return ` su ${tabelle.slice(0, 2).join(', ')}${resto > 0 ? ` e altre ${resto}` : ''}`
 }
 
+// Su COSA, per le DDL: il nome dell'oggetto creato o modificato. Senza, la riga dice che due funzioni
+// sono nate in produzione e non quali, e chi legge deve aprire l'audit per la domanda piu' ovvia.
+// Il genere resta neutro (`e altri N`) perche' nella stessa riga possono esserci una view e un indice.
+function sommarioOggetti(oggetti = []) {
+  if (!oggetti.length) return ''
+  const resto = oggetti.length - 2
+  return ` su ${oggetti.slice(0, 2).join(', ')}${resto > 0 ? ` e altri ${resto}` : ''}`
+}
+
 // L'utente di database di una persona, quando il login e' il suo nome: `dev_<utente github>` sui
 // database dove i login sono per persona. Il confronto e' senza maiuscole perche' GitHub le tiene e
 // Postgres no.
@@ -241,7 +250,11 @@ function sommarioTentate(segnale) {
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
   const emoji = EMOJI_ACCESSI[segnale.livello] ?? ':warning:'
   const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
-  const testa = `${emoji} \`${segnale.bersaglio}\``
+  // Il database logico da solo non identifica niente: `postgres` e' il nome che hanno quasi tutti, e
+  // chi legge non sa DI QUALE cluster si stia parlando quando ce n'e' piu' di uno. Davanti ci va il
+  // servizio, che e' il nome del cluster (`<cluster>/postgres`), se non e' gia' la stessa parola.
+  const bersaglioPieno = segnale.servizio && segnale.servizio !== segnale.bersaglio ? `${segnale.servizio}/${segnale.bersaglio}` : segnale.bersaglio
+  const testa = `${emoji} \`${bersaglioPieno}\``
 
   if (segnale.tipo === 'scrittura') {
     // `nuove` sono quelle arrivate dall'ultimo messaggio, e il `+` lo dice: senza, un secondo messaggio
@@ -251,10 +264,11 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
     // Le tabelle solo sotto al rosso: sono i bersagli delle scritture sui DATI, e accanto a un elenco
     // di DDL si leggerebbero come la tabella che le DDL hanno toccato, che non e' quello che dicono.
-    const dove = segnale.natura === 'struttura' ? '' : sommarioTabelle(segnale.tabelle)
+    // Sotto al giallo ci vanno invece i nomi degli OGGETTI delle DDL, che sono un'altra cosa.
+    const su = segnale.natura === 'struttura' ? sommarioOggetti(segnale.oggetti) : sommarioTabelle(segnale.tabelle)
     const come = sommarioLogin(segnale.utentiDb, segnale.chi)
     const respinte = sommarioTentate(segnale)
-    return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${dove} da ${elenco(segnale.chi)}${come}${respinte}${coda}`
+    return `${testa}${envTag(segnale.ambiente)} ${titolo} — +${quante} ${cosa}${su} da ${elenco(segnale.chi)}${come}${respinte}${coda}`
   }
   if (segnale.tipo === 'ssh') {
     const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'

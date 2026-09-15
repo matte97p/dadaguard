@@ -255,9 +255,14 @@ test('audit: divide le scritture sui DATI da quelle sulla STRUTTURA, e dice qual
   // La tabella esce SOLO per le scritture sui dati: un `ALTER INDEX` non nomina la tabella, e
   // metterci il nome dell'indice vorrebbe dire scrivere una cosa falsa.
   assert.deepEqual(d.bersagli, ['public.tenders', 'tenders'])
+  // Il nome dell'OGGETTO di una DDL esce, ma in un insieme suo: `ix_uno` e' l'indice, non la tabella,
+  // e chi legge il canale la prima cosa che chiede e' QUALE oggetto e' stato toccato.
+  assert.deepEqual(d.oggettiStruttura, ['bi_vecchia', 'ix_uno'])
+  // ⚠️ `GRANT SELECT ON bi_nuova` non nomina nessun oggetto del vocabolario, quindi non esce niente:
+  // fra il verbo e il nome c'e' un privilegio, e indovinare vorrebbe dire leggere dentro alla query.
+  assert.doesNotMatch(JSON.stringify(out), /bi_nuova/)
   // ⚠️ E il testo della query continua a non uscire, nemmeno adesso che esce una parola in piu'.
   assert.doesNotMatch(JSON.stringify(out), /x@y\.z/)
-  assert.doesNotMatch(JSON.stringify(out), /ix_uno|bi_vecchia|bi_nuova/)
 })
 
 // Con che utente e da quale endpoint: e' la prima domanda di chi legge il messaggio, e la risposta
@@ -692,4 +697,16 @@ test('bloccate: un KO solo, o un degradato in mezzo, NON e una persona ferma', a
 test('bloccate: con un avvio solo non si decide', async () => {
   const { bloccate } = await import('../server/teleport.js')
   assert.deepEqual(bloccate(new Map([['mac-1/host', [{ esito: 'ko', quando: 3000 }]]])), [])
+})
+
+// Il nome dell'oggetto esce solo quando c'e' davvero: un indice senza nome (`create index on t`) non
+// ne ha uno, e stampare `on` sarebbe peggio del silenzio, perche' sembra un nome vero.
+test('audit: le parole di servizio non diventano il nome di un oggetto', async () => {
+  const { audit } = await conEventi([
+    QUERY('utente-uno', 1000, 'CREATE INDEX ON tenders (stato)'),
+    QUERY('utente-uno', 1100, 'ALTER TABLE ONLY tenders ADD COLUMN nota text'),
+    QUERY('utente-uno', 1200, 'CREATE OR REPLACE FUNCTION public.calcola() RETURNS int'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].oggettiStruttura, ['public.calcola', 'tenders'])
 })
