@@ -112,7 +112,7 @@ export function segnali(dati = {}) {
   //    finisca la calma dei DDL.
   for (const d of audit.database ?? []) {
     if (d.ambiente !== 'prod') continue
-    const riga = (natura, quante, quando, azioni, tabelle) => ({
+    const riga = (natura, quante, quando, azioni, tabelle, oggetti = []) => ({
       chiave: `scrittura-${natura}:${d.servizio}/${d.nome}`,
       tipo: 'scrittura',
       livello: natura === 'dati' ? 'allarme' : 'attenzione',
@@ -123,6 +123,9 @@ export function segnali(dati = {}) {
       quante,
       azioni,
       tabelle,
+      // I nomi degli oggetti toccati dalle DDL (`public.foo`), che stanno a parte dalle tabelle: un
+      // `CREATE FUNCTION` non dice su quale tabella ha lavorato, e il suo nome non e' una tabella.
+      oggetti,
       utentiDb: d.utentiDb ?? [],
       chi: d.scriventi ?? [],
       // Le scritture mandate e rifiutate viaggiano con la riga, ma non ne sono la notizia: nessuna
@@ -151,7 +154,7 @@ export function segnali(dati = {}) {
     if ((d.scrittureDati ?? 0) > 0)
       fuori.push(riga('dati', d.scrittureDati, d.ultimaScritturaDati ?? d.ultimaScrittura, perTipo('dati'), d.bersagli ?? []))
     if ((d.scrittureStruttura ?? 0) > 0)
-      fuori.push(riga('struttura', d.scrittureStruttura, d.ultimaScritturaStruttura ?? d.ultimaScrittura, perTipo('struttura'), []))
+      fuori.push(riga('struttura', d.scrittureStruttura, d.ultimaScritturaStruttura ?? d.ultimaScrittura, perTipo('struttura'), [], d.oggettiStruttura ?? []))
   }
 
   // 2. Una sessione SSH APERTA su una macchina che non è di chi è entrato. La macchina dice chi la
