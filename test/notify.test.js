@@ -962,6 +962,30 @@ test('messaggioAccessi: la riga porta il cluster e i nomi degli oggetti delle DD
   assert.match(testo, /^:warning: `orders-prod-db\/postgres` \[PROD\] STRUTTURA — \+2 CREATE FUNCTION su public\.una, public\.due da tizio \(su writer\)$/)
 })
 
+// ⚠️ I login per persona sono TRE prefissi, non uno solo: `dev_` (scrittura), `adm_`
+// (amministrazione, dal 16/09/2026) e `data_` (team data). Un prefisso che manca non
+// sbaglia un conto, fa rumore: quel login finisce fra gli «estranei» e la riga ripete fra parentesi
+// il nome che ha gia' detto per intero, cioe' proprio cio' che `sommarioLogin` esiste per togliere.
+test('messaggioAccessi: un login per persona non si ripete fra parentesi, con ogni prefisso', () => {
+  const riga = (utente) => messaggioAccessi({
+    tipo: 'scrittura',
+    natura: 'struttura',
+    livello: 'attenzione',
+    ambiente: 'prod',
+    servizio: 'orders-prod-db',
+    bersaglio: 'postgres',
+    nuove: 2,
+    azioni: [{ etichetta: 'CREATE INDEX', quante: 2, tipo: 'struttura' }],
+    chi: ['Tizio'],
+    utentiDb: [{ utente, endpoint: 'writer' }],
+  })
+  for (const utente of ['dev_tizio', 'adm_tizio', 'data_tizio']) {
+    assert.match(riga(utente), /da Tizio \(su writer\)$/, utente)
+  }
+  // E il condiviso invece si dice: e' l'informazione che il nome della persona non porta.
+  assert.match(riga('dev_readwrite'), /da Tizio \(dev_readwrite su writer\)$/)
+})
+
 // Il cluster non si ripete quando e' gia' la parola che c'e': `dev-env/dev-env` sarebbe rumore, e la
 // stessa riga la scrivono anche i segnali che un servizio non ce l'hanno.
 test('messaggioAccessi: niente prefisso quando il servizio e il database sono la stessa parola', () => {
