@@ -161,6 +161,20 @@ const EMOJI_ACCESSI = { allarme: ':red_circle:', attenzione: ':warning:' }
 
 const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
 
+// La riga d'errore che finisce in chat, messa in FORMA di riga: niente a capo (un messaggio Slack e'
+// una riga sola, e una riga d'errore multilinea sfonda il formato di tutti gli altri segnali), niente
+// backtick (aprono e chiudono il code span di chi la ospita, quindi il resto del messaggio esce
+// storto) e un tetto, perche' il taglio a 120 caratteri lo fa il dev-env e una versione precedente
+// puo' non farlo.
+//
+// ⚠️ Qui NON si redige: path, host e token li toglie `pulisci_riga` nel dev-env, ed e' l'unico posto
+// in cui quelle regole esistono. Riscriverle qui vorrebbe dire due pulizie che un giorno non dicono
+// piu' la stessa cosa, e quella di qui vedrebbe comunque solo cio' che e' gia' stato spedito.
+const rigaSicura = (t, tetto = 160) => {
+  const uno = String(t).replace(/\s+/g, ' ').replace(/`/g, "'").trim()
+  return uno.length > tetto ? `${uno.slice(0, tetto - 1)}…` : uno
+}
+
 // COSA e' stato scritto, in una manciata di caratteri. Una sola azione si dice per nome (`3 UPDATE`),
 // tante si dicono con le due che contano e quante restano: il messaggio deve stare su una riga, e
 // l'elenco intero sta nella pagina, che e' linkata in coda.
@@ -284,7 +298,7 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // un secondo se e' roba nostra o del Mac di quella persona.
     const dove = segnale.passo ? ` nel passo \`${segnale.passo}\`` : ''
     const chi = segnale.chi?.length ? ` da ${elenco(segnale.chi)}` : ''
-    const riga = segnale.dettaglio ? ` · \`${segnale.dettaglio}\`` : ''
+    const riga = segnale.dettaglio ? ` · \`${rigaSicura(segnale.dettaglio)}\`` : ''
     return `${testa} GUASTO MAI VISTO — \`${segnale.classe}\`${dove}${chi}${riga}${coda}`
   }
   if (segnale.tipo === 'dev-fermo') {
@@ -295,7 +309,7 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
     // La riga d'errore in coda come nel ramo qui sopra: la classe dice che tipo di guasto e', il
     // dettaglio dice su cosa, e senza quello un `porta-occupata` non ha un primo passo.
-    const riga = segnale.dettaglio ? ` · \`${segnale.dettaglio}\`` : ''
+    const riga = segnale.dettaglio ? ` · \`${rigaSicura(segnale.dettaglio)}\`` : ''
     return `${testa} IL DEV-ENV NON PARTE${chi}${perche}${riga} · due avvii di fila${coda}`
   }
   return `${testa} — ${segnale.tipo}${coda}`
