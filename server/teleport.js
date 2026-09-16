@@ -677,7 +677,7 @@ export function bloccate(avviiPerMacchina) {
     if (ultimi.length < 2) continue
     if (!ultimi.every((a) => a.esito === 'ko')) continue
     const [macchina, lato] = chiave.split('/')
-    fuori.push({ macchina, lato, classe: ultimi[0].classe ?? null, quando: ultimi[0].quando })
+    fuori.push({ macchina, lato, classe: ultimi[0].classe ?? null, dettaglio: ultimi[0].primaRiga ?? null, quando: ultimi[0].quando })
   }
   return fuori.sort((a, b) => b.quando - a.quando)
 }
@@ -724,7 +724,10 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
       })
     }
     if (!avviiPerMacchina.has(chiave)) avviiPerMacchina.set(chiave, [])
-    avviiPerMacchina.get(chiave).push({ esito: r.esito ?? null, quando: ev.timestamp ?? 0, classe: r.classe ?? null })
+    // ⚠️ La riga d'errore viaggia anche QUI, non solo nei `guasti`: la riga rossa di chi non parte
+    // piu' porta la sola classe, e `porta-occupata` non dice QUALE porta, che e' l'unica cosa su cui
+    // si puo' agire (visto il 16/09/2026: due avvii fermati da una porta di app, allarme muto).
+    avviiPerMacchina.get(chiave).push({ esito: r.esito ?? null, quando: ev.timestamp ?? 0, classe: r.classe ?? null, primaRiga: r.prima_riga ?? null })
 
     const precedente = perMacchina.get(chiave)
     if (!precedente || (ev.timestamp ?? 0) > precedente.quando) {
