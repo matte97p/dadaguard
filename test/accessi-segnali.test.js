@@ -441,3 +441,26 @@ test('messaggio: due avvii falliti di fila dicono che quella persona e ferma', (
   assert.match(m, /due avvii di fila/)
   assert.match(m, /ste/)
 })
+
+// ⚠️ La riga d'errore arriva da un'altra macchina e da una versione del dev-env che non scegliamo noi:
+// quella che spedisce oggi taglia a 120 caratteri e toglie path, host e token, una precedente puo' non
+// farlo. Qui si difende la FORMA (una riga sola, senza backtick, con un tetto), che e' l'unica cosa che
+// questa pagina puo' garantire: la redazione resta in `pulisci_riga`, e duplicarla qui darebbe due
+// pulizie che un giorno non dicono piu' la stessa cosa.
+test('messaggio: una riga d errore multilinea, lunga o con backtick non sfonda il formato', () => {
+  const sporca = `avvio KO\n  at /src/x.js:1\n  \`docker compose up\` ${'x'.repeat(400)}`
+  for (const segnale of [
+    { tipo: 'guasto', livello: 'attenzione', bersaglio: 'dev-env', classe: 'compose-up', chi: ['gio'], dettaglio: sporca },
+    { tipo: 'dev-fermo', livello: 'allarme', bersaglio: 'mac-di-ste', classe: 'porta-occupata', chi: ['ste'], dettaglio: sporca },
+  ]) {
+    const m = messaggioAccessi(segnale, { publicUrl: 'https://dg' })
+    assert.equal(m.includes('\n'), false)
+    // I backtick della riga d'errore chiuderebbero il code span che la ospita, e il resto del
+    // messaggio (il link in coda compreso) uscirebbe storto.
+    // Sei: bersaglio, classe e riga d'errore, due per ciascuno. Con un backtick dentro alla riga
+    // sarebbero sette, cioe' uno spaiato, e il resto del messaggio uscirebbe storto.
+    assert.equal((m.match(/`/g) ?? []).length, 6)
+    assert.ok(m.length < 400, `messaggio lungo ${m.length}`)
+    assert.match(m, /…/)
+  }
+})
