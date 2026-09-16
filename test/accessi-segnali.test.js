@@ -394,7 +394,7 @@ test('segnali: due avvii KO di fila sono una persona FERMA, e sono rossi', () =>
   const dati = base({
     heartbeat: {
       macchine: [{ macchina: 'mac-di-ste', lato: 'host', utente: 'ste', immagine: NUOVA, esito: 'ko', quando: 9000 }],
-      bloccate: [{ macchina: 'mac-di-ste', lato: 'host', classe: 'compose-up', quando: 9000 }],
+      bloccate: [{ macchina: 'mac-di-ste', lato: 'host', classe: 'porta-occupata', dettaglio: '3000|PID <n>|node', quando: 9000 }],
     },
   })
   const s = segnali(dati).filter((x) => x.tipo === 'dev-fermo')
@@ -402,6 +402,14 @@ test('segnali: due avvii KO di fila sono una persona FERMA, e sono rossi', () =>
   assert.equal(s[0].livello, 'allarme')
   assert.equal(s[0].chiave, 'dev-fermo:mac-di-ste/host')
   assert.equal(s[0].bersaglio, 'mac-di-ste')
+  // ⚠️ Nomi ESPANSI, non il Set: `proprietari()` torna una Map<macchina, Set>, e avvolgerlo in un
+  // array stampava `[object Set]` al posto del nome di chi e' fermo (visto in chat il 16/09/2026).
+  assert.deepEqual(s[0].chi, ['ste'])
+  const m = messaggioAccessi(s[0], { publicUrl: 'https://dg' })
+  assert.match(m, /\(ste\)/)
+  // ⚠️ La porta nel messaggio: `porta-occupata` da sola non dice su cosa agire, ed e' quello che il
+  // 16/09/2026 ha reso l'allarme inutile a chi lo leggeva.
+  assert.match(m, /3000/)
 })
 
 test('segnali: senza guasti il dev-env non dice niente', () => {
