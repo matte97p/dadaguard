@@ -293,7 +293,10 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // non lo leggerebbe piu' nessuno.
     const perche = segnale.classe ? ` — \`${segnale.classe}\`` : ''
     const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
-    return `${testa} IL DEV-ENV NON PARTE${chi}${perche} · due avvii di fila${coda}`
+    // La riga d'errore in coda come nel ramo qui sopra: la classe dice che tipo di guasto e', il
+    // dettaglio dice su cosa, e senza quello un `porta-occupata` non ha un primo passo.
+    const riga = segnale.dettaglio ? ` · \`${segnale.dettaglio}\`` : ''
+    return `${testa} IL DEV-ENV NON PARTE${chi}${perche}${riga} · due avvii di fila${coda}`
   }
   return `${testa} — ${segnale.tipo}${coda}`
 }

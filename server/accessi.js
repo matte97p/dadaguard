@@ -233,7 +233,12 @@ export function segnali(dati = {}) {
       livello: 'allarme',
       bersaglio: m.macchina,
       classe: m.classe ?? null,
-      chi: chiLaAvvia.get(m.macchina) ? [chiLaAvvia.get(m.macchina)] : [],
+      // ⚠️ `chiLaAvvia` è una Map<macchina, Set>: avvolgere il Set in un array invece di espanderlo
+      // stampa `[object Set]` in chat, cioè un allarme rosso che non dice di chi è la macchina.
+      chi: [...(chiLaAvvia.get(m.macchina) ?? [])],
+      // La riga d'errore ripulita: `porta-occupata` da sola non dice quale porta, e la porta e' la
+      // sola cosa su cui chi legge puo' agire.
+      dettaglio: m.dettaglio ?? null,
       quando: m.quando ?? null,
     })
   }
