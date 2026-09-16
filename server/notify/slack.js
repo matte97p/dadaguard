@@ -215,12 +215,20 @@ function sommarioOggetti(oggetti = []) {
   return ` su ${oggetti.slice(0, 2).join(', ')}${resto > 0 ? ` e altri ${resto}` : ''}`
 }
 
-// L'utente di database di una persona, quando il login e' il suo nome: `dev_<utente github>` sui
-// database dove i login sono per persona. Il confronto e' senza maiuscole perche' GitHub le tiene e
+// L'utente di database di una persona, quando il login e' il suo nome. Tre prefissi, uno per
+// perimetro, e sono i tre modi in cui oggi un login porta dentro il nome di chi lo usa:
+// `dev_<utente github>` (scrittura), `adm_<utente github>` (amministrazione, ENG-2389) e
+// `data_<utente github>` (il team data). Il confronto e' senza maiuscole perche' GitHub le tiene e
 // Postgres no.
+// ⚠️ Un prefisso che manca qui non fa sbagliare il conto, fa RUMORE: quel login finisce fra gli
+// «estranei» e la riga torna a dire fra parentesi un nome che il messaggio ha gia' detto per intero
+// («da tizio … (adm_tizio su writer)»), cioe' proprio la ripetizione per cui questa funzione esiste.
+// E' successo il 16/09/2026, il giorno in cui l'amministrazione e' passata al login per persona:
+// chi aggiunge un perimetro nuovo aggiunge il prefisso qui.
+const PREFISSI_PERSONALI = ['dev_', 'adm_', 'data_']
 const suoLogin = (utenteDb, chi = []) => {
   const u = String(utenteDb ?? '').toLowerCase()
-  return chi.some((c) => `dev_${String(c).toLowerCase()}` === u)
+  return chi.some((c) => PREFISSI_PERSONALI.some((p) => `${p}${String(c).toLowerCase()}` === u))
 }
 
 // CON CHE COSA hanno scritto, tolto quello che il messaggio ha gia' detto. Tre cose, in quest'ordine
