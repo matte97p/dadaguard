@@ -116,7 +116,8 @@ test('daAnnunciare: il primo giro prende nota e non annuncia', () => {
   assert.deepEqual(nuovi, [])
   // ⚠️ `detto: 0` e non l'ora del giro: non si e' detto niente, e datare il silenzio come un messaggio
   // terrebbe zitta la calma per mezz'ora dopo ogni rilascio, cioe' proprio quando il canale serve.
-  assert.deepEqual(stato, { 'scrittura:x': { quando: 100, quante: 3, detto: 0, azioni: {}, tabelle: [], chi: [], livello: null } })
+  // `parziale` sta in stato per il giro DOPO: dice se i totali qui sopra erano un campione.
+  assert.deepEqual(stato, { 'scrittura:x': { quando: 100, quante: 3, detto: 0, azioni: {}, tabelle: [], chi: [], livello: null, parziale: false } })
 })
 
 test('daAnnunciare: si annuncia solo cio che e piu recente di quanto gia detto', () => {
@@ -463,4 +464,78 @@ test('messaggio: una riga d errore multilinea, lunga o con backtick non sfonda i
     assert.ok(m.length < 400, `messaggio lungo ${m.length}`)
     assert.match(m, /…/)
   }
+})
+
+// ── La lettura PARZIALE ─────────────────────────────────────────────────────────────────────────────
+//
+// L'audit ha un tetto di righe (`finestre.conf`, riga `teleport`). Quando lo tocca, quello che arriva
+// qui sono gli eventi PIU RECENTI e non la finestra intera: i conteggi dicono meno del vero, e il
+// delta contro il giro prima dice meno ancora, perche' i due campioni non sono la stessa cosa.
+// Non si corregge (il dato che manca non c'e'), si DICE.
+//
+// Il 18/09/2026 il canale ha annunciato «+324» e poi «+267» sullo stesso database di produzione, e nel
+// log ce n'erano 776 in dieci minuti: due numeri che sembravano esatti e che non si sommano.
+test('segnali: audit troncato → la riga si dichiara parziale', () => {
+  const db = (dentro = {}) => ({
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [{ servizio: 'prod-db', nome: 'postgres', ambiente: 'prod', scritture: 324, scrittureDati: 0, scrittureStruttura: 324, scriventi: ['tizio'], ultimaScrittura: 9000 }],
+      ...dentro,
+    },
+  })
+  assert.equal(segnali(db({ troncato: true }))[0].parziale, true)
+  // Lettura completa: nessuna parola in piu', perche' «almeno» su un totale esatto e' rumore.
+  assert.equal(segnali(db())[0].parziale, false)
+})
+
+const RIGA = (dentro) => ({
+  tipo: 'scrittura', natura: 'struttura', livello: 'attenzione', ambiente: 'prod',
+  servizio: 'prod-db', bersaglio: 'postgres', chi: ['tizio'], utentiDb: [],
+  nuove: 324, quante: 324, azioni: [{ etichetta: 'ALTER TABLE', quante: 206, tipo: 'struttura' }],
+  oggetti: [], tabelle: [], ...dentro,
+})
+
+test('messaggioAccessi: la parola della stima e quella decisa a monte, e una lettura esatta non ne ha', () => {
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /— almeno \+324 /)
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'circa' })), /— circa \+324 /)
+  const esatta = messaggioAccessi(RIGA({ parziale: false, stima: null }))
+  assert.match(esatta, /— \+324 /)
+  assert.doesNotMatch(esatta, /almeno|circa|lettura parziale/)
+})
+
+// ⚠️ Non e' solo il numero a venire da un campione: le etichette, gli oggetti e soprattutto l'elenco
+// di CHI ha scritto. Un nome che manca da un allarme rosso di produzione non lascia nessun segno.
+test('messaggioAccessi: una lettura parziale lo dice per tutta la riga, non solo per il numero', () => {
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /lettura parziale: chi e cosa possono non esserci tutti/)
+})
+
+// ⚠️ «almeno» e' una promessa: il numero non puo' essere piu' basso del vero. Il ripiego della
+// finestra la rompe, perche' ridice il totale invece di quello che e' arrivato, e sotto troncamento
+// il ripiego e' proprio il caso frequente (nessuna etichetta cresce fra due campioni diversi).
+test('daAnnunciare: sotto troncamento il ripiego della finestra dice «circa», non «almeno»', () => {
+  const prec = { k: { quando: 100, quante: 324, azioni: { 'ALTER TABLE': 206 }, detto: 0, parziale: true } }
+  const s = { chiave: 'k', quando: 200, quante: 300, parziale: true, azioni: [{ etichetta: 'ALTER TABLE', quante: 200, tipo: 'struttura' }] }
+  const { nuovi } = daAnnunciare([s], prec)
+  assert.equal(nuovi[0].stima, 'circa')
+  assert.equal(nuovi[0].ripiego, true)
+})
+
+test('daAnnunciare: un campione con etichette CRESCIUTE e un pavimento, e dice «almeno»', () => {
+  const prec = { k: { quando: 100, quante: 324, azioni: { 'ALTER TABLE': 206 }, detto: 0, parziale: false } }
+  const s = { chiave: 'k', quando: 200, quante: 500, parziale: true, azioni: [{ etichetta: 'ALTER TABLE', quante: 306, tipo: 'struttura' }] }
+  assert.equal(daAnnunciare([s], prec).nuovi[0].stima, 'almeno')
+})
+
+// ⚠️ Il giro che mente non e' quello troncato, e' QUELLO DOPO: il delta si misura contro i totali di
+// un campione, quindi una lettura completa che segue una troncata dice molto piu' del vero (324
+// memorizzate su 776 vere, poi 800 → «+476» dove ne sono arrivate 24).
+test('daAnnunciare: dopo una lettura troncata il delta della successiva si dichiara', () => {
+  const prec = { k: { quando: 100, quante: 324, azioni: { 'ALTER TABLE': 206 }, detto: 0, parziale: true } }
+  const s = { chiave: 'k', quando: 200, quante: 800, parziale: false, azioni: [{ etichetta: 'ALTER TABLE', quante: 412, tipo: 'struttura' }] }
+  const { nuovi, stato } = daAnnunciare([s], prec)
+  assert.equal(nuovi[0].stima, 'circa')
+  assert.equal(nuovi[0].parziale, true)
+  // Lo stato nuovo nasce da una lettura completa: il giro dopo non deve ereditare il dubbio.
+  assert.equal(stato.k.parziale, false)
 })

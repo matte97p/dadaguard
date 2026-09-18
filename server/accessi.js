@@ -99,6 +99,13 @@ export function segnali(dati = {}) {
   const audit = dati.audit ?? {}
   const battito = dati.heartbeat ?? {}
   const fuori = []
+  // La lettura dell'audit ha un tetto (`finestre.conf`, riga `teleport`), e quando lo tocca quello che
+  // segue e' un CAMPIONE degli eventi piu' recenti, non la finestra intera. Il conteggio allora dice
+  // MENO del vero, e il delta contro il giro prima puo' dire meno ancora, perche' si misura contro un
+  // campione diverso. Non si corregge, si DICE: il messaggio scrive «almeno +N». Il 18/09/2026, col
+  // tetto a 1500 e una finestra di 24 ore, 776 DDL su produzione sono state annunciate come 324 + 267,
+  // e i due numeri sembravano esatti.
+  const parziale = Boolean(audit.troncato)
 
   // 1. Scritture su un database di PRODUZIONE. Su staging non si avvisa: è il lavoro di tutti i giorni,
   //    e un canale che parla del lavoro normale si spegne da solo nella testa di chi legge.
@@ -117,6 +124,9 @@ export function segnali(dati = {}) {
       tipo: 'scrittura',
       livello: natura === 'dati' ? 'allarme' : 'attenzione',
       natura,
+      // Vedi `parziale` qui sopra: viaggia con la riga perche' solo chi scrive il messaggio sa come
+      // dirlo, e un numero parziale spacciato per esatto e' peggio di un numero assente.
+      parziale,
       ambiente: d.ambiente,
       bersaglio: d.nome && d.nome !== '?' ? d.nome : d.servizio,
       servizio: d.servizio,
@@ -256,6 +266,11 @@ const precDetto = (v) => (typeof v === 'number' ? 0 : (v?.detto ?? 0))
 const precAzioni = (v) => (typeof v === 'number' ? null : (v?.azioni ?? null))
 const precChi = (v) => (typeof v === 'number' ? [] : (v?.chi ?? []))
 const precTabelle = (v) => (typeof v === 'number' ? null : (v?.tabelle ?? null))
+// Se la lettura da cui e' nato lo stato precedente era TRONCATA. Serve al giro dopo, non a quello che
+// l'ha scritta: il delta si misura contro quei totali, e se quelli erano un campione il delta puo'
+// dire molto PIU' del vero (campione 324 su 776 veri, poi una lettura completa a 800 → «+476» dove ne
+// sono arrivate 24). Senza ricordarlo, l'unico giro che si dichiara parziale e' quello sbagliato.
+const precParziale = (v) => (typeof v === 'number' ? false : Boolean(v?.parziale))
 
 // Quante ne sono arrivate DALL'ULTIMO messaggio, che è la domanda a cui il totale non risponde: uno
 // script che scrive per mezz'ora manda un messaggio ogni cinque minuti, e col totale delle 24h ogni
@@ -291,8 +306,13 @@ function arrivate(segnale, prec) {
   const cresciute = prima
     ? ora.map((a) => ({ ...a, quante: a.quante - (prima[a.etichetta] ?? 0) })).filter((a) => a.quante > 0)
     : []
-  if (!cresciute.length) return { azioni: ora, nuove: delta(segnale, prec) }
-  return { azioni: cresciute, nuove: cresciute.reduce((n, a) => n + a.quante, 0) }
+  // `ripiego`: il numero NON e' quello che e' arrivato, e' la finestra ridetta. Succede quando si
+  // sapeva gia' qualcosa e nessuna etichetta e' cresciuta, ed e' l'unico caso in cui il numero puo'
+  // dire piu' del vero. Chi scrive il messaggio deve saperlo: «almeno» su un numero che sovrastima e'
+  // una bugia nell'altro verso. Il primo messaggio di una chiave non e' un ripiego: li' la finestra
+  // e' tutto quello che e' successo.
+  if (!cresciute.length) return { azioni: ora, nuove: delta(segnale, prec), ripiego: Boolean(prima) }
+  return { azioni: cresciute, nuove: cresciute.reduce((n, a) => n + a.quante, 0), ripiego: false }
 }
 
 // Le azioni come vanno in stato: `{ etichetta: quante }`, cioè quello che si sa al momento in cui si
@@ -309,6 +329,8 @@ const vocePerStato = (segnale, adesso) => ({
   tabelle: segnale.tabelle ?? [],
   chi: segnale.chi ?? [],
   livello: segnale.livello ?? null,
+  // Vedi `precParziale`: non serve a questo messaggio, serve al prossimo delta.
+  parziale: Boolean(segnale.parziale),
 })
 
 // Le tabelle NUOVE, con lo stesso ripiego delle azioni: se non ce n'è nessuna mai vista prima si
@@ -366,8 +388,13 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
     const inedito = (s.quando ?? 0) > precQuando(prec)
     // Il segnale COM'È ADESSO: quante ne sono arrivate, quali e su cosa. Il colore non si ricalcola:
     // lo porta la chiave, che è per natura.
-    const { azioni, nuove } = arrivate(s, prec)
-    const adessoDetto = { ...s, nuove, azioni, tabelle: tabelleNuove(s, prec) }
+    const { azioni, nuove, ripiego } = arrivate(s, prec)
+    // Quanto ci si puo' fidare del numero, in una parola sola, decisa QUI perche' dipende dai due
+    // giri e non da come si scrive la riga. `almeno`: il numero e' un pavimento (campione, ma le
+    // etichette cresciute sono crescite vere). `circa`: puo' dire piu' del vero, perche' e' la
+    // finestra ridetta oppure perche' si misura contro un campione. `null`: e' esatto.
+    const stima = precParziale(prec) ? 'circa' : s.parziale ? (ripiego ? 'circa' : 'almeno') : null
+    const adessoDetto = { ...s, nuove, azioni, ripiego, stima, parziale: Boolean(s.parziale) || precParziale(prec), tabelle: tabelleNuove(s, prec) }
     const zitto = inedito && adesso - precDetto(prec) < calmaMs && !rompeLaCalma(adessoDetto, prec)
     if (!inedito || zitto) {
       // Niente da dire, oppure non adesso: si tiene quello che c'era. Una chiave sconosciuta che non ha
