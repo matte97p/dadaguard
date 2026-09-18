@@ -99,6 +99,13 @@ export function segnali(dati = {}) {
   const audit = dati.audit ?? {}
   const battito = dati.heartbeat ?? {}
   const fuori = []
+  // La lettura dell'audit ha un tetto (`finestre.conf`, riga `teleport`), e quando lo tocca quello che
+  // segue e' un CAMPIONE degli eventi piu' recenti, non la finestra intera. Il conteggio allora dice
+  // MENO del vero, e il delta contro il giro prima puo' dire meno ancora, perche' si misura contro un
+  // campione diverso. Non si corregge, si DICE: il messaggio scrive «almeno +N». Il 18/09/2026, col
+  // tetto a 1500 e una finestra di 24 ore, 776 DDL su produzione sono state annunciate come 324 + 267,
+  // e i due numeri sembravano esatti.
+  const parziale = Boolean(audit.troncato)
 
   // 1. Scritture su un database di PRODUZIONE. Su staging non si avvisa: è il lavoro di tutti i giorni,
   //    e un canale che parla del lavoro normale si spegne da solo nella testa di chi legge.
@@ -117,6 +124,9 @@ export function segnali(dati = {}) {
       tipo: 'scrittura',
       livello: natura === 'dati' ? 'allarme' : 'attenzione',
       natura,
+      // Vedi `parziale` qui sopra: viaggia con la riga perche' solo chi scrive il messaggio sa come
+      // dirlo, e un numero parziale spacciato per esatto e' peggio di un numero assente.
+      parziale,
       ambiente: d.ambiente,
       bersaglio: d.nome && d.nome !== '?' ? d.nome : d.servizio,
       servizio: d.servizio,

@@ -464,3 +464,38 @@ test('messaggio: una riga d errore multilinea, lunga o con backtick non sfonda i
     assert.match(m, /…/)
   }
 })
+
+// ── La lettura PARZIALE ─────────────────────────────────────────────────────────────────────────────
+//
+// L'audit ha un tetto di righe (`finestre.conf`, riga `teleport`). Quando lo tocca, quello che arriva
+// qui sono gli eventi PIU RECENTI e non la finestra intera: i conteggi dicono meno del vero, e il
+// delta contro il giro prima dice meno ancora, perche' i due campioni non sono la stessa cosa.
+// Non si corregge (il dato che manca non c'e'), si DICE.
+//
+// Il 18/09/2026 il canale ha annunciato «+324» e poi «+267» sullo stesso database di produzione, e nel
+// log ce n'erano 776 in dieci minuti: due numeri che sembravano esatti e che non si sommano.
+test('segnali: audit troncato → la riga si dichiara parziale', () => {
+  const db = (dentro = {}) => ({
+    configurato: true,
+    heartbeat: {},
+    audit: {
+      database: [{ servizio: 'prod-db', nome: 'postgres', ambiente: 'prod', scritture: 324, scrittureDati: 0, scrittureStruttura: 324, scriventi: ['tizio'], ultimaScrittura: 9000 }],
+      ...dentro,
+    },
+  })
+  assert.equal(segnali(db({ troncato: true }))[0].parziale, true)
+  // Lettura completa: nessuna parola in piu', perche' «almeno» su un totale esatto e' rumore.
+  assert.equal(segnali(db())[0].parziale, false)
+})
+
+test('messaggioAccessi: una riga parziale dice «almeno», una completa no', () => {
+  const s = (dentro) => ({
+    tipo: 'scrittura', natura: 'struttura', livello: 'attenzione', ambiente: 'prod',
+    servizio: 'prod-db', bersaglio: 'postgres', chi: ['tizio'], utentiDb: [],
+    nuove: 324, quante: 324, azioni: [{ etichetta: 'ALTER TABLE', quante: 206, tipo: 'struttura' }],
+    oggetti: [], tabelle: [], ...dentro,
+  })
+  assert.match(messaggioAccessi(s({ parziale: true })), /— almeno \+324 /)
+  assert.match(messaggioAccessi(s({ parziale: false })), /— \+324 /)
+  assert.doesNotMatch(messaggioAccessi(s({ parziale: false })), /almeno/)
+})
