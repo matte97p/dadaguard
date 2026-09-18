@@ -1033,8 +1033,12 @@ test('nessuna riga porta un emoji fuori dal set del canale', () => {
 // regola la difende questa prova, che guarda le stesse stringhe: le emoji dichiarate nel sorgente.
 // I commenti restano fuori perché si guardano solo i letterali fra apici, ed è lì che stanno.
 test('il sorgente non dichiara emoji fuori dal set di #tech-devops-alert', () => {
-  const sorgente = readFileSync(new URL('../server/notify/slack.js', import.meta.url), 'utf8')
-  const ammesse = ['🚨', '⚠️', '✅', 'ℹ️']
+  // Le emoji ammesse si leggono dall'elenco dei produttori, che è la stessa fonte che userebbe il
+  // lint condiviso: riscriverle qui vorrebbe dire due elenchi che un giorno divergono in silenzio.
+  const produttori = JSON.parse(readFileSync(new URL('../scripts/messaggi-slack-produttori.json', import.meta.url), 'utf8'))
+  const canale = produttori['#tech-devops-alert']
+  const sorgente = readFileSync(new URL(`../${canale.js[0]}`, import.meta.url), 'utf8')
+  const ammesse = canale.emoji
   const altrui = ['🔴', '🟡', '🚀', '⏳', '➖', '⏹️', '🔄', '🧹', '🛑', '📊', '⏭️']
   for (const [, letterale] of sorgente.matchAll(/'([^'\n]*)'/g)) {
     for (const vietata of altrui) {
