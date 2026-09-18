@@ -288,10 +288,12 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // `nuove` sono quelle arrivate dall'ultimo messaggio, e il `+` lo dice: senza, un secondo messaggio
     // con un numero piu' piccolo del primo sembra un conteggio sbagliato invece di un delta.
     const quante = segnale.nuove ?? segnale.quante ?? 0
-    // `almeno` quando la lettura dell'audit ha toccato il tetto: quello che si e' visto e' un campione
-    // degli eventi piu' recenti, quindi il numero e' un pavimento e non un totale. Una parola, perche'
-    // la riga deve restare leggibile, ma senza di lei chi legge somma due cifre che non si sommano.
-    const almeno = segnale.parziale ? 'almeno ' : ''
+    // Quanto ci si puo' fidare del numero, in una parola: `almeno` quando e' un pavimento, `circa`
+    // quando puo' dire piu' del vero. La sceglie `daAnnunciare` (vedi `stima`), perche' dipende da
+    // com'e' andato il giro PRIMA e non da come si scrive la riga. ⚠️ Non si deduce da `parziale`:
+    // sotto troncamento il ripiego ridice la finestra, e «almeno» su un numero che sovrastima e'
+    // una bugia nell'altro verso.
+    const stima = segnale.stima ? `${segnale.stima} ` : ''
     const titolo = segnale.natura === 'struttura' ? 'STRUTTURA' : 'SCRITTURE'
     const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
     // Le tabelle solo sotto al rosso: sono i bersagli delle scritture sui DATI, e accanto a un elenco
@@ -300,7 +302,12 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const su = segnale.natura === 'struttura' ? sommarioOggetti(segnale.oggetti) : sommarioTabelle(segnale.tabelle)
     const come = sommarioLogin(segnale.utentiDb, segnale.chi)
     const respinte = sommarioTentate(segnale)
-    return `${testa}${envTag(segnale.ambiente)} ${titolo} — ${almeno}+${quante} ${cosa}${su} da ${elenco(segnale.chi)}${come}${respinte}${coda}`
+    // ⚠️ La coda vale per TUTTA la riga e non solo per il numero: da un campione escono anche le
+    // etichette, gli oggetti, le tabelle e l'elenco di CHI ha scritto, e un nome che manca da un
+    // allarme rosso di produzione non lascia nessun segno. Il numero da solo hedgiato direbbe che il
+    // resto e' esatto.
+    const campione = segnale.parziale ? ' · lettura parziale: chi e cosa possono non esserci tutti' : ''
+    return `${testa}${envTag(segnale.ambiente)} ${titolo} — ${stima}+${quante} ${cosa}${su} da ${elenco(segnale.chi)}${come}${respinte}${campione}${coda}`
   }
   if (segnale.tipo === 'ssh') {
     const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'
