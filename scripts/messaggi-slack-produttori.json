@@ -1,0 +1,6 @@
+{
+  "#tech-devops-alert": {
+    "emoji": ["🚨", "⚠️", "✅", "ℹ️"],
+    "js": ["server/notify/slack.js"]
+  }
+}
