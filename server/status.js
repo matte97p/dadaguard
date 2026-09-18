@@ -193,7 +193,7 @@ export async function resolveServices() {
 }
 
 async function _resolveServices() {
-  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, expectedHealthy, people } = loadConfig()
+  const { accounts: declaredAccounts, services: declared, org, discoverAccounts, urls, health, expectedHealthy, people, soglie } = loadConfig()
   let accounts = declaredAccounts
   let services = declared
 
@@ -259,6 +259,7 @@ async function _resolveServices() {
     discoveryProblems,
     urls,
     people,
+    soglie,
   }
   _resolveCache = { at: Date.now(), value }
   return value
@@ -319,7 +320,7 @@ export async function getStatus(lang) {
   traceReset()
   const startedAt = performance.now()
   const resolvedAt0 = performance.now()
-  const { accounts, services, discovered, discoveryProblems, urls, people } = await resolveServices()
+  const { accounts, services, discovered, discoveryProblems, urls, people, soglie } = await resolveServices()
   const resolveMs = performance.now() - resolvedAt0
   if (discovered) log.info('auto-discovery', discovered)
 
@@ -419,6 +420,7 @@ export async function getStatus(lang) {
         env: acct ? (acct.env ?? acct.terraform?.env ?? service.account) : undefined,
         secretsIndex: service.account ? secretsByAccount[service.account] : undefined,
         people, // alias delle persone: due identità git della stessa persona = un nome solo
+        soglie, // soglie per tipo di risorsa dichiarate in config (vedi server/config.js)
         t, // traduttore dei summary (i check lo usano per parlare nella lingua scelta)
       }
 

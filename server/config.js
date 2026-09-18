@@ -59,6 +59,14 @@ export function validateConfig(doc) {
     // Esplicita di proposito: dedurlo dai nomi somiglianti, quando sbaglia, attribuisce un deploy in
     // produzione a qualcun altro.
     people: doc?.people ?? null,
+    // Soglie dei check, per TIPO di risorsa: `soglie: { bedrock: { serr: { min: 30, rate: 0.2 } } }`.
+    // Stanno in config e non solo nel codice perché tararle è una decisione di chi guarda il canale,
+    // non un rilascio: in cloud la config arriva da `DADAGUARD_CONFIG` (SSM), quindi cambiare una
+    // soglia è modificare un parametro e riavviare. Un servizio può sovrascriverle ancora più giù,
+    // con `aws.soglie`, ed è l'unico modo per un singolo modello quando il resto è autoscoperto.
+    // I valori assenti restano quelli di default del provider: una config parziale non spegne le
+    // soglie che non nomina.
+    soglie: doc?.soglie ?? null,
     // Superficie "Accessi": dove stanno l'audit del cluster Teleport e l'heartbeat dei dev-env.
     // ⚠️ Senza questa sezione la superficie NON esiste (niente log group cablati nel codice: qui non
     // ci sono nomi di nessuno). Forma:

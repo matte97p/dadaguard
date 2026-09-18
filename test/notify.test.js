@@ -4,6 +4,7 @@ import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/d
 import { slackMessage, envTag, messaggioAccessi } from '../server/notify/slack.js'
 import { runOnce, watchConfig, giroAccessi } from '../server/notify/watch.js'
 import { makeT } from '../server/i18n.js'
+import { readFileSync } from 'node:fs'
 
 // Il notificatore vive o muore su una cosa: mandare i messaggi GIUSTI. Un watchdog che grida per
 // ogni sfarfallio si silenzia dopo due giorni, e uno che tace su un guasto non serve a niente.
@@ -214,21 +215,22 @@ test('serviceKey distingue lo stesso nome in due account (backend esiste in stag
 })
 
 // --- il messaggio ---
-// La forma è quella che il team legge già in #aws-deploy e #aws-cron-test: emoji shortcode, nome in
-// backtick, ambiente in MAIUSCOLO tra quadre, esito a parole, dettaglio dopo "—", fatti separati da
-// "·". Questi test la inchiodano: un terzo dialetto costringerebbe a imparare due grammatiche.
-test('messaggio: la grammatica di casa (shortcode, backtick, [AMBIENTE], — dettaglio)', () => {
+// La forma è quella dello standard (`docs/runbooks/standard-messaggi-slack.md` in aws-management):
+// emoji del canale, nome in backtick, ambiente in MAIUSCOLO tra quadre, esito a parole, dettaglio
+// dopo "—", fatti separati da "·". Questi test la inchiodano: un terzo dialetto costringerebbe a
+// imparare due grammatiche.
+test('messaggio: la grammatica di casa (emoji del canale, backtick, [AMBIENTE], — dettaglio)', () => {
   const t = (k) => ({ 'notify.status.down': 'GIÙ', 'notify.cause.runtime': 'esecuzione', 'notify.open': 'stato su Dadaguard' })[k] ?? k
   const { text } = slackMessage(
     [{ kind: 'alert', name: 'cron-refresh-bi-mvs', account: 'Production', to: 'down', cause: 'runtime', detail: 'mai partito' }],
     { url: 'https://dadaguard.example', t },
   )
-  assert.match(text, /:red_circle:/, 'emoji come shortcode, non unicode')
+  assert.match(text, /🚨/, "l'emoji dell'allarme acceso su #tech-devops-alert")
   assert.match(text, /`cron-refresh-bi-mvs`/, 'il soggetto in backtick')
   assert.match(text, /\[PROD\]/, "l'ambiente in maiuscolo tra quadre")
   assert.match(text, /GIÙ · esecuzione — mai partito/, 'esito · causa — dettaglio, sulla stessa riga')
   assert.match(text, / · <https:\/\/dadaguard\.example\|stato su Dadaguard>$/, 'il link chiude la riga come nei deploy')
-  assert.ok(!text.includes('🔴'), 'niente emoji unicode')
+  assert.ok(!text.includes('🔴'), 'il 🔴 è del canale dei rilasci, dove vuol dire deploy fallito')
   assert.ok(!text.includes('\n> '), 'niente citazione a capo')
 })
 
@@ -294,7 +296,7 @@ test('messaggio: un allarme provvisorio in produzione arriva, ma non chiama il c
     { t: makeT('it') },
   )
   assert.ok(!text.includes('<!channel>'), 'non si strappa nessuno dal lavoro per uno sforamento non confermato')
-  assert.match(text, /:warning:/, 'ma il messaggio arriva lo stesso, col suo pallino')
+  assert.match(text, /⚠️/, 'ma il messaggio arriva lo stesso, col suo pallino')
   assert.match(text, /claude-opus-5/)
   assert.match(text, /non è ancora una finestra da 60m/, 'e porta la frase che dice perché è provvisorio')
 })
@@ -305,7 +307,7 @@ test('messaggio: la conferma dalla finestra lunga (degraded → down) si annunci
     [{ kind: 'alert', name: 'claude-opus-5', account: 'Production', from: 'degraded', to: 'down', cause: 'runtime' }],
     { t: makeT('it') },
   )
-  assert.match(text, /:red_circle:/)
+  assert.match(text, /🚨/)
   assert.ok(!text.includes('<!channel>'))
 })
 
@@ -336,7 +338,7 @@ test('messaggio: nessuna riga tagga il canale, in nessun ambiente e per nessuna 
       assert.ok(!msg.text.includes(marchio), `${dove}: tagga il canale con ${marchio}`)
     }
   }
-  assert.match(ok.text, /:white_check_mark:/)
+  assert.match(ok.text, /✅/)
 })
 
 // --- il giro completo, con le dipendenze finte ---
@@ -655,7 +657,7 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
   // COSA (`UPDATE`), su cosa (la tabella), chi, e con che utente da quale endpoint: senza queste
   // quattro cose il messaggio obbliga ad aprire i log per sapere se e' successo qualcosa o niente.
   // `+3` e non `4`: tre sono arrivate dall'ultimo messaggio, una era gia' stata detta.
-  assert.match(testo, /^:red_circle: `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
+  assert.match(testo, /^🚨 `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
   assert.match(testo, /esempio\.test\/accessi\?vista=database\|Accessi/)
 })
 
@@ -702,7 +704,7 @@ test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
   )
-  assert.match(testo, /^:warning: `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
 })
 
 // Se Slack non risponde lo stato non avanza: al giro dopo si riprova, invece di perdere la notizia
@@ -799,9 +801,9 @@ test('giroAccessi: sotto al rosso si leggono le scritture sui DATI, e i login no
   // Due righe, e il rosso e il motivo del rosso sono la stessa cosa: sotto `SCRITTURE` si legge
   // l'UPDATE, non le DDL, che hanno la loro riga gialla e non entrano piu' in quella rossa.
   const [rossa, gialla] = testo.split('\n')
-  assert.match(rossa, /^:red_circle: `main-prod-db\/postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
+  assert.match(rossa, /^🚨 `main-prod-db\/postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
   assert.doesNotMatch(rossa, /CREATE FUNCTION|GRANT/)
-  assert.match(gialla, /^:warning: `main-prod-db\/postgres` \[PROD\] STRUTTURA — /)
+  assert.match(gialla, /^⚠️ `main-prod-db\/postgres` \[PROD\] STRUTTURA — /)
   assert.doesNotMatch(gialla, /UPDATE|su utenti/)
   // I login che ripetono il nome di chi ha scritto non si ridicono, e «endpoint ignoto» non esiste.
   assert.doesNotMatch(testo, /dev_tizio|dev_caio|ignoto/)
@@ -850,7 +852,7 @@ test('giroAccessi: l endpoint si dice una volta sola, non per persona', async ()
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } } },
   )
-  assert.match(testo, /^:warning: `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
   assert.doesNotMatch(testo, /su ordini/)
 })
 
@@ -959,7 +961,7 @@ test('messaggioAccessi: la riga porta il cluster e i nomi degli oggetti delle DD
     chi: ['tizio'],
     utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }],
   })
-  assert.match(testo, /^:warning: `orders-prod-db\/postgres` \[PROD\] STRUTTURA — \+2 CREATE FUNCTION su public\.una, public\.due da tizio \(su writer\)$/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/postgres` \[PROD\] STRUTTURA — \+2 CREATE FUNCTION su public\.una, public\.due da tizio \(su writer\)$/)
 })
 
 // ⚠️ I login per persona sono TRE prefissi, non uno solo: `dev_` (scrittura), `adm_`
@@ -1002,5 +1004,50 @@ test('messaggioAccessi: niente prefisso quando il servizio e il database sono la
     chi: ['tizio'],
     utentiDb: [],
   })
-  assert.match(testo, /^:red_circle: `ordini` \[PROD\]/)
+  assert.match(testo, /^🚨 `ordini` \[PROD\]/)
+})
+
+// --- le emoji sono quelle del canale, e il lint dello standard le guarda ------------------------
+// Standard §2, `#tech-devops-alert`: 🚨 acceso, ⚠️ da guardare, ✅ rientrato, ℹ️ né l'uno né l'altro.
+// Fino al 18/09/2026 Dadaguard usava 🔴 e 🟡, che su #aws-deploy vogliono dire «deploy fallito» e
+// niente: la stessa faccia con due significati sullo stesso schermo.
+test('nessuna riga porta un emoji fuori dal set del canale', () => {
+  const righe = [
+    slackMessage([{ kind: 'alert', name: 'a', account: 'Production', to: 'down', detail: 'x' }], { t: makeT('it') }).text,
+    slackMessage([{ kind: 'alert', name: 'a', account: 'Production', to: 'degraded', detail: 'x' }], { t: makeT('it') }).text,
+    slackMessage([{ kind: 'recovery', name: 'a', account: 'Production', to: 'up', detail: 'x' }], { t: makeT('it') }).text,
+    slackMessage([{ kind: 'improvement', name: 'a', account: 'Production', to: 'degraded', from: 'down' }], { t: makeT('it') }).text,
+  ]
+  for (const riga of righe) {
+    assert.match(riga, /^(🚨|⚠️|✅|ℹ️) /, `riga fuori dal set del canale: ${riga}`)
+    for (const vietata of ['🔴', '🟡', '🚀', '⏳', '➖', '⏹️', '🔄']) {
+      assert.ok(!riga.includes(vietata), `${vietata} appartiene al canale dei rilasci: ${riga}`)
+    }
+  }
+})
+
+// --- la stessa regola, guardata sul SORGENTE ----------------------------------------------------
+// Il lint condiviso dello standard sa leggere anche i produttori JavaScript, ma vive in un repo
+// PRIVATO dell'organizzazione e Dadaguard è pubblico: in CI quell'action non si scarica
+// senza un token, e una PR da un fork non lo avrebbe comunque. Finché quel nodo non è sciolto, la
+// regola la difende questa prova, che guarda le stesse stringhe: le emoji dichiarate nel sorgente.
+// I commenti restano fuori perché si guardano solo i letterali fra apici, ed è lì che stanno.
+test('il sorgente non dichiara emoji fuori dal set di #tech-devops-alert', () => {
+  // Le emoji ammesse si leggono dall'elenco dei produttori, che è la stessa fonte che userebbe il
+  // lint condiviso: riscriverle qui vorrebbe dire due elenchi che un giorno divergono in silenzio.
+  const produttori = JSON.parse(readFileSync(new URL('../scripts/messaggi-slack-produttori.json', import.meta.url), 'utf8'))
+  const canale = produttori['#tech-devops-alert']
+  const sorgente = readFileSync(new URL(`../${canale.js[0]}`, import.meta.url), 'utf8')
+  const ammesse = canale.emoji
+  const altrui = ['🔴', '🟡', '🚀', '⏳', '➖', '⏹️', '🔄', '🧹', '🛑', '📊', '⏭️']
+  for (const [, letterale] of sorgente.matchAll(/'([^'\n]*)'/g)) {
+    for (const vietata of altrui) {
+      assert.ok(!letterale.includes(vietata), `'${letterale}' porta ${vietata}, che questo canale non ha`)
+    }
+  }
+  const dichiarate = [...sorgente.matchAll(/'([^'\n]*)'/g)].map(([, s]) => s).filter((s) => /\p{Extended_Pictographic}/u.test(s))
+  assert.ok(dichiarate.length > 0, 'se non trova più nessuna emoji, questa prova ha smesso di guardare')
+  for (const s of dichiarate) {
+    assert.ok(ammesse.some((e) => s.includes(e)), `${s} non è una delle emoji del canale`)
+  }
 })
