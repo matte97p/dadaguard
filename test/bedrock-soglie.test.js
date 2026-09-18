@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bedrockRuntime } from '../server/runtime/bedrock.js'
+import { bedrockRuntime, raffica } from '../server/runtime/bedrock.js'
 import { makeT } from '../server/i18n.js'
+import { cleanDetail } from '../server/notify/slack.js'
 
 // Le soglie di Bedrock esistono per una ragione precisa, vista dal vivo: 358 invocazioni con UN errore
 // client hanno prodotto un allarme rosso in produzione, più tardi 78 invocazioni con
@@ -66,20 +67,30 @@ test('4xx: ondata vera (>=5% e >=5 errori), e in corso adesso → down', async (
 })
 
 // --- 5xx: è Bedrock che rompe → basta UNA delle due condizioni ---
-test('5xx: 5 errori server allarmano anche su volumi alti (OR, non AND)', async () => {
-  assert.equal(await stato({ inv: 10000, serr: 5 }), 'down')
+test('5xx: 50 errori server allarmano anche su volumi alti (OR, non AND)', async () => {
+  assert.equal(await stato({ inv: 10000, serr: 50 }), 'down')
 })
 
-test('5xx: 4 errori server su volumi alti non allarmano (sotto il minimo assoluto)', async () => {
-  assert.equal(await stato({ inv: 10000, serr: 4 }), 'up')
+test('5xx: 49 errori server su volumi alti non allarmano (sotto il minimo assoluto)', async () => {
+  assert.equal(await stato({ inv: 10000, serr: 49 }), 'up')
 })
 
-test('5xx: 2 errori su 20 invocazioni allarmano per percentuale (10%)', async () => {
-  assert.equal(await stato({ inv: 20, serr: 2 }), 'down')
+test('5xx: 5 errori su 20 invocazioni allarmano per percentuale (25%)', async () => {
+  assert.equal(await stato({ inv: 20, serr: 5 }), 'down')
 })
 
-test('5xx: 1 errore su 20 invocazioni (5%) resta sotto entrambi i rami', async () => {
-  assert.equal(await stato({ inv: 20, serr: 1 }), 'up')
+test('5xx: 4 errori su 20 invocazioni (20%) resta sotto entrambi i rami', async () => {
+  assert.equal(await stato({ inv: 20, serr: 4 }), 'up')
+})
+
+// Il caso reale #4, 18/09/2026 in canale: 12 errori server su 300 invocazioni, cioè il 4%, e in
+// canale è uscito un rosso di produzione. A farlo scattare era il solo ramo assoluto (12 >= 5),
+// mentre i chiamanti non se ne erano accorti: il retry aveva recuperato tutto. È la ragione per cui
+// i due rami salgono a 50 e 25%: sotto quei numeri il retry copre.
+test('il caso reale #4: 12 errori server su 300 invocazioni NON sono un guasto', async () => {
+  const r = await leggi({ inv: 300, serr: 12, lat: 2700 }, { inv: 75, serr: 3 })
+  assert.equal(r.status, 'up', 'il 4% con i retry davanti non è la piattaforma giù')
+  assert.doesNotMatch(r.summary, /soglia/, 'e il messaggio non parla di soglie: non ce n è una superata')
 })
 
 // --- 5xx: la percentuale non decide su un campione da niente ------------------------------------
@@ -92,22 +103,22 @@ test('il caso reale #3: 1 errore server su 57 invocazioni l ora e 8 nei 15 minut
   assert.doesNotMatch(r.summary, /soglia/, 'e il messaggio non parla di soglie: non ce n è una superata')
 })
 
-test('5xx: 1 errore su 8 invocazioni è il 12,5% ma il campione non basta per concludere', async () => {
-  assert.equal(await stato({ inv: 8, serr: 1 }), 'up')
+test('5xx: 3 errori su 8 invocazioni è il 37,5% ma il campione non basta per concludere', async () => {
+  assert.equal(await stato({ inv: 8, serr: 3 }), 'up')
 })
 
-test('5xx: al campione minimo la percentuale torna a contare (2 su 20 = 10%)', async () => {
-  assert.equal(await stato({ inv: 20, serr: 2 }), 'down')
+test('5xx: al campione minimo la percentuale torna a contare (5 su 20 = 25%)', async () => {
+  assert.equal(await stato({ inv: 20, serr: 5 }), 'down')
 })
 
-test('5xx: appena sotto il campione minimo la stessa coppia di errori non allarma', async () => {
-  // 2 su 19 è il 10,5%, più dei 2 su 20 che allarmano: è il campione a mancare, non la percentuale.
-  assert.equal(await stato({ inv: 19, serr: 2 }), 'up')
+test('5xx: appena sotto il campione minimo la stessa manciata di errori non allarma', async () => {
+  // 5 su 19 è il 26,3%, più dei 5 su 20 che allarmano: è il campione a mancare, non la percentuale.
+  assert.equal(await stato({ inv: 19, serr: 5 }), 'up')
 })
 
-test('5xx: il minimo assoluto resta indipendente dal campione (5 errori su 6 invocazioni)', async () => {
-  // Il pavimento vale sul ramo percentuale, non su quello assoluto: 5 errori sono 5 errori.
-  assert.equal(await stato({ inv: 6, serr: 5 }), 'down')
+test('5xx: il minimo assoluto resta indipendente dal campione (50 errori su 60 invocazioni)', async () => {
+  // Il pavimento vale sul ramo percentuale, non su quello assoluto: 50 errori sono 50 errori.
+  assert.equal(await stato({ inv: 60, serr: 50 }), 'down')
 })
 
 test('5xx: più errori che invocazioni contate allarma comunque (richieste respinte prima del conteggio)', async () => {
@@ -132,33 +143,33 @@ test('throttling: 2 su 100 resta sotto il minimo assoluto', async () => {
 
 // --- le due finestre: la parte che distingue "rotto" da "sta rientrando" ------------------------
 test('sopra soglia nell ora ma ultimi 15 minuti puliti → degraded, non down (probabile rientro)', async () => {
-  const r = await leggi({ inv: 200, serr: 8 }, { inv: 50, serr: 0 })
+  const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 0 })
   assert.equal(r.status, 'degraded', 'gli errori sono nell ora, ma non stanno più succedendo')
   assert.match(r.summary, /probabile rientro/, 'e il messaggio lo dice, invece di lasciarlo dedurre')
 })
 
 test('sopra soglia solo negli ultimi 15 minuti → degraded (appena cominciato, non è ancora un ora)', async () => {
-  const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 6 })
+  const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 12 })
   assert.equal(r.status, 'degraded')
   assert.match(r.summary, /non è ancora una finestra da 60m/)
-  // I tile davanti mostrano l'ora (4 errori su 2000), lo sforamento viene dai 15 minuti (6 su 40):
+  // I tile davanti mostrano l'ora (4 errori su 2000), lo sforamento viene dai 15 minuti (12 su 40):
   // la riga deve dire di quale finestra parla, o i due conteggi si leggono come un errore di conto.
-  assert.match(r.summary, /oltre soglia err\. server \(5xx\) su 15m: 6 su 40/)
+  assert.match(r.summary, /oltre soglia err\. server \(5xx\) su 15m: 12 su 40/)
 })
 
 test('lo sforo visto dalla sola finestra corta si DICHIARA provvisorio', async () => {
-  const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 6 })
+  const r = await leggi({ inv: 2000, serr: 4 }, { inv: 40, serr: 12 })
   assert.equal(r.status, 'degraded')
   assert.equal(r.provisional, true, 'l ora non l ha ancora confermato, e in chat non si chiama il canale')
 })
 
 test('lo sforo che passa dall ora non è provvisorio, né da conclamato né in rientro', async () => {
-  assert.equal((await leggi({ inv: 200, serr: 20 }, { inv: 50, serr: 8 })).provisional, false, 'down')
-  assert.equal((await leggi({ inv: 200, serr: 8 }, { inv: 50, serr: 0 })).provisional, false, 'probabile rientro')
+  assert.equal((await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })).provisional, false, 'down')
+  assert.equal((await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 0 })).provisional, false, 'probabile rientro')
 })
 
 test('sopra soglia su entrambe → down, e il messaggio dice che è ancora in corso', async () => {
-  const r = await leggi({ inv: 200, serr: 20 }, { inv: 50, serr: 8 })
+  const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })
   assert.equal(r.status, 'down')
   assert.match(r.summary, /ancora sopra soglia negli ultimi 15m/)
 })
@@ -168,7 +179,7 @@ test('finestra acuta larga quanto quella di fondo: una lettura sola, nessuna chi
   const spia = async (_aws, _ns, _dims, _q, windowMin) => {
     letture++
     assert.equal(windowMin, 60, 'niente seconda finestra da chiedere a CloudWatch')
-    return { ...VUOTO, inv: 100, serr: 20 }
+    return { ...VUOTO, inv: 100, serr: 30 }
   }
   const r = await bedrockRuntime({ model: 'test-model', acuteWindowMinutes: 90 }, {}, { metricValues: spia })
   assert.equal(letture, 1)
@@ -179,18 +190,18 @@ test('finestra acuta larga quanto quella di fondo: una lettura sola, nessuna chi
 // Senza, in canale si discute la taratura a memoria: il 06/08 la proposta era «alziamo al 10%» mentre
 // a scattare era stato il ramo assoluto, che il 10% non avrebbe toccato.
 test('il messaggio dice QUALE soglia è stata superata, con i numeri e la regola', async () => {
-  const r = await leggi({ inv: 200, serr: 20 })
+  const r = await leggi({ inv: 200, serr: 60 })
   assert.match(r.summary, /oltre soglia/, 'nomina lo sforamento')
-  assert.match(r.summary, /su 60m: 20 su 200 \(10%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
+  assert.match(r.summary, /su 60m: 60 su 200 \(30%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
   assert.match(
     r.summary,
-    /≥5 o ≥10% su almeno 20 invocazioni/,
-    'e con la regola INTERA, campione minimo compreso: è la condizione che il 23/08 ha deciso l allarme',
+    /≥50 o ≥25% su almeno 20 invocazioni, e con errori per almeno 3 minuti di fila/,
+    'e con la regola INTERA, campione minimo e consecutività compresi: sono le condizioni che hanno deciso la taratura',
   )
 })
 
 test('il messaggio nomina il segnale più grave quando ne sfondano più di uno', async () => {
-  const r = await leggi({ inv: 100, serr: 10, cerr: 20, thr: 10 })
+  const r = await leggi({ inv: 100, serr: 30, cerr: 20, thr: 10 })
   assert.match(r.summary, /oltre soglia err\. server \(5xx\)/, 'il 5xx viene prima: è la piattaforma')
 })
 
@@ -212,4 +223,72 @@ test('sotto soglia lo stato è up MA il tile dell errore resta visibile sulla ca
   assert.equal(r.clientErrors, 1, 'ma il conteggio resta esposto')
   const label = JSON.stringify(r.metrics)
   assert.ok(label.includes('err. client (4xx)'), 'e il tile 4xx c-è: sulla card lo vuoi vedere')
+})
+
+// --- consecutività: il conteggio dice QUANTI, la raffica dice se erano di fila ------------------
+// Chiesto in canale il 18/09/2026: «idealmente dovrebbero essere errori consecutivi». Le metriche
+// non sanno se un retry ha rimediato (ogni tentativo è una invocazione a sé), quindi la durata è il
+// sostituto più onesto della domanda vera: uno scossone dentro un minuto solo il retry lo copre,
+// tre minuti attaccati di 503 no.
+const bucket = (periodSec, serie, t0 = Date.UTC(2026, 8, 18, 14, 0, 0)) => ({
+  times: { serr: serie.map((_, i) => t0 + i * periodSec * 1000) },
+  series: { serr: serie.slice() },
+  period: periodSec,
+})
+
+// Come `metriche`, ma ogni finestra porta anche la sua serie per bucket.
+const conSerie = (ora, adesso) => async (_aws, _ns, _dims, _q, windowMin) => ({
+  ...VUOTO,
+  ...(windowMin >= 60 ? ora : adesso),
+})
+const statoConSerie = async (ora, adesso) =>
+  (await bedrockRuntime({ model: 'test-model' }, {}, { metricValues: conSerie(ora, adesso), t: makeT('it') })).status
+
+test('raffica: conta i bucket ATTACCATI, non le posizioni nell array', () => {
+  const t0 = Date.UTC(2026, 8, 18, 14, 0, 0)
+  // CloudWatch omette i periodi senza dati: questi tre punti sono a 0, 5 e 10 minuti, cioè lontani,
+  // e nell'array sono vicini. Contare le posizioni direbbe 3, che è la bugia da evitare.
+  assert.equal(raffica([t0, t0 + 300000, t0 + 600000], [4, 4, 4], 60), 1)
+  assert.equal(raffica([t0, t0 + 60000, t0 + 120000], [4, 4, 4], 60), 3)
+  // Un buco in mezzo spezza la raffica: il tratto più lungo sono due bucket, non tre.
+  assert.equal(raffica([t0, t0 + 60000, t0 + 180000], [4, 4, 4], 60), 2)
+  assert.equal(raffica([t0, t0 + 60000], [0, 4], 60), 1, 'i bucket a zero non entrano nella raffica')
+})
+
+test('raffica: senza serie non si decide, e il conteggio resta padrone (mai un allarme muto)', () => {
+  assert.equal(raffica(undefined, undefined, 60), null)
+  assert.equal(raffica([1, 2], [1], 60), null, 'array spaiati: non si conclude')
+  assert.equal(raffica([1, 2], [1, 1], 0), null, 'senza il passo, adiacente non vuol dire niente')
+})
+
+test('5xx: un picco tutto dentro un bucket solo NON allarma, per quanti errori siano', async () => {
+  // 60 errori su 200 invocazioni è il 30%, cioè sopra entrambi i rami: a tenerlo giù è la durata.
+  const ora = { inv: 200, serr: 60, ...bucket(180, [60, 0, 0, 0]) }
+  const adesso = { inv: 50, serr: 20, ...bucket(60, [20, 0, 0]) }
+  assert.equal(await statoConSerie(ora, adesso), 'up')
+})
+
+test('5xx: gli stessi errori spalmati su minuti attaccati sono un guasto → down', async () => {
+  const ora = { inv: 200, serr: 60, ...bucket(180, [30, 30, 0, 0]) }
+  const adesso = { inv: 50, serr: 20, ...bucket(60, [7, 7, 6]) }
+  assert.equal(await statoConSerie(ora, adesso), 'down')
+})
+
+test('5xx: due minuti di fila sui 15m non bastano, tre sì (il pavimento è in minuti)', async () => {
+  const ora = { inv: 2000, serr: 4 }
+  assert.equal(await statoConSerie(ora, { inv: 50, serr: 20, ...bucket(60, [10, 10, 0]) }), 'up')
+  assert.equal(await statoConSerie(ora, { inv: 50, serr: 20, ...bucket(60, [7, 7, 6]) }), 'degraded')
+})
+
+test('la consecutività vale sul 5xx, non sul 4xx (lì la guardia è già il minimo assoluto)', async () => {
+  const ora = { inv: 100, cerr: 8, ...bucket(180, [8, 0, 0, 0]) }
+  const adesso = { inv: 25, cerr: 5, ...bucket(60, [5, 0, 0]) }
+  assert.equal(await statoConSerie(ora, adesso), 'down')
+})
+
+// --- la regola deve SOPRAVVIVERE al taglio del messaggio in chat -------------------------------
+test('in chat resta la regola, non la coda che non dice a che soglia', async () => {
+  const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })
+  const inChat = cleanDetail(r.summary)
+  assert.match(inChat, /scatta a ≥50 o ≥25%/, 'chi legge deve poter dire perché è uscito questo allarme')
 })

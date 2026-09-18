@@ -67,7 +67,12 @@ async function flush(bkey) {
     ),
   )
 
+  // Valori E timestamp. I timestamp servono perche' CloudWatch OMETTE i periodi senza dati (una
+  // metrica Sum che in quel bucket non ha punti non esce affatto): senza l'ora di ogni punto, tre
+  // valori di fila nell'array possono essere tre minuti attaccati o tre minuti sparsi nell'ora, e
+  // chi vuole sapere se gli errori sono CONSECUTIVI (`runtime/bedrock.js`) leggerebbe una bugia.
   const byId = {}
+  const byIdTs = {}
   try {
     const client = clientFor(aws)
     for (let s = 0; s < all.length; s += 500) {
@@ -79,14 +84,20 @@ async function flush(bkey) {
           MetricDataQueries: all.slice(s, s + 500),
         }),
       )
-      for (const r of res.MetricDataResults ?? []) byId[r.Id] = r.Values ?? []
+      for (const r of res.MetricDataResults ?? []) {
+        byId[r.Id] = r.Values ?? []
+        byIdTs[r.Id] = (r.Timestamps ?? []).map((t) => new Date(t).getTime())
+      }
     }
     items.forEach((it, i) => {
-      const out = { series: {} }
+      // `period` esce insieme ai dati: e' la distanza fra due bucket attaccati, e senza di lei i
+      // timestamp non dicono se due punti sono adiacenti.
+      const out = { series: {}, times: {}, period }
       it.queries.forEach(([id, , stat], j) => {
         const vals = byId[`i${i}q${j}`] ?? []
         out[id] = aggregate(vals, stat)
         out.series[id] = vals
+        out.times[id] = byIdTs[`i${i}q${j}`] ?? []
       })
       it.resolve(out)
     })

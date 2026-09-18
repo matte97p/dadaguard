@@ -176,6 +176,9 @@ const S = {
     // l'ha fatto scattare. Serve a tarare le soglie leggendo la chat, senza aprire il codice.
     'bedrock.sopraSoglia': 'oltre soglia {segnale} su {finestra}: {n} su {inv} ({pct}%) · scatta a {regola}',
     'bedrock.regola.o': '≥{min} o ≥{rate}% su almeno {campione} invocazioni',
+    // La consecutività si appende alla regola invece di stare in una frase sua: chi legge deve poter
+    // dire in un colpo perché QUELL'allarme è uscito, e perché quello di ieri no.
+    'bedrock.regola.raffica': ', e con errori per almeno {minuti} minuti di fila',
     'bedrock.regola.e': '≥{min} e ≥{rate}%',
     'bedrock.ancora': 'ancora sopra soglia negli ultimi {window}',
     'bedrock.rientro': 'ultimi {window} sotto soglia: probabile rientro, confermato quando è pulita la finestra da {conferma}',
@@ -505,6 +508,7 @@ const S = {
     'bedrock.latency': 'lat ~{d}',
     'bedrock.sopraSoglia': 'over the {segnale} threshold on {finestra}: {n} of {inv} ({pct}%) · fires at {regola}',
     'bedrock.regola.o': '≥{min} or ≥{rate}% over at least {campione} invocations',
+    'bedrock.regola.raffica': ', and with errors over at least {minuti} consecutive minutes',
     'bedrock.regola.e': '≥{min} and ≥{rate}%',
     'bedrock.ancora': 'still over threshold in the last {window}',
     'bedrock.rientro': 'last {window} below threshold: likely recovering, confirmed once the {conferma} window is clean',

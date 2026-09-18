@@ -41,7 +41,16 @@ const SOGLIE = {
   // alzare solo la percentuale avrebbe lasciato il ramo assoluto a suonare alla prossima coppia.
   // Il ramo percentuale vuole anche un campione minimo (vedi `CAMPIONE_MINIMO`): è l'unico che può
   // decidere da solo, e su una finestra corta lo farebbe con un denominatore da niente.
-  serr: { min: 5, rate: 0.1, or: true },
+  //
+  // 18/09/2026, quarto falso positivo: 12 errori su 300 invocazioni (il 4%, cioè sotto al ramo
+  // percentuale) sono usciti come rosso di produzione dal solo ramo assoluto, e i chiamanti non se
+  // ne erano accorti perché il retry li aveva recuperati tutti. È il punto: su Bedrock un 503
+  // ripreso dal retry NON è un disservizio, e le metriche non lo distinguono da uno che ha rotto la
+  // risposta, perché ogni tentativo conta come una invocazione a sé. Quindi si alza di brutto
+  // (50 e 25%) invece di limare: sotto quei numeri il retry copre, sopra no. E si aggiunge la
+  // CONSECUTIVITÀ (`raffica`), che è la cosa più vicina a «errori consecutivi» che le metriche
+  // permettano: un picco isolato non suona nemmeno se è grosso.
+  serr: { min: 50, rate: 0.25, or: true, raffica: true },
 }
 
 // Quanto grande deve essere il campione perché la PERCENTUALE possa decidere da sola. Riguarda solo
@@ -59,6 +68,47 @@ const SOGLIE = {
 // 20 è il più piccolo campione che regge la regola documentata: 1 errore su 20 è il 5% e resta
 // sotto, 2 su 20 sono il 10% e allarmano.
 const CAMPIONE_MINIMO = 20
+
+// Quanto deve DURARE un guasto per suonare, sul solo 5xx. Non basta contare gli errori della
+// finestra: dieci 503 tutti nello stesso minuto sono un singolo scossone di Bedrock, che il retry
+// assorbe, mentre gli stessi dieci spalmati su minuti attaccati sono il modello che non risponde.
+// Le metriche non sanno se un retry è andato a buon fine (ogni tentativo è una invocazione a sé),
+// quindi la durata è il migliore sostituto della domanda vera, «l'utente se n'è accorto?».
+//
+// Due condizioni insieme, perché la larghezza del bucket cambia con la finestra (60s sui 15 minuti,
+// 180s sull'ora, vedi `cw.js`): almeno due bucket ATTACCATI, e almeno 3 minuti coperti. Sui 15
+// minuti vuol dire 3 bucket, sull'ora 2: in entrambi i casi un buco solo non passa.
+const RAFFICA_BUCKET = 2
+const RAFFICA_MINUTI = 3
+
+// Il più lungo tratto di bucket CONSECUTIVI con errori, contato sui timestamp e non sulle posizioni
+// nell'array: CloudWatch omette i periodi senza dati, quindi due valori vicini nell'array possono
+// essere lontani nel tempo. `null` quando la serie non c'è (letture finte nei test, o una risposta
+// senza timestamp): lì la consecutività non si può decidere, e si lascia passare il conteggio da
+// solo: tacere su un guasto vero è peggio di un allarme in più.
+export function raffica(times, vals, periodSec) {
+  if (!Array.isArray(times) || !Array.isArray(vals) || !periodSec || times.length !== vals.length) return null
+  const passo = periodSec * 1000
+  const caldi = times
+    .map((t, i) => [Number(t), vals[i]])
+    .filter(([t, v]) => Number.isFinite(t) && v > 0)
+    .map(([t]) => t)
+    .sort((a, b) => a - b)
+  let best = 0
+  let run = 0
+  let prev = null
+  for (const t of caldi) {
+    run = prev !== null && t - prev === passo ? run + 1 : 1
+    if (run > best) best = run
+    prev = t
+  }
+  return best
+}
+
+// La raffica è abbastanza lunga da chiamarla guasto?
+function rafficaBasta(run, periodSec) {
+  return run >= RAFFICA_BUCKET && (run * periodSec) / 60 >= RAFFICA_MINUTI
+}
 
 // Se più segnali sfondano insieme, il messaggio nomina il più grave: prima il 5xx (è la piattaforma),
 // poi il throttling (capacità), infine il 4xx (chiamante).
@@ -82,10 +132,17 @@ function sforo(key, n, inv, s) {
   return { key, n, inv, pct: Math.round((n / base) * 1000) / 10, min: s.min, rate: s.rate, or: Boolean(s.or) }
 }
 
-// I segnali sopra soglia di una finestra, dal più grave al meno grave.
+// I segnali sopra soglia di una finestra, dal più grave al meno grave. Chi ha `raffica` passa anche
+// dalla durata: il conteggio dice QUANTI, la raffica dice se sono stati di fila.
 function sfori(m) {
   const inv = Math.round(m.inv)
-  return ORDINE.map((k) => sforo(k, Math.round(m[k]), inv, SOGLIE[k])).filter(Boolean)
+  return ORDINE.map((k) => {
+    const s = sforo(k, Math.round(m[k]), inv, SOGLIE[k])
+    if (!s || !SOGLIE[k].raffica) return s
+    const run = raffica(m.times?.[k], m.series?.[k], m.period)
+    if (run === null) return s
+    return rafficaBasta(run, m.period) ? { ...s, run, periodSec: m.period } : null
+  }).filter(Boolean)
 }
 
 // Il "perché" in chiaro dentro al messaggio. Senza, l'allarme dice che qualcosa è rotto ma non a che
@@ -101,7 +158,8 @@ function perche(s, finestra, t) {
   // 23/08 ha deciso l'allarme, e una regola scritta a metà è esattamente ciò che porta a tarare
   // il ramo sbagliato leggendo la chat.
   const regola = s.or
-    ? t('bedrock.regola.o', { min: s.min, rate, campione: CAMPIONE_MINIMO })
+    ? t('bedrock.regola.o', { min: s.min, rate, campione: CAMPIONE_MINIMO }) +
+      (SOGLIE[s.key]?.raffica ? t('bedrock.regola.raffica', { minuti: RAFFICA_MINUTI }) : '')
     : t('bedrock.regola.e', { min: s.min, rate })
   return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola })
 }
@@ -174,12 +232,18 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   if (m.tin > 0 || m.tout > 0) metrics.push({ label: t('m.tokens'), value: `${fmtCount(Math.round(m.tin))} → ${fmtCount(Math.round(m.tout))}` })
   // La coda del summary è quella che finisce in chat: prima QUALE soglia è stata superata e con che
   // numeri, poi cosa dicono le due finestre messe insieme.
+  //
+  // La REGOLA va per ULTIMA, e non è cosmesi: in chat il dettaglio si taglia a 160 caratteri e
+  // `notify/slack.js` salva l'ultimo pezzo separato da «·» (`cleanDetail`). Con la regola in mezzo
+  // il taglio la mangiava, e il 18/09/2026 in canale è arrivato «oltre soglia err. server (5xx)… ·
+  // ancora sopra soglia negli ultimi 15m», cioè la metà che non dice a che soglia: la domanda che
+  // ne è seguita è stata «non so bene su cosa sia costruito questo alert».
   const colpevole = nellOra[0] ?? adesso[0] ?? null
   const coda = []
-  if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t))
   if (nellOra.length && adesso.length) coda.push(t('bedrock.ancora', { window: acuL }))
   else if (nellOra.length) coda.push(t('bedrock.rientro', { window: acuL, conferma: winL }))
   else if (adesso.length) coda.push(t('bedrock.appena', { window: acuL, conferma: winL }))
+  if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t))
   const summary = [`${metrics.map((x) => `${x.value} ${x.label}`).join(' · ')} (${winL})`, ...coda].join(' · ')
   return {
     status,

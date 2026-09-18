@@ -5,6 +5,25 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Il 5xx di Bedrock suona solo se il retry non l'ha coperto** (18/09/2026). Quarto falso positivo:
+  12 errori server su 300 invocazioni (il 4%) sono usciti come rosso di produzione dal solo ramo
+  assoluto, mentre nessun utente se n'era accorto perche' il retry li aveva recuperati tutti. Le
+  metriche non sanno se un tentativo e' stato ripreso (ogni tentativo conta come una invocazione a
+  se'), quindi si alzano i due rami invece di limarli, `>=50` errori o `>=25%`, e si aggiunge la
+  DURATA: gli errori devono coprire almeno 3 minuti di bucket ATTACCATI, contati sui timestamp e non
+  sulle posizioni nell'array (CloudWatch omette i periodi senza dati, quindi tre valori vicini
+  nell'array possono essere sparsi nell'ora). E' la cosa piu' vicina a «errori consecutivi» che le
+  metriche permettano: un picco dentro un minuto solo non suona nemmeno se e' grosso. Se la serie
+  non c'e', decide il conteggio da solo: tacere su un guasto vero e' peggio di un allarme in piu'.
+- **La regola che ha fatto scattare l'allarme sopravvive al taglio del messaggio** (18/09/2026). In
+  chat il dettaglio si taglia a 160 caratteri e si tiene l'ultimo pezzo separato da «·»: con la
+  regola in mezzo, in canale e' arrivato «oltre soglia err. server (5xx)… · ancora sopra soglia
+  negli ultimi 15m», cioe' la meta' che non dice a che soglia, e la domanda che ne e' seguita e'
+  stata «non so bene su cosa sia costruito questo alert». Ora la regola va per ultima, quindi il
+  messaggio in chat porta sempre «scatta a >=50 o >=25% su almeno 20 invocazioni, e con errori per
+  almeno 3 minuti di fila».
+
 ### Fixed
 - **Un oggetto creato nello schema temporaneo non e' piu' una DDL su produzione** (15/09/2026). Il
   filtro delle temporanee guardava la parola (`CREATE TEMP VIEW`), e la parola in `CREATE OR REPLACE
