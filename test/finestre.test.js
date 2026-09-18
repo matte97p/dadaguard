@@ -34,8 +34,15 @@ test('finestre: un valore dentro i limiti passa intero', () => {
 })
 
 test('finestre: il tetto delle righe e dichiarato, e le istantanee non ne hanno', () => {
-  assert.equal(tetto('teleport'), 1500)
+  assert.equal(tetto('teleport'), 10000)
   assert.equal(tetto('quotas'), null)
+})
+
+// ⚠️ 10000 e' il massimo che CloudWatch Insights accetta per una StartQuery: chiederne di piu' non
+// allarga la lettura, la fa rifiutare. Il tetto si alza fin li' e non oltre, e quello che resta fuori
+// si DICE (vedi `parziale` in accessi.js).
+test('finestre: nessun tetto supera il massimo che Insights accetta', () => {
+  for (const f of elenco()) assert.ok(f.tetto === null || f.tetto <= 10000, `${f.chiave}: tetto ${f.tetto}`)
 })
 
 // I gradini li da il catalogo e non la pagina: un elenco ricopiato in quattordici pagine diventa

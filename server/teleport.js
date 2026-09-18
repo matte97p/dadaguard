@@ -18,7 +18,11 @@ import { clientOpts } from './runtime/awsClient.js'
 export const key = 'teleport'
 
 const ORE_DEFAULT = 24
-const MAX_EVENTI = 5000 // tetto duro: una giornata storta non deve diventare una pagina che non carica
+// Rete di sicurezza per i chiamanti che il tetto non lo passano: la decisione sta in `finestre.conf`.
+// ⚠️ Non deve stare SOTTO il tetto piu' alto del catalogo, o sarebbe lui a decidere per un chiamante
+// che ha chiesto di piu' (con 5000 qui e 10000 la' la riga del catalogo non valeva niente). 10000 e'
+// anche il massimo che una StartQuery di Insights accetta, quindi e' un tetto e non una scelta.
+const MAX_EVENTI = 10_000
 
 // Le prime parole di una query dicono il mestiere: separare «ha guardato» da «ha scritto» e' la
 // domanda vera su un database di produzione, e QUALE scrittura e' la seconda.
@@ -189,8 +193,10 @@ async function eventiInsights(aws, { logGroup, filtro, da, limite = MAX_EVENTI }
   if (!queryId) return []
   let esito
   const scadenza = Date.now() + ATTESA_QUERY_MS
+  let passo = PASSO_QUERY_MS
   do {
-    await new Promise((r) => setTimeout(r, PASSO_QUERY_MS))
+    await new Promise((r) => setTimeout(r, passo))
+    passo = Math.min(passo * 2, PASSO_QUERY_MAX_MS)
     esito = await cw.send(new GetQueryResultsCommand({ queryId }))
   } while (['Scheduled', 'Running'].includes(esito.status) && Date.now() < scadenza)
   // Una query ancora in corso non e' un risultato vuoto: si alza, e chi chiama lo vede come errore
@@ -576,7 +582,14 @@ function piuComune(valori) {
 //
 // Ritorna `null` se il permesso manca: chi legge deve poter dire «non lo so» invece di «nessuno».
 const ATTESA_QUERY_MS = 20_000
+// Il passo del polling CRESCE: `GetQueryResults` risponde coi risultati PARZIALI accumulati fino a
+// quel momento, quindi con un tetto di 10000 righe di `@message` intero un passo fisso da mezzo
+// secondo scarica decine di volte quasi lo stesso megabyte, e il rischio e' sfondare `ATTESA_QUERY_MS`
+// proprio durante la raffica che si voleva vedere (li' la lettura alza, `statoAccessi` la prende come
+// errore, e il canale TACE nel momento peggiore). Il primo passo resta corto perche' la maggior parte
+// delle query finisce subito.
 const PASSO_QUERY_MS = 500
+const PASSO_QUERY_MAX_MS = 3_000
 
 export async function login(aws, { logGroup, ore = 168, limite = 1000 } = {}) {
   if (!logGroup) return null
@@ -601,8 +614,10 @@ export async function login(aws, { logGroup, ore = 168, limite = 1000 } = {}) {
 
   let esito
   const scadenza = Date.now() + ATTESA_QUERY_MS
+  let passo = PASSO_QUERY_MS
   do {
-    await new Promise((r) => setTimeout(r, PASSO_QUERY_MS))
+    await new Promise((r) => setTimeout(r, passo))
+    passo = Math.min(passo * 2, PASSO_QUERY_MAX_MS)
     esito = await cw.send(new GetQueryResultsCommand({ queryId }))
   } while (['Scheduled', 'Running'].includes(esito.status) && Date.now() < scadenza)
 

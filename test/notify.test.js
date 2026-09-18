@@ -635,6 +635,8 @@ test('giroAccessi: al primo giro prende nota e non annuncia', async () => {
       tabelle: ['ordini'],
       chi: ['tizio'],
       livello: 'allarme',
+      // Dice se i totali qui sopra venivano da una lettura troncata: serve al delta del giro dopo.
+      parziale: false,
     },
   })
 })
