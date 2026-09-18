@@ -106,8 +106,56 @@ export function raffica(times, vals, periodSec) {
 }
 
 // La raffica è abbastanza lunga da chiamarla guasto?
-function rafficaBasta(run, periodSec) {
-  return run >= RAFFICA_BUCKET && (run * periodSec) / 60 >= RAFFICA_MINUTI
+function rafficaBasta(run, periodSec, minuti) {
+  return run >= RAFFICA_BUCKET && (run * periodSec) / 60 >= minuti
+}
+
+// Un numero dichiarato in config, o il default. Un valore che numero non è (una stringa, un `null`,
+// un NaN) NON spegne la soglia e non fa cadere il check: si tiene il default. Una config sbagliata
+// deve costare la modifica che non ha effetto, non la sorveglianza che sparisce senza dirlo.
+function numero(valore, base, { min = 0, max = Infinity } = {}) {
+  const n = typeof valore === 'number' ? valore : Number.NaN
+  return Number.isFinite(n) && n >= min && n <= max ? n : base
+}
+
+// Le soglie che valgono per QUESTO servizio: i default qui sopra, sotto a quelle dichiarate in
+// config per tipo (`soglie: { bedrock: … }`, da `server/config.js`), sotto a quelle del singolo
+// servizio (`aws.soglie`). Tre livelli perché i modelli Bedrock sono AUTOSCOPERTI: senza il livello
+// per tipo, un modello che non ha una riga sua in `services.yaml` non avrebbe nessun posto dove
+// essere tarato, e tarare vorrebbe dire di nuovo un rilascio.
+export function risolviSoglie(cfg = {}, globali = null) {
+  const fuse = { ...(globali ?? {}), ...(cfg?.soglie ?? {}) }
+  const soglie = {}
+  for (const key of ORDINE) {
+    const base = SOGLIE[key]
+    const d = fuse[key] ?? {}
+    soglie[key] = {
+      ...base,
+      min: numero(d.min, base.min),
+      rate: numero(d.rate, base.rate, { max: 1 }),
+    }
+  }
+  return { ...soglie, rafficaMinuti: numero(fuse.rafficaMinuti, RAFFICA_MINUTI) }
+}
+
+// Il contratto del check, nella forma dello standard dei messaggi (§8.2): cosa misura, dove legge,
+// su che finestra, con quali soglie e cosa fare quando è rosso. Si COMPONE dalle soglie risolte
+// invece di essere scritto a mano: un contratto ricopiato è un contratto che mente il giorno in cui
+// qualcuno cambia un numero, ed è esattamente la cosa che questo blocco serve a impedire.
+export function contratto(cfg = {}, globali = null, { windowMin = DEFAULT_WINDOW_MIN, acutaMin = ACUTE_WINDOW_MIN } = {}) {
+  const s = risolviSoglie(cfg, globali)
+  const pct = (r) => `${Math.round(r * 100)}%`
+  return {
+    misura: `invocazioni, errori server (5xx), errori client (4xx), throttling e latenza del modello ${cfg.model ?? '(aggregato)'}`,
+    fonte: `CloudWatch AWS/Bedrock${cfg.model ? `, dimension ModelId=${cfg.model}` : ', senza dimension'}`,
+    finestra: `${windowMin}m per dire se è reale, ${acutaMin}m per dire se sta ancora succedendo`,
+    soglia: {
+      guasto: `5xx ≥${s.serr.min} o ≥${pct(s.serr.rate)} su ≥${CAMPIONE_MINIMO} invocazioni, per ≥${s.rafficaMinuti} minuti di fila, su ENTRAMBE le finestre`,
+      degradato: `le stesse condizioni su UNA sola delle due finestre, oppure throttling ≥${s.thr.min} e ≥${pct(s.thr.rate)}, oppure 4xx ≥${s.cerr.min} e ≥${pct(s.cerr.rate)}`,
+      ok: 'nessun segnale sopra soglia su nessuna delle due finestre',
+    },
+    rimedio: 'controllare il throttling per modello e la regione del profilo di inferenza; un 5xx di Bedrock non si ripara da qui, si misura e si aspetta',
+  }
 }
 
 // Se più segnali sfondano insieme, il messaggio nomina il più grave: prima il 5xx (è la piattaforma),
@@ -134,14 +182,14 @@ function sforo(key, n, inv, s) {
 
 // I segnali sopra soglia di una finestra, dal più grave al meno grave. Chi ha `raffica` passa anche
 // dalla durata: il conteggio dice QUANTI, la raffica dice se sono stati di fila.
-function sfori(m) {
+function sfori(m, soglie) {
   const inv = Math.round(m.inv)
   return ORDINE.map((k) => {
-    const s = sforo(k, Math.round(m[k]), inv, SOGLIE[k])
-    if (!s || !SOGLIE[k].raffica) return s
+    const s = sforo(k, Math.round(m[k]), inv, soglie[k])
+    if (!s || !soglie[k].raffica) return s
     const run = raffica(m.times?.[k], m.series?.[k], m.period)
     if (run === null) return s
-    return rafficaBasta(run, m.period) ? { ...s, run, periodSec: m.period } : null
+    return rafficaBasta(run, m.period, soglie.rafficaMinuti) ? { ...s, run, periodSec: m.period } : null
   }).filter(Boolean)
 }
 
@@ -152,14 +200,14 @@ function sfori(m) {
 // La finestra va NOMINATA: i tile davanti mostrano sempre l'ora, ma lo sforamento può venire dai
 // soli 15 minuti. Senza l'etichetta la stessa riga porterebbe due conteggi diversi senza dire di
 // cosa parla il secondo («4 err. server (60m) · oltre soglia: 6 su 40»), che si legge come un errore.
-function perche(s, finestra, t) {
+function perche(s, finestra, t, rafficaMinuti) {
   const rate = Math.round(s.rate * 100)
   // Il pavimento sul campione fa parte della regola, quindi si stampa: è la condizione che il
   // 23/08 ha deciso l'allarme, e una regola scritta a metà è esattamente ciò che porta a tarare
   // il ramo sbagliato leggendo la chat.
   const regola = s.or
     ? t('bedrock.regola.o', { min: s.min, rate, campione: CAMPIONE_MINIMO }) +
-      (SOGLIE[s.key]?.raffica ? t('bedrock.regola.raffica', { minuti: RAFFICA_MINUTI }) : '')
+      (SOGLIE[s.key]?.raffica ? t('bedrock.regola.raffica', { minuti: rafficaMinuti }) : '')
     : t('bedrock.regola.e', { min: s.min, rate })
   return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola })
 }
@@ -168,6 +216,7 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? identityT
   // Iniettabile come `deps` in runOnce: le soglie sono la parte che si sbaglia, e va testata senza rete.
   const leggiMetriche = opts.metricValues ?? metricValues
+  const soglie = risolviSoglie(cfg, opts.soglie)
   const windowMin = cfg.windowMinutes ?? DEFAULT_WINDOW_MIN
   // Mai più lunga della finestra di fondo: una "acuta" larga quanto l'ora non distinguerebbe niente,
   // e in quel caso si degrada a una lettura sola (nessuna chiamata CloudWatch in più).
@@ -209,13 +258,19 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   ])
   const winL = `${windowMin}m`
   const acuL = `${acutaMin}m`
-  if (!m.inv && !m.cerr && !m.serr && !m.thr) return { status: 'idle', summary: t('bedrock.idle', { window: winL }) }
+  if (!m.inv && !m.cerr && !m.serr && !m.thr) {
+    return {
+      status: 'idle',
+      summary: t('bedrock.idle', { window: winL }),
+      contratto: contratto(cfg, opts.soglie, { windowMin, acutaMin }),
+    }
+  }
   const cerr = Math.round(m.cerr)
   const serr = Math.round(m.serr)
   const throttles = Math.round(m.thr)
   const inv = Math.round(m.inv)
-  const nellOra = sfori(m)
-  const adesso = acuta ? sfori(acuta) : nellOra
+  const nellOra = sfori(m, soglie)
+  const adesso = acuta ? sfori(acuta, soglie) : nellOra
   // Tre stati invece di due: `down` = conclamato (persiste E in corso), `degraded` = da guardare (uno
   // dei due), `up` = pulito su entrambe le finestre.
   const status = nellOra.length && adesso.length ? 'down' : nellOra.length || adesso.length ? 'degraded' : 'up'
@@ -243,7 +298,7 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   if (nellOra.length && adesso.length) coda.push(t('bedrock.ancora', { window: acuL }))
   else if (nellOra.length) coda.push(t('bedrock.rientro', { window: acuL, conferma: winL }))
   else if (adesso.length) coda.push(t('bedrock.appena', { window: acuL, conferma: winL }))
-  if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t))
+  if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t, soglie.rafficaMinuti))
   const summary = [`${metrics.map((x) => `${x.value} ${x.label}`).join(' · ')} (${winL})`, ...coda].join(' · ')
   return {
     status,
@@ -251,6 +306,9 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
     metrics,
     window: winL,
     acuteWindow: acuL,
+    // Il contratto viaggia col risultato: le soglie che hanno deciso QUESTO stato, non quelle che
+    // qualcuno ha scritto in un documento mesi fa.
+    contratto: contratto(cfg, opts.soglie, { windowMin, acutaMin }),
     clientErrors: cerr,
     serverErrors: serr,
     throttles,

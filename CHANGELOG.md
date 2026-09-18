@@ -23,6 +23,23 @@ All notable changes to Dadaguard are documented here. Format based on
   stata «non so bene su cosa sia costruito questo alert». Ora la regola va per ultima, quindi il
   messaggio in chat porta sempre «scatta a >=50 o >=25% su almeno 20 invocazioni, e con errori per
   almeno 3 minuti di fila».
+- **Le emoji sono quelle del canale, non quelle dei rilasci** (18/09/2026). Dadaguard apriva le sue
+  righe con 🔴 e 🟡, che su `#tech-devops-alert` non esistono: 🔴 e' del canale dei rilasci, dove vuol
+  dire «deploy fallito», quindi sullo stesso schermo la stessa faccia diceva due cose diverse. Ora
+  sono le quattro dello standard (`docs/runbooks/standard-messaggi-slack.md` in aws-management, §2):
+  🚨 acceso, ⚠️ acceso ma da guardare, ✅ rientrato, ℹ️ ne' l'uno ne' l'altro. Si scrivono come emoji
+  e non come shortcode (`:red_circle:`) perche' e' la forma che il lint dello standard riconosce.
+- **Le soglie si dichiarano in config, non solo nel codice** (18/09/2026). Tararle e' una decisione
+  di chi guarda il canale, non un rilascio: `soglie: { bedrock: { serr: { min: 50, rate: 0.25 },
+  rafficaMinuti: 3 } }` in `services.yaml`, e in cloud la stessa config arriva da
+  `DADAGUARD_CONFIG` (SSM), quindi cambiare una soglia e' modificare un parametro e riavviare. Tre
+  livelli: i default del provider, il livello per TIPO di risorsa (l'unico posto dove tarare i
+  modelli Bedrock, che sono autoscoperti e non hanno una riga loro) e le `aws.soglie` del singolo
+  servizio, che vincono. Un valore che numero non e' tiene il default invece di spegnere la soglia.
+- **Ogni check porta il suo contratto** (18/09/2026). Cosa misura, da dove legge, su che finestra,
+  con quali soglie e cosa fare quando e' rosso: i cinque campi dello standard (§8.2), COMPOSTI dalle
+  soglie vere invece che scritti a mano, cosi' non possono mentire il giorno in cui qualcuno cambia
+  un numero. Viaggiano col risultato del check, anche quando il modello non e' stato chiamato.
 
 ### Fixed
 - **Un oggetto creato nello schema temporaneo non e' piu' una DDL su produzione** (15/09/2026). Il

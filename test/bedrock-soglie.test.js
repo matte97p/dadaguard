@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bedrockRuntime, raffica } from '../server/runtime/bedrock.js'
+import { bedrockRuntime, raffica, risolviSoglie, contratto } from '../server/runtime/bedrock.js'
 import { makeT } from '../server/i18n.js'
 import { cleanDetail } from '../server/notify/slack.js'
 
@@ -291,4 +291,67 @@ test('in chat resta la regola, non la coda che non dice a che soglia', async () 
   const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })
   const inChat = cleanDetail(r.summary)
   assert.match(inChat, /scatta a ≥50 o ≥25%/, 'chi legge deve poter dire perché è uscito questo allarme')
+})
+
+// --- le soglie si dichiarano in config, non solo nel codice --------------------------------------
+// Tararle e' una decisione di chi guarda il canale: cablate nel codice, ogni cambio e' un rilascio.
+const conSoglie = (cfg, globali, ora, adesso = ora) =>
+  bedrockRuntime(
+    { model: 'test-model', ...cfg },
+    {},
+    { metricValues: metriche(ora, adesso), t: makeT('it'), soglie: globali },
+  )
+
+test('soglie: un servizio può abbassare il minimo assoluto, e allora il caso di oggi allarma', async () => {
+  const r = await conSoglie({ soglie: { serr: { min: 10 } } }, null, { inv: 300, serr: 12 })
+  assert.equal(r.status, 'down', '12 errori passano il minimo dichiarato a 10')
+})
+
+test('soglie: il livello per TIPO copre i modelli autoscoperti, che una riga loro non ce l hanno', async () => {
+  const r = await conSoglie({}, { serr: { min: 10 } }, { inv: 300, serr: 12 })
+  assert.equal(r.status, 'down')
+})
+
+test('soglie: quelle del servizio vincono su quelle per tipo', async () => {
+  const r = await conSoglie({ soglie: { serr: { min: 200 } } }, { serr: { min: 10 } }, { inv: 300, serr: 12 })
+  assert.equal(r.status, 'up', 'il servizio ha detto 200, e 12 non ci arrivano')
+})
+
+test('soglie: un valore che numero non è tiene il default, invece di spegnere la soglia', async () => {
+  assert.equal(risolviSoglie({ soglie: { serr: { min: 'tanti' } } }).serr.min, 50)
+  assert.equal(risolviSoglie({ soglie: { serr: { rate: 7 } } }).serr.rate, 0.25, 'una percentuale > 1 non è una percentuale')
+  assert.equal(risolviSoglie({ soglie: { rafficaMinuti: null } }).rafficaMinuti, 3)
+})
+
+test('soglie: una config parziale non tocca i segnali che non nomina', async () => {
+  const s = risolviSoglie({ soglie: { serr: { min: 10 } } })
+  assert.equal(s.serr.min, 10)
+  assert.equal(s.serr.rate, 0.25, 'la percentuale resta quella di default')
+  assert.equal(s.cerr.min, 5, 'e il 4xx non è stato toccato')
+})
+
+// --- il contratto del check (standard dei messaggi, §8.2) ---------------------------------------
+test('contratto: i cinque campi ci sono, e i numeri vengono dalle soglie vere', () => {
+  const c = contratto({ model: 'test-model' })
+  for (const campo of ['misura', 'fonte', 'finestra', 'soglia', 'rimedio']) {
+    assert.ok(c[campo], `manca il campo ${campo}`)
+  }
+  assert.match(c.soglia.guasto, /≥50 o ≥25%/, 'le soglie del 5xx')
+  assert.match(c.soglia.guasto, /≥3 minuti di fila/, 'e la durata')
+  assert.match(c.fonte, /AWS\/Bedrock/)
+  assert.match(c.fonte, /ModelId=test-model/, 'la fonte dice con quale dimension legge')
+})
+
+test('contratto: cambiando la soglia in config cambia il contratto, che non si riscrive a mano', () => {
+  const c = contratto({ model: 'test-model', soglie: { serr: { min: 10, rate: 0.5 }, rafficaMinuti: 9 } })
+  assert.match(c.soglia.guasto, /≥10 o ≥50%/)
+  assert.match(c.soglia.guasto, /≥9 minuti di fila/)
+})
+
+test('contratto: viaggia col risultato, anche quando il modello non è stato chiamato', async () => {
+  const vivo = await leggi({ inv: 300, serr: 12 })
+  assert.match(vivo.contratto.soglia.guasto, /≥50 o ≥25%/)
+  const fermo = await leggi({})
+  assert.equal(fermo.status, 'idle')
+  assert.ok(fermo.contratto, 'un check fermo deve dire lo stesso a che soglie guardava')
 })

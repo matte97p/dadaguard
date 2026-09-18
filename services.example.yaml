@@ -138,6 +138,28 @@ accounts:
 #     region: eu-central-1
 #     label: Management (payer)
 
+# --- Soglie dei check, per TIPO di risorsa ------------------------------------------------------
+# Quando un check chiama "guasto" quello che vede lo decidono queste soglie. Stanno qui e non solo
+# nel codice perche' tararle e' una decisione di chi guarda il canale Slack, non un rilascio: in
+# cloud la config arriva da `DADAGUARD_CONFIG` (una SecureString SSM), quindi cambiare una soglia
+# vuol dire modificare un parametro e riavviare.
+#
+# I valori assenti restano quelli di default del provider: una config parziale non spegne le soglie
+# che non nomina, e un valore che numero non e' (una stringa, un null) tiene il default invece di
+# far cadere il check.
+#
+# Le soglie di un SINGOLO servizio si dichiarano sotto il suo `aws:` (`aws: { type: bedrock,
+# soglie: {...} }`) e vincono su queste. Per i modelli Bedrock, che sono AUTOSCOPERTI e quindi non
+# hanno una riga loro qui sotto, il livello per tipo e' l'unico posto dove tararli.
+#
+# soglie:
+#   bedrock:
+#     serr: { min: 50, rate: 0.25 }   # 5xx: una delle due basta (e' Bedrock che rompe, non noi)
+#     thr:  { min: 3, rate: 0.01 }    # throttling: capacita' che finisce
+#     cerr: { min: 5, rate: 0.05 }    # 4xx: serve una vera ondata, di solito e' il chiamante
+#     rafficaMinuti: 3                # e il 5xx deve durare: errori su minuti ATTACCATI, non un picco
+#                                     # dentro un minuto solo, che il retry assorbe
+
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
   - name: my-api

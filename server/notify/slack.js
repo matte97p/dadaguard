@@ -11,20 +11,26 @@ import { log } from '../log.js'
 // deploy) e in #aws-cron-test (esiti dei cron). Un terzo dialetto costringerebbe a imparare due
 // grammatiche per la stessa cosa, e la seconda si legge peggio della prima:
 //
-//   :red_circle: `nome` [PROD] GIÙ · esecuzione — dettaglio · <url|stato su Dadaguard>
-//   └ shortcode   └ backtick └ maiuscolo └ a parole  └ "—" apre  └ "·" separa
+//   🚨 `nome` [PROD] GIÙ · esecuzione — dettaglio · <url|stato su Dadaguard>
+//   └ emoji      └ backtick └ maiuscolo └ a parole  └ "—" apre  └ "·" separa
 //
-// Differenze rispetto a prima, tutte per allineamento: emoji come shortcode Slack (non unicode),
-// nome del servizio in backtick (non grassetto), ambiente in MAIUSCOLO tra parentesi quadre (non
-// minuscolo tra tonde), esito a parole (non `→ *STATO*`), dettaglio sulla stessa riga dopo "—" (non
-// una citazione a capo).
+// Differenze rispetto a prima, tutte per allineamento: nome del servizio in backtick (non
+// grassetto), ambiente in MAIUSCOLO tra parentesi quadre (non minuscolo tra tonde), esito a parole
+// (non `→ *STATO*`), dettaglio sulla stessa riga dopo "—" (non una citazione a capo).
+//
+// ⚠️ Le emoji sono quelle del CANALE, e sono quattro: 🚨 allarme acceso, ⚠️ acceso ma da guardare,
+// ✅ rientrato, ℹ️ un fatto che non è né l'uno né l'altro (standard §2, `#tech-devops-alert`).
+// Fino al 18/09/2026 qui c'erano 🔴 e 🟡, prese dal canale dei RILASCI, dove 🔴 vuol dire «deploy
+// fallito»: sullo stesso schermo la stessa faccia diceva due cose diverse. Si scrivono come emoji
+// e non come shortcode (`:red_circle:`) perché è la forma che il lint dello standard riconosce, e
+// una regola che il lint non vede è una regola che torna indietro da sola.
 const EMOJI = {
-  down: ':red_circle:',
-  degraded: ':warning:',
-  recovery: ':white_check_mark:',
+  down: '🚨',
+  degraded: '⚠️',
+  recovery: '✅',
   // Alleggerimento dentro al rosso (down → degraded): non è un verde, ma nemmeno un allarme nuovo.
   // Un pallino giallo lo distingue a colpo d'occhio da entrambi nello scroll del canale.
-  improvement: ':large_yellow_circle:',
+  improvement: '⚠️',
 }
 
 // Ambiente come lo scrivono i cron e i deploy: `[PROD]`, `[STAGING]`. Gli altri account prendono la
@@ -157,7 +163,7 @@ export async function postSlack(webhook, payload, { timeoutMs = 5000 } = {}) {
 // ⚠️ Nessun `<!channel>`, nemmeno sulla sessione SSH. La destinazione di queste tre regole e' un canale
 // dove per ora legge una persona sola: strappare tutti dal lavoro per una cosa che non e' un guasto del
 // prodotto e' il modo di far silenziare il canale prima che serva davvero.
-const EMOJI_ACCESSI = { allarme: ':red_circle:', attenzione: ':warning:' }
+const EMOJI_ACCESSI = { allarme: '🚨', attenzione: '⚠️' }
 
 const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
 
@@ -270,7 +276,7 @@ function sommarioTentate(segnale) {
 }
 
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
-  const emoji = EMOJI_ACCESSI[segnale.livello] ?? ':warning:'
+  const emoji = EMOJI_ACCESSI[segnale.livello] ?? '⚠️'
   const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
   // Il database logico da solo non identifica niente: `postgres` e' il nome che hanno quasi tutti, e
   // chi legge non sa DI QUALE cluster si stia parlando quando ce n'e' piu' di uno. Davanti ci va il
