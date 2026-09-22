@@ -12,6 +12,13 @@ import { risolviProfilo, valuta, testoRegola } from './soglie.js'
 // richieste la percentuale non decide da sola, ma «sono fallite tutte» allarma lo stesso
 // (`tuttoFallitoAllarma`), o una API poco chiamata potrebbe stare giù in silenzio.
 // Permesso: cloudwatch:GetMetricData. Config: aws: { type: apigateway, apiName: <nome>, stage?: <stage> }
+// La decisione, separata dalla lettura: è la parte che si sbaglia, e così si prova senza fingere
+// una risposta di CloudWatch.
+export function valutaApigw(e5, count, override = null) {
+  const soglia = risolviProfilo('utente', override)
+  return { soglia, sforo: valuta(e5, count, soglia) }
+}
+
 export async function apigatewayRuntime(cfg, aws, opts = {}) {
   const t = opts.t ?? ((k) => k)
   if (!cfg.apiName) return { status: 'unknown', reason: t('apigw.noname') }
@@ -28,8 +35,7 @@ export async function apigatewayRuntime(cfg, aws, opts = {}) {
   const sum = (id) => (res.MetricDataResults?.find((r) => r.Id === id)?.Values ?? []).reduce((a, b) => a + b, 0)
   const count = sum('c')
   const e5 = sum('e')
-  const soglia = risolviProfilo('utente', cfg.soglie ?? opts.soglie?.apigateway)
-  const sforo = valuta(e5, count, soglia)
+  const { soglia, sforo } = valutaApigw(e5, count, cfg.soglie ?? opts.soglie)
   // La finestra è 15 minuti e non lo diceva nessuno: "3.400 richieste" senza periodo non è un numero.
   // Sta nel testo e non in un campo `window`: quello lo rende solo la card, e questo provider non
   // espone metriche, quindi lì non arriverebbe mai — due fonti per lo stesso dato, una muta.

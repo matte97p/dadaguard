@@ -111,12 +111,19 @@ export function risolviProfilo(nome, override = null) {
   // Tutte e due spente vorrebbe dire sorveglianza cancellata scrivendo due zeri: lì vince il
   // profilo, perché non sapere non è un permesso a tacere.
   const vuoto = min === null && rate === null
+  const minFinale = vuoto ? base.min : min
+  const rateFinale = vuoto ? base.rate : rate
+  // ⚠️ Se dopo gli override la percentuale resta l'unica condizione, il campione minimo ci vuole
+  // anche dove il profilo non ne aveva bisogno: nei profili in «e» a fare da guardia era il minimo
+  // assoluto, e toglierlo da config lascerebbe la percentuale a decidere su un denominatore da
+  // niente. È il guasto del 23/08/2026, di nuovo: UN errore su 8 chiamate è il 12,5%.
+  const decideDaSola = minFinale === null && rateFinale !== null
   return {
     ...base,
-    min: vuoto ? base.min : min,
-    rate: vuoto ? base.rate : rate,
+    min: minFinale,
+    rate: rateFinale,
     combina: base.min === null && min !== null ? 'o' : base.combina,
-    campione: numero(d.campione, base.campione),
+    campione: numero(d.campione, decideDaSola && !base.campione ? CAMPIONE_MINIMO : base.campione),
     rafficaMinuti: numero(d.rafficaMinuti, RAFFICA_MINUTI),
   }
 }
