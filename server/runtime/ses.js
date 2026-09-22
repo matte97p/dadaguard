@@ -1,6 +1,7 @@
 import { metricValues } from './cw.js'
 import { identityT } from '../i18n.js'
 import { fmtCount } from '../util/format.js'
+import { risolviProfilo, valuta } from './soglie.js'
 
 // RuntimeProvider SES (invio email). Metriche CloudWatch AWS/SES a livello account: volume inviato,
 // bounce e complaint. Il segnale chiave è la DELIVERABILITY: AWS sospende l'invio se il bounce rate
@@ -26,10 +27,15 @@ export async function sesRuntime(cfg, aws, opts = {}) {
   if (!m.send) return { status: 'idle', summary: t('ses.idle', { hours }) }
   const bounceRate = (m.bounce / m.send) * 100
   const complaintRate = (m.complaint / m.send) * 100
-  // Soglie di reputazione AWS: oltre queste l'account rischia la sospensione.
-  const BOUNCE_MAX = 5
-  const COMPLAINT_MAX = 0.1
-  const status = bounceRate > BOUNCE_MAX || complaintRate > COMPLAINT_MAX ? 'degraded' : 'up'
+  // Soglie di reputazione AWS: oltre queste l'account rischia la sospensione. Sono il profilo
+  // `reputazione` di `soglie.js` (dal 22/09/2026), cioè percentuale pura: qui il numero non lo
+  // scegliamo noi, lo sceglie chi può sospenderci l'account, e un minimo assoluto non c'entra
+  // niente. Restano DUE soglie diverse perché AWS ne dichiara due.
+  const sogliaBounce = risolviProfilo('reputazione', { rate: (cfg.soglie?.bounce ?? opts.soglie?.ses?.bounce ?? 5) / 100 })
+  const sogliaComplaint = risolviProfilo('reputazione', { rate: (cfg.soglie?.complaint ?? opts.soglie?.ses?.complaint ?? 0.1) / 100 })
+  const BOUNCE_MAX = sogliaBounce.rate * 100
+  const COMPLAINT_MAX = sogliaComplaint.rate * 100
+  const status = valuta(m.bounce, m.send, sogliaBounce) || valuta(m.complaint, m.send, sogliaComplaint) ? 'degraded' : 'up'
   const parts = [
     t('ses.sent', { n: fmtCount(Math.round(m.send)) }),
     t('ses.bounce', { p: bounceRate.toFixed(1) }),
