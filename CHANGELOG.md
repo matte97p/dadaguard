@@ -5,6 +5,26 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Falso «GIÙ» sui cron MENSILI, e intermittente** (22/09/2026). Un cron mensile di produzione
+  risultava giu' con «nessuna esecuzione (l'ultima attesa 19g fa)» mentre l'esecuzione c'era stata,
+  era riuscita e aveva mandato la sua mail. La granularita' ammessa del `Period` di `GetMetricData`
+  dipende da quanto indietro parte la finestra (multiplo di 60 fino a 15 giorni, di 300 fra 15 e 63,
+  di 3600 oltre), e `metricValues` ne calcolava sempre e solo un multiplo di 60: su un dead man's
+  switch mensile la finestra vale 18-31 giorni, cioe' la banda dei 300, e quattro volte su cinque il
+  `Period` non era valido. ⚠️ Una richiesta che viola quella regola NON fallisce: CloudWatch risponde
+  200 con `Values: []`, e il dead man's switch legge il vuoto come «zero invocazioni». Misurato sulla
+  stessa finestra e sulla stessa metrica: `Period` 66660 restituisce zero punti, 66600 ne restituisce
+  due. Era anche intermittente, ed e' la parte che rendeva impossibile la diagnosi dal messaggio:
+  `period` cresce di 60s ogni 24 minuti al passare di `now`, quindi lo stesso cron lampeggiava fra
+  GIU' e SU senza che nessuno l'avesse toccato, e chi guardava mezz'ora dopo lo trovava sano. Adesso
+  la granularita' la sceglie `periodFor`, che arrotonda per ECCESSO (per difetto il bucket puo'
+  scendere sotto la granularita' minima) con i margini a 14 e 62 giorni invece di 15 e 63: una
+  granularita' piu' grossa del necessario CloudWatch la accetta sempre, quindi si sbaglia dalla parte
+  che non perde punti. Sotto i 14 giorni non cambia niente. Prove in `test/cw.test.js`, che percorrono
+  minuto per minuto tutte le finestre fino a 95 giorni: `period` cambia ogni 24 minuti di finestra,
+  quindi un campione rado salterebbe proprio i valori che sforano.
+
 ### Changed
 - **Le soglie degli allarmi sono per TIPOLOGIA di segnale, non per servizio** (22/09/2026). Ogni
   provider aveva la sua regola scritta in casa: Bedrock una coppia minimo+percentuale, le lambda un
