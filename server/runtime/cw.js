@@ -24,6 +24,25 @@ function clientFor(aws) {
 // stesso tick (FLUSH_MS), vengono unite in poche GetMetricData (≤500 metriche/chiamata) invece di una
 // per servizio → molte meno chiamate CloudWatch (anti-throttling). Ogni chiamante riceve solo i suoi
 // valori. La firma è quella di prima: i provider non cambiano.
+// `Period` ammesso da CloudWatch: la granularità dipende da QUANTO INDIETRO parte la finestra, e una
+// richiesta che la viola NON fallisce — torna `Values: []` con HTTP 200. Un dead man's switch legge
+// quel vuoto come «nessuna esecuzione» e dice GIÙ su un cron sano. Visto il 22/09/2026 su un cron
+// MENSILE di produzione: finestra di 18 giorni, `Period` 66660 → zero punti, mentre 66600 sulla
+// stessa finestra ne restituiva due. Il guasto è muto e intermittente:
+// `period` cresce di 60s ogni 24 minuti al passare di `now`, quindi cade su un multiplo di 300 solo
+// una volta su cinque, e il cron lampeggia fra GIÙ e SU senza che nessuno l'abbia toccato.
+//   ≤ 15 giorni  → multiplo di 60
+//   15-63 giorni → multiplo di 300
+//   > 63 giorni  → multiplo di 3600
+// I margini sono stretti apposta (14 e 62 giorni invece di 15 e 63): una granularità più GROSSA del
+// necessario CloudWatch la accetta sempre, quindi si sbaglia dalla parte che non perde punti.
+// Si arrotonda per ECCESSO: per difetto il bucket può scendere sotto la granularità minima.
+export function periodFor(windowMin) {
+  const grana = windowMin > 62 * 1440 ? 3600 : windowMin > 14 * 1440 ? 300 : 60
+  const grezzo = Math.max(grana, Math.round(windowMin / 24) * 60) // ~24 bucket sulla finestra
+  return Math.min(86400, Math.ceil(grezzo / grana) * grana) // 86400 è multiplo di tutte e tre
+}
+
 const FLUSH_MS = 20
 const queues = new Map()
 
@@ -47,9 +66,8 @@ async function flush(bkey) {
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - windowMin * 60 * 1000)
   // ~24 bucket invece di un unico secchione: l'aggregato client-side resta corretto (Sum/Max/Avg
-  // sono order/bucket-independent) e in più otteniamo la SERIE per le sparkline. Period ≥ 60s (multiplo).
-  const windowSec = windowMin * 60
-  const period = Math.min(86400, Math.max(60, Math.round(windowSec / 24 / 60) * 60))
+  // sono order/bucket-independent) e in più otteniamo la SERIE per le sparkline.
+  const period = periodFor(windowMin)
 
   // ID globale per (item i, query j): "i{i}q{j}" → riconducibile al chiamante alla ricezione.
   const all = []
