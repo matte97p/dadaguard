@@ -58,7 +58,6 @@ const S = {
     // Dettaglio per la NOTIFICA: errori in valore assoluto (il 10,7% di 28 chiamate sono 3), la
     // finestra — che il ramo cron scriveva già e l'on-demand no — e la regola che ha fatto scattare.
     'lambda.alerterr': '{err} {err#errore#errori} su {n} chiamate ({p}%) in {window}',
-    'lambda.regola': 'un errore o un throttle qualsiasi',
     'lambda.regolatimeout': 'p95 oltre l’80% del timeout',
     'aws.throttled': 'rate limit AWS — riprovo al refresh',
     'aws.denied': 'accesso negato (permessi insufficienti)',
@@ -175,11 +174,25 @@ const S = {
     // Il perché dell'allarme, dentro al messaggio: quale segnale, con che numeri, e la regola che
     // l'ha fatto scattare. Serve a tarare le soglie leggendo la chat, senza aprire il codice.
     'bedrock.sopraSoglia': 'oltre soglia {segnale} su {finestra}: {n} su {inv} ({pct}%) · scatta a {regola}',
-    'bedrock.regola.o': '≥{min} o ≥{rate}% su almeno {campione} invocazioni',
+    // Le regole stanno sotto `soglia.*` e non sotto il nome di un servizio: la tipologia è condivisa
+    // (vedi `server/runtime/soglie.js`), quindi Bedrock, le API e le lambda devono dire la loro
+    // soglia con le STESSE parole, o chi legge il canale crede che siano regole diverse.
+    'soglia.regola.o': '≥{min} o ≥{rate}% su almeno {campione} {unita}',
     // La consecutività si appende alla regola invece di stare in una frase sua: chi legge deve poter
     // dire in un colpo perché QUELL'allarme è uscito, e perché quello di ieri no.
-    'bedrock.regola.raffica': ', e con errori per almeno {minuti} minuti di fila',
-    'bedrock.regola.e': '≥{min} e ≥{rate}%',
+    'soglia.regola.raffica': ', e con errori per almeno {minuti} minuti di fila',
+    'soglia.regola.e': '≥{min} e ≥{rate}%',
+    // I due profili con una sola condizione: la percentuale da sola (dove il chiamante ritenta, o
+    // dove l'errore lo vede l'utente) e il conteggio da solo (dove il denominatore sono tre run di
+    // un cron, e una percentuale non direbbe niente).
+    'soglia.regola.rate': '≥{rate}% su almeno {campione} {unita}',
+    'soglia.regola.min': '≥{min} errori nella finestra',
+    // Il nome di quello che sta al DENOMINATORE, che cambia col servizio: una regola che dice
+    // «invocazioni» sull'allarme di un cron da tre esecuzioni al giorno si legge come un errore.
+    'soglia.unita.chiamate': 'chiamate',
+    'soglia.unita.invocazioni': 'invocazioni',
+    'soglia.unita.richieste': 'richieste',
+    'soglia.unita.esecuzioni': 'esecuzioni',
     'bedrock.ancora': 'ancora sopra soglia negli ultimi {window}',
     'bedrock.rientro': 'ultimi {window} sotto soglia: probabile rientro, confermato quando è pulita la finestra da {conferma}',
     'bedrock.appena': 'sopra soglia solo negli ultimi {window}: non è ancora una finestra da {conferma}',
@@ -269,7 +282,6 @@ const S = {
 
     'apigw.summary': '{n} richieste · {e} 5xx ({window})',
     'apigw.alert': '{e} {e#errore#errori} 5xx su {n} richieste in {window}',
-    'apigw.regola': 'un solo 5xx',
     'apigw.noname': 'manca `apiName`',
     'sfn.ok': 'attiva · nessun fallimento recente',
     'sfn.failed': '{n} esecuzioni fallite (24h)',
@@ -406,7 +418,6 @@ const S = {
     'lambda.p95': 'p95 {d}',
     'lambda.neartimeout': 'near timeout ({d})',
     'lambda.alerterr': '{err} {err#error#errors} out of {n} calls ({p}%) in {window}',
-    'lambda.regola': 'any single error or throttle',
     'lambda.regolatimeout': 'p95 above 80% of the timeout',
     'aws.throttled': 'AWS rate limit — retry on refresh',
     'aws.denied': 'access denied (insufficient permissions)',
@@ -507,9 +518,15 @@ const S = {
     'bedrock.throttled': '{n} throttled',
     'bedrock.latency': 'lat ~{d}',
     'bedrock.sopraSoglia': 'over the {segnale} threshold on {finestra}: {n} of {inv} ({pct}%) · fires at {regola}',
-    'bedrock.regola.o': '≥{min} or ≥{rate}% over at least {campione} invocations',
-    'bedrock.regola.raffica': ', and with errors over at least {minuti} consecutive minutes',
-    'bedrock.regola.e': '≥{min} and ≥{rate}%',
+    'soglia.regola.o': '≥{min} or ≥{rate}% over at least {campione} {unita}',
+    'soglia.regola.raffica': ', and with errors over at least {minuti} consecutive minutes',
+    'soglia.regola.e': '≥{min} and ≥{rate}%',
+    'soglia.regola.rate': '≥{rate}% over at least {campione} {unita}',
+    'soglia.regola.min': '≥{min} errors in the window',
+    'soglia.unita.chiamate': 'calls',
+    'soglia.unita.invocazioni': 'invocations',
+    'soglia.unita.richieste': 'requests',
+    'soglia.unita.esecuzioni': 'runs',
     'bedrock.ancora': 'still over threshold in the last {window}',
     'bedrock.rientro': 'last {window} below threshold: likely recovering, confirmed once the {conferma} window is clean',
     'bedrock.appena': 'over threshold only in the last {window}: not yet a full {conferma} window',
@@ -589,7 +606,6 @@ const S = {
 
     'apigw.summary': '{n} requests · {e} 5xx ({window})',
     'apigw.alert': '{e} 5xx {e#error#errors} out of {n} requests in {window}',
-    'apigw.regola': 'a single 5xx',
     'apigw.noname': 'missing `apiName`',
     'sfn.ok': 'active · no recent failures',
     'sfn.failed': '{n} failed executions (24h)',

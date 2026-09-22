@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { slackMessage, causeLabel, cleanDetail } from '../server/notify/slack.js'
+import { risolviProfilo, testoRegola } from '../server/runtime/soglie.js'
 import { snapshot } from '../server/notify/diff.js'
 import { unhealthyList } from '../server/runtime/alb.js'
 import { truncateList, truncateItems } from '../server/util/format.js'
@@ -78,8 +79,8 @@ test('dettaglio: quando si taglia, la coda con soglia e conseguenza resta', () =
   assert.match(out, /scritture a rischio$/, 'la frase più grave sopravvive al taglio')
   assert.match(out, /^aurora-postgresql/, 'e l’inizio dice ancora di chi si parla')
 
-  const lambda = `${'chiamate '.repeat(20)}· scatta a: un errore o un throttle qualsiasi`
-  assert.match(cleanDetail(lambda), /scatta a: un errore o un throttle qualsiasi$/, 'vale per la regola come per la conseguenza')
+  const lambda = `${'chiamate '.repeat(20)}· scatta a: ≥1% su almeno 20 chiamate`
+  assert.match(cleanDetail(lambda), /scatta a: ≥1% su almeno 20 chiamate$/, 'vale per la regola come per la conseguenza')
 })
 
 test('dettaglio: `alert` vince su `summary` — la card e la chat non vogliono la stessa frase', () => {
@@ -153,11 +154,11 @@ test('la riga intera: la soglia che ha fatto scattare l’allarme sta nel messag
     t('lambda.alerterr', { err: 3, n: 28, p: '10.7', window: '60m' }) +
     ' · ' +
     t('lambda.p95', { d: '751ms' }) +
-    t('rule.fires', { regola: t('lambda.regola') })
+    t('rule.fires', { regola: testoRegola(risolviProfilo('utente'), t, t('soglia.unita.chiamate')) })
   const { text } = slackMessage(
     [{ kind: 'alert', name: 'webhook-dispatch', account: 'Staging', from: 'up', to: 'degraded', cause: 'runtime', type: 'lambda', detail }],
     { t },
   )
   assert.match(text, /3 errori su 28 chiamate \(10\.7%\) in 60m/, 'errori in valore assoluto e finestra')
-  assert.match(text, /scatta a: un errore o un throttle qualsiasi/, 'e la regola')
+  assert.match(text, /scatta a: ≥1% su almeno 20 chiamate/, 'e la regola, composta da soglie.js e non ricopiata')
 })

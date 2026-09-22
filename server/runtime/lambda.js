@@ -6,6 +6,7 @@ import { lastModifier } from './lastModifier.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { fmtMs, fmtCount } from '../util/format.js'
+import { risolviProfilo, valuta, testoRegola } from './soglie.js'
 
 // RuntimeProvider per Lambda. Due profili di salute:
 //  - on-demand (webhook/event): finestra breve; 0 invocazioni = `idle` (ok, nessuno l'ha chiamata).
@@ -15,6 +16,31 @@ import { fmtMs, fmtCount } from '../util/format.js'
 // Permessi: cloudwatch:GetMetricData, lambda:GetFunctionConfiguration (+ lambda:GetAlias se `alias`).
 const DEFAULT_WINDOW_MIN = 60 // idle on-demand: 60 min di silenzio prima di "a riposo" (era 15, troppo aggressivo)
 const TIMEOUT_WARN = 0.8
+
+// Quando un errore diventa un guasto: la regola non sta qui, sta in `soglie.js`, per tipologia di
+// segnale (dal 22/09/2026). Una lambda ne usa due, e la differenza è il DENOMINATORE.
+//  - cron → `esecuzioni`: il denominatore sono una o tre run, dove una percentuale non dice niente
+//    (1 errore su 1 run è il 100%, 1 su 3 è il 33%, e vogliono dire la stessa cosa). Zero
+//    tolleranza, e il backtest del 22/09/2026 dice che è giusto: in 30 giorni la produzione ha avuto
+//    4 lambda con errori e 11 ore di allarme, 8 delle quali col 100% delle esecuzioni fallite.
+//  - on-demand → `utente`: dietro c'è qualcuno che aspetta una risposta e non ritenta, quindi vale
+//    la stessa soglia di una API pubblica, con la scappatoia per «è fallito tutto» sotto campione.
+// ⚠️ Il throttling di una lambda NON è il profilo `capacita` come altrove: una run schedulata
+// rifiutata per quota è una run che non è avvenuta, cioè lo stesso guasto di una run fallita.
+const PROFILO = { cron: 'esecuzioni', ondemand: 'utente', throttleOndemand: 'capacita' }
+
+// Gli override di config per una lambda, dal ramo GIUSTO. I due rami hanno profili diversi
+// (`esecuzioni` e `utente`), quindi un solo oggetto per tutti e due vorrebbe dire che una `rate`
+// pensata per le on-demand trasforma la tolleranza zero dei cron in una condizione «e», cioè
+// zittisce i cron senza che nessuno l'abbia chiesto. Forma:
+//   soglie: { lambda: { cron: { min: 2 }, ondemand: { rate: 0.05 } } }
+// Un oggetto piatto (senza `cron`/`ondemand`) vale per tutti e due: è la forma corta per chi ha una
+// lambda sola e sa di che ramo è.
+function sogliaDi(cfg, opts, ramo) {
+  const per = cfg?.soglie ?? opts?.soglie ?? null
+  if (!per) return null
+  return per.cron || per.ondemand ? (per[ramo] ?? null) : per
+}
 
 // Durata compatta con unità tradotte (g/h/m IT, d/h/m EN). `t` di default = identità.
 function fmtDur(min, t = identityT) {
@@ -89,7 +115,9 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     ['thr', 'Throttles', 'Sum'],
   ]
   queries.push(['dur', 'Duration', 'p95']) // p95 → il batcher aggrega col max dei punti (anche per i cron: latenza)
-  const m = await metricValues(aws, 'AWS/Lambda', dims, queries, windowMin)
+  // Iniettabile come `deps` in runOnce, stessa convenzione di `bedrock.js`: le soglie sono la parte
+  // che si sbaglia, e va provata senza rete.
+  const m = await (opts.metricValues ?? metricValues)(aws, 'AWS/Lambda', dims, queries, windowMin)
   const invocations = m.inv
   const errors = m.err
   const throttles = m.thr
@@ -121,7 +149,13 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       }
     }
     // Tutte le invocazioni falliscono → la cron di fatto non completa mai: GIÙ, non solo ATTENZIONE.
-    const status = errors >= invocations ? 'down' : throttles > 0 || errors > 0 ? 'degraded' : 'up'
+    const soglia = risolviProfilo(PROFILO.cron, sogliaDi(cfg, opts, 'cron'))
+    // ⚠️ Errori e throttle si valutano SEPARATI, e non sommati in un numeratore solo: un tentativo
+    // rifiutato per quota non compare in `Invocations`, quindi `1 errore + 4 throttle` su 5
+    // invocazioni sembrerebbe «sono fallite tutte» mentre quattro run su cinque sono andate bene.
+    const sforo = valuta(errors, invocations, soglia)
+    const sforoThr = valuta(throttles, invocations, soglia)
+    const status = sforo?.tuttoFallito ? 'down' : sforo || sforoThr ? 'degraded' : 'up'
     const p95 = m.dur
     const parts = [t('lambda.runs', { n: invocations }), t('lambda.errors', { n: errors })]
     if (throttles > 0) parts.push(t('lambda.throttled', { n: throttles }))
@@ -137,7 +171,10 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     if (p95) metrics.push({ label: t('m.latency'), value: `~${fmtMs(Math.round(p95))}`, kind: 'latency', ms: Math.round(p95), spark: m.series?.dur, sparkUnit: 'ms' })
     return {
       status,
-      outcome: errors >= invocations ? 'failed' : 'ok',
+      // `outcome` deve seguire lo STESSO esito dello stato: ci instradano `notify/route.js` e
+      // `slack.js`, quindi un `down` con `outcome: 'ok'` manderebbe l'allarme al destinatario
+      // sbagliato, o non lo manderebbe affatto.
+      outcome: sforo?.tuttoFallito ? 'failed' : 'ok',
       summary: `${parts.join(' · ')} (${fmtDur(windowMin, t)})`,
       metrics,
       window: fmtDur(windowMin, t),
@@ -166,8 +203,14 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const p95 = m.dur
   const errRate = (errors / invocations) * 100
   const nearTimeout = timeoutSec && p95 >= timeoutSec * 1000 * TIMEOUT_WARN
+  const soglia = risolviProfilo(PROFILO.ondemand, sogliaDi(cfg, opts, 'ondemand'))
+  // Il throttling di una lambda ON-DEMAND è capacità che finisce, non un errore visto dall'utente:
+  // profilo suo, come ovunque altrove. È il ramo cron a fare eccezione, perché lì una run rifiutata
+  // per quota è una run che non è avvenuta.
+  const sforoThr = valuta(throttles, invocations, risolviProfilo(PROFILO.throttleOndemand, sogliaDi(cfg, opts, 'throttle')))
+  const sforo = valuta(errors, invocations, soglia)
   // 100% di errori = il servizio non funziona mai → GIÙ; errori parziali → ATTENZIONE.
-  const status = errors >= invocations ? 'down' : throttles > 0 || errors > 0 || nearTimeout ? 'degraded' : 'up'
+  const status = sforo?.tuttoFallito ? 'down' : sforo || sforoThr || nearTimeout ? 'degraded' : 'up'
 
   const parts = [
     t('lambda.calls', { n: fmtCount(invocations) }),
@@ -208,8 +251,12 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
         ]
           .filter(Boolean)
           .join(' · ') +
-        // La regola citata deve essere QUELLA che è scattata: un p95 vicino al timeout non è un errore.
-        t('rule.fires', { regola: errors > 0 || throttles > 0 ? t('lambda.regola') : t('lambda.regolatimeout') })
+        // La regola citata deve essere QUELLA che è scattata: un p95 vicino al timeout non è un
+        // errore. E quando è una soglia, la frase la compone `soglie.js`, cioè lo stesso posto che
+        // ha deciso: un testo ricopiato qui mentirebbe al primo cambio di taratura.
+        t('rule.fires', {
+          regola: sforo || sforoThr ? testoRegola(soglia, t, t('soglia.unita.chiamate')) : t('lambda.regolatimeout'),
+        })
 
   return {
     status,
