@@ -111,3 +111,13 @@ test('spegnere il minimo di un profilo in «e» non lascia la percentuale sola s
   assert.equal(p.min, null)
   assert.equal(p.campione, 20, 'senza il minimo assoluto a fare da guardia, il campione ci vuole')
 })
+
+test('lambda on-demand: il throttling è capacità, non un errore visto dall utente', async () => {
+  // 2 throttle su 100 chiamate sono il 2%: sopra all 1% del profilo `utente`, sotto al `capacita`
+  // (che vuole >=3 E >=1%). È il ramo cron a fare eccezione, perché lì una run rifiutata per quota
+  // è una run che non è avvenuta.
+  const r = await lambdaRuntime({ function: 'f' }, {}, { metricValues: metriche({ inv: 100, thr: 2 }), t })
+  assert.equal(r.status, 'up')
+  const tanti = await lambdaRuntime({ function: 'f' }, {}, { metricValues: metriche({ inv: 100, thr: 5 }), t })
+  assert.equal(tanti.status, 'degraded')
+})

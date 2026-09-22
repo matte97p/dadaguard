@@ -27,7 +27,7 @@ const TIMEOUT_WARN = 0.8
 //    la stessa soglia di una API pubblica, con la scappatoia per «è fallito tutto» sotto campione.
 // ⚠️ Il throttling di una lambda NON è il profilo `capacita` come altrove: una run schedulata
 // rifiutata per quota è una run che non è avvenuta, cioè lo stesso guasto di una run fallita.
-const PROFILO = { cron: 'esecuzioni', ondemand: 'utente' }
+const PROFILO = { cron: 'esecuzioni', ondemand: 'utente', throttleOndemand: 'capacita' }
 
 // Gli override di config per una lambda, dal ramo GIUSTO. I due rami hanno profili diversi
 // (`esecuzioni` e `utente`), quindi un solo oggetto per tutti e due vorrebbe dire che una `rate`
@@ -204,8 +204,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   const errRate = (errors / invocations) * 100
   const nearTimeout = timeoutSec && p95 >= timeoutSec * 1000 * TIMEOUT_WARN
   const soglia = risolviProfilo(PROFILO.ondemand, sogliaDi(cfg, opts, 'ondemand'))
+  // Il throttling di una lambda ON-DEMAND è capacità che finisce, non un errore visto dall'utente:
+  // profilo suo, come ovunque altrove. È il ramo cron a fare eccezione, perché lì una run rifiutata
+  // per quota è una run che non è avvenuta.
+  const sforoThr = valuta(throttles, invocations, risolviProfilo(PROFILO.throttleOndemand, sogliaDi(cfg, opts, 'throttle')))
   const sforo = valuta(errors, invocations, soglia)
-  const sforoThr = valuta(throttles, invocations, soglia)
   // 100% di errori = il servizio non funziona mai → GIÙ; errori parziali → ATTENZIONE.
   const status = sforo?.tuttoFallito ? 'down' : sforo || sforoThr || nearTimeout ? 'degraded' : 'up'
 
