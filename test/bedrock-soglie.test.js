@@ -66,21 +66,29 @@ test('4xx: ondata vera (>=5% e >=5 errori), e in corso adesso → down', async (
   assert.equal(await stato({ inv: 100, cerr: 8 }, { inv: 25, cerr: 5 }), 'down')
 })
 
-// --- 5xx: è Bedrock che rompe → basta UNA delle due condizioni ---
-test('5xx: 50 errori server allarmano anche su volumi alti (OR, non AND)', async () => {
-  assert.equal(await stato({ inv: 10000, serr: 50 }), 'down')
+// --- 5xx: profilo `ritentati`, cioè la sola PERCENTUALE (vedi server/runtime/soglie.js) ---
+// Il conteggio assoluto è uscito dalla regola il 22/09/2026: un tetto in valore assoluto non scala
+// col traffico, e su questo modello (2.300 invocazioni l'ora) il vecchio ≥50 valeva il 2,2%.
+test('5xx: un conteggio alto su un volume alto NON basta più (50 su 10.000 è lo 0,5%)', async () => {
+  assert.equal(await stato({ inv: 10000, serr: 50 }), 'up')
 })
 
-test('5xx: 49 errori server su volumi alti non allarmano (sotto il minimo assoluto)', async () => {
-  assert.equal(await stato({ inv: 10000, serr: 49 }), 'up')
+test('5xx: lo stesso conteggio su un volume piccolo allarma, perché lì è il 10%', async () => {
+  assert.equal(await stato({ inv: 500, serr: 50 }), 'down')
 })
 
 test('5xx: 5 errori su 20 invocazioni allarmano per percentuale (25%)', async () => {
   assert.equal(await stato({ inv: 20, serr: 5 }), 'down')
 })
 
-test('5xx: 4 errori su 20 invocazioni (20%) resta sotto entrambi i rami', async () => {
-  assert.equal(await stato({ inv: 20, serr: 4 }), 'up')
+test('5xx: 1 errore su 20 invocazioni (5%) resta sotto la soglia', async () => {
+  assert.equal(await stato({ inv: 20, serr: 1 }), 'up')
+})
+
+// Il caso vero del 21/09/2026, l'ora prima del picco: col vecchio ≥25% questa finestra taceva e
+// l'allarme arrivava un'ora dopo. È il guadagno della taratura al 10%, non un effetto collaterale.
+test('5xx: 306 errori su 1.997 invocazioni (15,3%) allarmano un ora prima del picco', async () => {
+  assert.equal(await stato({ inv: 1997, serr: 306 }), 'down')
 })
 
 // Il caso reale #4, 18/09/2026 in canale: 12 errori server su 300 invocazioni, cioè il 4%, e in
@@ -195,7 +203,7 @@ test('il messaggio dice QUALE soglia è stata superata, con i numeri e la regola
   assert.match(r.summary, /su 60m: 60 su 200 \(30%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
   assert.match(
     r.summary,
-    /≥50 o ≥25% su almeno 20 invocazioni, e con errori per almeno 3 minuti di fila/,
+    /≥10% su almeno 20 invocazioni, e con errori per almeno 3 minuti di fila/,
     'e con la regola INTERA, campione minimo e consecutività compresi: sono le condizioni che hanno deciso la taratura',
   )
 })
@@ -290,7 +298,7 @@ test('la consecutività vale sul 5xx, non sul 4xx (lì la guardia è già il min
 test('in chat resta la regola, non la coda che non dice a che soglia', async () => {
   const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })
   const inChat = cleanDetail(r.summary)
-  assert.match(inChat, /scatta a ≥50 o ≥25%/, 'chi legge deve poter dire perché è uscito questo allarme')
+  assert.match(inChat, /scatta a ≥10% su almeno 20 invocazioni/, 'chi legge deve poter dire perché è uscito questo allarme')
 })
 
 // --- le soglie si dichiarano in config, non solo nel codice --------------------------------------
@@ -318,16 +326,28 @@ test('soglie: quelle del servizio vincono su quelle per tipo', async () => {
 })
 
 test('soglie: un valore che numero non è tiene il default, invece di spegnere la soglia', async () => {
-  assert.equal(risolviSoglie({ soglie: { serr: { min: 'tanti' } } }).serr.min, 50)
-  assert.equal(risolviSoglie({ soglie: { serr: { rate: 7 } } }).serr.rate, 0.25, 'una percentuale > 1 non è una percentuale')
+  assert.equal(risolviSoglie({ soglie: { serr: { min: 'tanti' } } }).serr.min, null, 'il profilo `ritentati` non ha un minimo assoluto')
+  assert.equal(risolviSoglie({ soglie: { serr: { rate: 7 } } }).serr.rate, 0.1, 'una percentuale > 1 non è una percentuale')
   assert.equal(risolviSoglie({ soglie: { rafficaMinuti: null } }).rafficaMinuti, 3)
 })
 
 test('soglie: una config parziale non tocca i segnali che non nomina', async () => {
   const s = risolviSoglie({ soglie: { serr: { min: 10 } } })
-  assert.equal(s.serr.min, 10)
-  assert.equal(s.serr.rate, 0.25, 'la percentuale resta quella di default')
+  assert.equal(s.serr.min, 10, 'un minimo assoluto si può RIMETTERE da config, e allora vale')
+  assert.equal(s.serr.combina, 'o', 'e si combina in `o` con la percentuale, come faceva la regola storica')
+  assert.equal(s.serr.rate, 0.1, 'la percentuale resta quella del profilo')
   assert.equal(s.cerr.min, 5, 'e il 4xx non è stato toccato')
+})
+
+// Una soglia a zero non è una soglia bassa: `n >= 0` è sempre vero, quindi suonerebbe a ogni
+// finestra. Vale come «questa condizione non esiste», ed è l'unico modo esplicito per toglierne una.
+test('soglie: una soglia a zero si legge come SPENTA, non come sempre vera', async () => {
+  const s = risolviSoglie({ soglie: { cerr: { rate: 0 } } })
+  assert.equal(s.cerr.rate, null)
+  assert.equal(s.cerr.min, 5, 'e resta l altra condizione')
+  const tutte = risolviSoglie({ soglie: { cerr: { rate: 0, min: 0 } } })
+  assert.equal(tutte.cerr.min, 5, 'spegnerle tutte e due vorrebbe dire cancellare la sorveglianza: vince il profilo')
+  assert.equal(tutte.cerr.rate, 0.05)
 })
 
 // --- il contratto del check (standard dei messaggi, §8.2) ---------------------------------------
@@ -336,8 +356,8 @@ test('contratto: i cinque campi ci sono, e i numeri vengono dalle soglie vere', 
   for (const campo of ['misura', 'fonte', 'finestra', 'soglia', 'rimedio']) {
     assert.ok(c[campo], `manca il campo ${campo}`)
   }
-  assert.match(c.soglia.guasto, /≥50 o ≥25%/, 'le soglie del 5xx')
-  assert.match(c.soglia.guasto, /≥3 minuti di fila/, 'e la durata')
+  assert.match(c.soglia.guasto, /≥10% su almeno 20 invocazioni/, 'le soglie del 5xx')
+  assert.match(c.soglia.guasto, /almeno 3 minuti di fila/, 'e la durata')
   assert.match(c.fonte, /AWS\/Bedrock/)
   assert.match(c.fonte, /ModelId=test-model/, 'la fonte dice con quale dimension legge')
 })
@@ -345,12 +365,12 @@ test('contratto: i cinque campi ci sono, e i numeri vengono dalle soglie vere', 
 test('contratto: cambiando la soglia in config cambia il contratto, che non si riscrive a mano', () => {
   const c = contratto({ model: 'test-model', soglie: { serr: { min: 10, rate: 0.5 }, rafficaMinuti: 9 } })
   assert.match(c.soglia.guasto, /≥10 o ≥50%/)
-  assert.match(c.soglia.guasto, /≥9 minuti di fila/)
+  assert.match(c.soglia.guasto, /almeno 9 minuti di fila/)
 })
 
 test('contratto: viaggia col risultato, anche quando il modello non è stato chiamato', async () => {
   const vivo = await leggi({ inv: 300, serr: 12 })
-  assert.match(vivo.contratto.soglia.guasto, /≥50 o ≥25%/)
+  assert.match(vivo.contratto.soglia.guasto, /≥10% su almeno 20 invocazioni/)
   const fermo = await leggi({})
   assert.equal(fermo.status, 'idle')
   assert.ok(fermo.contratto, 'un check fermo deve dire lo stesso a che soglie guardava')

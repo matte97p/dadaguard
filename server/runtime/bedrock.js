@@ -1,5 +1,6 @@
 import { metricValues } from './cw.js'
-import { identityT } from '../i18n.js'
+import { identityT, makeT } from '../i18n.js'
+import { risolviProfilo, valuta, raffica, rafficaBasta, testoRegola } from './soglie.js'
 import { fmtMs, fmtCount } from '../util/format.js'
 
 // RuntimeProvider Amazon Bedrock. Serverless: guardiamo le metriche d'uso su una finestra (CloudWatch
@@ -22,120 +23,28 @@ import { fmtMs, fmtCount } from '../util/format.js'
 const DEFAULT_WINDOW_MIN = 60
 const ACUTE_WINDOW_MIN = 15
 
-// Quando un errore diventa un GUASTO. Un errore isolato non è la piattaforma giù: 358 invocazioni con
-// 1 errore client è rumore normale, e allarmare lì (Bedrock in prod è roba
-// seria) è il modo più rapido per far ignorare gli allarmi veri.
+// Quando un errore diventa un GUASTO: le regole NON stanno qui, stanno in `soglie.js`, per
+// tipologia di segnale. Bedrock ne usa tre, e ognuna risponde a una domanda diversa:
+//   5xx → `ritentati`   l'SDK ritenta da sé, l'utente non se ne accorge finché non sono tanti
+//   throttling → `capacita`   non è un bug, è la quota che finisce
+//   4xx → `chiamante`   di solito è la nostra richiesta a essere sbagliata
 //
-// Ogni segnale ha DUE condizioni, percentuale E minimo assoluto, perché una sola non basta:
-// solo la percentuale fa scattare "1 errore su 2 invocazioni"; solo il minimo assoluto fa scattare
-// 5 errori su un milione. L'eccezione è il 5xx (vedi sotto).
-const SOGLIE = {
-  // 4xx: spesso colpa del chiamante (richiesta malformata, quota, token troppo lunghi) → serve una
-  // vera ondata, non il singolo caso.
-  cerr: { min: 5, rate: 0.05 },
-  // Throttling: non è un bug, è capacità che finisce. Più serio di un 4xx → soglia più bassa.
-  thr: { min: 3, rate: 0.01 },
-  // 5xx: è Bedrock che rompe, non noi, quindi basta UNA delle due condizioni (`or`). Ma 2 errori / 1%
-  // era troppo basso in ENTRAMBI i rami: con ~80 invocazioni l'ora, l'1% vuol dire che un SOLO 503
-  // (rumore noto di Bedrock) suonava — ed è quello che è successo. 5 e 10% alzano tutti e due i rami:
-  // alzare solo la percentuale avrebbe lasciato il ramo assoluto a suonare alla prossima coppia.
-  // Il ramo percentuale vuole anche un campione minimo (vedi `CAMPIONE_MINIMO`): è l'unico che può
-  // decidere da solo, e su una finestra corta lo farebbe con un denominatore da niente.
-  //
-  // 18/09/2026, quarto falso positivo: 12 errori su 300 invocazioni (il 4%, cioè sotto al ramo
-  // percentuale) sono usciti come rosso di produzione dal solo ramo assoluto, e i chiamanti non se
-  // ne erano accorti perché il retry li aveva recuperati tutti. È il punto: su Bedrock un 503
-  // ripreso dal retry NON è un disservizio, e le metriche non lo distinguono da uno che ha rotto la
-  // risposta, perché ogni tentativo conta come una invocazione a sé. Quindi si alza di brutto
-  // (50 e 25%) invece di limare: sotto quei numeri il retry copre, sopra no. E si aggiunge la
-  // CONSECUTIVITÀ (`raffica`), che è la cosa più vicina a «errori consecutivi» che le metriche
-  // permettano: un picco isolato non suona nemmeno se è grosso.
-  serr: { min: 50, rate: 0.25, or: true, raffica: true },
-}
+// Prima del 22/09/2026 i numeri stavano qui dentro e valevano solo per Bedrock. Il 5xx aveva una
+// coppia `≥50 o ≥25%`: il ramo assoluto, su un modello da 2.300 invocazioni l'ora, valeva il 2,2% e
+// decideva sempre lui. Ora il profilo `ritentati` è percentuale pura al 10%, e la stessa tipologia
+// vale per chiunque altro abbia un chiamante che ritenta.
+const PROFILO = { serr: 'ritentati', thr: 'capacita', cerr: 'chiamante' }
 
-// Quanto grande deve essere il campione perché la PERCENTUALE possa decidere da sola. Riguarda solo
-// il 5xx, l'unico con `or`: dove le condizioni sono in `and` la percentuale non decide mai da sola,
-// perché a fare da guardia c'è già il minimo assoluto, e un pavimento anche lì toglierebbe solo veri
-// positivi (5 errori su 6 invocazioni è l'83%, ed è un guasto).
-//
-// Il caso reale del 23/08, terzo falso positivo in cinque giorni: UN 503 su 57 invocazioni nell'ora
-// (1,75%, pulita) ma su 8 invocazioni nei 15 minuti, cioè il 12,5%, che sfonda il 10% e in
-// produzione esce come rosso. La finestra corta ha un denominatore quattro volte più piccolo
-// di quella lunga: le soglie alzate nel #92 guardavano l'ora e hanno lasciato scoperta la finestra
-// che decide da sola. Senza pavimento, con `rate: 0.1`, QUALSIASI errore singolo sfonda finché le
-// invocazioni della finestra sono <= 10, che con questo traffico è la norma, non il caso raro.
-//
-// 20 è il più piccolo campione che regge la regola documentata: 1 errore su 20 è il 5% e resta
-// sotto, 2 su 20 sono il 10% e allarmano.
-const CAMPIONE_MINIMO = 20
-
-// Quanto deve DURARE un guasto per suonare, sul solo 5xx. Non basta contare gli errori della
-// finestra: dieci 503 tutti nello stesso minuto sono un singolo scossone di Bedrock, che il retry
-// assorbe, mentre gli stessi dieci spalmati su minuti attaccati sono il modello che non risponde.
-// Le metriche non sanno se un retry è andato a buon fine (ogni tentativo è una invocazione a sé),
-// quindi la durata è il migliore sostituto della domanda vera, «l'utente se n'è accorto?».
-//
-// Due condizioni insieme, perché la larghezza del bucket cambia con la finestra (60s sui 15 minuti,
-// 180s sull'ora, vedi `cw.js`): almeno due bucket ATTACCATI, e almeno 3 minuti coperti. Sui 15
-// minuti vuol dire 3 bucket, sull'ora 2: in entrambi i casi un buco solo non passa.
-const RAFFICA_BUCKET = 2
-const RAFFICA_MINUTI = 3
-
-// Il più lungo tratto di bucket CONSECUTIVI con errori, contato sui timestamp e non sulle posizioni
-// nell'array: CloudWatch omette i periodi senza dati, quindi due valori vicini nell'array possono
-// essere lontani nel tempo. `null` quando la serie non c'è (letture finte nei test, o una risposta
-// senza timestamp): lì la consecutività non si può decidere, e si lascia passare il conteggio da
-// solo: tacere su un guasto vero è peggio di un allarme in più.
-export function raffica(times, vals, periodSec) {
-  if (!Array.isArray(times) || !Array.isArray(vals) || !periodSec || times.length !== vals.length) return null
-  const passo = periodSec * 1000
-  const caldi = times
-    .map((t, i) => [Number(t), vals[i]])
-    .filter(([t, v]) => Number.isFinite(t) && v > 0)
-    .map(([t]) => t)
-    .sort((a, b) => a - b)
-  let best = 0
-  let run = 0
-  let prev = null
-  for (const t of caldi) {
-    run = prev !== null && t - prev === passo ? run + 1 : 1
-    if (run > best) best = run
-    prev = t
-  }
-  return best
-}
-
-// La raffica è abbastanza lunga da chiamarla guasto?
-function rafficaBasta(run, periodSec, minuti) {
-  return run >= RAFFICA_BUCKET && (run * periodSec) / 60 >= minuti
-}
-
-// Un numero dichiarato in config, o il default. Un valore che numero non è (una stringa, un `null`,
-// un NaN) NON spegne la soglia e non fa cadere il check: si tiene il default. Una config sbagliata
-// deve costare la modifica che non ha effetto, non la sorveglianza che sparisce senza dirlo.
-function numero(valore, base, { min = 0, max = Infinity } = {}) {
-  const n = typeof valore === 'number' ? valore : Number.NaN
-  return Number.isFinite(n) && n >= min && n <= max ? n : base
-}
-
-// Le soglie che valgono per QUESTO servizio: i default qui sopra, sotto a quelle dichiarate in
-// config per tipo (`soglie: { bedrock: … }`, da `server/config.js`), sotto a quelle del singolo
+// Le soglie che valgono per QUESTO servizio: il profilo della tipologia, sotto a quelle dichiarate
+// in config per tipo (`soglie: { bedrock: … }`, da `server/config.js`), sotto a quelle del singolo
 // servizio (`aws.soglie`). Tre livelli perché i modelli Bedrock sono AUTOSCOPERTI: senza il livello
 // per tipo, un modello che non ha una riga sua in `services.yaml` non avrebbe nessun posto dove
 // essere tarato, e tarare vorrebbe dire di nuovo un rilascio.
 export function risolviSoglie(cfg = {}, globali = null) {
   const fuse = { ...(globali ?? {}), ...(cfg?.soglie ?? {}) }
   const soglie = {}
-  for (const key of ORDINE) {
-    const base = SOGLIE[key]
-    const d = fuse[key] ?? {}
-    soglie[key] = {
-      ...base,
-      min: numero(d.min, base.min),
-      rate: numero(d.rate, base.rate, { max: 1 }),
-    }
-  }
-  return { ...soglie, rafficaMinuti: numero(fuse.rafficaMinuti, RAFFICA_MINUTI) }
+  for (const key of ORDINE) soglie[key] = risolviProfilo(PROFILO[key], { ...fuse[key], rafficaMinuti: fuse.rafficaMinuti })
+  return { ...soglie, rafficaMinuti: soglie.serr.rafficaMinuti }
 }
 
 // Il contratto del check, nella forma dello standard dei messaggi (§8.2): cosa misura, dove legge,
@@ -144,14 +53,18 @@ export function risolviSoglie(cfg = {}, globali = null) {
 // qualcuno cambia un numero, ed è esattamente la cosa che questo blocco serve a impedire.
 export function contratto(cfg = {}, globali = null, { windowMin = DEFAULT_WINDOW_MIN, acutaMin = ACUTE_WINDOW_MIN } = {}) {
   const s = risolviSoglie(cfg, globali)
-  const pct = (r) => `${Math.round(r * 100)}%`
+  // Il contratto si legge in italiano anche quando il canale è in inglese: è la scheda del check,
+  // non un messaggio. La regola però NON si riscrive a mano qui, si chiede alla stessa funzione che
+  // la stampa negli allarmi, o le due grafie divergono al primo cambio di soglia.
+  const it = makeT('it')
+  const regola = (k) => testoRegola(s[k], it, it('soglia.unita.invocazioni'))
   return {
     misura: `invocazioni, errori server (5xx), errori client (4xx), throttling e latenza del modello ${cfg.model ?? '(aggregato)'}`,
     fonte: `CloudWatch AWS/Bedrock${cfg.model ? `, dimension ModelId=${cfg.model}` : ', senza dimension'}`,
     finestra: `${windowMin}m per dire se è reale, ${acutaMin}m per dire se sta ancora succedendo`,
     soglia: {
-      guasto: `5xx ≥${s.serr.min} o ≥${pct(s.serr.rate)} su ≥${CAMPIONE_MINIMO} invocazioni, per ≥${s.rafficaMinuti} minuti di fila, su ENTRAMBE le finestre`,
-      degradato: `le stesse condizioni su UNA sola delle due finestre, oppure throttling ≥${s.thr.min} e ≥${pct(s.thr.rate)}, oppure 4xx ≥${s.cerr.min} e ≥${pct(s.cerr.rate)}`,
+      guasto: `5xx ${regola('serr')}, su ENTRAMBE le finestre`,
+      degradato: `le stesse condizioni su UNA sola delle due finestre, oppure throttling ${regola('thr')}, oppure 4xx ${regola('cerr')}`,
       ok: 'nessun segnale sopra soglia su nessuna delle due finestre',
     },
     rimedio: 'controllare il throttling per modello e la regione del profilo di inferenza; un 5xx di Bedrock non si ripara da qui, si misura e si aspetta',
@@ -163,53 +76,27 @@ export function contratto(cfg = {}, globali = null, { windowMin = DEFAULT_WINDOW
 const ORDINE = ['serr', 'thr', 'cerr']
 const SEGNALE = { serr: 'm.errServer', thr: 'm.throttle', cerr: 'm.errClient' }
 
-// Un segnale sopra soglia, coi numeri che ce l'hanno portato; `null` se è sotto.
-// Denominatore: le invocazioni della finestra, ma mai meno del numero di errori — se CloudWatch
-// pubblica errori senza invocazioni (richieste respinte prima di contare) la percentuale resterebbe
-// divisa per zero.
-function sforo(key, n, inv, s) {
-  const base = Math.max(inv, n, 1)
-  const perMin = n >= s.min
-  // Il campione basta se è abbastanza grande, oppure se non serve (il ramo percentuale non decide
-  // da solo). L'eccezione sono gli errori che superano le invocazioni contate, cioè le richieste
-  // respinte prima del conteggio: lì il campione non c'è, ma il guasto sì, e sopprimerlo
-  // vorrebbe dire tacere proprio quando non passa niente.
-  const campione = !s.or || base >= CAMPIONE_MINIMO || n > inv
-  const perRate = campione && n >= s.rate * base
-  if (!(s.or ? perMin || perRate : perMin && perRate)) return null
-  return { key, n, inv, pct: Math.round((n / base) * 1000) / 10, min: s.min, rate: s.rate, or: Boolean(s.or) }
-}
-
 // I segnali sopra soglia di una finestra, dal più grave al meno grave. Chi ha `raffica` passa anche
 // dalla durata: il conteggio dice QUANTI, la raffica dice se sono stati di fila.
 function sfori(m, soglie) {
   const inv = Math.round(m.inv)
   return ORDINE.map((k) => {
-    const s = sforo(k, Math.round(m[k]), inv, soglie[k])
-    if (!s || !soglie[k].raffica) return s
+    const s = valuta(m[k], inv, soglie[k])
+    if (!s) return null
+    const esito = { key: k, n: s.n, inv: s.totale, pct: s.pct, profilo: s.profilo }
+    if (!soglie[k].raffica) return esito
     const run = raffica(m.times?.[k], m.series?.[k], m.period)
-    if (run === null) return s
-    return rafficaBasta(run, m.period, soglie.rafficaMinuti) ? { ...s, run, periodSec: m.period } : null
+    if (run === null) return esito
+    return rafficaBasta(run, m.period, soglie[k].rafficaMinuti) ? { ...esito, run, periodSec: m.period } : null
   }).filter(Boolean)
 }
 
-// Il "perché" in chiaro dentro al messaggio. Senza, l'allarme dice che qualcosa è rotto ma non a che
-// soglia, e la taratura si discute a memoria: è già successo di proporre «alziamo la percentuale»
-// senza sapere che a far scattare l'allarme era stato il ramo assoluto — cioè che alzare la
-// percentuale non avrebbe cambiato niente.
+// Il "perché" in chiaro dentro al messaggio: quale segnale, con che numeri, e a che soglia scatta.
 // La finestra va NOMINATA: i tile davanti mostrano sempre l'ora, ma lo sforamento può venire dai
 // soli 15 minuti. Senza l'etichetta la stessa riga porterebbe due conteggi diversi senza dire di
 // cosa parla il secondo («4 err. server (60m) · oltre soglia: 6 su 40»), che si legge come un errore.
-function perche(s, finestra, t, rafficaMinuti) {
-  const rate = Math.round(s.rate * 100)
-  // Il pavimento sul campione fa parte della regola, quindi si stampa: è la condizione che il
-  // 23/08 ha deciso l'allarme, e una regola scritta a metà è esattamente ciò che porta a tarare
-  // il ramo sbagliato leggendo la chat.
-  const regola = s.or
-    ? t('bedrock.regola.o', { min: s.min, rate, campione: CAMPIONE_MINIMO }) +
-      (SOGLIE[s.key]?.raffica ? t('bedrock.regola.raffica', { minuti: rafficaMinuti }) : '')
-    : t('bedrock.regola.e', { min: s.min, rate })
-  return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola })
+function perche(s, finestra, t) {
+  return t('bedrock.sopraSoglia', { segnale: t(SEGNALE[s.key]), finestra, n: s.n, inv: s.inv, pct: s.pct, regola: testoRegola(s.profilo, t, t('soglia.unita.invocazioni')) })
 }
 
 export async function bedrockRuntime(cfg, aws, opts = {}) {
@@ -321,3 +208,7 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
     provisional: !nellOra.length && adesso.length > 0,
   }
 }
+
+// Ri-esportata perché la consecutività è nata qui e da qui la importano i test e chi legge: la
+// definizione però è una sola, in `soglie.js`, con le altre regole.
+export { raffica }

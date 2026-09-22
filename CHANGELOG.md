@@ -6,6 +6,46 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Le soglie degli allarmi sono per TIPOLOGIA di segnale, non per servizio** (22/09/2026). Ogni
+  provider aveva la sua regola scritta in casa: Bedrock una coppia minimo+percentuale, le lambda un
+  `errors > 0`, API Gateway un `e5 > 0`, SES due percentuali cablate. Quattro grafie per la stessa
+  domanda («quando un errore diventa un guasto?»), quindi quattro tarature indipendenti e nessun
+  posto dove leggere la regola di tutto. Adesso stanno in `server/runtime/soglie.js`, e la tipologia
+  la decidono due domande sul segnale, non il servizio che lo emette: chi SUBISCE l'errore (un
+  chiamante che ritenta da se', o l'utente finale?) e quanto e' grande il DENOMINATORE (migliaia di
+  chiamate l'ora, o le tre esecuzioni di un cron?). Sei profili: `ritentati`, `utente`, `esecuzioni`,
+  `capacita`, `chiamante`, `reputazione`.
+- **Il 5xx di Bedrock non ha piu' un minimo assoluto: decide la percentuale, al 10%** (22/09/2026).
+  Un tetto in valore assoluto non scala col traffico, quindi su un servizio che cresce diventa una
+  percentuale sempre piu' piccola senza che nessuno l'abbia deciso: su un modello da 2.300
+  invocazioni l'ora, il `>=50` del 18/09 valeva il 2,2%, cioe' decideva sempre lui e il ramo
+  percentuale non entrava mai in gioco. Backtest su 30 giorni di produzione: il ramo assoluto ha
+  suonato DA SOLO 10 volte, e 7 erano ore ad alto traffico con l'1-3,5% di errori, cioe' proprio i
+  casi che il retry aveva gia' assorbito. Il 10% tiene gli stessi 6 giorni veri del 25% e avvisa
+  PRIMA: il 21/09 alle 16:00 col 15,3%, un'ora prima del picco al 38,9%. Il campione minimo (20) e la
+  raffica (3 minuti di bucket attaccati) restano.
+- **API Gateway: un 5xx solo non e' piu' un allarme, l'1% delle richieste si'** (22/09/2026). Su una
+  API con migliaia di richieste al quarto d'ora, `e5 > 0` e' lo 0,0x%: la stessa asimmetria per cui
+  su Bedrock un tetto assoluto decideva tutto. Profilo `utente`, dieci volte piu' severo di
+  `ritentati` perche' un 5xx HTTP non lo ritenta nessuno: lo vede la persona davanti al browser.
+  Sotto le 20 richieste la percentuale non decide da sola, ma «sono fallite tutte» allarma lo stesso,
+  o una API poco chiamata potrebbe stare giu' in silenzio.
+- **Le lambda restano a tolleranza zero, e stavolta con i numeri** (22/09/2026). Il backtest diceva
+  il contrario di quello che sembrava: in 30 giorni la produzione ha avuto 4 lambda con errori e 11
+  ore di allarme, e in 8 di quelle ore falliva il 100% delle esecuzioni. Su un cron il denominatore
+  sono una o tre run, dove una percentuale non dice niente (1 errore su 1 run e' il 100%, 1 su 3 e'
+  il 33%, e vogliono dire la stessa cosa), quindi profilo `esecuzioni`: `>=1`. Il throttling di un
+  cron entra nello stesso profilo e non in `capacita`, perche' una run rifiutata per quota e' una run
+  che non e' avvenuta. Le lambda ON-DEMAND passano invece a `utente`, come le API.
+- **La regola stampata nell'allarme la compone chi decide** (22/09/2026). `testoRegola()` legge lo
+  stesso profilo che ha fatto scattare l'allarme, con l'unita' di misura del chiamante (invocazioni,
+  richieste, esecuzioni): le frasi ricopiate a mano (`lambda.regola`, `apigw.regola`) sono sparite,
+  perche' una regola scritta due volte mente al primo cambio di taratura.
+- **Le soglie si possono ancora tarare da config, e adesso anche aggiungere** (22/09/2026). Un minimo
+  assoluto si puo' rimettere sopra a un profilo che non ce l'ha (`soglie: { bedrock: { serr: { min:
+  10 } } }`), e allora si combina in `o` con la percentuale e la regola stampata lo dice. Una soglia
+  messa a 0 vale SPENTA (`n >= 0` sarebbe sempre vero); spegnerle tutte e due lascia quelle del
+  profilo, perche' cancellare la sorveglianza non deve essere un effetto collaterale.
 - **Il 5xx di Bedrock suona solo se il retry non l'ha coperto** (18/09/2026). Quarto falso positivo:
   12 errori server su 300 invocazioni (il 4%) sono usciti come rosso di produzione dal solo ramo
   assoluto, mentre nessun utente se n'era accorto perche' il retry li aveva recuperati tutti. Le

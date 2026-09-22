@@ -152,13 +152,38 @@ accounts:
 # soglie: {...} }`) e vincono su queste. Per i modelli Bedrock, che sono AUTOSCOPERTI e quindi non
 # hanno una riga loro qui sotto, il livello per tipo e' l'unico posto dove tararli.
 #
+# I default NON sono per servizio: sono per TIPOLOGIA di segnale, e stanno in
+# `server/runtime/soglie.js`. La tipologia la decidono due domande: chi subisce l'errore (un
+# chiamante che ritenta da se', o l'utente finale?) e quanto e' grande il denominatore (migliaia di
+# chiamate l'ora, o le tre esecuzioni di un cron?). Oggi:
+#
+#   ritentati    >=10% su >=20 chiamate, per >=3 minuti di fila   5xx di Bedrock (l'SDK ritenta)
+#   utente       >=1% su >=20 chiamate, o tutte fallite           5xx di API Gateway, lambda on-demand
+#   esecuzioni   >=1 errore                                       cron (lambda schedulate)
+#   capacita     >=3 e >=1%                                       throttling
+#   chiamante    >=5 e >=5%                                       4xx
+#   reputazione  >=5% bounce, >=0,1% complaint                    SES (le sceglie AWS, non noi)
+#
+# ⚠️ Un minimo ASSOLUTO dove il profilo non ce l'ha si puo' rimettere da qui, e allora si combina in
+# "o" con la percentuale. Vale la pena saperlo prima di farlo: un tetto in valore assoluto non scala
+# col traffico, quindi su un servizio che cresce diventa una percentuale sempre piu' piccola senza
+# che nessuno l'abbia deciso. E' il motivo per cui il 22/09/2026 e' uscito dal profilo `ritentati`:
+# su un modello da 2.300 invocazioni l'ora, ">=50 errori" valeva il 2,2%.
+# Una soglia messa a 0 vale SPENTA (`n >= 0` sarebbe sempre vero); spegnerle tutte e due lascia
+# quelle del profilo, perche' cancellare la sorveglianza non deve essere un effetto collaterale.
+#
 # soglie:
 #   bedrock:
-#     serr: { min: 50, rate: 0.25 }   # 5xx: una delle due basta (e' Bedrock che rompe, non noi)
+#     serr: { rate: 0.10 }            # 5xx: profilo `ritentati`, percentuale pura
 #     thr:  { min: 3, rate: 0.01 }    # throttling: capacita' che finisce
 #     cerr: { min: 5, rate: 0.05 }    # 4xx: serve una vera ondata, di solito e' il chiamante
 #     rafficaMinuti: 3                # e il 5xx deve durare: errori su minuti ATTACCATI, non un picco
 #                                     # dentro un minuto solo, che il retry assorbe
+#   lambda:                           # i due rami hanno profili diversi, quindi override separati:
+#     cron:     { min: 2 }            #   una `rate` sui cron trasformerebbe la tolleranza zero in
+#     ondemand: { rate: 0.01 }        #   una condizione "e", cioe' li zittirebbe
+#   apigateway: { rate: 0.01 }
+#   ses:        { bounce: 5, complaint: 0.1 }   # in PERCENTO: sono i numeri che pubblica AWS
 
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
