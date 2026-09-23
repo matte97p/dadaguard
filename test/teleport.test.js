@@ -726,3 +726,80 @@ test('audit: le parole di servizio non diventano il nome di un oggetto', async (
   const out = await audit({}, { logGroup: '/finto' })
   assert.deepEqual(out.database[0].oggettiStruttura, ['public.calcola', 'tenders'])
 })
+
+// ⚠️ Un identificatore QUOTATO non e' un nome nudo, e fino al 23/09/2026 il tokenizer si fermava al
+// trattino: `delete from "import-programmati"` usciva come «su import», cioe' una tabella che non
+// esiste, dentro a un allarme rosso di produzione. Un nome falso costa la fiducia nell'intera riga.
+test('audit: una tabella col trattino esce INTERA, non troncata al trattino', async () => {
+  const { audit } = await conEventi([
+    QUERY('gio', 1000, 'delete from "import-programmati" where company_id = 7'),
+    QUERY('gio', 1100, 'update public."fonti-di-ricerca" set name = \'x\' where id = 1'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  const d = out.database[0]
+  assert.deepEqual(d.bersagli, ['"import-programmati"', 'public."fonti-di-ricerca"'].sort())
+  assert.ok(!d.bersagli.includes('import'), 'mai il troncone prima del trattino')
+  assert.equal(d.scrittureDati, 2)
+})
+
+// Il ripiego quando il nome non si puo' dire senza inventarlo: la scrittura si conta lo stesso, ma la
+// riga non nomina niente. Meglio «+1 DELETE» che «+1 DELETE su una tabella che non esiste».
+test('audit: un nome quotato che non e un identificatore non esce affatto', async () => {
+  const { audit } = await conEventi([QUERY('gio', 1000, 'delete from "nome con spazi" where id = 1')])
+  const out = await audit({}, { logGroup: '/finto' })
+  const d = out.database[0]
+  assert.equal(d.scrittureDati, 1, 'la scrittura si conta comunque')
+  assert.deepEqual(d.bersagli, [])
+})
+
+// Le scritture per PERSONA e per NATURA: senza, la riga rossa dei dati nominava anche chi aveva
+// toccato solo indici, e nessuna delle due righe poteva dire chi aveva scritto DA ADESSO.
+test('audit: conta le scritture di ciascuno, separando i dati dalla struttura', async () => {
+  const { audit } = await conEventi([
+    QUERY('gio', 1000, 'update tenders set stato = 1'),
+    QUERY('gio', 1100, 'delete from tenders where id = 2'),
+    QUERY('matte', 1200, 'CREATE INDEX i ON tenders (id)'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  const d = out.database[0]
+  assert.deepEqual(d.scriventiDati, { gio: 2 })
+  assert.deepEqual(d.scriventiStruttura, { matte: 1 })
+})
+
+// Lo schema quotato una parte per volta (`"public"."import-programmati"`) e' la forma che emettono
+// diversi client e ORM. Il punto e' un SEPARATORE, non un carattere del nome: leggendolo come parte
+// del nome si stampava «su "public"», cioe' lo schema al posto della tabella.
+test('audit: anche lo schema quotato si legge, e il nome esce intero', async () => {
+  const { audit } = await conEventi([QUERY('gio', 1000, 'delete from "public"."import-programmati" where id = 1')])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].bersagli, ['public."import-programmati"'])
+})
+
+// `"tenders"` e `tenders` sono la stessa tabella per Postgres: se uscissero come due voci, la stessa
+// tabella verrebbe annunciata due volte, e la seconda come «mai vista prima».
+test('audit: un quotato che dentro ha un nome nudo esce senza virgolette', async () => {
+  const { audit } = await conEventi([
+    QUERY('gio', 1000, 'update "tenders" set stato = 1'),
+    QUERY('gio', 1100, 'update tenders set stato = 2'),
+  ])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].bersagli, ['tenders'])
+})
+
+// ⚠️ Un nome piu' lungo di un identificatore Postgres non deve far ricadere sulla lettura nuda: li'
+// si tornerebbe a stampare il pezzo prima del trattino, che e' il difetto da cui si parte.
+test('audit: un quotato troppo lungo non esce, e non esce nemmeno il suo troncone', async () => {
+  const lungo = `${'a'.repeat(40)}-${'b'.repeat(40)}`
+  const { audit } = await conEventi([QUERY('gio', 1000, `delete from "${lungo}" where id = 1`)])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.deepEqual(out.database[0].bersagli, [])
+  assert.equal(out.database[0].scrittureDati, 1)
+})
+
+// Lo schema temporaneo vale anche scritto fra virgolette: una view di lavoro dentro a una sessione
+// non e' una scrittura su produzione, e suonare per quella insegna a ignorare gli allarmi.
+test('audit: lo schema temporaneo quotato resta fuori dalle scritture', async () => {
+  const { audit } = await conEventi([QUERY('gio', 1000, 'CREATE OR REPLACE FUNCTION "pg_temp"."count_estimate"() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql')])
+  const out = await audit({}, { logGroup: '/finto' })
+  assert.equal(out.database[0].scritture, 0)
+})

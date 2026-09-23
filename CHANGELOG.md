@@ -23,6 +23,26 @@ All notable changes to Dadaguard are documented here. Format based on
   soglie del servizio vincono su quelle del profilo.
 
 ### Fixed
+- **L'allarme sulle scritture in produzione diceva una tabella che non esiste, e nominava chi non
+  aveva scritto** (23/09/2026). Quattro difetti nella stessa riga, tutti visti sul canale in due
+  giorni. (1) Il nome della tabella: il lettore di query riconosceva i soli identificatori nudi e si
+  fermava al trattino, quindi `delete from "import-programmati"` usciva come «su import», una tabella
+  che non esiste, sotto a un titolo rosso. Adesso un identificatore quotato esce intero, lo schema
+  quotato a parte (`"public"."x-y"`) si ricompone, un quotato che dentro ha un nome nudo esce senza
+  virgolette (sennò la stessa tabella si annuncia due volte) e quello che non è un nome non esce
+  affatto: meglio «+1 DELETE» che un nome inventato, che manda a cercare la cosa sbagliata. (2) I
+  nomi: `chi` era l'insieme di chi aveva scritto nella FINESTRA, quindi una scrittura di una persona
+  sola veniva annunciata con due nomi, il secondo dei quali aveva scritto quindici ore prima. Adesso
+  le scritture si contano per persona e per natura, e la riga nomina chi è cresciuto dall'ultimo
+  messaggio; come effetto, la riga gialla delle DDL non nomina più chi ha toccato i soli dati.
+  ⚠️ I login personali si riconoscono su TUTTI quelli della finestra e non sui soli nomi della riga,
+  sennò il login di chi è fuori dal delta torna fra parentesi come login estraneo. (3) La finestra
+  del watchdog passa da 24 ore a 3: non è la memoria del watchdog (il delta si misura contro
+  l'ultimo messaggio mandato), e con 24 ore la lettura pescava circa 44.000 eventi contro un tetto
+  di 10.000, cioè ogni giro leggeva un campione da un quarto e ogni messaggio doveva dichiararsi
+  parziale. ⚠️ Prezzo dichiarato: un buco di oltre tre ore del watchdog non si recupera più.
+  (4) La coda che lo dichiarava era in gergo: «lettura parziale: chi e cosa possono non esserci
+  tutti» diventa «letti solo gli eventi più recenti, quindi nomi e numeri possono essere incompleti».
 - **Falso «GIÙ» sui cron MENSILI, e intermittente** (22/09/2026). Un cron mensile di produzione
   risultava giu' con «nessuna esecuzione (l'ultima attesa 19g fa)» mentre l'esecuzione c'era stata,
   era riuscita e aveva mandato la sua mail. La granularita' ammessa del `Period` di `GetMetricData`
