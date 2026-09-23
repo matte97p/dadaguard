@@ -184,7 +184,16 @@ export async function giroAccessi(cfg, deps = {}, prev = null) {
     log.warn('watch: teleport.calmaMinuti non e un numero di minuti, uso il default', { valore: grezzo, default: CALMA_MS / 60_000 })
   const calmaMs = minuti !== null && Number.isFinite(minuti) && minuti >= 0 ? minuti * 60_000 : CALMA_MS
 
-  const dati = await stato({ ore: 24 })
+  // ⚠️ TRE ore, non ventiquattro. La finestra non e' la memoria del watchdog: il delta si misura
+  // contro l'ultimo messaggio MANDATO (vedi `daAnnunciare`), quindi qui basta coprire il giro piu' il
+  // ritardo. Con ventiquattro ore la lettura pescava circa 44.000 eventi contro un tetto di 10.000,
+  // cioe' ogni giro leggeva un campione da un quarto e ogni messaggio doveva dichiararsi parziale: i
+  // numeri erano stime e i nomi potevano mancare, in un allarme rosso di produzione. Con tre ore si
+  // sta sotto al tetto e i conti tornano esatti.
+  // Il prezzo, e va saputo: se il watchdog resta giu' piu' di tre ore, le scritture di quel buco non
+  // le annuncia nessuno. Con ventiquattro le avrebbe recuperate, ma pagando ogni giro con un numero
+  // che nessuno poteva usare.
+  const dati = await stato({ ore: 3 })
   const ora = segnali(dati)
   const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null, { calmaMs })
   if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }

@@ -117,7 +117,7 @@ test('daAnnunciare: il primo giro prende nota e non annuncia', () => {
   // ⚠️ `detto: 0` e non l'ora del giro: non si e' detto niente, e datare il silenzio come un messaggio
   // terrebbe zitta la calma per mezz'ora dopo ogni rilascio, cioe' proprio quando il canale serve.
   // `parziale` sta in stato per il giro DOPO: dice se i totali qui sopra erano un campione.
-  assert.deepEqual(stato, { 'scrittura:x': { quando: 100, quante: 3, detto: 0, azioni: {}, tabelle: [], chi: [], livello: null, parziale: false } })
+  assert.deepEqual(stato, { 'scrittura:x': { quando: 100, quante: 3, detto: 0, azioni: {}, tabelle: [], chi: [], chiQuante: null, livello: null, parziale: false } })
 })
 
 test('daAnnunciare: si annuncia solo cio che e piu recente di quanto gia detto', () => {
@@ -507,7 +507,7 @@ test('messaggioAccessi: la parola della stima e quella decisa a monte, e una let
 // ⚠️ Non e' solo il numero a venire da un campione: le etichette, gli oggetti e soprattutto l'elenco
 // di CHI ha scritto. Un nome che manca da un allarme rosso di produzione non lascia nessun segno.
 test('messaggioAccessi: una lettura parziale lo dice per tutta la riga, non solo per il numero', () => {
-  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /lettura parziale: chi e cosa possono non esserci tutti/)
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /letti solo gli eventi più recenti, quindi nomi e numeri possono essere incompleti/)
 })
 
 // ⚠️ «almeno» e' una promessa: il numero non puo' essere piu' basso del vero. Il ripiego della
@@ -538,4 +538,81 @@ test('daAnnunciare: dopo una lettura troncata il delta della successiva si dichi
   assert.equal(nuovi[0].parziale, true)
   // Lo stato nuovo nasce da una lettura completa: il giro dopo non deve ereditare il dubbio.
   assert.equal(stato.k.parziale, false)
+})
+
+// ⚠️ I nomi nella riga sono quelli di chi ha scritto DALL'ULTIMO messaggio, non quelli visti nella
+// finestra. Il 23/09/2026 un `DELETE` fatto da una persona sola e' stato annunciato con due nomi,
+// perche' il secondo aveva scritto quindici ore prima ed era ancora dentro alla finestra: in un
+// allarme rosso di produzione, quello e' accusare qualcuno di una cosa che non ha fatto.
+test('daAnnunciare: nomina solo chi ha scritto dall ultimo messaggio', () => {
+  const prec = {
+    'scrittura:s/n': { quando: 500, quante: 3, detto: 0, azioni: { UPDATE: 3 }, tabelle: [], chi: ['tizio', 'caio'], chiQuante: { tizio: 2, caio: 1 }, livello: 'allarme' },
+  }
+  const ora = SCRITTURA({
+    quando: 1_000,
+    quante: 4,
+    chi: ['tizio', 'caio'],
+    chiQuante: { tizio: 2, caio: 2 },
+    azioni: [{ etichetta: 'UPDATE', quante: 4, tipo: 'dati' }],
+  })
+  const fuori = daAnnunciare([ora], prec, { adesso: CALMA_MS + 10_000 })
+  assert.equal(fuori.nuovi.length, 1)
+  assert.deepEqual(fuori.nuovi[0].chi, ['caio'], 'tizio non ha scritto da allora')
+  // In stato restano TUTTI: il confronto del giro dopo si fa contro quello che si sapeva parlando.
+  assert.deepEqual(fuori.stato['scrittura:s/n'].chiQuante, { tizio: 2, caio: 2 })
+})
+
+// Il ripiego: se nessuno e' cresciuto (una scrittura vecchia esce dalla finestra e una nuova entra) si
+// ridicono i nomi della finestra, perche' «+1 DELETE» senza dire da chi non e' una notizia.
+test('daAnnunciare: se nessun conteggio e cresciuto ridice i nomi della finestra', () => {
+  const prec = {
+    'scrittura:s/n': { quando: 500, quante: 3, detto: 0, azioni: { UPDATE: 3 }, tabelle: [], chi: ['tizio'], chiQuante: { tizio: 3 }, livello: 'allarme' },
+  }
+  const ora = SCRITTURA({ quando: 1_000, quante: 3, chi: ['tizio'], chiQuante: { tizio: 3 }, azioni: [{ etichetta: 'UPDATE', quante: 3, tipo: 'dati' }] })
+  const fuori = daAnnunciare([ora], prec, { adesso: CALMA_MS + 10_000 })
+  assert.deepEqual(fuori.nuovi[0].chi, ['tizio'])
+})
+
+// Un payload senza i conteggi (rilascio a meta') non deve far sparire i nomi: si dicono tutti, che e'
+// quello che si diceva prima. Non sapere non e' «non c'e' nessuno».
+test('daAnnunciare: senza i conteggi per persona nomina tutti, come prima', () => {
+  const prec = { 'scrittura:s/n': { quando: 500, quante: 1, detto: 0, azioni: { UPDATE: 1 }, tabelle: [], chi: ['tizio'], livello: 'allarme' } }
+  const ora = SCRITTURA({ quando: 1_000, quante: 2, chi: ['tizio', 'caio'], azioni: [{ etichetta: 'UPDATE', quante: 2, tipo: 'dati' }] })
+  const fuori = daAnnunciare([ora], prec, { adesso: CALMA_MS + 10_000 })
+  assert.deepEqual(fuori.nuovi[0].chi, ['tizio', 'caio'])
+})
+
+// ⚠️ I login PERSONALI si riconoscono su TUTTI quelli che hanno scritto nella finestra, non sui soli
+// nomi che finiscono nella riga. Con i secondi, il login di chi era fuori dal delta ricompariva fra
+// parentesi come login estraneo: `da tizio (dev_caio su writer)`, cioe' il nome sbagliato attaccato
+// alla scrittura sbagliata, che e' il difetto che questo giro toglie.
+test('messaggioAccessi: il login di chi non e nel delta non torna fra parentesi', () => {
+  const riga = RIGA({
+    natura: 'dati',
+    livello: 'allarme',
+    chi: ['tizio'],
+    chiTutti: ['tizio', 'caio'],
+    utentiDb: [
+      { utente: 'dev_tizio', endpoint: 'writer' },
+      { utente: 'dev_caio', endpoint: 'writer' },
+    ],
+    nuove: 1,
+    quante: 1,
+    azioni: [{ etichetta: 'DELETE', quante: 1, tipo: 'dati' }],
+    tabelle: ['ordini'],
+  })
+  const testo = messaggioAccessi(riga)
+  assert.match(testo, /da tizio \(su writer\)/)
+  assert.doesNotMatch(testo, /dev_caio/)
+})
+
+// Il login davvero estraneo (condiviso, non il nome di nessuno) deve continuare a uscire: e' l'unica
+// informazione che il nome della persona non porta.
+test('messaggioAccessi: un login condiviso resta, perche il nome della persona non lo dice', () => {
+  const riga = RIGA({
+    chi: ['tizio'],
+    chiTutti: ['tizio'],
+    utentiDb: [{ utente: 'dev_readwrite', endpoint: 'writer' }],
+  })
+  assert.match(messaggioAccessi(riga), /dev_readwrite su writer/)
 })

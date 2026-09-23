@@ -50,7 +50,7 @@ const TEMPORANEE = new Set(['temp', 'temporary'])
 // DDL su produzione e ha nominato chi non aveva cambiato niente, accanto a chi invece stava creando
 // tabelle vere: un nome in piu' in una riga rossa costa la fiducia nella riga.
 // Postgres lo scrive anche numerato (`pg_temp_3`), che e' il nome vero dello schema di quella sessione.
-const SCHEMA_TEMPORANEO = /^pg_(?:temp|toast_temp)(?:_\d+)?\./
+const SCHEMA_TEMPORANEO = /^pg_(?:temp|toast_temp)(?:_\d+)?$/
 const OGGETTI = new Set([
   'view', 'table', 'index', 'materialized', 'schema', 'function', 'procedure', 'trigger', 'sequence',
   'policy', 'role', 'user', 'extension', 'type', 'database', 'publication', 'subscription',
@@ -61,6 +61,80 @@ const VERSO = new Set(['into', 'from', 'table', 'only'])
 // Il nome esce solo se e' un identificatore NUDO, eventualmente qualificato con lo schema. Tutto il
 // resto (virgolette, parentesi, un valore finito lì per un parse andato storto) non esce.
 const NOME_NUDO = /^[a-z_][a-z0-9_$]{0,62}(\.[a-z_][a-z0-9_$]{0,62})?$/
+// Un identificatore QUOTATO (`"import-programmati"`). In Postgres le doppie virgolette delimitano un
+// NOME e non un valore, quindi quello che sta dentro e' un identificatore e non un dato del cliente:
+// esce, ma solo se dentro ci sono i caratteri di un nome (niente spazi, niente punteggiatura).
+// ⚠️ Senza, il tokenizer si fermava al trattino: `delete from "import-programmati"` diventava «su
+// import», cioe' una tabella che non esiste, dentro a un allarme rosso di produzione. Un nome
+// falso costa la fiducia nell'intera riga, e il 23/09/2026 e' uscito due volte in due giorni.
+const DENTRO_QUOTE = /^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/
+// Una PARTE di nome nudo: `tenders`, `public`. I nomi qualificati (`public.tenders`) si compongono
+// unendo due parti col punto, e non si leggono piu' come un token solo: il punto e' un separatore, e
+// trattarlo come un carattere del nome rende impossibile riconoscere `"public"."import-programmati"`,
+// dove le parti sono quotate una per una.
+const PARTE_NUDA = /^[a-z_][a-z0-9_$]{0,62}$/
+// Le parole della query, col loro testo originale e con DOVE stanno. `p` e' la forma con cui si
+// confrontano le parole chiave (minuscola), `grezzo` quella che si stampa, `inizio`/`fine` servono a
+// sapere se due parole sono separate da un punto e quindi sono un nome solo.
+// ⚠️ La parte quotata mangia QUALSIASI cosa stia fra le virgolette (`"[^"\n]*"`) e si valida dopo. Con
+// un tetto dentro alla regex, un nome piu' lungo del tetto non veniva riconosciuto come quotato e si
+// ricadeva sulla lettura nuda, che e' esattamente il troncone da cui si parte.
+const TOKEN = /"[^"\n]*"|[A-Za-z_][A-Za-z0-9_$]*/g
+function tokenizza(query) {
+  const testo = String(query ?? '')
+  const fuori = []
+  for (const m of testo.matchAll(TOKEN)) {
+    const grezzo = m[0]
+    const quotata = grezzo.startsWith('"')
+    fuori.push({
+      grezzo,
+      quotata,
+      p: quotata ? grezzo : grezzo.toLowerCase(),
+      dentro: quotata ? grezzo.slice(1, -1) : null,
+      inizio: m.index,
+      fine: m.index + grezzo.length,
+      testo,
+    })
+  }
+  return fuori
+}
+// Le parti del nome qualificato che comincia al token `i`: `public` e `tenders` in `public.tenders`,
+// e lo stesso se una delle due (o tutte e due) e' quotata. Si uniscono solo se fra loro c'e' UN punto
+// e nient'altro: uno spazio o una parentesi vogliono dire che sono due cose diverse.
+function partiDelNome(t, i) {
+  const parti = [t[i]]
+  // Due sole: schema e nome. Un terzo livello in Postgres e' il database, che qui non si scrive mai.
+  while (parti.length < 2) {
+    const ultimo = parti[parti.length - 1]
+    const dopo = t[parti.length + i]
+    if (!dopo || dopo.inizio !== ultimo.fine + 1 || ultimo.testo[ultimo.fine] !== '.') break
+    parti.push(dopo)
+  }
+  return parti
+}
+// Il nome di una parte, come si stampa, o `null` se non si puo' dire senza inventarlo. Un quotato che
+// dentro ha un nome nudo minuscolo esce SENZA virgolette (`"tenders"` e `tenders` sono la stessa
+// tabella per Postgres, e due scritture come due voci diverse farebbero annunciare due volte la
+// stessa cosa); tutti gli altri quotati tengono le virgolette, perche' li' le maiuscole contano.
+function parteStampabile(q) {
+  if (!q.quotata) return PARTE_NUDA.test(q.p) ? q.p : null
+  if (!DENTRO_QUOTE.test(q.dentro)) return null
+  return PARTE_NUDA.test(q.dentro) ? q.dentro : q.grezzo
+}
+// Il nome che comincia al token `i`, gia' pronto da stampare, e se e' nello schema TEMPORANEO.
+// ⚠️ `nome: null` vuol dire che il messaggio non dice su cosa: e' la risposta giusta. Stampare il
+// pezzo che si e' riusciti a leggere manda a cercare un oggetto che non esiste.
+function nomeStampabile(t, i) {
+  const parti = partiDelNome(t, i)
+  const testa = parti[0]
+  const schema = testa.quotata ? testa.dentro : testa.p
+  // Lo schema temporaneo vale anche scritto fra virgolette, ed e' la forma che manda qualche client.
+  if (parti.length === 2 && SCHEMA_TEMPORANEO.test(String(schema).toLowerCase())) return { nome: null, temporaneo: true }
+  if (parti.length === 1 && SCHEMA_TEMPORANEO.test(String(schema).toLowerCase())) return { nome: null, temporaneo: true }
+  const pezzi = parti.map(parteStampabile)
+  if (pezzi.some((x) => x === null)) return { nome: null, temporaneo: false }
+  return { nome: pezzi.join('.'), temporaneo: false }
+}
 // Parole che stanno DOVE starebbe un nome e nome non sono. Senza questo elenco il messaggio direbbe
 // «su on», che e' peggio del silenzio: sembra un nome vero e manda a cercare un oggetto che non esiste.
 // ⚠️ `on` FERMA e non si scavalca: in `create index on t (...)` l'indice non ha nome e `t` e' la
@@ -95,8 +169,9 @@ const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
 // Postgres conta come una scrittura, ed e' cosi' che `dev_readonly` e' finito fra chi scrive in
 // produzione. Quello che si puo' dedurre senza indovinare sta in `rifiutata()` qui sotto.
 function azione(query) {
-  const parole = String(query ?? '').trim().toLowerCase().match(/[a-z_][a-z0-9_$.]*/g) ?? []
-  const verbo = parole[0] ?? ''
+  const t = tokenizza(query)
+  const parole = t.map((x) => x.p)
+  const verbo = t[0]?.quotata ? '' : (parole[0] ?? '')
   const dati = VERBI_DATI.has(verbo)
   if (!dati && !VERBI_STRUTTURA.has(verbo)) return null
 
@@ -108,8 +183,9 @@ function azione(query) {
     if (TEMPORANEE.has(p)) return null
     if (dati) {
       if (VERSO.has(p)) continue
-      if (SCHEMA_TEMPORANEO.test(p)) return null
-      if (NOME_NUDO.test(p)) bersaglio = p
+      const letto = nomeStampabile(t, i)
+      if (letto.temporaneo) return null
+      bersaglio = letto.nome
       break
     }
     if (!OGGETTI.has(p)) break
@@ -123,8 +199,11 @@ function azione(query) {
     let j = i + (doppio ? 2 : 1)
     while (PRIMA_DEL_NOME.has(parole[j])) j++
     const candidato = parole[j]
-    if (candidato && SCHEMA_TEMPORANEO.test(candidato)) return null
-    if (candidato && !NON_NOMI.has(candidato) && NOME_NUDO.test(candidato)) bersaglio = candidato
+    if (candidato && !NON_NOMI.has(candidato)) {
+      const letto = nomeStampabile(t, j)
+      if (letto.temporaneo) return null
+      bersaglio = letto.nome
+    }
     break
   }
 
@@ -310,6 +389,15 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
         utentiDb: new Map(),
         persone: new Set(),
         scriventi: new Set(),
+        // Quante scritture ha fatto CIASCUNO, divise per natura. Non e' un doppione di `scriventi`:
+        // serve a dire nel messaggio i nomi di chi ha scritto DALL'ULTIMO messaggio, e con un insieme
+        // di nomi quel conto non si puo' fare (chi c'era gia' ieri e scrive ancora oggi non risulta
+        // mai «nuovo»). Il 23/09/2026 un `DELETE` fatto da una persona sola e' stato annunciato con
+        // due nomi, perche' il secondo aveva scritto quindici ore prima ed era ancora nella finestra.
+        // ⚠️ Divise per natura anche qui: con un insieme solo, la riga gialla delle DDL nominava chi
+        // aveva toccato i soli dati, e viceversa.
+        scriventiDati: new Map(),
+        scriventiStruttura: new Map(),
         // L'istante dell'ultima scrittura su questo database: serve a chi annuncia, per dire una cosa
         // sola una volta invece di ripeterla a ogni giro per tutta la finestra. Diviso per NATURA,
         // perche' le due notizie viaggiano separate: senza, un `CREATE INDEX` farebbe ripartire anche
@@ -481,6 +569,8 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
             endpoint: campi.db_labels?.access ?? null,
           })
         d.scriventi.add(utente)
+        const suoiPerNatura = fatta.tipo === 'dati' ? d.scriventiDati : d.scriventiStruttura
+        suoiPerNatura.set(utente, (suoiPerNatura.get(utente) ?? 0) + 1)
         d.ultimaScrittura = Math.max(d.ultimaScrittura ?? 0, ev.timestamp ?? 0)
         p.scritture += 1
         suo.scritture += 1
@@ -514,6 +604,9 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
       persone: d.persone.size,
       chi: [...d.persone].sort(),
       scriventi: [...d.scriventi],
+      // `{ persona: quante }`, non un insieme: vedi il commento in `perDatabase`.
+      scriventiDati: Object.fromEntries(d.scriventiDati),
+      scriventiStruttura: Object.fromEntries(d.scriventiStruttura),
       azioni: [...d.azioni.entries()]
         .map(([etichetta, { quante, tipo }]) => ({ etichetta, quante, tipo }))
         .sort((a, b) => b.quante - a.quante || a.etichetta.localeCompare(b.etichetta)),
