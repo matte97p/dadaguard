@@ -31,7 +31,7 @@ const ACUTE_WINDOW_MIN = 15
 //
 // Prima del 22/09/2026 i numeri stavano qui dentro e valevano solo per Bedrock. Il 5xx aveva una
 // coppia `≥50 o ≥25%`: il ramo assoluto, su un modello da 2.300 invocazioni l'ora, valeva il 2,2% e
-// decideva sempre lui. Ora il profilo `ritentati` è percentuale pura al 10%, e la stessa tipologia
+// decideva sempre lui. Ora il profilo `ritentati` è percentuale pura al 25%, e la stessa tipologia
 // vale per chiunque altro abbia un chiamante che ritenta.
 const PROFILO = { serr: 'ritentati', thr: 'capacita', cerr: 'chiamante' }
 

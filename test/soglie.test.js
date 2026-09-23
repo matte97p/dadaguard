@@ -25,17 +25,20 @@ test('ritentati: il conteggio assoluto non conta più, perché non scala col tra
   assert.equal(sopra(130, 370, 'ritentati'), true)
 })
 
-test('ritentati: al 10% si allarma un ora prima che al 25%', () => {
-  // Il 21/09/2026: alle 16 il 15,3%, alle 17 il 38,9%. Col 25% la prima ora taceva.
-  assert.equal(sopra(306, 1997, 'ritentati'), true, '15,3% alle 16:00')
+test('ritentati: al 25% la prima ora tace, e l allarme arriva a picco iniziato', () => {
+  // Il 21/09/2026: alle 16 il 15,3%, alle 17 il 38,9%. Con la taratura al 10% suonavano tutte e due,
+  // col 25% (scelta del 23/09/2026) la prima tace. È il prezzo della soglia più alta, misurato su
+  // un'ora vera: se un giorno si torna indietro, questi sono i numeri da guardare.
+  assert.equal(sopra(306, 1997, 'ritentati'), false, '15,3% alle 16:00: sotto al 25%, nessun allarme')
   assert.equal(sopra(981, 2521, 'ritentati'), true, '38,9% alle 17:00')
 })
 
 test('ritentati: sotto il campione minimo la percentuale non decide da sola', () => {
-  // Il caso reale del 23/08/2026: UN 503 su 8 invocazioni nei 15 minuti è il 12,5%, cioè sopra al
-  // 10%, ma otto invocazioni non concludono niente.
-  assert.equal(sopra(1, 8, 'ritentati'), false)
-  assert.equal(sopra(2, 20, 'ritentati'), true, 'al campione minimo la stessa percentuale conta')
+  // Il caso reale del 23/08/2026 con i numeri di oggi: 3 su 8 nei 15 minuti sono il 37,5%, cioè
+  // sopra al 25%, ma otto invocazioni non concludono niente.
+  assert.equal(sopra(3, 8, 'ritentati'), false)
+  assert.equal(sopra(5, 20, 'ritentati'), true, 'al campione minimo la stessa percentuale conta')
+  assert.equal(sopra(4, 20, 'ritentati'), false, 'il 20% resta sotto: la soglia è 25%')
 })
 
 test('ritentati: più errori che invocazioni contate allarmano lo stesso', () => {
@@ -95,8 +98,8 @@ test('config: si può RIMETTERE un minimo assoluto dove il profilo non ce l ha',
 })
 
 test('config: la regola stampata cambia insieme alla soglia, o mentirebbe', () => {
-  assert.match(testoRegola(risolviProfilo('ritentati'), t, 'invocazioni'), /≥10% su almeno 20 invocazioni/)
-  assert.match(testoRegola(risolviProfilo('ritentati', { min: 10 }), t, 'invocazioni'), /≥10 o ≥10%/)
+  assert.match(testoRegola(risolviProfilo('ritentati'), t, 'invocazioni'), /≥25% su almeno 20 invocazioni/)
+  assert.match(testoRegola(risolviProfilo('ritentati', { min: 10 }), t, 'invocazioni'), /≥10 o ≥25%/)
   assert.match(testoRegola(risolviProfilo('esecuzioni'), t), /≥1 errori nella finestra/)
 })
 
