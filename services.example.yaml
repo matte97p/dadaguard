@@ -157,7 +157,7 @@ accounts:
 # chiamante che ritenta da se', o l'utente finale?) e quanto e' grande il denominatore (migliaia di
 # chiamate l'ora, o le tre esecuzioni di un cron?). Oggi:
 #
-#   ritentati    >=10% su >=20 chiamate, per >=3 minuti di fila   5xx di Bedrock (l'SDK ritenta)
+#   ritentati    >=25% su >=20 chiamate, per >=3 minuti di fila   5xx di Bedrock (l'SDK ritenta)
 #   utente       >=1% su >=20 chiamate, o tutte fallite           5xx di API Gateway, lambda on-demand
 #   esecuzioni   >=1 errore                                       cron (lambda schedulate)
 #   capacita     >=3 e >=1%                                       throttling

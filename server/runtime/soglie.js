@@ -15,11 +15,11 @@
 
 // Quanto grande deve essere il campione perché la PERCENTUALE possa decidere da sola. Riguarda i
 // profili dove la percentuale è l'unica condizione: su una finestra corta un denominatore da niente
-// la farebbe sfondare a qualsiasi errore singolo (il caso reale del 23/08/2026: UN 503 su 8
-// invocazioni nei 15 minuti è il 12,5%).
+// la farebbe sfondare a pochissimi errori (il caso reale del 23/08/2026: UN 503 su 8 invocazioni nei
+// 15 minuti è il 12,5%, e tre sono il 37,5%).
 //
-// 20 è il più piccolo campione che regge la regola documentata: 1 errore su 20 è il 5% e resta
-// sotto al profilo `ritentati`, 2 su 20 sono il 10% e allarmano.
+// 20 è il più piccolo campione che regge la regola documentata: 4 errori su 20 sono il 20% e restano
+// sotto al profilo `ritentati`, 5 su 20 sono il 25% e allarmano.
 export const CAMPIONE_MINIMO = 20
 
 // Quanto deve DURARE un guasto per suonare, dove il profilo chiede la consecutività. Non basta
@@ -47,13 +47,20 @@ export const PROFILI = {
   // col traffico, quindi su un servizio che cresce diventa una percentuale sempre più piccola senza
   // che nessuno lo decida. Backtest su 30 giorni del modello Haiku in produzione: il ramo ≥50 ha
   // suonato DA SOLO 10 volte, e 7 erano ore ad alto traffico con l'1-3,5% di errori, cioè proprio i
-  // casi che il retry aveva già assorbito. Il 10% tiene gli stessi 6 giorni veri del 25% e avvisa
-  // prima (il 21/09 alle 16:00, un'ora prima del picco).
-  ritentati: { min: null, rate: 0.1, campione: CAMPIONE_MINIMO, raffica: true },
+  // casi che il retry aveva già assorbito.
+  //
+  // La percentuale è al 25% dal 23/09/2026, decisa da chi guarda il canale: dove il chiamante
+  // ritenta, un quarto dei tentativi andati male è il punto in cui il retry smette di coprire.
+  // ⚠️ Il prezzo è misurato e va saputo, perché è l'unico che il backtest ha trovato: 10% e 25%
+  // tengono gli stessi 6 giorni veri, ma il 25% ARRIVA DOPO. Il 21/09/2026 alle 16:00 la finestra
+  // era al 15,3% e col 25% tace: l'allarme esce alle 17:00, a picco iniziato, con l'ora prima persa.
+  // Chi lo rialza deve rimettere questo numero, non toglierlo: la taratura si discute sui giorni
+  // veri e sull'anticipo, non a memoria.
+  ritentati: { min: null, rate: 0.25, campione: CAMPIONE_MINIMO, raffica: true },
 
   // Errori che arrivano DRITTI all'utente: un 5xx HTTP di una API pubblica non lo ritenta nessuno,
-  // il browser mostra la pagina rotta. Stessa forma del profilo sopra ma soglia dieci volte più
-  // bassa, perché qui la percentuale è la quota di persone a cui è andata male.
+  // il browser mostra la pagina rotta. Stessa forma del profilo sopra ma soglia molto più bassa
+  // (1% contro 25%), perché qui la percentuale è la quota di persone a cui è andata male.
   // ⚠️ `tuttoFallitoAllarma`: sotto al campione minimo la percentuale non decide, ma «tutte e cinque
   // le richieste sono andate male» è un guasto anche se le richieste erano cinque. Senza questa
   // scappatoia il campione minimo diventerebbe un modo per tacere sui servizi poco chiamati, che
