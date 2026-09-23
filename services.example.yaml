@@ -161,7 +161,7 @@ accounts:
 #   utente       >=1% su >=20 chiamate, o tutte fallite           5xx di API Gateway, lambda on-demand
 #   esecuzioni   >=1 errore                                       cron (lambda schedulate)
 #   capacita     >=3 e >=1%                                       throttling
-#   chiamante    >=5 e >=5%                                       4xx
+#   chiamante    >=5 e >=5% su >=20 chiamate, per >=3 minuti      4xx
 #   reputazione  >=5% bounce, >=0,1% complaint                    SES (le sceglie AWS, non noi)
 #
 # ⚠️ Un minimo ASSOLUTO dove il profilo non ce l'ha si puo' rimettere da qui, e allora si combina in
@@ -184,6 +184,16 @@ accounts:
 #     ondemand: { rate: 0.01 }        #   una condizione "e", cioe' li zittirebbe
 #   apigateway: { rate: 0.01 }
 #   ses:        { bounce: 5, complaint: 0.1 }   # in PERCENTO: sono i numeri che pubblica AWS
+#
+#   # Taratura di UN SOLO ambiente: si fonde per SEGNALE su quelle qui sopra, quindi qui si scrive la
+#   # riga che cambia e basta. Serve dove lo stesso segnale vuol dire due cose diverse: un 4xx in
+#   # produzione e' una richiesta di un cliente andata male, su staging e' quasi sempre il nostro
+#   # codice a meta' di una modifica, e senza questo livello zittire lo staging voleva dire alzare la
+#   # soglia anche in produzione.
+#   perAccount:
+#     staging:
+#       bedrock:
+#         cerr: { min: 50, rate: 0.25 }
 
 services:
   # endpoint HTTP — #1 liveness (+ #2 versione se espone `version` nel /health)
