@@ -73,8 +73,12 @@ test('5xx: un conteggio alto su un volume alto NON basta più (50 su 10.000 è l
   assert.equal(await stato({ inv: 10000, serr: 50 }), 'up')
 })
 
-test('5xx: lo stesso conteggio su un volume piccolo allarma, perché lì è il 10%', async () => {
-  assert.equal(await stato({ inv: 500, serr: 50 }), 'down')
+test('5xx: lo stesso conteggio su un volume piccolo allarma, perché lì è il 25%', async () => {
+  assert.equal(await stato({ inv: 200, serr: 50 }), 'down')
+})
+
+test('5xx: 50 su 500 è il 10%, e dal 23/09/2026 non basta più', async () => {
+  assert.equal(await stato({ inv: 500, serr: 50 }), 'up')
 })
 
 test('5xx: 5 errori su 20 invocazioni allarmano per percentuale (25%)', async () => {
@@ -85,10 +89,15 @@ test('5xx: 1 errore su 20 invocazioni (5%) resta sotto la soglia', async () => {
   assert.equal(await stato({ inv: 20, serr: 1 }), 'up')
 })
 
-// Il caso vero del 21/09/2026, l'ora prima del picco: col vecchio ≥25% questa finestra taceva e
-// l'allarme arrivava un'ora dopo. È il guadagno della taratura al 10%, non un effetto collaterale.
-test('5xx: 306 errori su 1.997 invocazioni (15,3%) allarmano un ora prima del picco', async () => {
-  assert.equal(await stato({ inv: 1997, serr: 306 }), 'down')
+// Il caso vero del 21/09/2026, l'ora prima del picco. Col 10% questa finestra allarmava alle 16:00;
+// col 25% (scelta del 23/09/2026) tace, e l'allarme esce alle 17:00 con il picco già cominciato. È
+// il prezzo della soglia più alta, ed è qui perché si veda se un giorno si torna a discuterla.
+test('5xx: 306 errori su 1.997 invocazioni (15,3%) NON allarmano più: sotto al 25%', async () => {
+  assert.equal(await stato({ inv: 1997, serr: 306 }), 'up')
+})
+
+test('5xx: la stessa giornata alle 17:00 (38,9%) allarma', async () => {
+  assert.equal(await stato({ inv: 2521, serr: 981 }), 'down')
 })
 
 // Il caso reale #4, 18/09/2026 in canale: 12 errori server su 300 invocazioni, cioè il 4%, e in
@@ -104,7 +113,7 @@ test('il caso reale #4: 12 errori server su 300 invocazioni NON sono un guasto',
 // --- 5xx: la percentuale non decide su un campione da niente ------------------------------------
 // Il caso reale #3, 23/08 in canale. Il ramo percentuale del 5xx decide DA SOLO (`or`), e sui 15
 // minuti il denominatore è quattro volte più piccolo che sull'ora: senza un campione minimo,
-// QUALSIASI errore singolo sfonda il 10% finché le invocazioni della finestra sono <= 10.
+// QUALSIASI errore singolo sfonda il 25% finché le invocazioni della finestra sono <= 4.
 test('il caso reale #3: 1 errore server su 57 invocazioni l ora e 8 nei 15 minuti NON è un guasto', async () => {
   const r = await leggi({ inv: 57, serr: 1, lat: 32000 }, { inv: 8, serr: 1 })
   assert.equal(r.status, 'up', 'un 503 isolato non è la piattaforma giù, su nessuna delle due finestre')
@@ -203,7 +212,7 @@ test('il messaggio dice QUALE soglia è stata superata, con i numeri e la regola
   assert.match(r.summary, /su 60m: 60 su 200 \(30%\)/, 'coi numeri che l hanno prodotto, e la finestra da cui vengono')
   assert.match(
     r.summary,
-    /≥10% su almeno 20 invocazioni, e con errori per almeno 3 minuti di fila/,
+    /≥25% su almeno 20 invocazioni, e con errori per almeno 3 minuti di fila/,
     'e con la regola INTERA, campione minimo e consecutività compresi: sono le condizioni che hanno deciso la taratura',
   )
 })
@@ -298,7 +307,7 @@ test('la consecutività vale sul 5xx, non sul 4xx (lì la guardia è già il min
 test('in chat resta la regola, non la coda che non dice a che soglia', async () => {
   const r = await leggi({ inv: 200, serr: 60 }, { inv: 50, serr: 20 })
   const inChat = cleanDetail(r.summary)
-  assert.match(inChat, /scatta a ≥10% su almeno 20 invocazioni/, 'chi legge deve poter dire perché è uscito questo allarme')
+  assert.match(inChat, /scatta a ≥25% su almeno 20 invocazioni/, 'chi legge deve poter dire perché è uscito questo allarme')
 })
 
 // --- le soglie si dichiarano in config, non solo nel codice --------------------------------------
@@ -327,7 +336,7 @@ test('soglie: quelle del servizio vincono su quelle per tipo', async () => {
 
 test('soglie: un valore che numero non è tiene il default, invece di spegnere la soglia', async () => {
   assert.equal(risolviSoglie({ soglie: { serr: { min: 'tanti' } } }).serr.min, null, 'il profilo `ritentati` non ha un minimo assoluto')
-  assert.equal(risolviSoglie({ soglie: { serr: { rate: 7 } } }).serr.rate, 0.1, 'una percentuale > 1 non è una percentuale')
+  assert.equal(risolviSoglie({ soglie: { serr: { rate: 7 } } }).serr.rate, 0.25, 'una percentuale > 1 non è una percentuale')
   assert.equal(risolviSoglie({ soglie: { rafficaMinuti: null } }).rafficaMinuti, 3)
 })
 
@@ -335,7 +344,7 @@ test('soglie: una config parziale non tocca i segnali che non nomina', async () 
   const s = risolviSoglie({ soglie: { serr: { min: 10 } } })
   assert.equal(s.serr.min, 10, 'un minimo assoluto si può RIMETTERE da config, e allora vale')
   assert.equal(s.serr.combina, 'o', 'e si combina in `o` con la percentuale, come faceva la regola storica')
-  assert.equal(s.serr.rate, 0.1, 'la percentuale resta quella del profilo')
+  assert.equal(s.serr.rate, 0.25, 'la percentuale resta quella del profilo')
   assert.equal(s.cerr.min, 5, 'e il 4xx non è stato toccato')
 })
 
@@ -356,7 +365,7 @@ test('contratto: i cinque campi ci sono, e i numeri vengono dalle soglie vere', 
   for (const campo of ['misura', 'fonte', 'finestra', 'soglia', 'rimedio']) {
     assert.ok(c[campo], `manca il campo ${campo}`)
   }
-  assert.match(c.soglia.guasto, /≥10% su almeno 20 invocazioni/, 'le soglie del 5xx')
+  assert.match(c.soglia.guasto, /≥25% su almeno 20 invocazioni/, 'le soglie del 5xx')
   assert.match(c.soglia.guasto, /almeno 3 minuti di fila/, 'e la durata')
   assert.match(c.fonte, /AWS\/Bedrock/)
   assert.match(c.fonte, /ModelId=test-model/, 'la fonte dice con quale dimension legge')
@@ -370,7 +379,7 @@ test('contratto: cambiando la soglia in config cambia il contratto, che non si r
 
 test('contratto: viaggia col risultato, anche quando il modello non è stato chiamato', async () => {
   const vivo = await leggi({ inv: 300, serr: 12 })
-  assert.match(vivo.contratto.soglia.guasto, /≥10% su almeno 20 invocazioni/)
+  assert.match(vivo.contratto.soglia.guasto, /≥25% su almeno 20 invocazioni/)
   const fermo = await leggi({})
   assert.equal(fermo.status, 'idle')
   assert.ok(fermo.contratto, 'un check fermo deve dire lo stesso a che soglie guardava')

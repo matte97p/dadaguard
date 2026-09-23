@@ -5,6 +5,23 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Il 5xx dove il chiamante ritenta allarma al 25%, non al 10%** (23/09/2026). Il profilo
+  `ritentati` (oggi: i 5xx di Bedrock, e chiunque altro abbia un SDK che ritenta da se') passa da
+  `rate: 0.1` a `rate: 0.25`. Restano invariati il campione minimo (>=20 chiamate) e la
+  consecutivita' (errori per >=3 minuti di fila), e resta fuori il minimo assoluto, che era la
+  taratura sbagliata vera: non scala col traffico. La ragione della scelta e' la tipologia, non un
+  singolo allarme: dove ogni tentativo conta come una invocazione a se', un quarto dei tentativi
+  andati male e' il punto in cui il retry smette di coprire. ⚠️ Il prezzo e' misurato e va saputo,
+  perche' e' l'unico che il backtest sui 30 giorni ha trovato: 10% e 25% tengono gli stessi 6 giorni
+  veri, ma il 25% ARRIVA DOPO. Il 21/09/2026 alle 16:00 la finestra era al 15,3% e col 25% tace:
+  l'allarme esce alle 17:00, a picco iniziato, con l'ora prima persa. Quei due numeri stanno adesso
+  in un test (`ritentati: al 25% la prima ora tace`), cosi' chi un giorno rimette il 10% discute sui
+  giorni veri e sull'anticipo invece che a memoria. Il messaggio in chat stampa la regola nuova
+  («scatta a >=25% su almeno 20 invocazioni»), quindi non serve ricordarsela. Chi vuole tenere il
+  10% su un servizio suo lo dichiara in `services.yaml` (`soglie: { serr: { rate: 0.1 } }`): le
+  soglie del servizio vincono su quelle del profilo.
+
 ### Fixed
 - **Falso «GIÙ» sui cron MENSILI, e intermittente** (22/09/2026). Un cron mensile di produzione
   risultava giu' con «nessuna esecuzione (l'ultima attesa 19g fa)» mentre l'esecuzione c'era stata,
