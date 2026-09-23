@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PROFILI, risolviProfilo, valuta, testoRegola, raffica, rafficaBasta } from '../server/runtime/soglie.js'
+import { PROFILI, risolviProfilo, valuta, testoRegola, raffica, rafficaBasta, soglieDiTipo } from '../server/runtime/soglie.js'
 import { makeT } from '../server/i18n.js'
 
 // Le soglie stanno in un posto solo, per TIPOLOGIA di segnale, dal 22/09/2026. Prima ogni provider
@@ -85,6 +85,40 @@ test('chiamante: 4xx, serve una vera ondata e non il singolo caso', () => {
   assert.equal(sopra(10, 10000, 'chiamante'), false, 'lo 0,1% è rumore di chiamanti')
   assert.equal(sopra(2, 4, 'chiamante'), false, 'il 50% di quattro chiamate non conclude niente')
   assert.equal(sopra(8, 100, 'chiamante'), true)
+})
+
+test('chiamante: il campione minimo vale anche qui, dove le condizioni si combinano in «e»', () => {
+  // Il caso del 23/09/2026: 10 errori client su 108 invocazioni di un modello di staging hanno
+  // chiamato il canale. La coppia «≥5 e ≥5%» sembra due guardie e su un denominatore piccolo ne è
+  // una sola, perché cinque richieste sbagliate sono una manciata: da qui il pavimento a 20.
+  assert.equal(sopra(5, 6, 'chiamante'), false, '83%, ma sei chiamate non concludono niente')
+  assert.equal(sopra(5, 20, 'chiamante'), true, 'al campione minimo il 25% torna a contare')
+  assert.equal(sopra(3, 1000000, 'capacita'), false, 'e il throttling, che ha campione 0, non è cambiato')
+  assert.equal(sopra(3, 100, 'capacita'), true)
+})
+
+test('la regola stampata dice il campione anche nel ramo «e», o tace la condizione che l ha fermata', () => {
+  assert.match(testoRegola(risolviProfilo('chiamante'), t, 'invocazioni'), /≥5 e ≥5% su almeno 20 invocazioni/)
+  assert.match(testoRegola(risolviProfilo('capacita'), t, 'invocazioni'), /^≥3 e ≥1%$/, 'dove il campione non c è, non si inventa')
+})
+
+// --- le soglie per ACCOUNT ----------------------------------------------------------------------
+// Lo stesso segnale vuol dire due cose diverse nei due ambienti: un 4xx in produzione è un cliente
+// servito male, su staging è quasi sempre il nostro codice a metà di una modifica.
+test('perAccount: l override di un ambiente si fonde per SEGNALE su quelle per tipo', () => {
+  const cfg = { bedrock: { serr: { rate: 0.3 }, cerr: { min: 5, rate: 0.05 } }, perAccount: { staging: { bedrock: { cerr: { min: 50 } } } } }
+  const stg = soglieDiTipo(cfg, 'bedrock', 'staging')
+  assert.equal(stg.cerr.min, 50, 'staging alza il minimo del 4xx')
+  assert.equal(stg.cerr.rate, 0.05, 'e la percentuale resta quella per tipo, senza ricopiarla')
+  assert.equal(stg.serr.rate, 0.3, 'i segnali che l ambiente non nomina restano intatti')
+  assert.equal(soglieDiTipo(cfg, 'bedrock', 'production').cerr.min, 5, 'e la produzione non è stata toccata')
+})
+
+test('perAccount: senza config, o senza account, non inventa niente', () => {
+  assert.equal(soglieDiTipo(null, 'bedrock', 'staging'), null)
+  assert.equal(soglieDiTipo({ bedrock: { cerr: { min: 7 } } }, 'bedrock', undefined).cerr.min, 7)
+  assert.equal(soglieDiTipo({ perAccount: { staging: { bedrock: { cerr: { min: 9 } } } } }, 'bedrock', 'staging').cerr.min, 9, 'un ambiente può tarare anche dove non c è un livello per tipo')
+  assert.equal(soglieDiTipo({ bedrock: { cerr: { min: 7 } } }, 'lambda', 'staging'), null, 'un tipo che nessuno nomina resta ai default del provider')
 })
 
 // --- gli override di config --------------------------------------------------------------------

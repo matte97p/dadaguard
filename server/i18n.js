@@ -182,6 +182,9 @@ const S = {
     // dire in un colpo perché QUELL'allarme è uscito, e perché quello di ieri no.
     'soglia.regola.raffica': ', e con errori per almeno {minuti} minuti di fila',
     'soglia.regola.e': '≥{min} e ≥{rate}%',
+    // Lo stesso, dove il campione minimo c'è: va scritto, o la regola stampata nasconde la
+    // condizione che più spesso spiega perché un allarme NON è uscito.
+    'soglia.regola.eCampione': '≥{min} e ≥{rate}% su almeno {campione} {unita}',
     // I due profili con una sola condizione: la percentuale da sola (dove il chiamante ritenta, o
     // dove l'errore lo vede l'utente) e il conteggio da solo (dove il denominatore sono tre run di
     // un cron, e una percentuale non direbbe niente).
@@ -521,6 +524,7 @@ const S = {
     'soglia.regola.o': '≥{min} or ≥{rate}% over at least {campione} {unita}',
     'soglia.regola.raffica': ', and with errors over at least {minuti} consecutive minutes',
     'soglia.regola.e': '≥{min} and ≥{rate}%',
+    'soglia.regola.eCampione': '≥{min} and ≥{rate}% over at least {campione} {unita}',
     'soglia.regola.rate': '≥{rate}% over at least {campione} {unita}',
     'soglia.regola.min': '≥{min} errors in the window',
     'soglia.unita.chiamate': 'calls',

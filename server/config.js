@@ -66,6 +66,10 @@ export function validateConfig(doc) {
     // con `aws.soglie`, ed è l'unico modo per un singolo modello quando il resto è autoscoperto.
     // I valori assenti restano quelli di default del provider: una config parziale non spegne le
     // soglie che non nomina.
+    // `soglie.perAccount.<account>.<tipo>` tara un SOLO ambiente, fondendosi per segnale su quelle
+    // per tipo: lo stesso 4xx che in produzione è un cliente servito male, su staging è quasi sempre
+    // il nostro codice a metà di una modifica, e senza questo livello zittire lo staging voleva dire
+    // alzare la soglia anche in produzione.
     soglie: doc?.soglie ?? null,
     // Superficie "Accessi": dove stanno l'audit del cluster Teleport e l'heartbeat dei dev-env.
     // ⚠️ Senza questa sezione la superficie NON esiste (niente log group cablati nel codice: qui non

@@ -83,7 +83,15 @@ export const PROFILI = {
 
   // Errori del CHIAMANTE (4xx): spesso colpa di chi chiama (richiesta malformata, token troppo
   // lungo, quota). Serve una vera ondata, non il singolo caso, quindi entrambe le condizioni.
-  chiamante: { min: 5, rate: 0.05, combina: 'e', campione: 0, raffica: false },
+  //
+  // ⚠️ Campione minimo e consecutività dal 23/09/2026, e sono la stessa lezione del 23/08 pagata su
+  // un altro segnale: 10 errori client su 108 invocazioni di un modello di STAGING (9,3%) hanno
+  // chiamato il canale, e su una finestra da 15 minuti il denominatore è quello. Il minimo assoluto
+  // da solo non faceva la guardia che gli si attribuiva: ≥5 su un modello poco chiamato è una
+  // manciata di richieste sbagliate, non un'ondata. Qui il 4xx è anche il segnale che NON può dire
+  // «giù» (vedi `bedrock.js`), quindi il prezzo di aspettare 20 chiamate è un giallo che arriva
+  // dopo, non un guasto taciuto.
+  chiamante: { min: 5, rate: 0.05, combina: 'e', campione: CAMPIONE_MINIMO, raffica: true },
 
   // Reputazione imposta da un FORNITORE: non la scegliamo noi, la sceglie chi può sospenderci
   // l'account (SES sospende sopra ~5% di bounce e ~0,1% di complaint). La percentuale è l'unica
@@ -158,8 +166,12 @@ export function valuta(n, totale, profilo) {
   // niente.
   const campioneOk = base >= profilo.campione || errori > tot
   const perMin = profilo.min !== null && errori >= profilo.min
-  const rateDecideDaSola = profilo.min === null || profilo.combina === 'o'
-  const perRate = profilo.rate !== null && errori >= profilo.rate * base && (!rateDecideDaSola || campioneOk)
+  // Il campione vale su OGNI ramo percentuale, anche dove le condizioni si combinano in «e»: fino al
+  // 23/09/2026 lo si chiedeva solo dove la percentuale decideva da sola, perché si dava per scontato
+  // che nei profili in «e» facesse la guardia il minimo assoluto. Non la fa: su un denominatore
+  // piccolo «≥5 e ≥5%» è soddisfatta da cinque richieste sbagliate. Un profilo con `campione: 0`
+  // (throttling, cron) non cambia comportamento, perché `base >= 0` è sempre vero.
+  const perRate = profilo.rate !== null && errori >= profilo.rate * base && campioneOk
   const tuttoFallito = tot > 0 && errori >= tot
   const sopra =
     (profilo.tuttoFallitoAllarma && tuttoFallito) ||
@@ -212,6 +224,32 @@ export function testoRegola(profilo, t, unita = t('soglia.unita.chiamate')) {
   const coda = profilo.raffica ? t('soglia.regola.raffica', { minuti: profilo.rafficaMinuti }) : ''
   if (profilo.min === null) return t('soglia.regola.rate', { rate, campione: profilo.campione, unita }) + coda
   if (profilo.rate === null) return t('soglia.regola.min', { min: profilo.min }) + coda
-  const chiave = profilo.combina === 'o' ? 'soglia.regola.o' : 'soglia.regola.e'
+  // Il campione va DETTO anche nel ramo «e», dal 23/09/2026: da quando lo si chiede su ogni ramo
+  // percentuale, una regola stampata «≥5 e ≥5%» tacerebbe proprio la condizione che ha fatto tacere
+  // l'allarme, cioè la domanda che si fa in canale («perché stavolta non ha suonato?»).
+  const chiave = profilo.combina === 'o' ? 'soglia.regola.o' : profilo.campione > 0 ? 'soglia.regola.eCampione' : 'soglia.regola.e'
   return t(chiave, { min: profilo.min, rate, campione: profilo.campione, unita }) + coda
+}
+
+// Le soglie che valgono per UN servizio, dalla config: quelle del suo tipo, con sopra quelle
+// dichiarate per il suo ACCOUNT (`soglie: { perAccount: { staging: { bedrock: … } } }`).
+//
+// Esiste perché la stessa taratura non va bene nei due ambienti, e il 23/09/2026 il canale l'ha
+// mostrato: un 4xx su staging è quasi sempre il nostro codice a metà di una modifica, mentre lo
+// stesso segnale in produzione è un cliente servito male. Senza questo livello l'unico modo di
+// zittire lo staging era alzare la soglia anche in produzione, cioè spegnere il segnale dove conta.
+//
+// La fusione è per SEGNALE e non per tipo intero: chi ritocca `cerr` su staging non deve ricopiarsi
+// `serr` e `thr`, o il giorno in cui cambia il default in `PROFILI` quell'account resta indietro
+// senza che nessuno se ne accorga.
+export function soglieDiTipo(soglie, tipo, account) {
+  const base = soglie?.[tipo] ?? null
+  const perAccount = account ? (soglie?.perAccount?.[account]?.[tipo] ?? null) : null
+  if (!perAccount) return base
+  if (!base) return perAccount
+  const fuse = { ...base }
+  for (const [k, v] of Object.entries(perAccount)) {
+    fuse[k] = v && typeof v === 'object' && !Array.isArray(v) ? { ...(base[k] ?? {}), ...v } : v
+  }
+  return fuse
 }
