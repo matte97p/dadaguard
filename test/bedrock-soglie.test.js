@@ -62,8 +62,25 @@ test('4xx: sopra la percentuale ma pochissimi in assoluto non allarma', async ()
   assert.equal(await stato({ inv: 4, cerr: 2 }), 'up')
 })
 
-test('4xx: ondata vera (>=5% e >=5 errori), e in corso adesso → down', async () => {
-  assert.equal(await stato({ inv: 100, cerr: 8 }, { inv: 25, cerr: 5 }), 'down')
+test('4xx: ondata vera (>=5% e >=5 errori), e in corso adesso → degraded, MAI down', async () => {
+  // Il contratto del check lo scrive da sempre: giù è il 5xx, il 4xx è al massimo degradato. Fino al
+  // 23/09/2026 il codice contava gli sforamenti senza guardare di chi fossero, e in canale usciva un
+  // 🚨 GIÙ su una cosa che il contratto stesso chiama gialla (10 errori client su 108 invocazioni di
+  // un modello di staging).
+  assert.equal(await stato({ inv: 100, cerr: 8 }, { inv: 25, cerr: 5 }), 'degraded')
+})
+
+test('4xx: insieme a un 5xx sopra soglia lo stato torna down, perché a deciderlo è il 5xx', async () => {
+  assert.equal(await stato({ inv: 200, serr: 60, cerr: 20 }, { inv: 50, serr: 20, cerr: 10 }), 'down')
+})
+
+test('4xx: sotto il campione minimo non allarma, per quanto sia alta la percentuale', async () => {
+  // 5 errori su 6 invocazioni è l'83%, e fino al 23/09/2026 questo era un `down`: il minimo assoluto
+  // (≥5) non faceva la guardia che gli si attribuiva, perché cinque richieste sbagliate sono una
+  // manciata, non un'ondata. Su una finestra da 15 minuti di un modello poco chiamato è il caso
+  // normale, non il guasto.
+  assert.equal(await stato({ inv: 6, cerr: 5 }), 'up')
+  assert.equal(await stato({ inv: 20, cerr: 5 }), 'degraded', 'al campione minimo il 25% torna a contare')
 })
 
 // --- 5xx: profilo `ritentati`, cioè la sola PERCENTUALE (vedi server/runtime/soglie.js) ---
@@ -143,15 +160,17 @@ test('5xx: più errori che invocazioni contate allarma comunque (richieste respi
   assert.equal(await stato({ inv: 2, serr: 3 }), 'down')
 })
 
-test('il campione minimo non tocca i segnali in `and`: la percentuale lì non decide da sola', async () => {
-  // 5 errori client su 6 invocazioni è l'83%: campione piccolo, ma il minimo assoluto è già la
-  // guardia, e mettere un pavimento anche qui toglierebbe solo veri positivi.
-  assert.equal(await stato({ inv: 6, cerr: 5 }), 'down')
+test('il campione minimo vale ANCHE sui segnali in `and`, dal 23/09/2026', async () => {
+  // Si credeva che nei profili in «e» facesse la guardia il minimo assoluto. Non la fa: «≥5 e ≥5%»
+  // su sei invocazioni è soddisfatta da cinque richieste sbagliate, e il denominatore dei 15 minuti
+  // è piccolo per costruzione. Un profilo con `campione: 0` (il throttling) non è cambiato.
+  assert.equal(await stato({ inv: 6, cerr: 5 }), 'up', 'il 4xx aspetta 20 invocazioni prima di concludere')
+  assert.equal(await stato({ inv: 100, thr: 3 }), 'degraded', 'il throttling non ha campione, e non lo ha guadagnato')
 })
 
 // --- throttling: capacità che finisce, soglia più bassa del 4xx ---
-test('throttling: 3 su 100 (3%), e ancora in corso → down', async () => {
-  assert.equal(await stato({ inv: 100, thr: 3 }, { inv: 25, thr: 3 }), 'down')
+test('throttling: 3 su 100 (3%), e ancora in corso → degraded (la capacità non è la piattaforma giù)', async () => {
+  assert.equal(await stato({ inv: 100, thr: 3 }, { inv: 25, thr: 3 }), 'degraded')
 })
 
 test('throttling: 2 su 100 resta sotto il minimo assoluto', async () => {
@@ -247,9 +266,9 @@ test('sotto soglia lo stato è up MA il tile dell errore resta visibile sulla ca
 // non sanno se un retry ha rimediato (ogni tentativo è una invocazione a sé), quindi la durata è il
 // sostituto più onesto della domanda vera: uno scossone dentro un minuto solo il retry lo copre,
 // tre minuti attaccati di 503 no.
-const bucket = (periodSec, serie, t0 = Date.UTC(2026, 8, 18, 14, 0, 0)) => ({
-  times: { serr: serie.map((_, i) => t0 + i * periodSec * 1000) },
-  series: { serr: serie.slice() },
+const bucket = (periodSec, serie, key = 'serr', t0 = Date.UTC(2026, 8, 18, 14, 0, 0)) => ({
+  times: { [key]: serie.map((_, i) => t0 + i * periodSec * 1000) },
+  series: { [key]: serie.slice() },
   period: periodSec,
 })
 
@@ -297,10 +316,17 @@ test('5xx: due minuti di fila sui 15m non bastano, tre sì (il pavimento è in m
   assert.equal(await statoConSerie(ora, { inv: 50, serr: 20, ...bucket(60, [7, 7, 6]) }), 'degraded')
 })
 
-test('la consecutività vale sul 5xx, non sul 4xx (lì la guardia è già il minimo assoluto)', async () => {
-  const ora = { inv: 100, cerr: 8, ...bucket(180, [8, 0, 0, 0]) }
-  const adesso = { inv: 25, cerr: 5, ...bucket(60, [5, 0, 0]) }
-  assert.equal(await statoConSerie(ora, adesso), 'down')
+test('la consecutività vale anche sul 4xx, dal 23/09/2026: un picco dentro un bucket solo non allarma', async () => {
+  // Stessa ragione del 5xx: un'ondata di richieste sbagliate dura, uno script lanciato una volta no.
+  const ora = { inv: 100, cerr: 8, ...bucket(180, [8, 0, 0, 0], 'cerr') }
+  const adesso = { inv: 25, cerr: 5, ...bucket(60, [5, 0, 0], 'cerr') }
+  assert.equal(await statoConSerie(ora, adesso), 'up')
+})
+
+test('4xx: gli stessi errori su minuti attaccati restano degraded, non diventano down', async () => {
+  const ora = { inv: 100, cerr: 8, ...bucket(180, [4, 4, 0, 0], 'cerr') }
+  const adesso = { inv: 25, cerr: 5, ...bucket(60, [2, 2, 1], 'cerr') }
+  assert.equal(await statoConSerie(ora, adesso), 'degraded')
 })
 
 // --- la regola deve SOPRAVVIVERE al taglio del messaggio in chat -------------------------------

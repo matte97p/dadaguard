@@ -76,6 +76,18 @@ export function contratto(cfg = {}, globali = null, { windowMin = DEFAULT_WINDOW
 const ORDINE = ['serr', 'thr', 'cerr']
 const SEGNALE = { serr: 'm.errServer', thr: 'm.throttle', cerr: 'm.errClient' }
 
+// Quali segnali possono dire GIÙ. Solo il 5xx: il contratto qui sopra lo scrive da sempre («guasto:
+// 5xx … su ENTRAMBE le finestre; degradato: … oppure throttling …, oppure 4xx …»), ma fino al
+// 23/09/2026 lo stato si calcolava contando gli sforamenti senza guardare DI CHI fossero, quindi un
+// 4xx presente sulle due finestre usciva in canale come 🚨 GIÙ. Contratto e codice dicevano due cose
+// diverse, e a vincere era quello che nessuno poteva leggere.
+//
+// La distinzione non è cosmetica: throttling e 4xx sono capacità e richieste sbagliate, cioè roba su
+// cui si interviene in giornata, mentre GIÙ è la piattaforma che non risponde e chiama qualcuno
+// adesso. Un rosso che il contratto stesso chiama giallo insegna a ignorare i rossi.
+const GRAVI = new Set(['serr'])
+const conGrave = (sfori) => sfori.some((s) => GRAVI.has(s.key))
+
 // I segnali sopra soglia di una finestra, dal più grave al meno grave. Chi ha `raffica` passa anche
 // dalla durata: il conteggio dice QUANTI, la raffica dice se sono stati di fila.
 function sfori(m, soglie) {
@@ -160,7 +172,9 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const adesso = acuta ? sfori(acuta, soglie) : nellOra
   // Tre stati invece di due: `down` = conclamato (persiste E in corso), `degraded` = da guardare (uno
   // dei due), `up` = pulito su entrambe le finestre.
-  const status = nellOra.length && adesso.length ? 'down' : nellOra.length || adesso.length ? 'degraded' : 'up'
+  // `down` lo può produrre SOLO un segnale grave presente su entrambe le finestre (vedi `GRAVI`):
+  // tutto il resto che sfora, su una finestra o su due, è `degraded`.
+  const status = conGrave(nellOra) && conGrave(adesso) ? 'down' : nellOra.length || adesso.length ? 'degraded' : 'up'
   // Stat tile strutturati (label + valore + tono di stato). Errori: client (4xx, richieste/quota) e
   // server (5xx, colpa di Bedrock) = cause diverse → tile distinti; puliti → "0" verde.
   // NB i tile mostrano gli errori anche SOTTO soglia: sulla card li vuoi vedere, è l'allarme che non

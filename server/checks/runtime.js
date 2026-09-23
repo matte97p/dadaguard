@@ -1,6 +1,7 @@
 // Segnale #3 — runtime: lo stato reale del compute combacia col desiderato?
 // Dispatch su service.aws.type → un RuntimeProvider per tipo.
 // Aggiungere un provider = importarlo e aggiungere una entry in PROVIDERS.
+import { soglieDiTipo } from '../runtime/soglie.js'
 import { ecsRuntime } from '../runtime/ecs.js'
 import { ecsScheduledRuntime } from '../runtime/ecsScheduled.js'
 import { asgRuntime } from '../runtime/asg.js'
@@ -71,10 +72,15 @@ export async function run(service, ctx) {
   }
   // stato dello schedule EventBridge (dallo state TF) → per distinguere cron disabilitate.
   // `t` viaggia con extra così ogni provider parla nella lingua scelta.
-  // Le soglie dichiarate in config per QUESTO tipo di risorsa. Il provider le fonde sui propri
-  // default, e `cfg.soglie` del singolo servizio vince su entrambe: i modelli Bedrock sono
-  // autoscoperti, quindi senza il livello per tipo non ci sarebbe nessun posto dove tararli.
-  const extra = { scheduleState: ctx?.tf?.schedules?.[cfg.function], t, soglie: ctx?.soglie?.[cfg.type] ?? null }
+  // Le soglie dichiarate in config per QUESTO tipo di risorsa, con sopra quelle del suo ACCOUNT
+  // (`soglie: { perAccount: { staging: … } }`). Il provider le fonde sui propri default, e
+  // `cfg.soglie` del singolo servizio vince su entrambe: i modelli Bedrock sono autoscoperti, quindi
+  // senza il livello per tipo non ci sarebbe nessun posto dove tararli.
+  const extra = {
+    scheduleState: ctx?.tf?.schedules?.[cfg.function],
+    t,
+    soglie: soglieDiTipo(ctx?.soglie, cfg.type, service.account),
+  }
 
   try {
     return { key, ...(await provider(cfg, aws, extra)) }

@@ -6,6 +6,25 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Il 4xx aspetta 20 chiamate e tre minuti prima di allarmare, e lo staging si tara da se'**
+  (23/09/2026). Il profilo `chiamante` (i 4xx: richiesta malformata, token troppo lungo, quota)
+  guadagna il campione minimo (>=20 chiamate) e la consecutivita' (errori per >=3 minuti di fila),
+  che aveva gia' il 5xx. Il caso: 10 errori client su 108 invocazioni di un modello di STAGING
+  (9,3%) hanno chiamato il canale. La coppia «>=5 e >=5%» sembra due guardie e su un denominatore
+  piccolo ne e' una sola, perche' cinque richieste sbagliate sono una manciata, non un'ondata, e su
+  una finestra da 15 minuti il denominatore e' piccolo per costruzione. Il campione adesso vale su
+  OGNI ramo percentuale e non piu' solo dove la percentuale decide da sola: nei profili in «e» si
+  dava per scontato che facesse la guardia il minimo assoluto, e non la fa. Un profilo con
+  `campione: 0` (il throttling, i cron) non cambia comportamento. La regola stampata in chat dice
+  adesso anche il campione («scatta a >=5 e >=5% su almeno 20 invocazioni»), perche' da quando il
+  campione c'e' e' lui la risposta piu' frequente alla domanda «perche' stavolta non ha suonato?».
+- **Le soglie si possono tarare per AMBIENTE, non solo per tipo di risorsa** (23/09/2026). Nuovo
+  livello `soglie.perAccount.<account>.<tipo>` in `services.yaml`, che si fonde per SEGNALE su
+  quelle per tipo: si scrive la riga che cambia e basta, e il giorno in cui cambia il default in
+  `server/runtime/soglie.js` quell'ambiente non resta indietro. Serve dove lo stesso segnale vuol
+  dire due cose diverse: un 4xx in produzione e' una richiesta di un cliente andata male, su staging
+  e' quasi sempre il nostro codice a meta' di una modifica. Senza questo livello l'unico modo di
+  zittire lo staging era alzare la soglia anche in produzione, cioe' spegnere il segnale dove conta.
 - **Il 5xx dove il chiamante ritenta allarma al 25%, non al 10%** (23/09/2026). Il profilo
   `ritentati` (oggi: i 5xx di Bedrock, e chiunque altro abbia un SDK che ritenta da se') passa da
   `rate: 0.1` a `rate: 0.25`. Restano invariati il campione minimo (>=20 chiamate) e la
@@ -23,6 +42,16 @@ All notable changes to Dadaguard are documented here. Format based on
   soglie del servizio vincono su quelle del profilo.
 
 ### Fixed
+- **Un 4xx usciva in canale come «GIU'», che il contratto del check chiama giallo** (23/09/2026).
+  Il contratto di Bedrock lo scrive da sempre: guasto e' il 5xx su entrambe le finestre, mentre
+  throttling e 4xx sono al massimo degradato. Lo stato pero' si calcolava contando gli sforamenti
+  senza guardare DI CHI fossero, quindi qualsiasi segnale presente sull'ora e sui 15 minuti usciva
+  come allarme rosso. Contratto e codice dicevano due cose diverse, e a vincere era quello che
+  nessuno poteva leggere. La distinzione non e' cosmetica: capacita' finita e richieste sbagliate si
+  guardano in giornata, mentre «giu'» e' la piattaforma che non risponde e chiama qualcuno adesso, e
+  un rosso che il contratto stesso chiama giallo insegna a ignorare i rossi. Adesso solo i segnali
+  in `GRAVI` (oggi il 5xx) possono produrre `down`; tutto il resto che sfora resta `degraded`, sulle
+  card e in chat.
 - **L'allarme sulle scritture in produzione diceva una tabella che non esiste, e nominava chi non
   aveva scritto** (23/09/2026). Quattro difetti nella stessa riga, tutti visti sul canale in due
   giorni. (1) Il nome della tabella: il lettore di query riconosceva i soli identificatori nudi e si
