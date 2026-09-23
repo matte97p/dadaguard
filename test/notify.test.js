@@ -634,6 +634,9 @@ test('giroAccessi: al primo giro prende nota e non annuncia', async () => {
       azioni: { UPDATE: 4 },
       tabelle: ['ordini'],
       chi: ['tizio'],
+      // `{ persona: quante }` quando l'audit lo porta: serve a nominare nel messaggio dopo i soli
+      // nomi di chi ha scritto da adesso. `null` finche' il payload non ce l'ha.
+      chiQuante: null,
       livello: 'allarme',
       // Dice se i totali qui sopra venivano da una lettura troncata: serve al delta del giro dopo.
       parziale: false,

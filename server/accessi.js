@@ -94,6 +94,14 @@ function proprietari(heartbeat = {}) {
 // Ogni segnale porta una `chiave` stabile (serve al dedup) e un `quando` (l'istante dell'ultimo evento
 // che lo giustifica): si annuncia solo quello che è più RECENTE di quanto già detto, sennò una
 // scrittura di stamattina tornerebbe a ogni giro per tutta la finestra.
+// I nomi di chi ha scritto, per natura. Il conteggio per persona arriva dall'audit: quando manca
+// (payload di una versione precedente) si ripiega sull'insieme di tutti gli scriventi del database.
+function chiDiNatura(d, natura) {
+  const suoi = natura === 'dati' ? d.scriventiDati : d.scriventiStruttura
+  if (!suoi) return d.scriventi ?? []
+  return Object.keys(suoi).sort()
+}
+
 export function segnali(dati = {}) {
   if (!dati.configurato) return []
   const audit = dati.audit ?? {}
@@ -137,7 +145,19 @@ export function segnali(dati = {}) {
       // `CREATE FUNCTION` non dice su quale tabella ha lavorato, e il suo nome non e' una tabella.
       oggetti,
       utentiDb: d.utentiDb ?? [],
-      chi: d.scriventi ?? [],
+      // I nomi di CHI ha fatto le scritture di QUESTA natura, e quante ne ha fatte ciascuno. Il
+      // conteggio non finisce nel messaggio: serve al giro dopo per dire i soli nomi arrivati
+      // dall'ultimo messaggio (vedi `chiNuovi`).
+      // ⚠️ Se il payload non porta la divisione (rilascio a meta') si ripiega su tutti gli scriventi
+      // del database, che e' quello che si diceva prima: un nome in piu' e' meglio di nessun nome.
+      chi: chiDiNatura(d, natura),
+      chiQuante: (natura === 'dati' ? d.scriventiDati : d.scriventiStruttura) ?? null,
+      // TUTTI quelli che hanno scritto nella finestra, non solo i nomi che finiranno nella riga.
+      // ⚠️ Serve a riconoscere i login PERSONALI (`dev_tizio`) e a non ridirli fra parentesi: con i
+      // soli nomi del delta, il login di chi era fuori dal delta tornava fra gli «estranei», cioe'
+      // `da tizio (dev_caio su writer)`, che e' di nuovo il nome sbagliato accanto alla scrittura
+      // sbagliata.
+      chiTutti: d.scriventi ?? [],
       // Le scritture mandate e rifiutate viaggiano con la riga, ma non ne sono la notizia: nessuna
       // riga NASCE da loro (una scrittura che non e' avvenuta non e' un allarme), e se c'e' gia' una
       // riga si dicono in coda, perche' spiegano il login che non torna.
@@ -271,6 +291,10 @@ const precTabelle = (v) => (typeof v === 'number' ? null : (v?.tabelle ?? null))
 // dire molto PIU' del vero (campione 324 su 776 veri, poi una lettura completa a 800 → «+476» dove ne
 // sono arrivate 24). Senza ricordarlo, l'unico giro che si dichiara parziale e' quello sbagliato.
 const precParziale = (v) => (typeof v === 'number' ? false : Boolean(v?.parziale))
+// Quante scritture aveva fatto CIASCUNO quando si e' parlato l'ultima volta. Serve a nominare nel
+// messaggio i soli nomi di chi ha scritto DA ALLORA: con l'insieme dei nomi non si poteva, e chi
+// aveva scritto ore prima tornava in ogni riga accanto a chi aveva appena scritto.
+const precChiQuante = (v) => (typeof v === 'number' ? null : (v?.chiQuante ?? null))
 
 // Quante ne sono arrivate DALL'ULTIMO messaggio, che è la domanda a cui il totale non risponde: uno
 // script che scrive per mezz'ora manda un messaggio ogni cinque minuti, e col totale delle 24h ogni
@@ -328,6 +352,8 @@ const vocePerStato = (segnale, adesso) => ({
   azioni: azioniInStato(segnale),
   tabelle: segnale.tabelle ?? [],
   chi: segnale.chi ?? [],
+  // Vedi `precChiQuante`: non serve a questo messaggio, serve al prossimo delta.
+  chiQuante: segnale.chiQuante ?? null,
   livello: segnale.livello ?? null,
   // Vedi `precParziale`: non serve a questo messaggio, serve al prossimo delta.
   parziale: Boolean(segnale.parziale),
@@ -335,6 +361,21 @@ const vocePerStato = (segnale, adesso) => ({
 
 // Le tabelle NUOVE, con lo stesso ripiego delle azioni: se non ce n'è nessuna mai vista prima si
 // ridicono quelle della finestra, perché «+3 UPDATE» senza dire su cosa non è una notizia.
+// Chi ha scritto DALL'ULTIMO messaggio: le persone il cui conteggio e' cresciuto. Stesso ripiego
+// delle azioni e delle tabelle: se nessuno e' cresciuto (succede quando una scrittura vecchia esce
+// dalla finestra e una nuova entra) si ridicono i nomi della finestra, perche' «+1 DELETE» senza dire
+// da chi non e' una notizia.
+// ⚠️ Non si confrontano gli INSIEMI di nomi: chi aveva gia' scritto ieri non risulterebbe mai nuovo,
+// ed e' il difetto che questa funzione toglie.
+function chiNuovi(segnale, prec) {
+  const prima = precChiQuante(prec)
+  const ora = segnale.chiQuante ?? null
+  const nomi = segnale.chi ?? []
+  if (!prima || !ora) return nomi
+  const cresciuti = Object.keys(ora).filter((c) => (ora[c] ?? 0) > (prima[c] ?? 0)).sort()
+  return cresciuti.length ? cresciuti : nomi
+}
+
 function tabelleNuove(segnale, prec) {
   const prima = precTabelle(prec)
   const ora = segnale.tabelle ?? []
@@ -394,7 +435,7 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
     // etichette cresciute sono crescite vere). `circa`: puo' dire piu' del vero, perche' e' la
     // finestra ridetta oppure perche' si misura contro un campione. `null`: e' esatto.
     const stima = precParziale(prec) ? 'circa' : s.parziale ? (ripiego ? 'circa' : 'almeno') : null
-    const adessoDetto = { ...s, nuove, azioni, ripiego, stima, parziale: Boolean(s.parziale) || precParziale(prec), tabelle: tabelleNuove(s, prec) }
+    const adessoDetto = { ...s, nuove, azioni, ripiego, stima, parziale: Boolean(s.parziale) || precParziale(prec), tabelle: tabelleNuove(s, prec), chi: chiNuovi(s, prec) }
     const zitto = inedito && adesso - precDetto(prec) < calmaMs && !rompeLaCalma(adessoDetto, prec)
     if (!inedito || zitto) {
       // Niente da dire, oppure non adesso: si tiene quello che c'era. Una chiave sconosciuta che non ha

@@ -300,13 +300,16 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // di DDL si leggerebbero come la tabella che le DDL hanno toccato, che non e' quello che dicono.
     // Sotto al giallo ci vanno invece i nomi degli OGGETTI delle DDL, che sono un'altra cosa.
     const su = segnale.natura === 'struttura' ? sommarioOggetti(segnale.oggetti) : sommarioTabelle(segnale.tabelle)
-    const come = sommarioLogin(segnale.utentiDb, segnale.chi)
+    // ⚠️ `chiTutti` e non `chi`: i nomi nella riga sono quelli del delta, ma per capire quali login
+    // sono il nome di una persona servono TUTTI quelli che hanno scritto nella finestra. Con `chi`,
+    // il login di chi non era nel delta ricompariva fra parentesi come se fosse un login estraneo.
+    const come = sommarioLogin(segnale.utentiDb, segnale.chiTutti ?? segnale.chi)
     const respinte = sommarioTentate(segnale)
     // ⚠️ La coda vale per TUTTA la riga e non solo per il numero: da un campione escono anche le
     // etichette, gli oggetti, le tabelle e l'elenco di CHI ha scritto, e un nome che manca da un
     // allarme rosso di produzione non lascia nessun segno. Il numero da solo hedgiato direbbe che il
     // resto e' esatto.
-    const campione = segnale.parziale ? ' · lettura parziale: chi e cosa possono non esserci tutti' : ''
+    const campione = segnale.parziale ? ' · letti solo gli eventi più recenti, quindi nomi e numeri possono essere incompleti' : ''
     return `${testa}${envTag(segnale.ambiente)} ${titolo} — ${stima}+${quante} ${cosa}${su} da ${elenco(segnale.chi)}${come}${respinte}${campione}${coda}`
   }
   if (segnale.tipo === 'ssh') {
