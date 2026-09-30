@@ -26,7 +26,11 @@ export function usePoll(url, { intervalMs = 20000, enabled = true } = {}) {
         setData(await r.json())
         hasData.current = true
         setError(null)
-        setLastUpdated(Date.now())
+        // L'età del DATO, non del fetch: il server consegna subito il giro precedente e rinfresca
+        // dietro (server/util/swr.js), quindi «aggiornato 2s fa» su un dato calcolato un minuto fa
+        // sarebbe una bugia. Senza header (endpoint senza quella cache) resta l'ora del fetch.
+        const generato = Number(r.headers.get('x-dadaguard-generated-at'))
+        setLastUpdated(Number.isFinite(generato) && generato > 0 ? generato : Date.now())
       } catch (e) {
         if (e.name === 'AbortError') return // fetch annullato (url cambiato / unmount): scartalo
         setError(e.message) // NON azzero `data`: meglio dati vecchi + errore che una pagina vuota

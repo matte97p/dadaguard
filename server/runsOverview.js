@@ -5,17 +5,23 @@
 //
 // Costo tenuto a bada, che qui è la differenza fra una vista utile e una che nessuno apre:
 //  · TTL breve sulla risposta intera: tre persone che guardano la pagina insieme fanno UN giro di
-//    chiamate, non tre;
+//    chiamate, non tre. E a scadenza il dato vecchio si consegna subito e si rinfresca dietro
+//    (util/swr.js): un giro costa ~21 secondi, e la cache che bloccava li faceva pagare a chi apriva;
 //  · poche run per cron nella vista d'insieme (`limit`), storico profondo solo quando apri UN cron;
 //  · la scansione degli errori nei log è per le run in cima, non per tutte (vedi `scanFailures`).
 import { listCrons } from './crons.js'
 import { cronRuns } from './runs.js'
 import { prefectRuns } from './prefect.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
-import { cached } from './util/ttlcache.js'
+import { swrMemo } from './util/swr.js'
+import { log } from './log.js'
 import { mapLimit } from './util/pool.js'
 
 const TTL_MS = Number(process.env.DADAGUARD_RUNS_TTL_MS) || 45_000
+const memo = swrMemo({
+  ttlMs: TTL_MS,
+  onError: (err, key) => log.error('runs: rinfresco in background fallito', { key, err: err.message }),
+})
 const MAX_CRONS = 40 // oltre, non è una pagina: è una scansione. Si dice che è troncata.
 
 // Ordine della lista: prima chi sta girando ADESSO, poi chi ha appena fallito, poi per ultima run.
@@ -46,7 +52,7 @@ export function summarize(cron, runs = []) {
 
 export async function runsOverview(accounts, { minutes = 1440, limit = 6, only = null, t = (k) => k } = {}) {
   const key = `runs:${only ?? 'all'}:${minutes}:${limit}`
-  return cached(key, TTL_MS, async () => {
+  const { value } = await memo(key, async () => {
     const { crons, problems } = await listCrons(accounts, { t })
     const wanted = only ? crons.filter((c) => c.key === only) : crons
     const troncata = wanted.length > MAX_CRONS
@@ -98,4 +104,5 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
       generatedAt: Date.now(),
     }
   })
+  return value
 }
