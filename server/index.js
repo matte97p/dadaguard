@@ -43,6 +43,7 @@ import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { statusFor, warmStatus } from './statusCache.js'
+import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
@@ -306,6 +307,25 @@ app.get('/api/costs/categories', async (req, res) => {
 // I deploy per account, una volta sola: la usano sia `/api/deploys` (la vista) sia `/api/rilasci`
 // (staging contro produzione). Estratta dall'handler perché due endpoint che rifanno lo stesso giro
 // CodeBuild sono due giri di rete per lo stesso dato.
+// Senza cache era rilanciato dalla pagina ogni 15 secondi e costava 5,2 secondi di media (Cloudflare,
+// 7 giorni al 30/09/2026): chi apriva i Deploy aspettava il giro intero ogni volta. Venti secondi di
+// TTL, a scadenza si consegna il dato vecchio e si rinfresca dietro (util/swr.js): una build in corso
+// si vede avanzare lo stesso, con al massimo un giro di ritardo, e l'età vera la dice l'header.
+const deploysMemo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_DEPLOYS_TTL_MS) || 20_000,
+  onError: (err, key) => log.error('deploy: rinfresco in background fallito', { key, err: err.message }),
+})
+
+// L'età del dato consegnato, in un header e non nel corpo: la forma di `/api/deploys` è una mappa per
+// account, e una chiave in più lì dentro diventerebbe un account. La legge `usePoll` per «aggiornato
+// Ns fa», che altrimenti direbbe l'ora del fetch su un dato calcolato prima.
+const GENERATED_AT = 'X-Dadaguard-Generated-At'
+const conEta = (res, at) => (at ? res.set(GENERATED_AT, String(at)) : res)
+
+function deploysCached(lang, ore = null) {
+  return deploysMemo(`deploys:${lang ?? ''}:${ore ?? 'tutti'}`, () => deploysPerAccount(makeT(lang), ore))
+}
+
 async function deploysPerAccount(t, ore = null) {
   // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
   // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
@@ -339,7 +359,8 @@ async function deploysPerAccount(t, ore = null) {
 app.get('/api/deploys', async (req, res) => {
   try {
     if (isDemo) return res.json(demoDeploys())
-    res.json(await deploysPerAccount(makeT(req.query.lang), entroLimiti('deploys', req.query.ore)))
+    const { value, at } = await deploysCached(req.query.lang, entroLimiti('deploys', req.query.ore))
+    conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -351,7 +372,7 @@ app.get('/api/deploys', async (req, res) => {
 // dovrebbero rifare a mano l'unica cosa che questa vista sa fare.
 app.get('/api/rilasci', async (req, res) => {
   try {
-    const perAccount = isDemo ? demoDeploys() : await deploysPerAccount(makeT(req.query.lang))
+    const perAccount = isDemo ? demoDeploys() : (await deploysCached(req.query.lang)).value
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
@@ -403,6 +424,11 @@ app.get('/api/budgets', async (req, res) => {
 // Topologia: dipendenze DEDOTTE dai segnali AWS (env Lambda, event source, security group),
 // senza config. On-demand (apertura del drawer) → non rallenta la dashboard. Read-only; i valori
 // delle env var sono usati solo per il match e non escono mai dal server.
+const topologyMemo = swrMemo({
+  ttlMs: 600_000,
+  onError: (err, key) => log.error('topologia: rinfresco in background fallito', { key, err: err.message }),
+})
+
 app.get('/api/topology', async (req, res) => {
   try {
     if (isDemo) return res.json(demoTopology())
@@ -414,8 +440,11 @@ app.get('/api/topology', async (req, res) => {
     // completo: che intanto riempie la sua cache.
     const deboli = req.query.deboli !== '0'
     const chiave = deboli ? 'topology' : 'topology:veloce'
-    // Dieci minuti: la topologia cambia con un apply Terraform, non col traffico.
-    res.json(await cached(chiave, 600_000, () => deduceTopology(services, accounts, { deboli })))
+    // Dieci minuti: la topologia cambia con un apply Terraform, non col traffico. E a scadenza non si
+    // aspetta: il giro veloce misurato da Cloudflare costa 9,6 secondi, e con la cache che bloccava li
+    // pagava chiunque aprisse la pagina dopo dieci minuti di silenzio, cioè quasi tutti.
+    const { value, at } = await topologyMemo(chiave, () => deduceTopology(services, accounts, { deboli }))
+    conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -581,17 +610,16 @@ app.get('/api/runs', async (req, res) => {
     if (isDemo) return res.json(demoRuns(req.query.lang))
     const { accounts } = await resolveServices()
     const num = (v, d, max) => (Number.isFinite(Number(v)) ? Math.min(Number(v), max) : d)
-    res.json(
-      await runsOverview(accounts, {
-        // La finestra la dichiara `finestre.conf` come per tutti gli altri: qui c'era l'ennesima
-        // coppia default/massimo scritta a mano, e due posti che decidono la stessa cosa sono il
-        // modo in cui uno dei due resta indietro senza che nessuno se ne accorga.
-        minutes: entroLimiti('runs', req.query.minutes ? Number(req.query.minutes) / 60 : undefined) * 60,
-        limit: num(req.query.limit, req.query.cron ? 25 : 6, 50),
-        only: req.query.cron || null,
-        t: makeT(req.query.lang),
-      }),
-    )
+    const overview = await runsOverview(accounts, {
+      // La finestra la dichiara `finestre.conf` come per tutti gli altri: qui c'era l'ennesima
+      // coppia default/massimo scritta a mano, e due posti che decidono la stessa cosa sono il
+      // modo in cui uno dei due resta indietro senza che nessuno se ne accorga.
+      minutes: entroLimiti('runs', req.query.minutes ? Number(req.query.minutes) / 60 : undefined) * 60,
+      limit: num(req.query.limit, req.query.cron ? 25 : 6, 50),
+      only: req.query.cron || null,
+      t: makeT(req.query.lang),
+    })
+    conEta(res, overview.generatedAt).json(overview)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -773,4 +801,21 @@ app.listen(PORT, '0.0.0.0', () => {
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.
   if (!isDemo) warmStatus()
+  // Stessa ragione per le due pagine più care dopo lo stato, con le chiavi che la pagina chiede
+  // all'apertura (finestra e numero di run di default). Scalate: tre giri insieme all'avvio si
+  // contenderebbero la quota di CloudWatch Logs (~10 richieste al secondo per account) e il primo
+  // arriverebbe più tardi di quanto arrivava da solo.
+  if (!isDemo) {
+    setTimeout(() => {
+      resolveServices()
+        .then(({ accounts }) => runsOverview(accounts, { minutes: entroLimiti('runs') * 60, limit: 6, t: makeT('it') }))
+        .then(() => log.info('runs: cache scaldata'))
+        .catch((err) => log.error('runs: scaldata iniziale fallita', { err: err.message }))
+    }, 30_000).unref()
+    setTimeout(() => {
+      deploysCached('it', entroLimiti('deploys'))
+        .then(() => log.info('deploy: cache scaldata'))
+        .catch((err) => log.error('deploy: scaldata iniziale fallita', { err: err.message }))
+    }, 60_000).unref()
+  }
 })

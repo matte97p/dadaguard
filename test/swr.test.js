@@ -130,3 +130,25 @@ test('swr: le chiavi non si mescolano (una lingua per chiave)', async () => {
   assert.equal((await cache.get('it')).value, 'stato-it')
   assert.equal((await cache.get('en')).value, 'stato-en')
 })
+
+test('swrMemo: ogni chiave la sua funzione, e a scadenza consegna il vecchio senza aspettare', async () => {
+  const { swrMemo } = await import('../server/util/swr.js')
+  let adesso = 0
+  const memo = swrMemo({ ttlMs: 1000, now: () => adesso })
+  let giri = 0
+  let sblocca
+  const lento = async () => {
+    giri += 1
+    if (giri === 2) await new Promise((r) => (sblocca = r))
+    return `deploy-${giri}`
+  }
+  assert.deepEqual(await memo('deploys:it:24', lento), { value: 'deploy-1', at: 0 })
+  assert.deepEqual(await memo('topologia', async () => 'mappa'), { value: 'mappa', at: 0 })
+  adesso = 1500
+  // Il giro nuovo è in volo e non finisce: se la risposta arriva lo stesso, nessuno lo aspetta.
+  assert.deepEqual(await memo('deploys:it:24', lento), { value: 'deploy-1', at: 0 })
+  assert.equal(giri, 2)
+  sblocca()
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(await memo('deploys:it:24', lento), { value: 'deploy-2', at: 1500 })
+})
