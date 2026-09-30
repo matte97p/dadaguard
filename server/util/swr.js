@@ -74,3 +74,25 @@ export function swrCache({ ttlMs, compute, now = () => Date.now(), onError = () 
     },
   }
 }
+
+// La stessa cache per gli endpoint che non hanno un `compute` unico: ogni chiamata porta la sua
+// funzione, come con `cached` (ttlcache.js), e la differenza resta quella scritta in cima al file.
+//
+// Perché serve, misurato da Cloudflare il 30/09/2026 sulla durata della risposta dell'origine, sette
+// giorni: `/api/runs` 21,4 secondi di media (p95 31,3), `/api/topology` 9,6, `/api/deploys` 5,2. Tutte
+// e tre dietro una cache che BLOCCA a scadenza (runs 45 secondi, topologia 10 minuti) o senza cache
+// affatto (deploy, rilanciato dalla pagina ogni 15 secondi), quindi chi apriva la pagina pagava il
+// giro intero quasi ogni volta. `/api/status`, passato a questa cache il 31/08, nello stesso periodo
+// rispondeva in 47 millisecondi.
+//
+// Risponde `{ value, at }`: `at` è quando il dato è stato calcolato, che la pagina deve poter mostrare
+// (vedi `publishAge` in index.js), perché servire un dato vecchio senza dirlo è mentire.
+export function swrMemo({ ttlMs, now = () => Date.now(), onError = () => {} }) {
+  const fns = new Map() // chiave → l'ultima funzione che la calcola
+  const cache = swrCache({ ttlMs, now, onError, compute: (key) => fns.get(key)() })
+  return async (key, fn, opts) => {
+    fns.set(key, fn)
+    const { value, at } = await cache.get(key, opts)
+    return { value, at }
+  }
+}
