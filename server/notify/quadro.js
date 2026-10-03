@@ -187,7 +187,10 @@ export function lottiLambda(lambda = []) {
 }
 
 // Come è arrivato in produzione quello che gira. Puro.
-function comeArrivato(b, sorgente, ecs) {
+// ⚠️ Con le build NON lette non si dice niente: «nessuna build» sarebbe un fatto inventato, ed è quello
+// che il quadro diceva su ogni riga il 03/10/2026, quando CodeBuild non rispondeva per un buco di rete.
+function comeArrivato(b, sorgente, ecs, buildIgnote = false) {
+  if (buildIgnote) return null
   const ultima = b?.ultima
   if (ultima?.kind === 'restart' && ultima.status === 'SUCCEEDED' && tempo(ultima.startedAt) >= tempo(sorgente?.startedAt))
     return { tipo: 'riavvio', chi: ultima.forcedBy ?? null, quando: ultima.startedAt }
@@ -205,7 +208,7 @@ function comeArrivato(b, sorgente, ecs) {
 }
 
 // Una riga per applicazione, unendo ECS e CodeBuild per nome. Puro.
-function rigaApp(nome, ecs, builds, { persone, chiave }) {
+function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
   const b = statoBuild(builds)
   const riuscita = b?.riuscita ?? null
   // Cosa gira: l'immagine in ECS, che per le build della CI è taggata col commit. Senza ECS (un sito
@@ -231,7 +234,7 @@ function rigaApp(nome, ecs, builds, { persone, chiave }) {
           chi: canonicalActor(u.forcedBy ?? u.author ?? null, persone),
         }
       : null
-  const come = comeArrivato(b, sorgente, ecs)
+  const come = comeArrivato(b, sorgente, ecs, buildIgnote)
   return {
     tipo: 'app',
     servizio: nome,
@@ -261,6 +264,10 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     servizi.find((s) => ambienteDi(s.account?.key ?? '') === ambiente)?.account?.key ??
     null
 
+  // Le build di questo ambiente si sono lette? Un account in errore (o nessun account) vuol dire che
+  // non lo sappiamo, e da lì in giù il quadro non può dedurre niente che dipenda dalle build.
+  const erroreBuild = Object.keys(deploys).filter((k) => ambienteDi(k) === ambiente && deploys[k]?.error).map((k) => deploys[k].error)[0] ?? null
+  const buildIgnote = chiavi.length === 0
   const perServizio = new Map()
   const iac = []
   for (const k of chiavi) {
@@ -286,7 +293,9 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
   const gruppi = []
   const inGruppo = new Set()
   for (const [repo, lista] of perRepo) {
-    if (lista.length < 2 || lista.some((e) => perServizio.has(e.nome))) continue
+    // Senza build lette non si sa chi ne ha una propria: raggruppare metterebbe il Backend fra le
+    // immagini condivise, col primo cron sul tag `latest` segnato come «rimasto indietro».
+    if (buildIgnote || lista.length < 2 || lista.some((e) => perServizio.has(e.nome))) continue
     lista.forEach((e) => inGruppo.add(e.nome))
     // Il tag più recente è «quello che gira»; chi ne ha un altro è rimasto indietro e si dice per nome.
     const recente = lista.reduce((a, e) => (tempo(e.da) > tempo(a.da) ? e : a), lista[0])
@@ -308,7 +317,7 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
 
   const ecsServizi = new Map(ecs.filter((e) => e.tipo === 'ecs' && !inGruppo.has(e.nome)).map((e) => [e.nome, e]))
   const nomi = [...new Set([...ecsServizi.keys(), ...perServizio.keys()])]
-  const tutte = nomi.map((n) => rigaApp(n, ecsServizi.get(n) ?? null, perServizio.get(n) ?? [], { persone, chiave }))
+  const tutte = nomi.map((n) => rigaApp(n, ecsServizi.get(n) ?? null, perServizio.get(n) ?? [], { persone, chiave, buildIgnote }))
 
   // I componenti esterni (proxy, agenti, orchestratori: versioni fissate dall'IaC) stanno a parte,
   // che siano un servizio solo o un'immagine condivisa: non sono rilasci di nessuno.
@@ -348,6 +357,8 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     lambda: lottiLambda(lambda).map((l) => ({ ...l, tipo: 'lambda', chiave, chi: chiLeggibile(l.chi) })),
     lambdaSenzaData: lambda.filter((l) => !l.da).length,
     infra,
+    buildIgnote,
+    erroreBuild,
   }
 }
 
@@ -581,7 +592,7 @@ const piccolo = (t) => ({ type: 'context', elements: [{ type: 'mrkdwn', text: tr
 
 // Il messaggio Slack di un ambiente. Puro/testabile.
 export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const { ambiente, chiave, app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null } = q
+  const { ambiente, chiave, app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false, erroreBuild = null } = q
   const meta = AMBIENTI[ambiente] ?? { titolo: ambiente.toUpperCase(), tag: ambiente.toUpperCase(), colore: '#868686' }
   const soglia = ora - ore * 3_600_000
   const recente = (x) => x.quando && tempo(x.quando) >= soglia
@@ -620,8 +631,10 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT
     inCorso && `⏳ ${inCorso} in corso`,
     `🚀 ${plurale(recenti.length, 'rilascio', 'rilasci')} nelle ultime ${ore} h`,
     diversi.length && `${diversi.length} su un commit diverso da staging`,
+    buildIgnote && '⚠️ build non lette',
   ].filter(Boolean)
-  const sintesi = adesso.length ? pezzi : ['✅ niente di rotto, niente in corso', ...pezzi]
+  // «Niente di rotto» si dice solo se lo sappiamo: con le build non lette un fallimento non si vede.
+  const sintesi = adesso.length || buildIgnote ? pezzi : ['✅ niente di rotto, niente in corso', ...pezzi]
   const orario = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
 
   // Titolo e sintesi stanno FUORI dall'allegato, il corpo dentro: il blocco `header` è garantito solo
@@ -636,6 +649,8 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT
   const oltre = (n, link) => piccolo(`e ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: <${link}|tutti su Dadaguard>` : ''}`)
 
   const corpo = []
+  if (buildIgnote)
+    corpo.push(piccolo(`⚠️ *Build non lette*${erroreBuild ? `: ${erroreBuild}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`))
   if (adesso.length) {
     corpo.push(titolo('Adesso'))
     adesso.slice(0, MAX_ADESSO).forEach((x) => corpo.push(...blocchiVoce(x, x.link)))

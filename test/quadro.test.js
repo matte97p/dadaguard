@@ -45,6 +45,9 @@ const svc = (name, account, { type = 'ecs', tag = null, repo = null, da = null, 
   },
 })
 const lam = (name, account, da, by) => ({ name, type: 'lambda', overall: 'idle', account: { key: account }, checks: { version: { build: { deployedAt: da, by } } } })
+// Build lette e nessuna trovata: diverso da «non lette», che il quadro dichiara.
+const LETTE_PROD = { production: { builds: [] } }
+const LETTE_STG = { staging: { builds: [] } }
 const testo = (m) => JSON.stringify([...m.blocks, ...m.attachments[0].blocks])
 
 test('le build: l’ultimo tentativo decide, un fallimento superato non tiene rosso, la durata tipica è la mediana', () => {
@@ -87,7 +90,7 @@ test('una revisione nuova sulla stessa immagine, molto dopo la build, non è que
 })
 
 test('una revisione promossa a mano, senza build, lo dice', () => {
-  const q = quadroAmbiente('produzione', { servizi: [svc('api', 'production', { tag: 'bbbbbbbb', da: '2026-10-03T10:00:00Z', by: 'persona', rev: 128 })] })
+  const q = quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi: [svc('api', 'production', { tag: 'bbbbbbbb', da: '2026-10-03T10:00:00Z', by: 'persona', rev: 128 })] })
   assert.match(voce(q.app[0], { ora: ORA }).dettagli.join(' '), /revisione registrata da persona, nessuna build/)
 })
 
@@ -163,6 +166,7 @@ test('un servizio giù vince su tutto; un cron in rosso invece non è un deploy 
 
 test('immagini condivise senza build: una riga sola, e chi è rimasto indietro sale in «Adesso»', () => {
   const q = quadroAmbiente('produzione', {
+    deploys: LETTE_PROD,
     servizi: [
       svc('tenders', 'production', { tag: 'e4ce3020d1c2', repo: 'scraper', da: '2026-10-03T10:00:00Z', by: 'acme-production-refresh' }),
       svc('enrich', 'production', { tag: 'e4ce3020d1c2', repo: 'scraper', da: '2026-10-03T10:00:00Z' }),
@@ -191,6 +195,7 @@ test('un repo condiviso da un servizio con una build sua NON è un’immagine co
 
 test('i componenti esterni (tag di versione) stanno a parte, sia da soli sia condivisi', () => {
   const q = quadroAmbiente('produzione', {
+    deploys: LETTE_PROD,
     servizi: [
       svc('orchestratore', 'production', { tag: '3.6.26-python3.12', repo: 'orch', da: '2026-10-03T11:59:00Z', deploying: true }),
       svc('orchestratore-worker', 'production', { tag: '3.6.26-python3.12', repo: 'orch', da: '2026-10-03T11:59:00Z' }),
@@ -233,6 +238,7 @@ test('una Lambda sola si chiama per nome, un giro si conta', () => {
 
 test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
   const q = quadroAmbiente('produzione', {
+    deploys: LETTE_PROD,
     servizi: [
       svc('a', 'production', { tag: 'e4ce302', repo: 'img', da: '2026-10-03T10:00:00Z' }),
       svc('b', 'production', { tag: '29a157c', repo: 'img', da: '2026-10-03T08:00:00Z' }),
@@ -258,6 +264,25 @@ test('le altre azioni a mano non diventano servizi, l’IaC ha la sua riga', () 
   })
   assert.deepEqual(q.app.map((r) => r.servizio), ['api'])
   assert.equal(voce(q.infra, { ora: ORA }).testo, '⏳  *IaC*  apply in corso da 1 h')
+})
+
+test('build non lette: il quadro lo dice e non inventa niente che ne dipenda', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: { production: { error: 'Could not connect to the endpoint URL' } },
+    servizi: [
+      svc('backend', 'production', { tag: 'aaaaaaa', repo: 'backend', da: '2026-10-03T11:00:00Z', by: 'dev' }),
+      svc('acme-production-cron-pulizia', 'production', { type: 'ecs-scheduled', tag: 'latest', repo: 'backend' }),
+    ],
+  })
+  assert.equal(q.buildIgnote, true)
+  assert.equal(q.immagini.length, 0, 'senza build non si sa chi ne ha una propria: niente gruppi')
+  assert.deepEqual(q.app.map((r) => r.servizio), ['backend'])
+  assert.equal(q.app[0].come, null, '«nessuna build» sarebbe inventato')
+  const m = messaggioQuadro(q, { ora: ORA })
+  assert.match(m.text, /⚠️ build non lette/)
+  assert.doesNotMatch(m.text, /niente di rotto/, 'non si sa, quindi non si dice')
+  assert.match(testo(m), /Build non lette\*: Could not connect to the endpoint URL/)
+  assert.doesNotMatch(testo(m), /nessuna build/)
 })
 
 test('produzione dice quando staging è su un altro commit, e solo lì', () => {
@@ -294,7 +319,7 @@ function ambienteGrande() {
     ...Array.from({ length: 10 }, (_, i) => svc(`app-nuova-${i}`, 'production', { tag: `bbbbbb${i}`, repo: `n${i}`, da: `2026-10-03T0${i % 10}:30:00Z` })),
     svc('rotta', 'production', { tag: 'ccccccc', repo: 'rotta', overall: 'down', task: [0, 2] }),
   ]
-  return quadroAmbiente('produzione', { servizi })
+  return quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi })
 }
 
 test('con una flotta grande il messaggio resta corto: «Adesso», poi al massimo 8 recenti, poi un conteggio', () => {
@@ -327,7 +352,7 @@ test('il messaggio: titolo al primo livello, barra del colore dell’ambiente, s
 })
 
 test('tutto tranquillo: la sintesi lo dice per prima', () => {
-  const q = quadroAmbiente('staging', { servizi: [svc('api', 'staging', { tag: 'aaaaaaa', da: '2026-09-01T00:00:00Z' })] })
+  const q = quadroAmbiente('staging', { deploys: LETTE_STG, servizi: [svc('api', 'staging', { tag: 'aaaaaaa', da: '2026-09-01T00:00:00Z' })] })
   const m = messaggioQuadro(q, { ora: ORA })
   assert.match(m.text, /^Quadro deploy \[STAGING\]: ✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
   assert.match(testo(m), /nessun rilascio/)
