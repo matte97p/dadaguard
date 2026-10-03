@@ -42,6 +42,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
+import { quadro, messaggioQuadro, anteprimaUrl, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -376,6 +377,26 @@ app.get('/api/rilasci', async (req, res) => {
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Il quadro dei deploy per Slack (vedi notify/quadro.js), SENZA mandarlo: lo stesso messaggio che il
+// giro riscriverebbe nel canale, più il link al Block Kit Builder per vederlo com'è. Serve a provarlo
+// prima di dargli un token, e a capire cosa dice il quadro quando in canale sembra strano.
+app.get('/api/quadro', async (req, res) => {
+  try {
+    const perAccount = isDemo ? demoDeploys() : (await deploysCached(req.query.lang)).value
+    const q = quadro(perAccount)
+    const { ambienti, publicUrl } = quadroConfig()
+    const messaggi = Object.fromEntries(
+      ambienti.map((a) => {
+        const msg = messaggioQuadro(a, q[a] ?? [], { url: publicUrl, persone: loadConfig().people ?? null })
+        return [a, { ...msg, anteprima: anteprimaUrl(msg) }]
+      }),
+    )
+    res.json({ quadro: q, messaggi })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -797,6 +818,9 @@ app.listen(PORT, '0.0.0.0', () => {
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
   // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
   if (!isDemo) startWatcher()
+  // Il quadro dei deploy in Slack: parte solo con token di un'app e canale. Legge la stessa cache
+  // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
+  if (!isDemo) startQuadro(() => deploysCached('it').then((r) => r.value))
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.
