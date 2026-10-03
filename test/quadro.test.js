@@ -15,6 +15,7 @@ import {
   trovaFissato,
   aggiornaQuadri,
   quadroConfig,
+  anteprimaUrl,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -150,7 +151,7 @@ test('nome e commit sono link: alla pagina Deploy filtrata e al commit su GitHub
   const r = { servizio: 'api', chiave: 'production', stato: 'ok', commit: 'aaaaaaa', repo: 'https://github.com/x/api', quando: null }
   const riga = rigaServizio(r, { ora: ORA, url: 'https://dg.example.com' })
   assert.match(riga, /<https:\/\/dg\.example\.com\/deploy\?service=api&account=production\|api>/)
-  assert.match(riga, /<https:\/\/github\.com\/x\/api\/commit\/aaaaaaa\|`aaaaaaa`>/)
+  assert.match(riga, /<https:\/\/github\.com\/x\/api\/commit\/aaaaaaa\|aaaaaaa>/, 'niente backtick dentro il link: Slack li mostrerebbe')
 })
 
 test('il messaggio: barra del colore dell’ambiente, sintesi in testa, problemi in cima, fermi in fondo', () => {
@@ -168,8 +169,10 @@ test('il messaggio: barra del colore dell’ambiente, sintesi in testa, problemi
   const m = messaggioQuadro(q, { ora: ORA, url: 'https://dg.example.com' })
   assert.equal(m.attachments[0].color, '#E01E5A')
   assert.match(m.text, /^Quadro deploy \[PROD\]: 🔴 1 da guardare/)
+  assert.equal(m.blocks[0].type, 'header', 'il titolo sta al primo livello, dove `header` è garantito')
+  assert.equal(m.blocks[0].text.text, '🟥  PRODUZIONE')
   const blocchi = m.attachments[0].blocks
-  assert.equal(blocchi[0].text.text, '🟥  PRODUZIONE')
+  assert.ok(!blocchi.some((x) => x.type === 'header'), 'nessun header dentro l’allegato')
   const app = blocchi.find((x) => x.type === 'section').text.text
   assert.ok(app.indexOf('rotto') < app.indexOf('recente'), 'il problema sale in cima')
   assert.doesNotMatch(app, /vecchio/, 'il fermo da settimane non ha una riga sua')
@@ -208,6 +211,15 @@ test('i componenti esterni stanno in una riga piccola, separati dalle nostre app
   assert.doesNotMatch(app, /db-ui|orch/)
   const esterni = JSON.stringify(blocchi.filter((x) => x.type === 'context'))
   assert.match(esterni, /Componenti esterni.*⏳ orch `3\.6\.26-python3\.12` ×2 1 min.*db-ui `v2\.195\.0` 6 g/)
+})
+
+test('l’anteprima col workspace apre il Builder sul messaggio, senza passare dal reindirizzamento', () => {
+  const m = messaggioQuadro({ ambiente: 'staging', app: [], immagini: [], infra: null }, { ora: ORA })
+  const url = anteprimaUrl(m, { team: 'T000TEST' })
+  assert.match(url, /^https:\/\/app\.slack\.com\/block-kit-builder\/T000TEST\/builder#/)
+  const payload = JSON.parse(decodeURIComponent(url.split('#')[1]))
+  assert.equal(payload.blocks[0].type, 'header')
+  assert.equal(payload.attachments[0].color, '#ECB22E')
 })
 
 test('le sezioni restano sotto il tetto di Slack anche con molti servizi', () => {

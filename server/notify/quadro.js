@@ -40,6 +40,8 @@ import { loadConfig } from '../config.js'
 //                                  rilascio intero passerebbe senza che il quadro lo veda in corso)
 //   DADAGUARD_QUADRO_FERMI_GIORNI  oltre quanti giorni un servizio fermo e sano si riassume in una
 //                                  riga in fondo invece di occupare la sua (default 7)
+//   DADAGUARD_SLACK_TEAM_ID        id del workspace (`T0…`), solo per il link d'anteprima di
+//                                  `/api/quadro`: senza, il Block Kit Builder si apre vuoto
 
 const DEFAULT_INTERVAL_S = 60
 const DEFAULT_FERMI_GIORNI = 7
@@ -68,6 +70,7 @@ export function quadroConfig(env = process.env) {
     intervalMs: Math.max(30, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     fermiGiorni: Number.isFinite(giorni) && giorni > 0 ? giorni : DEFAULT_FERMI_GIORNI,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
+    team: env.DADAGUARD_SLACK_TEAM_ID || null,
   }
 }
 
@@ -256,8 +259,9 @@ export function eta(iso, ora = Date.now()) {
 }
 
 const SEP = '  ·  '
-// Il commit apre la sua pagina su GitHub quando il repository è noto.
-const sha = (c, repo) => (c ? (repo ? `<${repo}/commit/${c}|\`${c}\`>` : `\`${c}\``) : '`?`')
+// Il commit apre la sua pagina su GitHub quando il repository è noto. Il link non va fra backtick:
+// dentro un blocco di codice Slack non riconosce i link, e scritto `<url|\`abc\`>` mostra i backtick.
+const sha = (c, repo) => (c ? (repo ? `<${repo}/commit/${c}|${c}>` : `\`${c}\``) : '`?`')
 
 // Il nome del servizio porta alla sua pagina Deploy su Dadaguard, già filtrata su servizio e
 // ambiente: è lo stesso link che usano le notifiche del canale.
@@ -383,11 +387,13 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, fermiGiorni =
   const sintesi = pezzi.length ? pezzi : ['✅ tutto riuscito, niente in corso']
   const orario = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
 
-  const blocchi = [
+  // Titolo e sintesi stanno FUORI dall'allegato, il corpo dentro: il blocco `header` è garantito solo
+  // al primo livello del messaggio, e un messaggio con un blocco rifiutato non parte affatto.
+  const testa = [
     { type: 'header', text: { type: 'plain_text', text: meta.titolo, emoji: true } },
     { type: 'context', elements: [{ type: 'mrkdwn', text: [...sintesi, `aggiornato alle ${orario}`].join(SEP) }] },
-    { type: 'divider' },
   ]
+  const blocchi = []
   if (vive.length) blocchi.push(...aSezioni('Applicazioni', vive.map((r) => rigaServizio(r, { ora, url }))))
   if (immaginiVive.length) blocchi.push(...aSezioni('Immagini condivise', immaginiVive.map((g) => rigaImmagine(g, { ora }))))
   if (infra) blocchi.push(...aSezioni('Infrastruttura', [rigaInfra(infra, { ora })]))
@@ -413,7 +419,8 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, fermiGiorni =
 
   return {
     text: `${intestazione(ambiente)}: ${sintesi.join(' · ')}`,
-    // Gli allegati sono l'unico modo di avere la barra colorata: i blocchi stanno dentro.
+    blocks: testa,
+    // Gli allegati sono l'unico modo di avere la barra colorata: il corpo sta dentro.
     attachments: [{ color: meta.colore, blocks: blocchi }],
     metadata: { event_type: EVENTO, event_payload: { ambiente } },
   }
@@ -421,8 +428,14 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, fermiGiorni =
 
 // Il link che apre il messaggio nel Block Kit Builder di Slack: l'anteprima di come apparirà, senza
 // mandare niente a nessuno. Puro.
-export function anteprimaUrl(msg) {
-  return `https://app.slack.com/block-kit-builder/#${encodeURIComponent(JSON.stringify({ attachments: msg.attachments }))}`
+//
+// ⚠️ Col workspace (`T0…`) l'indirizzo è `/block-kit-builder/<workspace>/builder#…`. Senza, Slack
+// reindirizza al workspace di chi apre e per strada perde il contenuto: la pagina si apre VUOTA,
+// che si legge come «l'anteprima non funziona». Il workspace non sta nel codice (il repo è pubblico):
+// arriva da `DADAGUARD_SLACK_TEAM_ID`.
+export function anteprimaUrl(msg, { team = null } = {}) {
+  const payload = encodeURIComponent(JSON.stringify({ blocks: msg.blocks, attachments: msg.attachments }))
+  return team ? `https://app.slack.com/block-kit-builder/${team}/builder#${payload}` : `https://app.slack.com/block-kit-builder/#${payload}`
 }
 
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
