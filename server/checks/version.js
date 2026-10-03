@@ -179,7 +179,21 @@ function ecsSummary(b, expected, t, people) {
   const ago = b.deployedAt ? fmtAgo(b.deployedAt, t) : null
   const shown = displayTag(b.tag)
   const base = b.tag ? t('build.ecs', { tag: shown, ago: ago ?? '—' }) : t('build.ecsnotag', { ago: ago ?? '—' })
-  return decideStatus({ key, summary: withModifier(base, b.modifiedBy, t, people) }, expected, b.tag, t, shown)
+  const res = decideStatus({ key, summary: withModifier(base, b.modifiedBy, t, people) }, expected, b.tag, t, shown)
+  // La stessa informazione in forma di DATO, accanto al testo: il quadro dei deploy in Slack deve
+  // sapere quale immagine gira e da quando, e riestrarlo dal summary vorrebbe dire dipendere dalla
+  // lingua. `repo` è il nome del repository dell'immagine (senza registro né tag): due servizi con lo
+  // stesso repo girano la stessa immagine.
+  res.build = { tag: b.tag ?? null, repo: imageRepo(b.image), deployedAt: b.deployedAt ?? null, by: canonicalActor(b.modifiedBy, people) }
+  return res
+}
+
+// `<registro>/<percorso>/<repo>:<tag>` o `@sha256:…` → `<repo>`. Puro/testabile.
+export function imageRepo(image) {
+  if (!image) return null
+  const senzaDigest = String(image).split('@')[0]
+  const ultimo = senzaDigest.split('/').pop()
+  return ultimo.split(':')[0] || null
 }
 
 const BUILDERS = {

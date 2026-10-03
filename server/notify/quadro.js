@@ -1,201 +1,428 @@
 import { log } from '../log.js'
-import { ambienteDi, tabellaRilasci } from '../rilasci.js'
+import { ambienteDi } from '../rilasci.js'
 import { canonicalActor } from '../util/principal.js'
+import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 
 // Il QUADRO dei deploy: un messaggio Slack per ambiente, fissato in cima al canale e RISCRITTO a ogni
-// giro, invece di due messaggi nuovi per ogni build (`⏳` all'avvio, `🚀`/`🔴` alla fine). Con una
-// decina di servizi e due ambienti il canale dei rilasci diventa un registro che nessuno scorre, e la
-// domanda vera («cosa gira adesso, e c'è qualcosa di rotto?») si risponde leggendo all'indietro.
-// Il quadro la risponde in un colpo d'occhio, come la vista di un'applicazione in un controller GitOps:
-// per ogni servizio cosa gira, se un rilascio è in corso, se l'ultimo è fallito, e se staging è avanti.
+// giro, al posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla
+// fine) e ogni revisione registrata da un automatismo ne lascia uno. In un giorno normale il canale
+// dei rilasci ne riceve un centinaio, e la domanda vera («cosa gira adesso, e c'è qualcosa di rotto?»)
+// si risponde leggendo all'indietro. Il quadro la risponde in un colpo d'occhio, come la vista delle
+// applicazioni in un controller GitOps.
+//
+// La verità su COSA GIRA la dice ECS, non CodeBuild: è l'unica fonte che vede tutte le strade per cui
+// un servizio cambia (la build della CI, una revisione promossa a mano, un riavvio, la revisione
+// registrata da un automatismo, un apply Terraform sulla task definition). CodeBuild aggiunge quello
+// che ECS non sa: il commit, chi l'ha scritto, la build in corso o fallita. Un servizio senza ECS (un
+// frontend statico) resta sulla sola CodeBuild.
+//
+// Cosa il quadro copre del canale, e cosa no:
+//   ⏳ 🚀 🔴 deploy da CodeBuild                  righe delle applicazioni
+//   ⏳ revisione promossa a mano, riavvii, SSM    cambio di revisione o rollout, visto da ECS
+//   🔄 revisione nuova da un automatismo          una riga per IMMAGINE condivisa, non una per servizio
+//   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
+//   🧪 test avviati, deploy saltato o non avviato  NO: vivono in GitHub Actions, che Dadaguard non legge
 //
 // ⚠️ Un messaggio RISCRITTO non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Un
 // fallimento che deve svegliare qualcuno resta un messaggio NUOVO, e non è compito del quadro.
 //
 // Zero storage, come il resto: il messaggio da riscrivere non si ricorda, si RITROVA fra quelli
 // fissati nel canale (scritto da noi, con l'ambiente nei metadati o nel testo). Il filesystem del task
-// è effimero, e un `ts` salvato lì si perderebbe a ogni rilascio di Dadaguard stessa, cioè ogni volta
-// si fisserebbe un quadro nuovo accanto al vecchio.
+// è effimero, e un `ts` salvato lì si perderebbe a ogni rilascio di Dadaguard stessa.
 //
 // Configurazione (tutta opzionale: senza token o canale il quadro non parte e non chiama niente):
-//   DADAGUARD_SLACK_BOT_TOKEN    token `xoxb-` di un'app Slack con `chat:write`, `pins:read`,
-//                                `pins:write`. Un webhook NON basta: con un webhook non si modifica
-//                                un messaggio già mandato, che è tutto il punto
-//   DADAGUARD_QUADRO_CANALE      id del canale (`C0123…`), non il nome: le API vogliono l'id
-//   DADAGUARD_QUADRO_AMBIENTI    quali ambienti, in ordine (default `produzione,staging`)
-//   DADAGUARD_QUADRO_INTERVAL    secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
-//                                rilascio intero passerebbe senza che il quadro lo veda in corso)
+//   DADAGUARD_SLACK_BOT_TOKEN      token `xoxb-` di un'app Slack con `chat:write`, `pins:read`,
+//                                  `pins:write`. Un webhook NON basta: non modifica un messaggio mandato
+//   DADAGUARD_QUADRO_CANALE        id del canale (`C0123…`), non il nome: le API vogliono l'id
+//   DADAGUARD_QUADRO_AMBIENTI      quali ambienti e in che ordine (default `produzione,staging`)
+//   DADAGUARD_QUADRO_INTERVAL      secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
+//                                  rilascio intero passerebbe senza che il quadro lo veda in corso)
+//   DADAGUARD_QUADRO_FERMI_GIORNI  oltre quanti giorni un servizio fermo e sano si riassume in una
+//                                  riga in fondo invece di occupare la sua (default 7)
 
 const DEFAULT_INTERVAL_S = 60
+const DEFAULT_FERMI_GIORNI = 7
 const EVENTO = 'dadaguard_quadro'
 const FALLITI = new Set(['FAILED', 'FAULT', 'TIMED_OUT', 'STOPPED'])
-const ETICHETTA = { produzione: 'PROD', staging: 'STAGING' }
+
+// Come si riconosce l'ambiente senza leggere: la BARRA colorata a sinistra del messaggio (rossa la
+// produzione, gialla lo staging) e il titolo grande con un quadrato dello stesso colore. Il tag
+// `[PROD]` delle notifiche resta nel testo di ripiego, che è quello delle notifiche e dei lettori di
+// schermo.
+export const AMBIENTI = {
+  produzione: { titolo: '🟥  PRODUZIONE', tag: 'PROD', colore: '#E01E5A' },
+  staging: { titolo: '🟨  STAGING', tag: 'STAGING', colore: '#ECB22E' },
+}
 
 export function quadroConfig(env = process.env) {
   const ambienti = (env.DADAGUARD_QUADRO_AMBIENTI || 'produzione,staging')
     .split(',')
     .map((s) => s.trim())
-    .filter((s) => ETICHETTA[s])
+    .filter((s) => AMBIENTI[s])
+  const giorni = Number(env.DADAGUARD_QUADRO_FERMI_GIORNI)
   return {
     token: env.DADAGUARD_SLACK_BOT_TOKEN || null,
     canale: env.DADAGUARD_QUADRO_CANALE || null,
     ambienti,
     intervalMs: Math.max(30, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
+    fermiGiorni: Number.isFinite(giorni) && giorni > 0 ? giorni : DEFAULT_FERMI_GIORNI,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
   }
 }
 
-const tempo = (b) => new Date(b?.startedAt ?? 0).getTime()
+const tempo = (x) => new Date(x ?? 0).getTime()
+// Il nome come lo dice chi ci lavora: senza `<org>-<env>-` (l'ambiente lo dice già il colore) e senza
+// `cron-` (lo dice la sezione). È anche la chiave con cui ECS e CodeBuild si incontrano: il servizio
+// ECS si chiama `<org>-<env>-dashboard`, il progetto di deploy dà `dashboard`.
+export const nomeBreve = (n = '') => stripOrgEnv(String(n)).replace(/^cron-/, '') || n
+// Un tag che è un commit è un'immagine NOSTRA, costruita dalla CI; uno che è una versione
+// (`v2.195.0`, `18.9.1`, `3.6-python3.12`) è un componente esterno, fissato dall'IaC. Dedotto dal tag,
+// senza elenchi di nomi.
+export const tagDiCommit = (t) => /^[0-9a-f]{7,40}$/i.test(String(t ?? ''))
+const corto = (sha) => (sha && /^[0-9a-f]{7,}$/i.test(sha) ? sha.slice(0, 7) : (sha ?? null))
+// Due riferimenti allo stesso commit, anche se uno è accorciato a 7 cifre e l'altro a 8.
+const stessoCommit = (a, b) => Boolean(a && b) && (a.startsWith(b) || b.startsWith(a))
 
-// Lo stato di UN servizio in UN ambiente, dalle sue build (più recente prima o in qualsiasi ordine).
-//
-// Tre stati, e la differenza fra il secondo e il terzo è quella che il canale di oggi non dice:
-//   in_corso  l'ultimo tentativo sta girando: si dice la fase e da quanto
-//   fallito   l'ultimo tentativo è fallito DOPO l'ultimo riuscito: in produzione gira ancora il commit
-//             di prima, ed è quello che si scrive accanto (un `🔴` da solo fa credere il servizio giù)
+// Lo stato delle BUILD di un servizio in un ambiente. Tre stati, e la differenza fra il secondo e il
+// terzo è quella che il canale di oggi non dice:
+//   in_corso  l'ultimo tentativo sta girando
+//   fallito   l'ultimo tentativo è fallito DOPO l'ultimo riuscito: gira ancora il commit di prima
 //   ok        l'ultimo riuscito è anche l'ultimo tentativo
 // Un riavvio a mano non cambia il commit: conta come evento più recente, non come rilascio.
 // Puro/testabile.
-export function statoServizio(builds = []) {
-  const ordinate = [...builds].sort((a, b) => tempo(b) - tempo(a))
+export function statoBuild(builds = []) {
+  const ordinate = [...builds].sort((a, b) => tempo(b.startedAt) - tempo(a.startedAt))
   const ultima = ordinate[0] ?? null
-  const ok = ordinate.find((b) => b.status === 'SUCCEEDED' && b.kind !== 'restart') ?? null
   if (!ultima) return null
-  const base = { commit: ok?.commit ?? null, quando: ok?.startedAt ?? null, autore: ok?.author ?? null, build: ok?.number ?? null }
-  if (ultima.inProgress || ultima.status === 'IN_PROGRESS')
-    return { ...base, stato: 'in_corso', nuovo: ultima.commit ?? null, fase: ultima.phase ?? null, da: ultima.startedAt }
-  if (FALLITI.has(ultima.status) && tempo(ultima) >= tempo(ok))
-    return {
-      ...base,
-      stato: 'fallito',
-      nuovo: ultima.commit ?? null,
-      fase: ultima.failPhase ?? null,
-      da: ultima.startedAt,
-      log: ultima.logsUrl ?? null,
-      // Un riavvio a mano che fallisce non porta un commit: scriverlo come un rilascio fallito farebbe
-      // cercare una build che non esiste.
-      ...(ultima.kind === 'restart' ? { riavvioFallito: true } : {}),
-    }
-  if (ultima.kind === 'restart') return { ...base, stato: 'ok', riavvio: { da: ultima.startedAt, chi: ultima.forcedBy ?? null } }
-  return { ...base, stato: 'ok' }
+  const riuscita = ordinate.find((b) => b.status === 'SUCCEEDED' && b.kind !== 'restart') ?? null
+  if (ultima.inProgress || ultima.status === 'IN_PROGRESS') return { stato: 'in_corso', riuscita, ultima }
+  if (FALLITI.has(ultima.status) && tempo(ultima.startedAt) >= tempo(riuscita?.startedAt)) return { stato: 'fallito', riuscita, ultima }
+  return { stato: 'ok', riuscita, ultima }
 }
 
-// Il quadro intero: per ambiente, una riga per servizio, dal payload per-account di `/api/deploys`.
-// Lo stesso dato della pagina Deploy, quindi nessuna chiamata AWS in più.
-// La colonna «staging avanti» si deduce dalla tabella dei rilasci, che fa già il confronto. Puro.
-export function quadro(perAccount = {}) {
-  const perAmbiente = { produzione: new Map(), staging: new Map() }
-  for (const [chiave, dati] of Object.entries(perAccount)) {
-    const amb = ambienteDi(chiave)
-    if (!amb || dati?.error) continue
-    for (const b of dati?.builds ?? []) {
-      // Solo build di deploy e riavvii: le altre azioni a mano (shell nei container, porte dei security
-      // group) stanno nello stesso elenco della pagina ma non cambiano cosa gira, e nel quadro
-      // diventerebbero «servizi» chiamati come un container o un `sg-…`.
+// Cosa ECS dice di un servizio, dalla stessa lettura che fa la dashboard (nessuna chiamata in più):
+// task attivi, rollout in corso, se è giù, e quale immagine gira da quando. Puro.
+export function datiEcs(servizio = {}) {
+  const runtime = servizio.checks?.runtime ?? null
+  const build = servizio.checks?.version?.build ?? null
+  return {
+    nome: nomeBreve(servizio.name),
+    tipo: servizio.type,
+    // Solo un SERVIZIO è giù: un cron in rosso ha fallito una corsa, e lo racconta il canale dei cron.
+    // Contarlo qui metteva in cima al quadro dei deploy un problema che coi deploy non c'entra.
+    giu: servizio.type === 'ecs' && servizio.overall === 'down',
+    inRollout: Boolean(runtime?.deploying),
+    task: runtime?.desiredCount != null ? `${runtime.runningCount ?? 0}/${runtime.desiredCount}` : null,
+    tag: build?.tag ?? null,
+    repo: build?.repo ?? null,
+    da: build?.deployedAt ?? null,
+    chi: build?.by ?? null,
+  }
+}
+
+// Una riga per applicazione, unendo ECS e CodeBuild per nome. Puro.
+function rigaApp(nome, ecs, builds, { persone, chiave }) {
+  const b = statoBuild(builds)
+  const riuscita = b?.riuscita ?? null
+  // Cosa gira: l'immagine in ECS, che per le build della CI è taggata col commit. Senza ECS, l'ultima
+  // build riuscita.
+  const commit = corto(ecs?.tag) ?? riuscita?.commit ?? null
+  // La build che ha prodotto ciò che gira, se si trova: da lì vengono autore e link al commit. Se il
+  // commit in ECS non è quello di nessuna build (revisione promossa a mano, riavvio con config nuova),
+  // l'autore è chi ha registrato la revisione, che ECS sa.
+  const sorgente = builds.find((x) => x.status === 'SUCCEEDED' && stessoCommit(x.commit, commit)) ?? (ecs ? null : riuscita)
+  let stato = 'ok'
+  if (ecs?.giu) stato = 'giu'
+  else if (b?.stato === 'in_corso' || ecs?.inRollout) stato = 'in_corso'
+  else if (b?.stato === 'fallito') stato = 'fallito'
+  const tentativo = stato === 'in_corso' || stato === 'fallito' ? (b?.ultima ?? null) : null
+  return {
+    servizio: nome,
+    chiave,
+    stato,
+    commit,
+    repo: sorgente?.repo ?? riuscita?.repo ?? null,
+    quando: ecs?.da ?? riuscita?.startedAt ?? null,
+    chi: canonicalActor(sorgente?.author ?? ecs?.chi ?? null, persone),
+    task: ecs?.task ?? null,
+    nuovo: tentativo?.commit ?? null,
+    fase: stato === 'fallito' ? (tentativo?.failPhase ?? null) : (tentativo?.phase ?? null),
+    tentativoDa: tentativo?.startedAt ?? null,
+    log: stato === 'fallito' ? (tentativo?.logsUrl ?? null) : null,
+    riavvioFallito: stato === 'fallito' && tentativo?.kind === 'restart',
+    esterno: !builds.length && Boolean(ecs?.tag) && !tagDiCommit(ecs.tag),
+  }
+}
+
+// Il quadro di UN ambiente. Entrano il payload per-account di `/api/deploys` e i servizi di
+// `/api/status`: è lo stesso dato delle due pagine, quindi zero chiamate AWS in più. Puro/testabile.
+//
+// Tre gruppi:
+//   app        un servizio ECS o un progetto di deploy: una riga ciascuno
+//   immagini   servizi e cron che girano la STESSA immagine senza una build loro (un automatismo
+//              registra le revisioni): una riga per immagine, perché nel canale di oggi sono cinque
+//              messaggi alla volta, più volte al giorno, per un solo fatto
+//   infra      l'ultimo apply dell'infrastruttura
+export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone = null } = {}) {
+  const chiavi = Object.keys(deploys).filter((k) => ambienteDi(k) === ambiente && !deploys[k]?.error)
+  const chiave = chiavi[0] ?? Object.keys(deploys).find((k) => ambienteDi(k) === ambiente) ?? null
+
+  const perServizio = new Map()
+  const iac = []
+  for (const k of chiavi) {
+    for (const b of deploys[k]?.builds ?? []) {
+      // Solo build e riavvii: le altre azioni a mano (shell nei container, porte dei security group)
+      // non cambiano cosa gira, e qui diventerebbero «servizi» chiamati come un container o un `sg-…`.
       if (!b.service || b.provider === 'cloudflare' || (b.kind && b.kind !== 'restart')) continue
-      const lista = perAmbiente[amb].get(b.service) ?? []
-      lista.push(b)
-      perAmbiente[amb].set(b.service, lista)
+      if (b.iac) iac.push(b)
+      else perServizio.set(nomeBreve(b.service), [...(perServizio.get(nomeBreve(b.service)) ?? []), b])
     }
   }
-  const disallineati = new Set(tabellaRilasci(perAccount).filter((r) => r.allineato === false).map((r) => r.servizio))
-  const out = {}
-  for (const [amb, mappa] of Object.entries(perAmbiente)) {
-    out[amb] = [...mappa.keys()]
-      .sort()
-      .map((servizio) => ({ servizio, ...statoServizio(mappa.get(servizio)), stagingAvanti: amb === 'produzione' && disallineati.has(servizio) }))
+
+  const ecs = servizi
+    .filter((s) => ambienteDi(s.account?.key ?? '') === ambiente && (s.type === 'ecs' || s.type === 'ecs-scheduled'))
+    .map(datiEcs)
+
+  // Le immagini condivise: stesso repo su due o più servizi, e NESSUNO di loro ha una build propria.
+  // Dedotto dal dato, senza elenchi: un repo nuovo condiviso entra da sé.
+  const perRepo = new Map()
+  for (const e of ecs) if (e.repo) perRepo.set(e.repo, [...(perRepo.get(e.repo) ?? []), e])
+  const immagini = []
+  const inImmagine = new Set()
+  for (const [repo, lista] of perRepo) {
+    if (lista.length < 2 || lista.some((e) => perServizio.has(e.nome))) continue
+    lista.forEach((e) => inImmagine.add(e.nome))
+    // Il tag più recente è «quello che gira»; chi ne ha un altro è rimasto indietro e si dice per nome.
+    const recente = lista.reduce((a, e) => (tempo(e.da) > tempo(a.da) ? e : a), lista[0])
+    immagini.push({
+      repo,
+      tag: corto(recente.tag),
+      servizi: lista.filter((e) => e.tipo === 'ecs').map((e) => e.nome).sort(),
+      cron: lista.filter((e) => e.tipo === 'ecs-scheduled').map((e) => e.nome).sort(),
+      indietro: lista.filter((e) => e.tag !== recente.tag).map((e) => ({ nome: e.nome, tag: corto(e.tag) })),
+      quando: recente.da,
+      chi: recente.chi ? stripOrgEnv(recente.chi) : null,
+      giu: lista.filter((e) => e.giu).map((e) => e.nome),
+      inRollout: lista.some((e) => e.inRollout),
+      esterno: !tagDiCommit(recente.tag),
+    })
+  }
+
+  const ecsServizi = new Map(ecs.filter((e) => e.tipo === 'ecs' && !inImmagine.has(e.nome)).map((e) => [e.nome, e]))
+  const nomi = [...new Set([...ecsServizi.keys(), ...perServizio.keys()])]
+  const app = nomi.map((n) => rigaApp(n, ecsServizi.get(n) ?? null, perServizio.get(n) ?? [], { persone, chiave }))
+
+  const i = statoBuild(iac)
+  const infra = i && {
+    stato: i.stato,
+    commit: (i.stato === 'ok' ? i.riuscita : i.ultima)?.commit ?? null,
+    repo: i.ultima?.repo ?? null,
+    quando: i.ultima?.startedAt ?? null,
+    chi: canonicalActor(i.ultima?.author ?? null, persone),
+    log: i.stato === 'fallito' ? (i.ultima?.logsUrl ?? null) : null,
+    fase: i.stato === 'fallito' ? (i.ultima?.failPhase ?? null) : null,
+  }
+
+  return { ambiente, chiave, app, immagini: immagini.sort((a, b) => a.repo.localeCompare(b.repo)), infra }
+}
+
+// Tutti gli ambienti chiesti, più il confronto con staging sulle righe di produzione. Puro/testabile.
+export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambienti = ['produzione', 'staging']) {
+  const out = Object.fromEntries(ambienti.map((a) => [a, quadroAmbiente(a, { deploys, servizi, persone })]))
+  if (out.produzione) {
+    const staging = out.staging ?? quadroAmbiente('staging', { deploys, servizi, persone })
+    const inStaging = new Map(staging.app.map((r) => [r.servizio, r.commit]))
+    for (const r of out.produzione.app) {
+      const s = inStaging.get(r.servizio)
+      // «Su un altro commit», non «da rilasciare»: senza la storia git non si sa chi dei due è avanti,
+      // e dirlo sarebbe inventare. Nel caso normale è staging, e chi legge lo sa.
+      if (s && r.commit && !stessoCommit(s, r.commit)) r.staging = s
+    }
   }
   return out
 }
 
-// «da 3 min», «2 h fa», «ieri»: abbastanza per capire se un rilascio è appeso o vecchio. Puro.
+// ── La resa ──────────────────────────────────────────────────────────────────────────────────────
+
+// «4 min», «3 h», «2 g»: abbastanza per capire se un rilascio è appeso o vecchio. Puro.
 export function eta(iso, ora = Date.now()) {
   if (!iso) return '?'
-  const min = Math.max(0, Math.round((ora - new Date(iso).getTime()) / 60_000))
+  const min = Math.max(0, Math.round((ora - tempo(iso)) / 60_000))
   if (min < 60) return `${min} min`
   const ore = Math.round(min / 60)
   if (ore < 24) return `${ore} h`
   return `${Math.round(ore / 24)} g`
 }
 
+const SEP = '  ·  '
+// Il commit apre la sua pagina su GitHub quando il repository è noto.
+const sha = (c, repo) => (c ? (repo ? `<${repo}/commit/${c}|\`${c}\`>` : `\`${c}\``) : '`?`')
 
-// Una riga di testo per servizio. La grammatica è quella del canale dei rilasci: emoji in testa, nome
-// in backtick, commit in backtick. Puro/testabile.
-// Chi ha rilasciato passa dagli stessi alias della pagina dei rilasci (`people` in config), così la
-// stessa persona non compare con due nomi fra la pagina e il canale.
-export function rigaServizio(r, ora = Date.now(), persone = null) {
-  const nome = `\`${r.servizio}\``
-  const commit = r.commit ? `\`${r.commit}\`` : 'nessun commit'
-  const avanti = r.stagingAvanti ? ' · ↗︎ staging avanti' : ''
-  if (r.stato === 'in_corso')
-    return `⏳ ${nome} ${commit} → \`${r.nuovo ?? '?'}\` · in corso${r.fase ? ` (${r.fase})` : ''} da ${eta(r.da, ora)}`
-  if (r.stato === 'fallito') {
-    const dove = r.log ? `<${r.log}|fallito>` : 'fallito'
-    // Senza un riuscito nella finestra non si sa cosa gira: dirlo, invece di «gira ancora» il niente.
-    const gira = r.commit ? ` · gira ancora ${commit}` : ' · nessun rilascio riuscito nella finestra'
-    if (r.riavvioFallito) return `🔴 ${nome} riavvio ${dove} ${eta(r.da, ora)} fa${gira}${avanti}`
-    return `🔴 ${nome} \`${r.nuovo ?? '?'}\` ${dove}${r.fase ? ` al ${r.fase}` : ''} ${eta(r.da, ora)} fa${gira}${avanti}`
+// Il nome del servizio porta alla sua pagina Deploy su Dadaguard, già filtrata su servizio e
+// ambiente: è lo stesso link che usano le notifiche del canale.
+function nomeLink(r, url) {
+  if (!url || !r.chiave) return `*${r.servizio}*`
+  return `*<${url}/deploy?service=${encodeURIComponent(r.servizio)}&account=${encodeURIComponent(r.chiave)}|${r.servizio}>*`
+}
+
+// Una riga per applicazione. I pezzi sono sempre nello stesso ordine, così l'occhio li trova senza
+// leggere: stato, nome, COSA GIRA, task, da quanto e chi, poi la nota su staging. Puro/testabile.
+export function rigaServizio(r, { ora = Date.now(), url = null } = {}) {
+  const nome = nomeLink(r, url)
+  const gira = sha(r.commit, r.repo)
+  const task = r.task ? `${SEP}${r.task} task` : ''
+  if (r.stato === 'giu') return `🚨  ${nome}  *giù*${task}${SEP}gira ${gira}`
+  if (r.stato === 'in_corso') {
+    const verso = r.nuovo && !stessoCommit(r.nuovo, r.commit) ? ` → ${sha(r.nuovo, r.repo)}` : ''
+    const fase = r.fase ? ` (${r.fase})` : ''
+    return `⏳  ${nome}  ${gira}${verso}${SEP}in corso da ${eta(r.tentativoDa ?? r.quando, ora)}${fase}${task}`
   }
-  const quando = r.quando ? ` · ${eta(r.quando, ora)} fa` : ''
-  const nomeAutore = canonicalActor(r.autore, persone)
-  const autore = nomeAutore ? ` · ${nomeAutore}` : ''
-  const riavvio = r.riavvio ? ` · riavviato ${eta(r.riavvio.da, ora)} fa` : ''
-  return `✅ ${nome} ${commit}${quando}${autore}${riavvio}${avanti}`
+  if (r.stato === 'fallito') {
+    const esito = r.log ? `<${r.log}|fallito>` : 'fallito'
+    const cosa = r.riavvioFallito ? `riavvio ${esito}` : `${sha(r.nuovo, r.repo)} ${esito}${r.fase ? ` al ${r.fase}` : ''}`
+    // Un rosso da solo fa credere il servizio giù: si dice cosa sta ancora girando.
+    const resta = r.commit ? `${SEP}gira ancora ${gira}` : `${SEP}nessun rilascio riuscito visto`
+    return `🔴  ${nome}  ${cosa} ${eta(r.tentativoDa, ora)} fa${resta}${task}`
+  }
+  const chi = r.chi ? `, ${r.chi}` : ''
+  const staging = r.staging ? `${SEP}staging su \`${r.staging}\`` : ''
+  return `✅  ${nome}  ${gira}${task}${SEP}${eta(r.quando, ora)} fa${chi}${staging}`
+}
+
+// Una riga per immagine condivisa, con i nomi di chi la gira sotto in corsivo. Puro/testabile.
+export function rigaImmagine(g, { ora = Date.now() } = {}) {
+  const emoji = g.giu.length ? '🚨' : g.inRollout ? '⏳' : g.indietro.length ? '⚠️' : '🔄'
+  const quanti = [g.servizi.length && `${g.servizi.length} serviz${g.servizi.length === 1 ? 'io' : 'i'}`, g.cron.length && `${g.cron.length} cron`]
+    .filter(Boolean)
+    .join(' e ')
+  const chi = g.chi ? `, ${g.chi}` : ''
+  const giu = g.giu.length ? `${SEP}*giù*: ${g.giu.join(', ')}` : ''
+  const indietro = g.indietro.length ? `${SEP}ancora su un'altra: ${g.indietro.map((x) => `${x.nome} \`${x.tag ?? '?'}\``).join(', ')}` : ''
+  return `${emoji}  *${g.repo}*  \`${g.tag ?? '?'}\` su ${quanti}${SEP}${eta(g.quando, ora)} fa${chi}${giu}${indietro}\n_${[...g.servizi, ...g.cron].join(', ')}_`
+}
+
+// La riga dell'infrastruttura. Puro/testabile.
+export function rigaInfra(i, { ora = Date.now() } = {}) {
+  const c = sha(i.commit, i.repo)
+  const chi = i.chi ? `, ${i.chi}` : ''
+  if (i.stato === 'in_corso') return `⏳  *IaC*  apply in corso da ${eta(i.quando, ora)}${SEP}${c}${chi}`
+  if (i.stato === 'fallito') {
+    const esito = i.log ? `<${i.log}|fallito>` : 'fallito'
+    return `🔴  *IaC*  apply ${esito}${i.fase ? ` al ${i.fase}` : ''} ${eta(i.quando, ora)} fa${SEP}${c}${chi}`
+  }
+  return `✅  *IaC*  ultimo apply riuscito ${eta(i.quando, ora)} fa${SEP}${c}${chi}`
 }
 
 // Il testo di ripiego (notifiche, anteprima, lettori di schermo) E il marcatore con cui il messaggio
 // si ritrova se Slack non restituisce i metadati: per questo comincia sempre con le stesse parole.
 export function intestazione(ambiente) {
-  return `Quadro deploy [${ETICHETTA[ambiente] ?? ambiente.toUpperCase()}]`
+  return `Quadro deploy [${AMBIENTI[ambiente]?.tag ?? ambiente.toUpperCase()}]`
 }
 
-// Le righe in sezioni da al più 2900 caratteri: Slack ne accetta 3000 per blocco di testo e
+// Titolo e righe in blocchi da al più 2900 caratteri: Slack ne accetta 3000 per blocco di testo e
 // rifiuterebbe l'intero messaggio, non solo la riga in più.
-function aSezioni(righe) {
+function aSezioni(titolo, righe) {
   const out = []
-  let corrente = ''
+  let corrente = `*${titolo}*`
   for (const r of righe) {
-    if (corrente && corrente.length + r.length + 1 > 2900) {
+    if (corrente.length + r.length + 1 > 2900) {
       out.push(corrente)
       corrente = ''
     }
     corrente = corrente ? `${corrente}\n${r}` : r
   }
-  if (corrente) out.push(corrente)
-  return out
+  out.push(corrente)
+  return out.map((t) => ({ type: 'section', text: { type: 'mrkdwn', text: t } }))
 }
 
-// Il messaggio Slack di un ambiente: blocchi più testo di ripiego più metadati. Puro/testabile.
-// L'ora sta in fondo e non nel titolo: è la sola cosa che cambia a ogni giro, e chi legge il titolo
-// deve vedere lo stato, non un orologio.
-export function messaggioQuadro(ambiente, righe = [], { ora = Date.now(), url = null, persone = null } = {}) {
-  const inCorso = righe.filter((r) => r.stato === 'in_corso').length
-  const falliti = righe.filter((r) => r.stato === 'fallito').length
-  const avanti = righe.filter((r) => r.stagingAvanti).length
-  const sintesi = [falliti && `🔴 ${falliti} fallit${falliti === 1 ? 'o' : 'i'}`, inCorso && `⏳ ${inCorso} in corso`, avanti && `↗︎ ${avanti} da rilasciare`]
-    .filter(Boolean)
-    .join(' · ') || '✅ tutto fermo e riuscito'
-  const testo = `${intestazione(ambiente)}: ${sintesi}`
+const ORDINE = { giu: 0, fallito: 1, in_corso: 2, ok: 3 }
+
+// Il messaggio Slack di un ambiente. Puro/testabile.
+//
+// Le scelte di leggibilità, tutte per chi lo apre dal telefono in mezzo ad altro:
+//   - l'ambiente si riconosce dal COLORE prima che dalle parole (barra e quadrato nel titolo)
+//   - in testa la sintesi: se dice «tutto riuscito», il resto non serve leggerlo
+//   - i problemi salgono in cima alla lista, poi i rilasci più recenti
+//   - quello che è fermo e sano da giorni si riassume in una riga in fondo: in un quadro, una riga
+//     che non cambia mai è rumore
+export function messaggioQuadro(q, { ora = Date.now(), url = null, fermiGiorni = DEFAULT_FERMI_GIORNI } = {}) {
+  const { ambiente, chiave, app = [], immagini = [], infra = null } = q
+  const meta = AMBIENTI[ambiente] ?? { titolo: ambiente.toUpperCase(), tag: ambiente.toUpperCase(), colore: '#868686' }
+  const sogliaFermi = ora - fermiGiorni * 86_400_000
+
+  const ordinate = [...app].sort((a, b) => ORDINE[a.stato] - ORDINE[b.stato] || tempo(b.quando) - tempo(a.quando))
+  const vecchio = (x) => x && tempo(x) < sogliaFermi
+  const fermo = (r) => r.stato === 'ok' && !r.staging && vecchio(r.quando)
+  const immagineFerma = (g) => !g.giu.length && !g.inRollout && !g.indietro.length && vecchio(g.quando)
+  const nostre = ordinate.filter((r) => !r.esterno)
+  const vive = nostre.filter((r) => !fermo(r))
+  const immaginiVive = immagini.filter((g) => !g.esterno && !immagineFerma(g))
+  const ferme = [
+    ...nostre.filter(fermo).map((r) => `${r.servizio} \`${r.commit ?? '?'}\``),
+    ...immagini.filter((g) => !g.esterno && immagineFerma(g)).map((g) => `${g.repo} \`${g.tag ?? '?'}\``),
+  ]
+  // I componenti esterni (versioni fissate dall'IaC: proxy, agenti, orchestratori) cambiano poco e non
+  // sono rilasci di nessuno: una riga piccola, dal più recente, col segno solo se c'è da guardare.
+  const esterni = [
+    ...ordinate.filter((r) => r.esterno).map((r) => ({ nome: r.servizio, tag: r.commit, n: 1, quando: r.quando, giu: r.stato === 'giu', rollout: r.stato === 'in_corso' })),
+    ...immagini.filter((g) => g.esterno).map((g) => ({ nome: g.repo, tag: g.tag, n: g.servizi.length + g.cron.length, quando: g.quando, giu: g.giu.length > 0, rollout: g.inRollout })),
+  ].sort((x, y) => tempo(y.quando) - tempo(x.quando))
+
+  const problemi =
+    app.filter((r) => r.stato === 'giu' || r.stato === 'fallito').length +
+    immagini.filter((g) => g.giu.length).length +
+    (infra?.stato === 'fallito' ? 1 : 0)
+  const inCorso = app.filter((r) => r.stato === 'in_corso').length + immagini.filter((g) => g.inRollout).length + (infra?.stato === 'in_corso' ? 1 : 0)
+  const diversi = app.filter((r) => r.staging).length
+  const pezzi = [
+    problemi && `🔴 ${problemi} da guardare`,
+    inCorso && `⏳ ${inCorso} in corso`,
+    diversi && `${diversi} su un commit diverso da staging`,
+  ].filter(Boolean)
+  const sintesi = pezzi.length ? pezzi : ['✅ tutto riuscito, niente in corso']
   const orario = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
-  const piede = [`aggiornato alle ${orario}`, url && `<${url}/deploys|dettaglio su Dadaguard>`].filter(Boolean).join(' · ')
-  const corpo = righe.length ? aSezioni(righe.map((r) => rigaServizio(r, ora, persone))) : ['nessun deploy trovato']
+
+  const blocchi = [
+    { type: 'header', text: { type: 'plain_text', text: meta.titolo, emoji: true } },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: [...sintesi, `aggiornato alle ${orario}`].join(SEP) }] },
+    { type: 'divider' },
+  ]
+  if (vive.length) blocchi.push(...aSezioni('Applicazioni', vive.map((r) => rigaServizio(r, { ora, url }))))
+  if (immaginiVive.length) blocchi.push(...aSezioni('Immagini condivise', immaginiVive.map((g) => rigaImmagine(g, { ora }))))
+  if (infra) blocchi.push(...aSezioni('Infrastruttura', [rigaInfra(infra, { ora })]))
+  if (!vive.length && !immaginiVive.length && !infra && !ferme.length && !esterni.length)
+    blocchi.push({ type: 'section', text: { type: 'mrkdwn', text: '_nessun deploy trovato in questo ambiente_' } })
+  const piccolo = (testo) => blocchi.push({ type: 'context', elements: [{ type: 'mrkdwn', text: testo.slice(0, 2900) }] })
+  if (esterni.length) {
+    const voce = (e) => `${e.giu ? '🚨 ' : e.rollout ? '⏳ ' : ''}${e.nome} \`${e.tag ?? '?'}\`${e.n > 1 ? ` ×${e.n}` : ''} ${eta(e.quando, ora)}`
+    piccolo(`*Componenti esterni*, versione fissata dall'IaC: ${esterni.map(voce).join(SEP)}`)
+  }
+  if (ferme.length) piccolo(`*Fermi e sani* da più di ${fermiGiorni} giorni: ${ferme.join(', ')}`)
+  // I FILTRI: un messaggio Slack non ne ha, quindi i pulsanti aprono la pagina Deploy di Dadaguard
+  // già filtrata. Sono link e basta: non serve un endpoint pubblico che riceva i clic.
+  if (url && chiave) {
+    blocchi.push({
+      type: 'actions',
+      elements: [
+        { type: 'button', text: { type: 'plain_text', text: `Deploy ${meta.tag} su Dadaguard` }, url: `${url}/deploy?account=${encodeURIComponent(chiave)}` },
+        { type: 'button', text: { type: 'plain_text', text: 'Staging e produzione insieme' }, url: `${url}/deploy` },
+      ],
+    })
+  }
+
   return {
-    text: testo,
-    blocks: [
-      { type: 'section', text: { type: 'mrkdwn', text: `*${testo}*` } },
-      { type: 'divider' },
-      ...corpo.map((t) => ({ type: 'section', text: { type: 'mrkdwn', text: t } })),
-      { type: 'context', elements: [{ type: 'mrkdwn', text: piede }] },
-    ],
+    text: `${intestazione(ambiente)}: ${sintesi.join(' · ')}`,
+    // Gli allegati sono l'unico modo di avere la barra colorata: i blocchi stanno dentro.
+    attachments: [{ color: meta.colore, blocks: blocchi }],
     metadata: { event_type: EVENTO, event_payload: { ambiente } },
   }
 }
 
 // Il link che apre il messaggio nel Block Kit Builder di Slack: l'anteprima di come apparirà, senza
-// mandare niente a nessuno. Serve a provare il quadro prima di dargli un canale. Puro.
+// mandare niente a nessuno. Puro.
 export function anteprimaUrl(msg) {
-  return `https://app.slack.com/block-kit-builder/#${encodeURIComponent(JSON.stringify({ blocks: msg.blocks }))}`
+  return `https://app.slack.com/block-kit-builder/#${encodeURIComponent(JSON.stringify({ attachments: msg.attachments }))}`
 }
 
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
@@ -240,17 +467,17 @@ export function trovaFissato(items = [], { botId, ambiente }) {
 }
 
 // Un giro: per ogni ambiente ritrova il quadro e lo riscrive, o lo manda e lo fissa se non c'è.
-// `deps` per le prove: `leggiDeploy` (il payload per-account) e `api` (la Web API).
+// `deps` per le prove: `leggiDati` ({ deploys, servizi }) e `api` (la Web API).
 export async function aggiornaQuadri(cfg, deps = {}) {
   const api = deps.api ?? ((m, c) => chiamaSlack(m, c, cfg.token))
-  const perAccount = await deps.leggiDeploy()
-  const q = quadro(perAccount)
+  const dati = await deps.leggiDati()
+  const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
   const ora = deps.ora ?? Date.now()
   const { bot_id: botId } = await api('auth.test', {})
   const { items = [] } = await api('pins.list', { channel: cfg.canale })
   const esiti = []
   for (const ambiente of cfg.ambienti) {
-    const msg = messaggioQuadro(ambiente, q[ambiente] ?? [], { ora, url: cfg.publicUrl, persone: deps.persone ?? null })
+    const msg = messaggioQuadro(q[ambiente], { ora, url: cfg.publicUrl, fermiGiorni: cfg.fermiGiorni })
     const ts = trovaFissato(items, { botId, ambiente })
     if (ts) {
       await api('chat.update', { channel: cfg.canale, ts, ...msg })
@@ -264,7 +491,7 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   return esiti
 }
 
-export function startQuadro(leggiDeploy, env = process.env) {
+export function startQuadro(leggiDati, env = process.env) {
   const cfg = quadroConfig(env)
   if (!cfg.token || !cfg.canale) {
     log.info('quadro: nessun DADAGUARD_SLACK_BOT_TOKEN o DADAGUARD_QUADRO_CANALE, quadro spento')
@@ -273,7 +500,7 @@ export function startQuadro(leggiDeploy, env = process.env) {
   log.info('quadro: attivo', { ogni: `${cfg.intervalMs / 1000}s`, ambienti: cfg.ambienti })
   const tick = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
-    aggiornaQuadri(cfg, { leggiDeploy, persone: loadConfig().people ?? null })
+    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null })
       .then((esiti) => log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) }))
       .catch((err) => log.error('quadro: giro fallito', { err: err.message }))
   tick()

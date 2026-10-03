@@ -385,14 +385,21 @@ app.get('/api/rilasci', async (req, res) => {
 // Il quadro dei deploy per Slack (vedi notify/quadro.js), SENZA mandarlo: lo stesso messaggio che il
 // giro riscriverebbe nel canale, più il link al Block Kit Builder per vederlo com'è. Serve a provarlo
 // prima di dargli un token, e a capire cosa dice il quadro quando in canale sembra strano.
+// Le due letture che il quadro unisce, dalle stesse cache delle pagine: i deploy (CodeBuild) e lo
+// stato dei servizi (ECS dice cosa gira davvero). Nessun giro AWS che le pagine non facciano già.
+async function datiQuadro() {
+  const [deploys, stato] = await Promise.all([deploysCached('it').then((r) => r.value), statusFor('it').then((r) => r.value)])
+  return { deploys, servizi: stato?.services ?? [] }
+}
+
 app.get('/api/quadro', async (req, res) => {
   try {
-    const perAccount = isDemo ? demoDeploys() : (await deploysCached(req.query.lang)).value
-    const q = quadro(perAccount)
-    const { ambienti, publicUrl } = quadroConfig()
+    const dati = isDemo ? { deploys: demoDeploys(), servizi: demoStatus('it').services ?? [] } : await datiQuadro()
+    const { ambienti, publicUrl, fermiGiorni } = quadroConfig()
+    const q = quadro({ ...dati, persone: isDemo ? null : (loadConfig().people ?? null) }, ambienti)
     const messaggi = Object.fromEntries(
       ambienti.map((a) => {
-        const msg = messaggioQuadro(a, q[a] ?? [], { url: publicUrl, persone: loadConfig().people ?? null })
+        const msg = messaggioQuadro(q[a], { url: publicUrl, fermiGiorni })
         return [a, { ...msg, anteprima: anteprimaUrl(msg) }]
       }),
     )
@@ -820,7 +827,7 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!isDemo) startWatcher()
   // Il quadro dei deploy in Slack: parte solo con token di un'app e canale. Legge la stessa cache
   // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
-  if (!isDemo) startQuadro(() => deploysCached('it').then((r) => r.value))
+  if (!isDemo) startQuadro(datiQuadro)
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.
