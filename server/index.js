@@ -395,11 +395,11 @@ async function datiQuadro() {
 app.get('/api/quadro', async (req, res) => {
   try {
     const dati = isDemo ? { deploys: demoDeploys(), servizi: demoStatus('it').services ?? [] } : await datiQuadro()
-    const { ambienti, publicUrl, fermiGiorni, team } = quadroConfig()
+    const { ambienti, publicUrl, ore, team } = quadroConfig()
     const q = quadro({ ...dati, persone: isDemo ? null : (loadConfig().people ?? null) }, ambienti)
     const messaggi = Object.fromEntries(
       ambienti.map((a) => {
-        const msg = messaggioQuadro(q[a], { url: publicUrl, fermiGiorni })
+        const msg = messaggioQuadro(q[a], { url: publicUrl, ore })
         return [a, { ...msg, anteprima: anteprimaUrl(msg, { team }) }]
       }),
     )

@@ -18,7 +18,13 @@ export async function ecsScheduledBuildInfo(cfg, aws) {
   const image = (cfg.container ? containers.find((c) => c.name === cfg.container) : containers[0])?.image
   // Tag `deployedBy` (persona) prima, poi `registeredBy` (chi ha registrato la revision).
   const deployedBy = (td.tags ?? []).find((t) => t.key === 'deployedBy')?.value
-  return { tag: imageTag(image), image, deployedAt: def.registeredAt ?? null, modifiedBy: deployedBy || principalName(def.registeredBy) }
+  return {
+    tag: imageTag(image),
+    image,
+    deployedAt: def.registeredAt ?? null,
+    modifiedBy: deployedBy || principalName(def.registeredBy),
+    revision: def.revision ?? null,
+  }
 }
 
 // Durata compatta con unità tradotte (g/h/m) — allineata a runtime/lambda.js.

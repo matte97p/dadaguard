@@ -57,3 +57,16 @@ export function potaSconosciuti(scelte, chiaviNote) {
   if (note.length === 0) return asList(scelte)
   return asList(scelte).filter((s) => note.includes(s))
 }
+
+// Il filtro per NOME, anche con più nomi separati da virgola: vale «uno qualsiasi». È la forma dei
+// link che arrivano da fuori (il quadro dei deploy in Slack apre questa pagina sulle risorse di una
+// sua riga, che sono più d'una), e chi scrive a mano una parola sola non vede differenze.
+// Puro apposta, come `listaDaUrl`: sbaglia in un modo solo, tacendo, cioè mostrando tutto.
+export function corrispondeNome(query, ...nomi) {
+  const pezzi = String(query ?? '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean)
+  if (!pezzi.length) return true
+  return nomi.some((n) => pezzi.some((p) => String(n ?? '').toLowerCase().includes(p)))
+}

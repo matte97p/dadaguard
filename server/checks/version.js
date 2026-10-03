@@ -184,7 +184,13 @@ function ecsSummary(b, expected, t, people) {
   // sapere quale immagine gira e da quando, e riestrarlo dal summary vorrebbe dire dipendere dalla
   // lingua. `repo` è il nome del repository dell'immagine (senza registro né tag): due servizi con lo
   // stesso repo girano la stessa immagine.
-  res.build = { tag: b.tag ?? null, repo: imageRepo(b.image), deployedAt: b.deployedAt ?? null, by: canonicalActor(b.modifiedBy, people) }
+  res.build = {
+    tag: b.tag ?? null,
+    repo: imageRepo(b.image),
+    revision: b.revision ?? null,
+    deployedAt: b.deployedAt ?? null,
+    by: canonicalActor(b.modifiedBy, people),
+  }
   return res
 }
 
@@ -222,7 +228,11 @@ const BUILDERS = {
           ? `sha ${b.codeSha.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase()}`
           : '$LATEST'
     const ago = b.lastModified ? fmtAgo(b.lastModified, t) : '—'
-    return decideStatus({ key, summary: withModifier(t('build.lambda', { ver, ago }), b.modifiedBy, t, people) }, expected, b.version, t)
+    const res = decideStatus({ key, summary: withModifier(t('build.lambda', { ver, ago }), b.modifiedBy, t, people) }, expected, b.version, t)
+    // Come per ECS, il dato accanto al testo: il quadro dei deploy raggruppa le Lambda aggiornate
+    // insieme, e per farlo gli servono ora e autore, non una frase.
+    res.build = { tag: ver, repo: null, revision: null, deployedAt: b.lastModified ?? null, by: canonicalActor(b.modifiedBy, people) }
+    return res
   },
 
   async ec2(cfg, aws, expected, t, people) {
