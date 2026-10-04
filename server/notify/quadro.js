@@ -493,13 +493,13 @@ function voceApp(r, ora) {
     const gira = r.commit ? `gira ancora ${c}${rev ? ` (${rev})` : ''}` : 'nessun rilascio riuscito visto'
     const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
     if (t.riavvio)
-      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '🔴', stato: `riavvio a mano fallito ${eta(t.da, ora)} fa`, dettagli: [daChi(t.chi), motivo, gira] }
+      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `riavvio a mano fallito ${eta(t.da, ora)} fa`, dettagli: [daChi(t.chi), motivo, gira] }
     return {
       ...base,
       livello: 'adesso',
       gravita: 1,
       quando: t.da,
-      emoji: '🔴',
+      emoji: '❌',
       stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${eta(t.da, ora)} fa`,
       dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, motivo, t.log && `[log della build](${t.log})`],
     }
@@ -562,7 +562,7 @@ function voceIac(i, ora) {
       ...base,
       livello: 'adesso',
       gravita: 1,
-      emoji: '🔴',
+      emoji: '❌',
       stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${eta(i.quando, ora)} fa`,
       dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `[log della build](${i.log})`],
     }
@@ -596,12 +596,13 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
 
   // Tre conti, ognuno col suo segno: rotto (giù o fallito), da guardare (rimasto indietro), in corso.
   // Un solo «🔴 da guardare» metteva il rosso anche su un cron con l'immagine vecchia.
+  // ❌ e non 🔴 per il rotto: accanto al 🟥 della produzione un cerchio rosso si confondeva col titolo.
   const rotti = adesso.filter((x) => x.gravita <= 1).length
   const avvisi = adesso.filter((x) => x.gravita === 2).length
   const inCorso = adesso.length - rotti - avvisi
   const diversi = app.filter((r) => r.staging)
   const pezzi = [
-    rotti && `🔴 ${plurale(rotti, 'rotto', 'rotti')}`,
+    rotti && `❌ ${plurale(rotti, 'rotto', 'rotti')}`,
     avvisi && `⚠️ ${avvisi} da guardare`,
     inCorso && `⏳ ${inCorso} in corso`,
     `🚀 ${plurale(recenti.length, 'rilascio', 'rilasci')} nelle ultime ${ore} h`,

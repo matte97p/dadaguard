@@ -149,7 +149,7 @@ test('fallito: cosa gira ancora, il motivo e il log', () => {
     servizi: [svc('api', 'production', { tag: 'aaaaaaa', rev: 699 })],
   })
   const v = voce(q.app[0], { ora: ORA })
-  assert.equal(v.emoji, '🔴')
+  assert.equal(v.emoji, '❌')
   assert.equal(v.stato, 'build #662 fallita al BUILD 30 min fa')
   const d = v.dettagli.filter(Boolean).join(' · ')
   assert.match(d, /gira ancora `aaaaaaa` \(rev 699\)/)
@@ -335,8 +335,8 @@ test('con una flotta grande il canvas resta corto: «Adesso», poi al massimo 12
   assert.doesNotMatch(md, /—/, 'niente trattino lungo')
   const righeRecenti = md.split('## Ultime 24 ore')[1].split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
   assert.equal(righeRecenti.length, 12)
-  assert.match(c.sintesi, /^🔴 1 rotto · 🚀 15 rilasci nelle ultime 24 h/)
-  assert.match(md, /^\*\*🔴 1 rotto/, 'la sintesi è la prima riga')
+  assert.match(c.sintesi, /^❌ 1 rotto · 🚀 15 rilasci nelle ultime 24 h/)
+  assert.match(md, /^\*\*❌ 1 rotto/, 'la sintesi è la prima riga')
 })
 
 test('tutto tranquillo: la sintesi lo dice per prima', () => {
@@ -357,7 +357,7 @@ test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
   })
   const c = canvasQuadro(q, { ora: ORA })
   assert.match(c.sintesi, /^⚠️ 1 da guardare/)
-  assert.doesNotMatch(c.sintesi, /🔴/)
+  assert.doesNotMatch(c.sintesi, /❌/)
 })
 
 test('una cella non rompe la tabella: niente `|` né a capo che arrivino da fuori', () => {
@@ -479,7 +479,7 @@ test('il testo dell’avviso segue la grammatica del canale degli allarmi', () =
 })
 
 test('allarmi: si apre quando si rompe, si aggiorna se si rompe di nuovo, si chiude quando torna', () => {
-  const rotto = (firma) => ({ rotti: [{ nome: 'api', firma, testo: `🔴 \`api\` [PROD] build fallita (${firma})` }], inCorso: [], buildIgnote: false })
+  const rotto = (firma) => ({ rotti: [{ nome: 'api', firma, testo: `❌ \`api\` [PROD] build fallita (${firma})` }], inCorso: [], buildIgnote: false })
   const sano = { rotti: [], inCorso: [], buildIgnote: false }
   let p = pianoAllarmi({}, rotto('A'))
   assert.deepEqual(p.azioni.map((z) => z.tipo), ['apri'])
@@ -507,7 +507,7 @@ test('allarmi: il primo giro prende nota senza scrivere, e senza dati non si toc
 
 test('allarmi: il testo segue la grammatica del canale e porta i link in forma Slack', () => {
   const x = {
-    emoji: '🔴',
+    emoji: '❌',
     nome: 'backend',
     stato: 'build #662 fallita al BUILD 2 min fa',
     dettagli: ['gira ancora [d5fda1e](https://github.com/x/b/commit/d5fda1e) (rev 130)', null, 'motivo: exit status 1', '[log della build](https://log)'],
@@ -515,7 +515,7 @@ test('allarmi: il testo segue la grammatica del canale e porta i link in forma S
   }
   assert.equal(
     testoAllarme(x, 'produzione'),
-    '🔴 `backend` [PROD] build #662 fallita al BUILD 2 min fa · gira ancora <https://github.com/x/b/commit/d5fda1e|d5fda1e> (rev 130) · motivo: exit status 1 · <https://log|log della build> · <https://dg.example.com/deploy?service=backend&account=production|Dadaguard>',
+    '❌ `backend` [PROD] build #662 fallita al BUILD 2 min fa · gira ancora <https://github.com/x/b/commit/d5fda1e|d5fda1e> (rev 130) · motivo: exit status 1 · <https://log|log della build> · <https://dg.example.com/deploy?service=backend&account=production|Dadaguard>',
   )
 })
 
@@ -538,7 +538,7 @@ test('allarmi: si scrivono nel canale, il ✅ va nella discussione e cambia il m
     chiamate.push([metodo, corpo])
     return metodo === 'chat.postMessage' && !corpo.thread_ts ? { ts: '222' } : {}
   }
-  let aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi({}, { rotti: [{ nome: 'api', firma: 'A', testo: '🔴 `api` [PROD] fallita' }], inCorso: [], buildIgnote: false }))
+  let aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi({}, { rotti: [{ nome: 'api', firma: 'A', testo: '❌ `api` [PROD] fallita' }], inCorso: [], buildIgnote: false }))
   assert.equal(aperti.api.ts, '222')
   aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi(aperti, { rotti: [], inCorso: [], buildIgnote: false }), { ora: Date.parse('2026-10-04T08:30:00Z') })
   assert.deepEqual(aperti, {})
