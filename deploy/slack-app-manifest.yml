@@ -1,0 +1,30 @@
+# L'app Slack del quadro dei deploy (server/notify/quadro.js). Si crea da qui:
+# https://api.slack.com/apps?new_app=1 → «From a manifest» → incolla questo file → Install.
+# Il token da dare a Dadaguard è il «Bot User OAuth Token» (`xoxb-…`), in DADAGUARD_SLACK_BOT_TOKEN.
+#
+# I permessi sono i soli che il giro usa, uno per chiamata:
+#   canvases:write   conversations.canvases.create, canvases.edit, canvases.access.set
+#   channels:read    conversations.info sui canali pubblici, per ritrovare il canvas del canale
+#   groups:read      lo stesso sui canali privati
+# Niente `chat:write`: il quadro non scrive messaggi. E niente interattività, quindi nessun indirizzo
+# pubblico da esporre: i link a Dadaguard sono link, non pulsanti.
+#
+# ⚠️ Nei canali privati l'app va invitata (`/invite @Dadaguard`): senza, `conversations.info` risponde
+# `channel_not_found`, che sembra un id sbagliato e invece è un invito mancante.
+display_information:
+  name: Dadaguard
+  description: Il quadro dei deploy, nel canvas del canale.
+features:
+  bot_user:
+    display_name: Dadaguard
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - canvases:write
+      - channels:read
+      - groups:read
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
