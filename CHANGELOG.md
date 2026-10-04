@@ -5,7 +5,25 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Il quadro dei deploy in Slack** (04/10/2026). Un canvas per ambiente, riscritto ogni minuto nel
+  canale scelto (`DADAGUARD_QUADRO_CANALI`), al posto del registro in cui ogni build lascia due
+  messaggi. In testa cosa è rotto o in corso, poi i rilasci delle ultime 24 ore (al massimo 12
+  righe), poi il resto contato: la lunghezza dipende da quanto succede, non da quante risorse
+  esistono. Cosa gira lo dice ECS, e CodeBuild aggiunge commit, autore, numero e durata della build;
+  le Lambda rilasciate insieme e i servizi che girano la stessa immagine sono una riga sola, i
+  componenti esterni (tag di versione) stanno a parte. Ogni riga porta a Dadaguard già filtrato sulla
+  sua risorsa. Il canvas non notifica, quindi quando qualcosa si rompe il bot scrive anche un
+  messaggio nel canale e lo chiude con ✅ quando torna a posto, e se il canvas non si aggiorna da 10
+  minuti lo dice nel canale degli allarmi. App Slack in `deploy/slack-app-manifest.yml`, accensione
+  con `deploy/enable-quadro.sh`, anteprima senza mandare niente su `/api/quadro?format=markdown`.
+- **La pagina Servizi si filtra per nome dall'indirizzo** (`?q=`, anche più nomi separati da
+  virgola): è così che il quadro apre le risorse di una sua riga.
+
 ### Changed
+- **La pagina Deploy mostra anche gli apply dell'infrastruttura** (progetti `*-iac-apply`, come
+  servizio `IaC`), e il check di versione espone revisione ECS e dati delle Lambda come dati, non
+  solo nel testo.
 - **Il 4xx aspetta 20 chiamate e tre minuti prima di allarmare, e lo staging si tara da se'**
   (23/09/2026). Il profilo `chiamante` (i 4xx: richiesta malformata, token troppo lungo, quota)
   guadagna il campione minimo (>=20 chiamate) e la consecutivita' (errori per >=3 minuti di fila),
