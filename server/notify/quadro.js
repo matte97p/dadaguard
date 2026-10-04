@@ -3,6 +3,7 @@ import { ambienteDi } from '../rilasci.js'
 import { canonicalActor } from '../util/principal.js'
 import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
+import { postSlack } from './slack.js'
 
 // Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
 // posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla fine), ogni
@@ -52,6 +53,8 @@ import { loadConfig } from '../config.js'
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
 //                               rilascio intero passerebbe senza che il quadro lo veda in corso)
 //   DADAGUARD_QUADRO_ORE        quanto indietro guarda «Ultime N ore» (default 24)
+//   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
+//                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
 const DEFAULT_INTERVAL_S = 60
 const DEFAULT_ORE = 24
@@ -741,6 +744,44 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   return esiti
 }
 
+// ── La guardia del quadro ────────────────────────────────────────────────────────────────────────
+//
+// Un quadro fermo è peggio di nessun quadro: dice «niente di rotto» con l'ora di ieri, e l'unico
+// segno è un orario che nessuno confronta con l'orologio. Quindi se un ambiente non si aggiorna da
+// `sogliaMs` lo si dice UNA volta, e una volta quando torna. Pura/testabile: entra lo stato di prima
+// e gli esiti del giro, escono lo stato nuovo e gli avvisi da mandare.
+//
+// ⚠️ Copre il quadro che gira e fallisce (Slack che risponde errore, AWS che non si legge), non
+// Dadaguard spento: un processo morto non avvisa di niente, e lì serve un controllo da fuori.
+const SOGLIA_FERMO_MS = 10 * 60_000
+
+export function guardiaQuadro(stato = {}, esiti = [], { ora = Date.now(), avvio = ora, sogliaMs = SOGLIA_FERMO_MS } = {}) {
+  const nuovo = { ...stato }
+  const avvisi = []
+  for (const e of esiti) {
+    // Il riferimento di un ambiente mai riuscito è l'avvio: un quadro che non parte mai avvisa lo stesso.
+    const s = { ultimoOk: avvio, avvisato: false, ...(nuovo[e.ambiente] ?? {}) }
+    if (e.azione !== 'errore') {
+      if (s.avvisato) avvisi.push({ ambiente: e.ambiente, tipo: 'rientrato', fermoDa: s.ultimoOk })
+      nuovo[e.ambiente] = { ultimoOk: ora, avvisato: false }
+      continue
+    }
+    const avvisa = !s.avvisato && ora - tempo(s.ultimoOk) >= sogliaMs
+    if (avvisa) avvisi.push({ ambiente: e.ambiente, tipo: 'fermo', fermoDa: s.ultimoOk, errore: e.errore ?? null })
+    nuovo[e.ambiente] = { ...s, avvisato: s.avvisato || avvisa }
+  }
+  return { stato: nuovo, avvisi }
+}
+
+// La riga per il canale degli allarmi, con la grammatica del canale: emoji, nome fra backtick,
+// ambiente fra quadre, esito in maiuscolo. Puro/testabile.
+export function testoAvviso(a, { ora = Date.now(), url = null } = {}) {
+  const tag = AMBIENTI[a.ambiente]?.tag ?? String(a.ambiente).toUpperCase()
+  if (a.tipo === 'rientrato') return `✅ \`quadro deploy\` [${tag}] rientrato · di nuovo aggiornato dopo ${eta(a.fermoDa, ora)} fermo`
+  const link = url ? `${SEP}<${url}/deploy|deploy su Dadaguard>` : ''
+  return `⚠️ \`quadro deploy\` [${tag}] FERMO · il canvas non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
+}
+
 export function startQuadro(leggiDati, env = process.env) {
   const cfg = quadroConfig(env)
   if (!cfg.token || !Object.keys(cfg.canali).length) {
@@ -748,15 +789,32 @@ export function startQuadro(leggiDati, env = process.env) {
     return null
   }
   log.info('quadro: attivo', { ogni: `${cfg.intervalMs / 1000}s`, canali: cfg.canali })
+  const webhook = env.DADAGUARD_SLACK_WEBHOOK || null
+  const avvio = Date.now()
+  let guardia = {}
   const tick = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
     aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null })
-      .then((esiti) => {
+      // Un giro che muore prima dei canali (AWS che non si legge) è un errore per OGNI ambiente: per
+      // la guardia conta quanto è vecchio il canvas, non dove si è rotto il giro.
+      .catch((err) => {
+        log.error('quadro: giro fallito', { err: err.message })
+        return Object.keys(cfg.canali).map((ambiente) => ({ ambiente, azione: 'errore', errore: err.message }))
+      })
+      .then(async (esiti) => {
         const errori = esiti.filter((e) => e.azione === 'errore')
         if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
         log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
+        const g = guardiaQuadro(guardia, esiti, { avvio })
+        guardia = g.stato
+        for (const a of g.avvisi) {
+          const testo = testoAvviso(a, { url: cfg.publicUrl })
+          log.warn('quadro: avviso', { testo })
+          // Un avviso «fermo» non partito si riprova al giro dopo: si torna a «non avvisato».
+          if (webhook && !(await postSlack(webhook, { text: testo })) && a.tipo === 'fermo') guardia[a.ambiente].avvisato = false
+        }
       })
-      .catch((err) => log.error('quadro: giro fallito', { err: err.message }))
+      .catch((err) => log.error('quadro: guardia fallita', { err: err.message }))
   tick()
   const timer = setInterval(tick, cfg.intervalMs)
   timer.unref?.()

@@ -18,6 +18,8 @@ import {
   canvasDelCanale,
   aggiornaQuadri,
   quadroConfig,
+  guardiaQuadro,
+  testoAvviso,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -436,4 +438,38 @@ test('repo dell’immagine e progetto IaC, i due dati nuovi che il quadro legge'
   assert.equal(imageRepo(null), null)
   assert.equal(serviceFromProject('acme-staging-iac-apply'), 'IaC')
   assert.equal(serviceFromProject('acme-staging-backend-deploy'), 'backend')
+})
+
+test('la guardia: un quadro fermo da 10 minuti si dice una volta, e una volta quando torna', () => {
+  const min = (n) => Date.parse('2026-10-04T08:00:00Z') + n * 60_000
+  const ok = [{ ambiente: 'produzione', azione: 'riscritto' }]
+  const ko = [{ ambiente: 'produzione', azione: 'errore', errore: 'slack canvases.edit: not_authed' }]
+  let g = guardiaQuadro({}, ok, { ora: min(0) })
+  assert.deepEqual(g.avvisi, [])
+  g = guardiaQuadro(g.stato, ko, { ora: min(5) })
+  assert.deepEqual(g.avvisi, [], 'cinque minuti di errori non sono ancora un quadro fermo')
+  g = guardiaQuadro(g.stato, ko, { ora: min(10) })
+  assert.deepEqual(g.avvisi.map((a) => a.tipo), ['fermo'])
+  assert.equal(g.avvisi[0].errore, 'slack canvases.edit: not_authed')
+  g = guardiaQuadro(g.stato, ko, { ora: min(11) })
+  assert.deepEqual(g.avvisi, [], 'una volta sola, non a ogni giro')
+  g = guardiaQuadro(g.stato, ok, { ora: min(12) })
+  assert.deepEqual(g.avvisi.map((a) => a.tipo), ['rientrato'])
+  g = guardiaQuadro(g.stato, ok, { ora: min(13) })
+  assert.deepEqual(g.avvisi, [])
+})
+
+test('la guardia: un quadro che non riesce mai avvisa dopo 10 minuti dall’avvio', () => {
+  const avvio = Date.parse('2026-10-04T08:00:00Z')
+  const ko = [{ ambiente: 'staging', azione: 'errore', errore: 'x' }]
+  assert.deepEqual(guardiaQuadro({}, ko, { ora: avvio + 9 * 60_000, avvio }).avvisi, [])
+  assert.deepEqual(guardiaQuadro({}, ko, { ora: avvio + 10 * 60_000, avvio }).avvisi.map((a) => a.tipo), ['fermo'])
+})
+
+test('il testo dell’avviso segue la grammatica del canale degli allarmi', () => {
+  const ora = Date.parse('2026-10-04T08:12:00Z')
+  const fermo = testoAvviso({ ambiente: 'produzione', tipo: 'fermo', fermoDa: Date.parse('2026-10-04T08:00:00Z'), errore: 'slack canvases.edit: not_authed' }, { ora, url: URL })
+  assert.equal(fermo, '⚠️ `quadro deploy` [PROD] FERMO · il canvas non si aggiorna da 12 min · ultimo errore: slack canvases.edit: not_authed · <https://dg.example.com/deploy|deploy su Dadaguard>')
+  assert.equal(testoAvviso({ ambiente: 'staging', tipo: 'rientrato', fermoDa: Date.parse('2026-10-04T08:00:00Z') }, { ora }), '✅ `quadro deploy` [STAGING] rientrato · di nuovo aggiornato dopo 12 min fermo')
+  assert.doesNotMatch(fermo, /\u2014/, 'niente trattino lungo')
 })
