@@ -364,17 +364,35 @@ test('una cella non rompe la tabella: niente `|` né a capo che arrivino da fuor
   assert.equal(riga.split(/(?<!\\)\|/).length, 5, 'tre celle, quindi quattro separatori')
 })
 
-test('il canvas del canale si legge da `conversations.info`', () => {
-  assert.equal(canvasDelCanale({ channel: { properties: { canvas: { file_id: 'F1' } } } }), 'F1')
-  assert.equal(canvasDelCanale({ channel: { properties: {} } }), null)
-  assert.equal(canvasDelCanale(null), null)
+test('il nostro canvas si trova fra le SCHEDE del canale, dal titolo', () => {
+  const T = '🟥 Quadro deploy PRODUZIONE'
+  const scheda = (file_id, label, shared_ts) => ({ type: 'canvas', label, data: { file_id, shared_ts } })
+  const info = (tabs) => ({ channel: { properties: { tabs, canvas: null } } })
+  // Slack scrive l'emoji dell'etichetta come codice: il testo basta a riconoscerlo.
+  assert.deepEqual(canvasDelCanale(info([{ type: 'files' }, scheda('F1', ':large_red_square: Quadro deploy PRODUZIONE', '1')]), T), { id: 'F1', doppioni: [] })
+  assert.deepEqual(canvasDelCanale(info([scheda('F2', '🟥 Quadro deploy PRODUZIONE', '1')]), T), { id: 'F2', doppioni: [] })
+  // Due del quadro: vince il più recente, l'altro si dice e non si cancella.
+  assert.deepEqual(canvasDelCanale(info([scheda('VECCHIO', ':large_red_square: Quadro deploy PRODUZIONE', '1'), scheda('NUOVO', ':large_red_square: Quadro deploy PRODUZIONE', '2')]), T), {
+    id: 'NUOVO',
+    doppioni: ['VECCHIO'],
+  })
+  // Un canvas di qualcun altro, o senza titolo, non è il nostro: riscriverlo cancellerebbe il suo lavoro.
+  assert.deepEqual(canvasDelCanale(info([scheda('ALTRO', 'Quadro deploy PRODUZIONE, appunti', '3'), scheda('SENZA', '', '4')]), T), { id: null, doppioni: [] })
+  assert.deepEqual(canvasDelCanale(info([scheda('STG', ':large_yellow_square: Quadro deploy STAGING', '1')]), T), { id: null, doppioni: [] }, 'l’altro ambiente non è questo')
+  // ⚠️ `properties.canvas` resta vuoto anche quando il canale ha canvas: è lì che il giro di prova del
+  // 04/10/2026 guardava, e ne ha creato uno nuovo a ogni giro.
+  assert.deepEqual(canvasDelCanale({ channel: { properties: { canvas: { file_id: 'NON_QUI' } } } }, T), { id: null, doppioni: [] })
+  assert.deepEqual(canvasDelCanale(null, T), { id: null, doppioni: [] })
 })
 
 test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambiente rotto non ferma l’altro', async () => {
   const chiamate = []
   const api = async (metodo, corpo) => {
     chiamate.push([metodo, corpo])
-    if (metodo === 'conversations.info') return corpo.channel === 'CPROD' ? { channel: { properties: { canvas: { file_id: 'FPROD' } } } } : { channel: { properties: {} } }
+    if (metodo === 'conversations.info')
+      return corpo.channel === 'CPROD'
+        ? { channel: { properties: { tabs: [{ type: 'canvas', label: ':large_red_square: Quadro deploy PRODUZIONE', data: { file_id: 'FPROD', shared_ts: '1' } }] } } }
+        : { channel: { properties: { tabs: [{ type: 'files' }] } } }
     if (metodo === 'conversations.canvases.create') return { canvas_id: 'FSTG' }
     return {}
   }

@@ -40,8 +40,8 @@ import { loadConfig } from '../config.js'
 // ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Un
 // fallimento che deve svegliare qualcuno resta un messaggio NUOVO nel canale, e non è compito del quadro.
 //
-// Zero storage, come il resto: il canvas da riscrivere non si ricorda, si chiede al canale
-// (`conversations.info` lo dice in `properties.canvas`). Se il canale non ne ha uno, si crea.
+// Zero storage, come il resto: il canvas da riscrivere non si ricorda, si cerca fra le schede del
+// canale (vedi `canvasDelCanale`). Se il canale non ne ha uno, si crea.
 //
 // Configurazione (tutta opzionale: senza token o canali il quadro non parte e non chiama niente):
 //   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `canvases:write`, `channels:read` e
@@ -685,8 +685,23 @@ export async function chiamaSlack(metodo, corpo, token, { timeoutMs = 5000 } = {
   }
 }
 
-// Il canvas del canale, se c'è: `conversations.info` lo dice in `properties.canvas.file_id`. Puro.
-export const canvasDelCanale = (info) => info?.channel?.properties?.canvas?.file_id ?? null
+// Il NOSTRO canvas fra quelli del canale. Puro/testabile.
+//
+// ⚠️ Non sta in `properties.canvas`, che resta vuoto: i canvas di un canale sono SCHEDE
+// (`properties.tabs`, tipo `canvas`), un canale ne può avere più d'una, e crearne un'altra non dà errore.
+// Cercandolo in `properties.canvas`, il 04/10/2026 il primo giro di prova ne ha creato uno e il secondo
+// un altro, accanto: senza fermarlo sarebbe stato un canvas nuovo al minuto.
+// Il nostro si riconosce dal titolo, che Slack ricopia nell'etichetta della scheda con l'emoji scritta
+// come codice (`:large_red_square: Quadro deploy PRODUZIONE`): si confronta il testo, con o senza
+// l'emoji davanti. Se ce n'è più d'uno vince il più recente, e gli altri si dicono, non si cancellano.
+export function canvasDelCanale(info, titolo) {
+  const testo = String(titolo ?? '').replace(/^\S+\s+/u, '')
+  const esatto = new RegExp(`^(?::[a-z0-9_+-]+:|\\p{Extended_Pictographic}\\uFE0F?)?\\s*${testo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'u')
+  const nostri = (info?.channel?.properties?.tabs ?? [])
+    .filter((t) => t?.type === 'canvas' && t.data?.file_id && esatto.test(String(t.label ?? '').trim()))
+    .sort((a, b) => Number(b.data.shared_ts ?? 0) - Number(a.data.shared_ts ?? 0))
+  return { id: nostri[0]?.data.file_id ?? null, doppioni: nostri.slice(1).map((t) => t.data.file_id) }
+}
 
 // Un giro: per ogni ambiente col suo canale, riscrive il canvas del canale, o lo crea se non c'è.
 // `deps` per le prove: `leggiDati` ({ deploys, servizi }) e `api` (la Web API).
@@ -704,7 +719,8 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     try {
       const { titolo, markdown } = canvasQuadro(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
       const document_content = { type: 'markdown', markdown }
-      const id = canvasDelCanale(await api('conversations.info', { channel: canale }))
+      const { id, doppioni } = canvasDelCanale(await api('conversations.info', { channel: canale }), titolo)
+      if (doppioni.length) log.warn('quadro: il canale ha più canvas del quadro, riscrivo il più recente', { ambiente, doppioni })
       if (id) {
         // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
         await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
