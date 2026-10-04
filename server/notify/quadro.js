@@ -38,16 +38,19 @@ import { postSlack } from './slack.js'
 //   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
 //   🧪 test avviati, deploy saltato o non avviato  NO: vivono in GitHub Actions, che Dadaguard non legge
 //
-// ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Un
-// fallimento che deve svegliare qualcuno resta un messaggio NUOVO nel canale, e non è compito del quadro.
+// ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Per
+// questo quando qualcosa si ROMPE (build o apply fallito, servizio giù) il bot scrive anche un
+// messaggio nel canale, e lo chiude con ✅ quando torna a posto (vedi `pianoAllarmi`): se va tutto bene
+// il canale resta muto, se qualcosa si rompe chi segue il canale lo sa.
 //
 // Zero storage, come il resto: il canvas da riscrivere non si ricorda, si cerca fra le schede del
 // canale (vedi `canvasDelCanale`). Se il canale non ne ha uno, si crea.
 //
 // Configurazione (tutta opzionale: senza token o canali il quadro non parte e non chiama niente):
-//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `canvases:write`, `channels:read` e
-//                               `groups:read` (per i canali privati), invitata nei canali. Un webhook
-//                               NON basta: scrive messaggi, non canvas
+//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `canvases:write`, `chat:write`,
+//                               `channels:read` e `groups:read` (per i canali privati), invitata nei
+//                               canali (deploy/slack-app-manifest.yml). Un webhook NON basta: non
+//                               scrive canvas e non modifica i messaggi che ha mandato
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
 //                               `produzione=C0123,staging=C0456`. Gli id, non i nomi
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
@@ -719,6 +722,9 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   for (const ambiente of cfg.ambienti) {
     const canale = cfg.canali[ambiente]
     if (!canale) continue
+    // Gli allarmi dipendono dai DATI, non dal canvas: si calcolano prima, così un canvas che non si
+    // riesce a scrivere non tace anche un servizio giù.
+    const allarmi = datiAllarmi(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
     try {
       const { titolo, markdown } = canvasQuadro(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
       const document_content = { type: 'markdown', markdown }
@@ -727,7 +733,7 @@ export async function aggiornaQuadri(cfg, deps = {}) {
       if (id) {
         // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
         await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
-        esiti.push({ ambiente, azione: 'riscritto', canvas: id })
+        esiti.push({ ambiente, azione: 'riscritto', canvas: id, allarmi })
       } else {
         const r = await api('conversations.canvases.create', { channel_id: canale, title: titolo, document_content })
         // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
@@ -735,13 +741,105 @@ export async function aggiornaQuadri(cfg, deps = {}) {
         await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [canale] }).catch((err) =>
           log.warn('quadro: canvas non messo in sola lettura', { ambiente, err: err.message }),
         )
-        esiti.push({ ambiente, azione: 'creato', canvas: r.canvas_id })
+        esiti.push({ ambiente, azione: 'creato', canvas: r.canvas_id, allarmi })
       }
     } catch (err) {
-      esiti.push({ ambiente, azione: 'errore', errore: err.message })
+      esiti.push({ ambiente, azione: 'errore', errore: err.message, allarmi })
     }
   }
   return esiti
+}
+
+// ── Gli allarmi nel canale ───────────────────────────────────────────────────────────────────────
+//
+// Il canvas è muto; un fallimento no. Quando una risorsa si ROMPE (gravità 0 o 1: giù, build o apply
+// fallito, riavvio fallito) il bot scrive un messaggio nel canale dell'ambiente; se si rompe di nuovo
+// mentre è ancora aperto, lo dice nella discussione di quel messaggio; quando torna a posto risponde
+// ✅ nella discussione e cambia il messaggio in ✅, così il canale mostra a colpo d'occhio cosa è
+// ancora aperto. Un allarme per RISORSA, non per evento: tre build fallite di fila sono una storia
+// sola, non tre messaggi.
+//
+// ⚠️ Gli allarmi aperti stanno in memoria, come lo stato del watchdog: a un riavvio di Dadaguard il
+// primo giro prende nota di cosa è rotto senza scriverlo (meglio perdere un messaggio che ripetere
+// tutti i rossi a ogni rilascio di Dadaguard), e un allarme aperto prima del riavvio non riceve il ✅.
+
+// Il messaggio mrkdwn di Slack, dalle celle markdown del canvas. Puro.
+const aMrkdwn = (t) => String(t ?? '').replace(/\*\*([^*]+)\*\*/g, '*$1*').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<$2|$1>')
+
+// La riga dell'allarme, con la grammatica del canale dei rilasci: emoji, nome fra backtick, ambiente
+// fra quadre, poi cosa è successo e i dettagli. Puro/testabile.
+export function testoAllarme(x, ambiente) {
+  const tag = AMBIENTI[ambiente]?.tag ?? String(ambiente).toUpperCase()
+  const dettagli = x.dettagli.filter(Boolean).map(aMrkdwn).join(SEP)
+  const link = x.link ? `${SEP}<${x.link}|Dadaguard>` : ''
+  return `${x.emoji} \`${x.nome}\` [${tag}] ${aMrkdwn(x.stato)}${dettagli ? `${SEP}${dettagli}` : ''}${link}`
+}
+
+// Cosa serve agli allarmi di un ambiente: le risorse rotte (con la loro firma), quelle in corso, e se
+// le build si sono lette. La FIRMA cambia solo con un guasto nuovo (un'altra build fallita, un altro
+// rilascio giù): non con l'orologio, o ogni giro sembrerebbe un guasto nuovo. Puro.
+export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  if (!qa) return null
+  const { adesso } = smista(qa, { ora, url, ore })
+  return {
+    rotti: adesso.filter((x) => x.gravita <= 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })),
+    inCorso: adesso.filter((x) => x.gravita === 3).map((x) => x.nome),
+    buildIgnote: Boolean(qa.buildIgnote),
+  }
+}
+
+// Cosa dire nel canale, confrontando gli allarmi aperti con quello che è rotto adesso. Puro/testabile.
+//   apri    una risorsa rotta che non lo era
+//   ancora  una risorsa già aperta che si è rotta di nuovo (firma diversa)
+//   chiudi  una risorsa aperta che non è più rotta, e non è in corso: un rilascio che riparte dopo un
+//           fallimento non ha ancora riparato niente, e un ✅ prima dell'esito sarebbe una promessa
+// Con le build non lette non si chiude niente: un fallimento che non si vede non è un fallimento finito.
+export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {}) {
+  if (!dati) return { azioni: [], aperti }
+  const azioni = []
+  const nuovi = { ...aperti }
+  const rottiOra = new Set(dati.rotti.map((r) => r.nome))
+  for (const r of dati.rotti) {
+    const a = aperti[r.nome]
+    if (!a) {
+      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma }
+      if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo })
+    } else if (a.firma !== r.firma) {
+      nuovi[r.nome] = { ...a, firma: r.firma }
+      azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
+    }
+  }
+  for (const [nome, a] of Object.entries(aperti)) {
+    if (rottiOra.has(nome) || dati.inCorso.includes(nome) || dati.buildIgnote) continue
+    delete nuovi[nome]
+    azioni.push({ tipo: 'chiudi', nome, testo: a.testo, ts: a.ts })
+  }
+  return { azioni, aperti: nuovi }
+}
+
+// Esegue il piano nel canale e restituisce gli allarmi aperti aggiornati (col `ts` dei messaggi nuovi).
+// Un «apri» che non parte non resta aperto senza messaggio: si toglie, e il giro dopo riprova.
+export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {}) {
+  const aperti = { ...piano.aperti }
+  const senzaAnteprime = { unfurl_links: false, unfurl_media: false }
+  for (const z of piano.azioni) {
+    try {
+      if (z.tipo === 'apri') {
+        const r = await api('chat.postMessage', { channel: canale, text: z.testo, ...senzaAnteprime })
+        aperti[z.nome] = { ...aperti[z.nome], ts: r.ts }
+      } else if (z.tipo === 'ancora' && z.ts) {
+        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: z.testo, ...senzaAnteprime })
+      } else if (z.tipo === 'chiudi' && z.ts) {
+        const quando = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
+        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ risolto alle ${quando}`, ...senzaAnteprime })
+        await api('chat.update', { channel: canale, ts: z.ts, text: `✅ ${z.testo.replace(/^\S+\s+/u, '')}${SEP}risolto alle ${quando}` })
+      }
+    } catch (err) {
+      log.error('quadro: allarme non scritto', { canale, azione: z.tipo, risorsa: z.nome, err: err.message })
+      if (z.tipo === 'apri') delete aperti[z.nome]
+    }
+  }
+  return aperti
 }
 
 // ── La guardia del quadro ────────────────────────────────────────────────────────────────────────
@@ -792,6 +890,9 @@ export function startQuadro(leggiDati, env = process.env) {
   const webhook = env.DADAGUARD_SLACK_WEBHOOK || null
   const avvio = Date.now()
   let guardia = {}
+  const allarmi = {} // ambiente → allarmi aperti
+  const visti = new Set() // ambienti che hanno già avuto un giro con i dati: il primo prende nota e basta
+  const api = (m, c) => chiamaSlack(m, c, cfg.token)
   const tick = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
     aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null })
@@ -812,6 +913,14 @@ export function startQuadro(leggiDati, env = process.env) {
           log.warn('quadro: avviso', { testo })
           // Un avviso «fermo» non partito si riprova al giro dopo: si torna a «non avvisato».
           if (webhook && !(await postSlack(webhook, { text: testo })) && a.tipo === 'fermo') guardia[a.ambiente].avvisato = false
+        }
+        for (const e of esiti) {
+          // Senza dati (il giro è morto prima) non si apre e non si chiude niente.
+          if (!e.allarmi) continue
+          const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: !visti.has(e.ambiente) })
+          visti.add(e.ambiente)
+          if (piano.azioni.length) log.info('quadro: allarmi', { ambiente: e.ambiente, azioni: piano.azioni.map((z) => `${z.tipo}:${z.nome}`) })
+          allarmi[e.ambiente] = await eseguiAllarmi(api, cfg.canali[e.ambiente], piano)
         }
       })
       .catch((err) => log.error('quadro: guardia fallita', { err: err.message }))

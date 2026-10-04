@@ -20,6 +20,10 @@ import {
   quadroConfig,
   guardiaQuadro,
   testoAvviso,
+  pianoAllarmi,
+  eseguiAllarmi,
+  testoAllarme,
+  datiAllarmi,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -472,4 +476,81 @@ test('il testo dell’avviso segue la grammatica del canale degli allarmi', () =
   assert.equal(fermo, '⚠️ `quadro deploy` [PROD] FERMO · il canvas non si aggiorna da 12 min · ultimo errore: slack canvases.edit: not_authed · <https://dg.example.com/deploy|deploy su Dadaguard>')
   assert.equal(testoAvviso({ ambiente: 'staging', tipo: 'rientrato', fermoDa: Date.parse('2026-10-04T08:00:00Z') }, { ora }), '✅ `quadro deploy` [STAGING] rientrato · di nuovo aggiornato dopo 12 min fermo')
   assert.doesNotMatch(fermo, /\u2014/, 'niente trattino lungo')
+})
+
+test('allarmi: si apre quando si rompe, si aggiorna se si rompe di nuovo, si chiude quando torna', () => {
+  const rotto = (firma) => ({ rotti: [{ nome: 'api', firma, testo: `🔴 \`api\` [PROD] build fallita (${firma})` }], inCorso: [], buildIgnote: false })
+  const sano = { rotti: [], inCorso: [], buildIgnote: false }
+  let p = pianoAllarmi({}, rotto('A'))
+  assert.deepEqual(p.azioni.map((z) => z.tipo), ['apri'])
+  p.aperti.api.ts = '111'
+  p = pianoAllarmi(p.aperti, rotto('A'))
+  assert.deepEqual(p.azioni, [], 'stessa firma: niente da dire, a ogni giro')
+  p = pianoAllarmi(p.aperti, rotto('B'))
+  assert.deepEqual(p.azioni.map((z) => `${z.tipo}:${z.ts}`), ['ancora:111'], 'un guasto nuovo va nella discussione, non in un messaggio nuovo')
+  p = pianoAllarmi(p.aperti, { ...sano, inCorso: ['api'] })
+  assert.deepEqual(p.azioni, [], 'un rilascio ripartito non ha ancora riparato niente')
+  p = pianoAllarmi(p.aperti, { ...sano, buildIgnote: true })
+  assert.deepEqual(p.azioni, [], 'con le build non lette non si chiude')
+  p = pianoAllarmi(p.aperti, sano)
+  assert.deepEqual(p.azioni.map((z) => `${z.tipo}:${z.ts}`), ['chiudi:111'])
+  assert.deepEqual(p.aperti, {})
+})
+
+test('allarmi: il primo giro prende nota senza scrivere, e senza dati non si tocca niente', () => {
+  const dati = { rotti: [{ nome: 'api', firma: 'A', testo: 'x' }], inCorso: [], buildIgnote: false }
+  const p = pianoAllarmi({}, dati, { primoGiro: true })
+  assert.deepEqual(p.azioni, [])
+  assert.ok(p.aperti.api, 'preso nota: al giro dopo non è «nuovo»')
+  assert.deepEqual(pianoAllarmi({ api: { ts: '1', firma: 'A', testo: 'x' } }, null).azioni, [], 'un giro senza dati non è «tutto risolto»')
+})
+
+test('allarmi: il testo segue la grammatica del canale e porta i link in forma Slack', () => {
+  const x = {
+    emoji: '🔴',
+    nome: 'backend',
+    stato: 'build #662 fallita al BUILD 2 min fa',
+    dettagli: ['gira ancora [d5fda1e](https://github.com/x/b/commit/d5fda1e) (rev 130)', null, 'motivo: exit status 1', '[log della build](https://log)'],
+    link: 'https://dg.example.com/deploy?service=backend&account=production',
+  }
+  assert.equal(
+    testoAllarme(x, 'produzione'),
+    '🔴 `backend` [PROD] build #662 fallita al BUILD 2 min fa · gira ancora <https://github.com/x/b/commit/d5fda1e|d5fda1e> (rev 130) · motivo: exit status 1 · <https://log|log della build> · <https://dg.example.com/deploy?service=backend&account=production|Dadaguard>',
+  )
+})
+
+test('allarmi: dai dati del quadro, rotti e in corso, con una firma che non cambia con l’orologio', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z'), b('api', 'bbbbbbb', '2026-10-03T11:30:00Z', 'FAILED')] } },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa' }), svc('web', 'production', { tag: 'ccccccc', deploying: true })],
+  })
+  const prima = datiAllarmi(q, { ora: ORA })
+  const dopo = datiAllarmi(q, { ora: ORA + 5 * 60_000 })
+  assert.deepEqual(prima.rotti.map((r) => r.nome), ['api'])
+  assert.deepEqual(prima.inCorso, ['web'])
+  assert.equal(prima.rotti[0].firma, dopo.rotti[0].firma, 'cinque minuti dopo è lo stesso guasto')
+  assert.equal(datiAllarmi(undefined), null)
+})
+
+test('allarmi: si scrivono nel canale, il ✅ va nella discussione e cambia il messaggio', async () => {
+  const chiamate = []
+  const api = async (metodo, corpo) => {
+    chiamate.push([metodo, corpo])
+    return metodo === 'chat.postMessage' && !corpo.thread_ts ? { ts: '222' } : {}
+  }
+  let aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi({}, { rotti: [{ nome: 'api', firma: 'A', testo: '🔴 `api` [PROD] fallita' }], inCorso: [], buildIgnote: false }))
+  assert.equal(aperti.api.ts, '222')
+  aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi(aperti, { rotti: [], inCorso: [], buildIgnote: false }), { ora: Date.parse('2026-10-04T08:30:00Z') })
+  assert.deepEqual(aperti, {})
+  const [, risposta] = chiamate.find(([m, c]) => m === 'chat.postMessage' && c.thread_ts)
+  assert.equal(risposta.thread_ts, '222')
+  assert.equal(risposta.text, '✅ risolto alle 10:30')
+  const [, modifica] = chiamate.find(([m]) => m === 'chat.update')
+  assert.equal(modifica.text, '✅ `api` [PROD] fallita · risolto alle 10:30')
+
+  const rotta = async () => {
+    throw new Error('slack chat.postMessage: not_in_channel')
+  }
+  const dopo = await eseguiAllarmi(rotta, 'C1', pianoAllarmi({}, { rotti: [{ nome: 'api', firma: 'A', testo: 'x' }], inCorso: [], buildIgnote: false }))
+  assert.deepEqual(dopo, {}, 'un allarme non scritto non resta aperto senza messaggio: il giro dopo riprova')
 })

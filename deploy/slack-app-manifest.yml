@@ -4,10 +4,11 @@
 #
 # I permessi sono i soli che il giro usa, uno per chiamata:
 #   canvases:write   conversations.canvases.create, canvases.edit, canvases.access.set
+#   chat:write       il messaggio quando qualcosa si rompe, la risposta ✅ e la modifica del messaggio
 #   channels:read    conversations.info sui canali pubblici, per ritrovare il canvas del canale
 #   groups:read      lo stesso sui canali privati
-# Niente `chat:write`: il quadro non scrive messaggi. E niente interattività, quindi nessun indirizzo
-# pubblico da esporre: i link a Dadaguard sono link, non pulsanti.
+# Niente interattività, quindi nessun indirizzo pubblico da esporre: i link a Dadaguard sono link, non
+# pulsanti.
 #
 # ⚠️ Nei canali privati l'app va invitata (`/invite @Dadaguard`): senza, `conversations.info` risponde
 # `channel_not_found`, che sembra un id sbagliato e invece è un invito mancante.
@@ -22,6 +23,7 @@ oauth_config:
   scopes:
     bot:
       - canvases:write
+      - chat:write
       - channels:read
       - groups:read
 settings:
