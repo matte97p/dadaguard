@@ -1,7 +1,7 @@
 // Il quadro dei deploy sostituisce la lettura all'indietro del canale dei rilasci: se sbaglia lo stato
-// di un servizio lo sbaglia in cima al canale, fissato, dove tutti lo guardano. Qui si inchiodano gli
+// di un servizio lo sbaglia nel canvas in cima al canale, dove tutti lo guardano. Qui si inchiodano gli
 // stati, l'unione fra ECS e CodeBuild, i raggruppamenti (immagini condivise, giri di Lambda), i tre
-// piani del messaggio coi loro tetti, i link a Dadaguard e il ritrovamento del messaggio.
+// piani del canvas coi loro tetti, i link a Dadaguard e il giro che crea o riscrive il canvas.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -13,11 +13,11 @@ import {
   linkRisorsa,
   chiLeggibile,
   daChi,
-  messaggioQuadro,
-  trovaFissato,
+  cella,
+  canvasQuadro,
+  canvasDelCanale,
   aggiornaQuadri,
   quadroConfig,
-  anteprimaUrl,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -48,7 +48,6 @@ const lam = (name, account, da, by) => ({ name, type: 'lambda', overall: 'idle',
 // Build lette e nessuna trovata: diverso da «non lette», che il quadro dichiara.
 const LETTE_PROD = { production: { builds: [] } }
 const LETTE_STG = { staging: { builds: [] } }
-const testo = (m) => JSON.stringify([...m.blocks, ...m.attachments[0].blocks])
 
 test('le build: l’ultimo tentativo decide, un fallimento superato non tiene rosso, la durata tipica è la mediana', () => {
   assert.equal(statoBuild([b('api', 'a', '2026-10-01T10:00:00Z'), b('api', 'b', '2026-10-02T10:00:00Z', 'FAILED')]).stato, 'fallito')
@@ -76,7 +75,8 @@ test('cosa gira lo dice ECS; autore, numero e durata vengono dalla build che l�
   assert.deepEqual(r.come, { tipo: 'ci', build: 661, durataMs: 360_000, chi: null })
   const v = voce(r, { ora: ORA })
   assert.equal(v.livello, 'recente')
-  assert.equal(v.testo, '🚀  *api*  <https://github.com/x/api/commit/aaaaaaa|aaaaaaa>  ·  2 h fa')
+  assert.equal(v.emoji, '🚀')
+  assert.equal(v.stato, '[aaaaaaa](https://github.com/x/api/commit/aaaaaaa) · 2 h fa')
   assert.deepEqual(v.dettagli.filter(Boolean), ['rev 699', '3/3 task, 6/6 target sani', 'build #661 della CI in 6 min', 'commit di dev'])
 })
 
@@ -125,7 +125,8 @@ test('in corso: numero della build, da quanto, quanto dura di solito, da che com
   })
   const v = voce(q.app[0], { ora: ORA })
   assert.equal(v.livello, 'adesso')
-  assert.equal(v.testo, '⏳  *api*  build #662 in corso da 3 min, di solito 6 min')
+  assert.equal(v.emoji, '⏳')
+  assert.equal(v.stato, 'build #662 in corso da 3 min, di solito 6 min')
   assert.deepEqual(v.dettagli.filter(Boolean).slice(0, 3), ['fase BUILD', 'da `aaaaaaa` a `bbbbbbb`', 'di dev'])
 })
 
@@ -142,11 +143,12 @@ test('fallito: cosa gira ancora, il motivo e il log', () => {
     servizi: [svc('api', 'production', { tag: 'aaaaaaa', rev: 699 })],
   })
   const v = voce(q.app[0], { ora: ORA })
-  assert.equal(v.testo, '🔴  *api*  build #662 fallita al BUILD 30 min fa')
+  assert.equal(v.emoji, '🔴')
+  assert.equal(v.stato, 'build #662 fallita al BUILD 30 min fa')
   const d = v.dettagli.filter(Boolean).join(' · ')
   assert.match(d, /gira ancora `aaaaaaa` \(rev 699\)/)
   assert.match(d, /motivo: COMMAND_EXECUTION_ERROR: exit status 1/)
-  assert.match(d, /<https:\/\/log\|log della build>/)
+  assert.match(d, /\[log della build\]\(https:\/\/log\)/)
 })
 
 test('un servizio giù vince su tutto; un cron in rosso invece non è un deploy rotto', () => {
@@ -159,7 +161,8 @@ test('un servizio giù vince su tutto; un cron in rosso invece non è un deploy 
     ],
   })
   assert.equal(q.app[0].stato, 'giu')
-  assert.equal(voce(q.app[0], { ora: ORA }).testo, '🚨  *api*  giù: 0/2 task attivi')
+  const v = voce(q.app[0], { ora: ORA })
+  assert.equal(`${v.emoji} ${v.stato}`, '🚨 giù: 0/2 task attivi')
   assert.deepEqual(q.immagini[0].cron, ['pulizia', 'report'])
   assert.deepEqual(q.immagini[0].giu, [], 'il cron fallito lo racconta il canale dei cron')
 })
@@ -181,7 +184,7 @@ test('immagini condivise senza build: una riga sola, e chi è rimasto indietro s
   assert.equal(g.chi, 'refresh', 'organizzazione e ambiente si tolgono dal nome dell’automatismo')
   const v = voce(g, { ora: ORA })
   assert.equal(v.livello, 'adesso')
-  assert.equal(v.testo, '⚠️  *scraper*  1 di 3 su un’immagine più vecchia')
+  assert.equal(`${v.emoji} ${v.stato}`, '⚠️ 1 di 3 su un’immagine più vecchia')
 })
 
 test('un repo condiviso da un servizio con una build sua NON è un’immagine condivisa', () => {
@@ -230,23 +233,13 @@ test('le Lambda aggiornate insieme dalla stessa persona sono un giro solo', () =
 
 test('una Lambda sola si chiama per nome, un giro si conta', () => {
   const una = voce({ tipo: 'lambda', n: 1, nomi: ['notifier'], chi: 'IaC (build #92)', quando: '2026-10-03T11:30:00Z' }, { ora: ORA })
-  assert.equal(una.testo, '⚙️  *notifier*  Lambda aggiornata  ·  30 min fa')
+  assert.equal(una.nome, 'notifier')
+  assert.equal(una.stato, 'Lambda aggiornata · 30 min fa')
   assert.deepEqual(una.dettagli.filter(Boolean), ["dall'IaC (build #92)"])
   const giro = voce({ tipo: 'lambda', n: 2, nomi: ['a', 'b'], chi: 'dev', quando: '2026-10-03T11:30:00Z' }, { ora: ORA })
-  assert.equal(giro.testo, '⚙️  *2 Lambda aggiornate*  ·  30 min fa')
-})
-
-test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
-  const q = quadroAmbiente('produzione', {
-    deploys: LETTE_PROD,
-    servizi: [
-      svc('a', 'production', { tag: 'e4ce302', repo: 'img', da: '2026-10-03T10:00:00Z' }),
-      svc('b', 'production', { tag: '29a157c', repo: 'img', da: '2026-10-03T08:00:00Z' }),
-    ],
-  })
-  const m = messaggioQuadro(q, { ora: ORA })
-  assert.match(m.text, /^Quadro deploy \[PROD\]: ⚠️ 1 da guardare/)
-  assert.doesNotMatch(m.text, /🔴/)
+  assert.equal(giro.nome, '2 Lambda')
+  assert.equal(giro.stato, 'aggiornate insieme · 30 min fa')
+  assert.deepEqual(giro.dettagli.filter(Boolean), ['da dev', 'a, b'])
 })
 
 test('le altre azioni a mano non diventano servizi, l’IaC ha la sua riga', () => {
@@ -263,7 +256,8 @@ test('le altre azioni a mano non diventano servizi, l’IaC ha la sua riga', () 
     },
   })
   assert.deepEqual(q.app.map((r) => r.servizio), ['api'])
-  assert.equal(voce(q.infra, { ora: ORA }).testo, '⏳  *IaC*  apply in corso da 1 h')
+  const v = voce(q.infra, { ora: ORA })
+  assert.equal(`${v.emoji} ${v.nome}: ${v.stato}`, '⏳ IaC: apply in corso da 1 h')
 })
 
 test('build non lette: il quadro lo dice e non inventa niente che ne dipenda', () => {
@@ -278,11 +272,11 @@ test('build non lette: il quadro lo dice e non inventa niente che ne dipenda', (
   assert.equal(q.immagini.length, 0, 'senza build non si sa chi ne ha una propria: niente gruppi')
   assert.deepEqual(q.app.map((r) => r.servizio), ['backend'])
   assert.equal(q.app[0].come, null, '«nessuna build» sarebbe inventato')
-  const m = messaggioQuadro(q, { ora: ORA })
-  assert.match(m.text, /⚠️ build non lette/)
-  assert.doesNotMatch(m.text, /niente di rotto/, 'non si sa, quindi non si dice')
-  assert.match(testo(m), /Build non lette\*: Could not connect to the endpoint URL/)
-  assert.doesNotMatch(testo(m), /nessuna build/)
+  const c = canvasQuadro(q, { ora: ORA })
+  assert.match(c.sintesi, /⚠️ build non lette/)
+  assert.doesNotMatch(c.sintesi, /niente di rotto/, 'non si sa, quindi non si dice')
+  assert.match(c.markdown, /Build non lette\*\*: Could not connect to the endpoint URL/)
+  assert.doesNotMatch(c.markdown, /nessuna build/)
 })
 
 test('produzione dice quando staging è su un altro commit, e solo lì', () => {
@@ -316,87 +310,104 @@ function ambienteGrande() {
     ...Array.from({ length: 12 }, (_, i) => svc(`app-ferma-${i}`, 'production', { tag: `aaaaaa${i % 10}`, repo: `r${i}`, da: '2026-09-01T00:00:00Z' })),
     ...Array.from({ length: 40 }, (_, i) => lam(`acme-production-cron-vecchio-${i}`, 'production', '2026-09-01T00:00:00Z', 'dev')),
     ...Array.from({ length: 20 }, (_, i) => lam(`acme-production-cron-nuovo-${i}`, 'production', `2026-10-03T09:${String(i).padStart(2, '0')}:00Z`, 'dev')),
-    ...Array.from({ length: 10 }, (_, i) => svc(`app-nuova-${i}`, 'production', { tag: `bbbbbb${i}`, repo: `n${i}`, da: `2026-10-03T0${i % 10}:30:00Z` })),
+    ...Array.from({ length: 14 }, (_, i) => svc(`app-nuova-${i}`, 'production', { tag: `bbbbbb${i % 10}`, repo: `n${i}`, da: `2026-10-03T0${i % 10}:${i < 10 ? '30' : '45'}:00Z` })),
     svc('rotta', 'production', { tag: 'ccccccc', repo: 'rotta', overall: 'down', task: [0, 2] }),
   ]
   return quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi })
 }
 
-test('con una flotta grande il messaggio resta corto: «Adesso», poi al massimo 8 recenti, poi un conteggio', () => {
-  const m = messaggioQuadro(ambienteGrande(), { ora: ORA, url: URL })
-  const corpo = m.attachments[0].blocks
-  const s = testo(m)
-  assert.ok(corpo.length <= 30, `troppi blocchi: ${corpo.length}`)
-  assert.ok(s.indexOf('*Adesso*') < s.indexOf('*Ultime 24 ore*'), 'prima i problemi')
-  assert.match(s, /🚨  \*rotta\*  giù/)
-  assert.match(s, /⚙️  \*20 Lambda aggiornate\*/, 'venti Lambda dello stesso giro sono una riga')
-  assert.match(s, /e altri 3: <https:\/\/dg\.example\.com\/deploy\?account=production\|tutti su Dadaguard>/, '11 recenti, 8 righe e il resto contato')
-  assert.match(s, /Senza novità nelle ultime 24 ore\*: 12 applicazioni  ·  40 Lambda/)
-  assert.doesNotMatch(s, /app-ferma-3/, 'le risorse ferme non hanno righe')
-  assert.match(s, /Dadaguard ›/, 'ogni riga porta alla sua risorsa')
-  assert.doesNotMatch(s, /"type":"button"/, 'niente pulsanti: senza un indirizzo pubblico Slack li segna con un avviso')
-  assert.doesNotMatch(s, /—/, 'niente trattino lungo')
-  for (const x of corpo) {
-    const t = x.text?.text ?? x.elements?.[0]?.text ?? ''
-    assert.ok(t.length <= 3000, 'Slack rifiuta un testo oltre i 3000 caratteri')
-  }
-})
-
-test('il messaggio: titolo al primo livello, barra del colore dell’ambiente, sintesi in testa', () => {
-  const m = messaggioQuadro(ambienteGrande(), { ora: ORA, url: URL })
-  assert.equal(m.blocks[0].type, 'header')
-  assert.equal(m.blocks[0].text.text, '🟥  PRODUZIONE')
-  assert.equal(m.attachments[0].color, '#E01E5A')
-  assert.ok(!m.attachments[0].blocks.some((x) => x.type === 'header'), 'nessun header dentro l’allegato')
-  assert.match(m.text, /^Quadro deploy \[PROD\]: 🔴 1 rotto · 🚀 11 rilasci nelle ultime 24 h/)
+test('con una flotta grande il canvas resta corto: «Adesso», poi al massimo 12 recenti, poi un conteggio', () => {
+  const c = canvasQuadro(ambienteGrande(), { ora: ORA, url: URL })
+  const md = c.markdown
+  assert.equal(c.titolo, '🟥 Quadro deploy PRODUZIONE')
+  assert.ok(md.indexOf('## Adesso') < md.indexOf('## Ultime 24 ore'), 'prima i problemi')
+  assert.match(md, /\| 🚨 \[\*\*rotta\*\*\]\(https:\/\/dg\.example\.com\/deploy\?service=rotta&account=production\) \| giù: 0\/2 task attivi \|/)
+  assert.match(md, /\| ⚙️ \[\*\*20 Lambda\*\*\]\([^)]+\) \| aggiornate insieme/, 'venti Lambda dello stesso giro sono una riga')
+  assert.match(md, /E altri 3: \[tutti su Dadaguard\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)\./, '15 recenti, 12 righe e il resto contato')
+  assert.match(md, /\*\*Senza novità nelle ultime 24 ore\*\*: 12 applicazioni · 40 Lambda/)
+  assert.doesNotMatch(md, /app-ferma-3/, 'le risorse ferme non hanno righe')
+  assert.doesNotMatch(md, /—/, 'niente trattino lungo')
+  const righeRecenti = md.split('## Ultime 24 ore')[1].split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
+  assert.equal(righeRecenti.length, 12)
+  assert.match(c.sintesi, /^🔴 1 rotto · 🚀 15 rilasci nelle ultime 24 h/)
+  assert.match(md, /^\*\*🔴 1 rotto/, 'la sintesi è la prima riga')
 })
 
 test('tutto tranquillo: la sintesi lo dice per prima', () => {
   const q = quadroAmbiente('staging', { deploys: LETTE_STG, servizi: [svc('api', 'staging', { tag: 'aaaaaaa', da: '2026-09-01T00:00:00Z' })] })
-  const m = messaggioQuadro(q, { ora: ORA })
-  assert.match(m.text, /^Quadro deploy \[STAGING\]: ✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
-  assert.match(testo(m), /nessun rilascio/)
+  const c = canvasQuadro(q, { ora: ORA })
+  assert.equal(c.titolo, '🟨 Quadro deploy STAGING')
+  assert.match(c.sintesi, /^✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
+  assert.match(c.markdown, /Nessun rilascio\./)
 })
 
-test('l’anteprima col workspace apre il Builder sul messaggio, senza passare dal reindirizzamento', () => {
-  const m = messaggioQuadro({ ambiente: 'staging', app: [], immagini: [], esterni: [], lambda: [], infra: null }, { ora: ORA })
-  const url = anteprimaUrl(m, { team: 'T000TEST' })
-  assert.match(url, /^https:\/\/app\.slack\.com\/block-kit-builder\/T000TEST\/builder#/)
-  const payload = JSON.parse(decodeURIComponent(url.split('#')[1]))
-  assert.equal(payload.blocks[0].type, 'header')
-  assert.equal(payload.attachments[0].color, '#ECB22E')
+test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: LETTE_PROD,
+    servizi: [
+      svc('a', 'production', { tag: 'e4ce302', repo: 'img', da: '2026-10-03T10:00:00Z' }),
+      svc('b', 'production', { tag: '29a157c', repo: 'img', da: '2026-10-03T08:00:00Z' }),
+    ],
+  })
+  const c = canvasQuadro(q, { ora: ORA })
+  assert.match(c.sintesi, /^⚠️ 1 da guardare/)
+  assert.doesNotMatch(c.sintesi, /🔴/)
 })
 
-test('si ritrova il quadro giusto, e solo se l’abbiamo scritto noi', () => {
-  const items = [
-    { type: 'message', message: { ts: '1', bot_id: 'ALTRO', text: 'Quadro deploy [PROD]: a mano' } },
-    { type: 'message', message: { ts: '2', bot_id: 'NOI', text: 'x', metadata: { event_type: 'dadaguard_quadro', event_payload: { ambiente: 'staging' } } } },
-    { type: 'message', message: { ts: '3', bot_id: 'NOI', text: 'Quadro deploy [PROD]: x' } },
-  ]
-  assert.equal(trovaFissato(items, { botId: 'NOI', ambiente: 'produzione' }), '3', 'senza metadati vale il testo')
-  assert.equal(trovaFissato(items, { botId: 'NOI', ambiente: 'staging' }), '2')
-  assert.equal(trovaFissato([], { botId: 'NOI', ambiente: 'staging' }), null)
+test('una cella non rompe la tabella: niente `|` né a capo che arrivino da fuori', () => {
+  assert.equal(cella('exit status 1 | grep\nriga due'), 'exit status 1 \\| grep riga due')
+  const q = quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z'), b('api', 'bbbbbbb', '2026-10-03T11:30:00Z', 'FAILED', { failReason: 'a | b\nc' })] } },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa' })],
+  })
+  const riga = canvasQuadro(q, { ora: ORA }).markdown.split('\n').find((l) => l.includes('**api**'))
+  assert.equal(riga.split(/(?<!\\)\|/).length, 5, 'tre celle, quindi quattro separatori')
 })
 
-test('il giro riscrive il quadro che c’è e crea e fissa quello che manca', async () => {
+test('il canvas del canale si legge da `conversations.info`', () => {
+  assert.equal(canvasDelCanale({ channel: { properties: { canvas: { file_id: 'F1' } } } }), 'F1')
+  assert.equal(canvasDelCanale({ channel: { properties: {} } }), null)
+  assert.equal(canvasDelCanale(null), null)
+})
+
+test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambiente rotto non ferma l’altro', async () => {
   const chiamate = []
   const api = async (metodo, corpo) => {
     chiamate.push([metodo, corpo])
-    if (metodo === 'auth.test') return { bot_id: 'NOI' }
-    if (metodo === 'pins.list') return { items: [{ type: 'message', message: { ts: '9', bot_id: 'NOI', text: 'Quadro deploy [PROD]: x' } }] }
-    if (metodo === 'chat.postMessage') return { ts: '10' }
+    if (metodo === 'conversations.info') return corpo.channel === 'CPROD' ? { channel: { properties: { canvas: { file_id: 'FPROD' } } } } : { channel: { properties: {} } }
+    if (metodo === 'conversations.canvases.create') return { canvas_id: 'FSTG' }
     return {}
   }
-  const cfg = { ...quadroConfig({}), token: 'x', canale: 'C1' }
-  const esiti = await aggiornaQuadri(cfg, { api, leggiDati: async () => ({ deploys: { production: { builds: [b('api', 'a', '2026-10-02T10:00:00Z')] } }, servizi: [] }) })
+  const cfg = quadroConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'x', DADAGUARD_QUADRO_CANALI: 'produzione=CPROD,staging=CSTG' })
+  const leggiDati = async () => ({ deploys: { production: { builds: [b('api', 'a', '2026-10-02T10:00:00Z')] }, staging: { builds: [] } }, servizi: [] })
+  const esiti = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA })
   assert.deepEqual(esiti.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:riscritto', 'staging:creato'])
-  assert.deepEqual(chiamate.map(([m]) => m), ['auth.test', 'pins.list', 'chat.update', 'chat.postMessage', 'pins.add'])
-  assert.equal(chiamate.find(([m]) => m === 'pins.add')[1].timestamp, '10')
+  const edit = chiamate.find(([m]) => m === 'canvases.edit')[1]
+  assert.equal(edit.canvas_id, 'FPROD')
+  assert.equal(edit.changes[0].operation, 'replace', 'il quadro si riscrive intero')
+  assert.equal(edit.changes[0].document_content.type, 'markdown')
+  const crea = chiamate.find(([m]) => m === 'conversations.canvases.create')[1]
+  assert.equal(crea.channel_id, 'CSTG')
+  assert.equal(crea.title, '🟨 Quadro deploy STAGING')
+  assert.deepEqual(chiamate.find(([m]) => m === 'canvases.access.set')[1], { canvas_id: 'FSTG', access_level: 'read', channel_ids: ['CSTG'] })
+
+  const rotta = async (metodo, corpo) => {
+    if (metodo === 'conversations.info' && corpo.channel === 'CPROD') throw new Error('slack conversations.info: channel_not_found')
+    return api(metodo, corpo)
+  }
+  const esiti2 = await aggiornaQuadri(cfg, { api: rotta, leggiDati, ora: ORA })
+  assert.deepEqual(esiti2.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:errore', 'staging:creato'])
+  assert.match(esiti2[0].errore, /channel_not_found/)
 })
 
-test('configurazione: senza token il quadro è spento, gli ambienti ignoti si scartano, la finestra ha un default', () => {
-  assert.equal(quadroConfig({}).token, null)
-  assert.deepEqual(quadroConfig({ DADAGUARD_QUADRO_AMBIENTI: 'staging, inventato' }).ambienti, ['staging'])
+test('configurazione: un canale per ambiente, nell’ordine scritto; senza canali il quadro è spento', () => {
+  const cfg = quadroConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'x', DADAGUARD_QUADRO_CANALI: 'staging = C2, produzione=C1, inventato=C3' })
+  assert.deepEqual(cfg.canali, { staging: 'C2', produzione: 'C1' })
+  assert.deepEqual(cfg.ambienti, ['staging', 'produzione'])
+  const vuota = quadroConfig({})
+  assert.equal(vuota.token, null)
+  assert.deepEqual(vuota.canali, {})
+  assert.deepEqual(vuota.ambienti, ['produzione', 'staging'], 'l’anteprima li calcola comunque tutti e due')
   assert.equal(quadroConfig({ DADAGUARD_QUADRO_ORE: 'mezza giornata' }).ore, 24)
   assert.equal(quadroConfig({ DADAGUARD_QUADRO_ORE: '48' }).ore, 48)
 })

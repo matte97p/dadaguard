@@ -4,11 +4,16 @@ import { canonicalActor } from '../util/principal.js'
 import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 
-// Il QUADRO dei deploy: un messaggio Slack per ambiente, fissato in cima al canale e RISCRITTO a ogni
-// giro, al posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla
-// fine), ogni giro dei cron Lambda due per cron e ogni revisione registrata da un automatismo uno. In
-// un giorno normale il canale dei rilasci ne riceve un centinaio, e la domanda vera («cosa gira
-// adesso, e c'è qualcosa di rotto?») si risponde leggendo all'indietro.
+// Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
+// posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla fine), ogni
+// giro dei cron Lambda due per cron e ogni revisione registrata da un automatismo uno. In un giorno
+// normale il canale dei rilasci ne riceve un centinaio, e la domanda vera («cosa gira adesso, e c'è
+// qualcosa di rotto?») si risponde leggendo all'indietro.
+//
+// Perché il canvas e non un messaggio fissato: il canvas del canale è una scheda in cima, sempre a un
+// clic, mentre un messaggio fissato resta dov'era nella storia e i messaggi nuovi lo spingono via. E il
+// canvas ha le tabelle, che un messaggio non ha. Un canale per ambiente, perché un canale ha un canvas
+// solo: l'ambiente lo dice il canale.
 //
 // ⚠️ La flotta è grande (decine di servizi, cron e Lambda per ambiente), quindi il quadro NON è un
 // inventario: un elenco di tutto sarebbe illeggibile quanto il canale che sostituisce. Ha tre piani,
@@ -17,14 +22,14 @@ import { loadConfig } from '../config.js'
 //   Ultime N ore  i rilasci recenti, dal più nuovo; quelli fatti insieme sono UNA riga (le Lambda di
 //                 un giro dei cron, i servizi che girano la stessa immagine)
 //   Il resto      un conteggio, senza nomi: per vederli c'è il link a Dadaguard
-// Così la lunghezza del messaggio dipende da quanto succede, non da quante risorse esistono.
+// Così la lunghezza del quadro dipende da quanto succede, non da quante risorse esistono.
 //
 // La verità su COSA GIRA la dice ECS, non CodeBuild: è l'unica fonte che vede tutte le strade per cui
 // un servizio cambia (la build della CI, una revisione promossa a mano, un riavvio, le variabili
 // aggiornate, la revisione registrata da un automatismo, un apply Terraform sulla task definition).
 // CodeBuild aggiunge quello che ECS non sa: il commit, chi l'ha scritto, la build in corso o fallita.
 //
-// Cosa il quadro copre del canale, e cosa no:
+// Cosa il quadro copre del canale dei rilasci, e cosa no:
 //   ⏳ 🚀 🔴 deploy da CodeBuild                  righe delle applicazioni
 //   ⏳ revisione promossa a mano, riavvii, SSM    revisione o rollout nuovo, visto da ECS
 //   🔄 revisione nuova da un automatismo          una riga per IMMAGINE condivisa
@@ -32,64 +37,60 @@ import { loadConfig } from '../config.js'
 //   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
 //   🧪 test avviati, deploy saltato o non avviato  NO: vivono in GitHub Actions, che Dadaguard non legge
 //
-// ⚠️ Un messaggio RISCRITTO non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Un
-// fallimento che deve svegliare qualcuno resta un messaggio NUOVO, e non è compito del quadro.
+// ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Un
+// fallimento che deve svegliare qualcuno resta un messaggio NUOVO nel canale, e non è compito del quadro.
 //
-// I link a Dadaguard sono link nel testo, non pulsanti: un pulsante, anche se apre solo un indirizzo,
-// manda a Slack un clic che l'app dovrebbe confermare da un indirizzo pubblico, e senza quello Slack
-// gli mette accanto un triangolo d'avviso. Dadaguard sta dietro l'accesso aziendale e non lo ha.
+// Zero storage, come il resto: il canvas da riscrivere non si ricorda, si chiede al canale
+// (`conversations.info` lo dice in `properties.canvas`). Se il canale non ne ha uno, si crea.
 //
-// Zero storage, come il resto: il messaggio da riscrivere non si ricorda, si RITROVA fra quelli
-// fissati nel canale (scritto da noi, con l'ambiente nei metadati o nel testo).
-//
-// Configurazione (tutta opzionale: senza token o canale il quadro non parte e non chiama niente):
-//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `chat:write`, `pins:read`,
-//                               `pins:write`. Un webhook NON basta: non modifica un messaggio mandato
-//   DADAGUARD_QUADRO_CANALE     id del canale (`C0123…`), non il nome: le API vogliono l'id
-//   DADAGUARD_QUADRO_AMBIENTI   quali ambienti e in che ordine (default `produzione,staging`)
+// Configurazione (tutta opzionale: senza token o canali il quadro non parte e non chiama niente):
+//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `canvases:write`, `channels:read` e
+//                               `groups:read` (per i canali privati), invitata nei canali. Un webhook
+//                               NON basta: scrive messaggi, non canvas
+//   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
+//                               `produzione=C0123,staging=C0456`. Gli id, non i nomi
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
 //                               rilascio intero passerebbe senza che il quadro lo veda in corso)
 //   DADAGUARD_QUADRO_ORE        quanto indietro guarda «Ultime N ore» (default 24)
-//   DADAGUARD_SLACK_TEAM_ID     id del workspace (`T0…`), solo per il link d'anteprima di
-//                               `/api/quadro`: senza, il Block Kit Builder si apre vuoto
 
 const DEFAULT_INTERVAL_S = 60
 const DEFAULT_ORE = 24
 // I tetti delle righe. Oltre, una riga dice quante ne mancano e porta a Dadaguard.
-const MAX_ADESSO = 6
-const MAX_RECENTI = 8
+const MAX_ADESSO = 10
+const MAX_RECENTI = 12
 // Le Lambda aggiornate dalla stessa persona a meno di questo l'una dall'altra sono un giro solo: un
 // workflow dei cron ne rilascia una ventina in un paio di minuti.
 const FINESTRA_LOTTO_MS = 15 * 60_000
 // Una revisione ECS registrata oltre questo dopo la fine della build che ha prodotto l'immagine non
 // è quella build: è una revisione nuova (variabili, promozione a mano, Terraform) sulla stessa immagine.
 const SCARTO_REVISIONE_MS = 15 * 60_000
-const EVENTO = 'dadaguard_quadro'
 const FALLITI = new Set(['FAILED', 'FAULT', 'TIMED_OUT', 'STOPPED'])
-const SEP = '  ·  '
 
-// Come si riconosce l'ambiente senza leggere: il titolo grande con un quadrato colorato e la BARRA
-// dello stesso colore a sinistra del corpo (rossa la produzione, gialla lo staging). Il tag `[PROD]`
-// delle notifiche resta nel testo di ripiego, che è quello delle notifiche e dei lettori di schermo.
+// Il titolo del canvas porta l'ambiente col suo colore: il canale lo dice già, ma un canvas aperto da
+// un link o dalla ricerca si legge da solo.
 export const AMBIENTI = {
-  produzione: { titolo: '🟥  PRODUZIONE', tag: 'PROD', colore: '#E01E5A' },
-  staging: { titolo: '🟨  STAGING', tag: 'STAGING', colore: '#ECB22E' },
+  produzione: { titolo: '🟥 Quadro deploy PRODUZIONE', tag: 'PROD' },
+  staging: { titolo: '🟨 Quadro deploy STAGING', tag: 'STAGING' },
 }
 
 export function quadroConfig(env = process.env) {
-  const ambienti = (env.DADAGUARD_QUADRO_AMBIENTI || 'produzione,staging')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => AMBIENTI[s])
+  // `produzione=C0123,staging=C0456`. L'ordine è quello dei giri; un ambiente che non conosciamo si
+  // scarta, perché un canvas su un ambiente che il quadro non sa calcolare sarebbe vuoto per sempre.
+  const canali = Object.fromEntries(
+    String(env.DADAGUARD_QUADRO_CANALI ?? '')
+      .split(',')
+      .map((x) => x.split('=').map((y) => y.trim()))
+      .filter(([amb, id]) => AMBIENTI[amb] && id),
+  )
   const ore = Number(env.DADAGUARD_QUADRO_ORE)
   return {
     token: env.DADAGUARD_SLACK_BOT_TOKEN || null,
-    canale: env.DADAGUARD_QUADRO_CANALE || null,
-    ambienti,
+    canali,
+    // Senza canali si calcolano comunque tutti e due: servono all'anteprima di `/api/quadro`.
+    ambienti: Object.keys(canali).length ? Object.keys(canali) : Object.keys(AMBIENTI),
     intervalMs: Math.max(30, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     ore: Number.isFinite(ore) && ore > 0 ? ore : DEFAULT_ORE,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
-    team: env.DADAGUARD_SLACK_TEAM_ID || null,
   }
 }
 
@@ -379,6 +380,10 @@ export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambi
 }
 
 // ── La resa ──────────────────────────────────────────────────────────────────────────────────────
+//
+// Markdown dei canvas: link `[testo](url)`, grassetto `**x**`, tabelle. Una cella non può contenere
+// `|` né andare a capo, o la tabella si rompe da quella riga in poi: per questo ogni cella passa da
+// `cella`, anche quelle che oggi non ne avrebbero bisogno (un motivo di fallimento sì, e arriva da fuori).
 
 // «4 min», «3 h», «2 g»: abbastanza per capire se un rilascio è appeso o vecchio. Puro.
 export function eta(iso, ora = Date.now()) {
@@ -397,13 +402,14 @@ export function durata(ms) {
   return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`
 }
 
-// Il commit apre la sua pagina su GitHub quando il repository è noto. Il link non va fra backtick:
-// dentro un blocco di codice Slack non riconosce i link.
-const sha = (c, repo) => (c ? (repo ? `<${repo}/commit/${c}|${c}>` : `\`${c}\``) : '`?`')
+const SEP = ' · '
+// Il commit apre la sua pagina su GitHub quando il repository è noto.
+const sha = (c, repo) => (c ? (repo ? `[${c}](${repo}/commit/${c})` : `\`${c}\``) : '`?`')
 const tronca = (s, n) => (String(s).length > n ? `${String(s).slice(0, n - 1)}…` : String(s))
 // Un elenco di nomi lungo si accorcia: i primi, poi quanti altri.
 const elenco = (nomi, n = 6) => (nomi.length > n ? `${nomi.slice(0, n).join(', ')} e altri ${nomi.length - n}` : nomi.join(', '))
 const plurale = (n, uno, tanti) => `${n} ${n === 1 ? uno : tanti}`
+export const cella = (t) => String(t ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')
 
 // I link a Dadaguard già filtrati sulla risorsa della riga. Le applicazioni e l'IaC hanno una storia
 // di build, quindi vanno alla pagina Deploy; Lambda, immagini condivise e componenti esterni non ne
@@ -415,8 +421,8 @@ export function linkRisorsa(v, url) {
   if (v.tipo === 'iac') return `${url}/deploy?service=IaC&account=${account}`
   const nomi = v.tipo === 'immagine' ? [...v.servizi, ...v.cron] : v.nomi
   const conNomi = `${url}/servizi?account=${account}&q=${encodeURIComponent(nomi.join(','))}`
-  // Slack tronca gli indirizzi oltre i 3000 caratteri: meglio la pagina dell'ambiente intero che un
-  // filtro tagliato a metà, che mostrerebbe solo una parte senza dirlo.
+  // Un indirizzo lunghissimo (un giro di cento Lambda) si accorcia alla pagina dell'ambiente: meglio
+  // tutto che un filtro tagliato a metà, che mostrerebbe solo una parte senza dirlo.
   return conNomi.length <= 2900 ? conNomi : `${url}/servizi?account=${account}`
 }
 
@@ -431,33 +437,30 @@ function comeTesto(c) {
   return `revisione registrata${chi}${c.build ? `, immagine della build #${c.build}` : ', nessuna build'}`
 }
 
-// Una «voce» del quadro: la riga principale e i dettagli sotto, più piccoli. `livello` decide dove
-// va: `adesso` (rotto, giù, indietro, in corso) o `recente`. Puro/testabile.
+// Una «voce» del quadro: dove va (`adesso` o `recente`), quanto pesa, e le celle della sua riga
+// (emoji e nome, stato, dettagli). Puro/testabile.
 export function voce(v, { ora = Date.now() } = {}) {
   if (v.tipo === 'app') return voceApp(v, ora)
   if (v.tipo === 'immagine') return voceImmagine(v, ora)
   if (v.tipo === 'lambda')
-    // Una Lambda sola si chiama per nome; un giro intero si conta, e i nomi vanno sotto.
+    // Una Lambda sola si chiama per nome; un giro intero si conta, e i nomi vanno nei dettagli.
     return {
       livello: 'recente',
       gravita: 4,
       quando: v.quando,
-      testo: v.n === 1 ? `⚙️  *${v.nomi[0]}*  Lambda aggiornata${SEP}${eta(v.quando, ora)} fa` : `⚙️  *${v.n} Lambda aggiornate*${SEP}${eta(v.quando, ora)} fa`,
+      emoji: '⚙️',
+      nome: v.n === 1 ? v.nomi[0] : `${v.n} Lambda`,
+      stato: `${v.n === 1 ? 'Lambda aggiornata' : 'aggiornate insieme'}${SEP}${eta(v.quando, ora)} fa`,
       dettagli: [daChi(v.chi), v.n > 1 && elenco(v.nomi)],
     }
   if (v.tipo === 'esterno') {
-    const su = v.nomi.length > 1 ? ` su ${v.nomi.length}` : ''
-    if (v.giu) return { livello: 'adesso', gravita: 0, quando: v.quando, testo: `🚨  *${v.nome}*  giù`, dettagli: [`\`${v.tag}\`${su}`, 'componente esterno'] }
+    const tag = `\`${v.tag}\`${v.nomi.length > 1 ? ` su ${v.nomi.length}` : ''}`
+    const base = { quando: v.quando, emoji: '📦', nome: v.nome }
+    if (v.giu) return { ...base, livello: 'adesso', gravita: 0, emoji: '🚨', stato: 'giù', dettagli: [tag, 'componente esterno'] }
     if (v.inRollout)
-      return { livello: 'adesso', gravita: 3, quando: v.quando, testo: `⏳  *${v.nome}*  rollout in corso`, dettagli: [`\`${v.tag}\`${su}`, 'componente esterno, versione fissata dall’IaC'] }
-    return {
-      livello: 'recente',
-      gravita: 4,
-      quando: v.quando,
-      testo: `📦  *${v.nome}*  \`${v.tag}\`${su}${SEP}${eta(v.quando, ora)} fa`,
-      // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
-      dettagli: ['componente esterno, versione fissata dall’IaC', !daIac(v.chi) && daChi(v.chi)],
-    }
+      return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [tag, 'componente esterno, versione fissata dall’IaC'] }
+    // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
+    return { ...base, livello: 'recente', gravita: 4, stato: `${tag}${SEP}${eta(v.quando, ora)} fa`, dettagli: ['componente esterno, versione fissata dall’IaC', !daIac(v.chi) && daChi(v.chi)] }
   }
   if (v.tipo === 'iac') return voceIac(v, ora)
   return null
@@ -468,30 +471,31 @@ function voceApp(r, ora) {
   const rev = r.revisione ? `rev ${r.revisione}` : null
   const salute = [r.task && `${r.task} task`, r.target && `${r.target} target sani`].filter(Boolean).join(', ') || null
   const t = r.tentativo
+  const base = { nome: r.servizio }
   if (r.stato === 'giu')
     return {
+      ...base,
       livello: 'adesso',
       gravita: 0,
       quando: r.quando,
-      testo: `🚨  *${r.servizio}*  giù: ${r.task ?? '?'} task attivi`,
+      emoji: '🚨',
+      stato: `giù: ${r.task ?? '?'} task attivi`,
       dettagli: [`gira ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} target sani`, r.quando && `ultimo cambio ${eta(r.quando, ora)} fa`],
     }
   if (r.stato === 'fallito') {
+    // Un rosso da solo fa credere il servizio giù: si dice cosa sta ancora girando.
     const gira = r.commit ? `gira ancora ${c}${rev ? ` (${rev})` : ''}` : 'nessun rilascio riuscito visto'
+    const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
     if (t.riavvio)
-      return {
-        livello: 'adesso',
-        gravita: 1,
-        quando: t.da,
-        testo: `🔴  *${r.servizio}*  riavvio a mano fallito ${eta(t.da, ora)} fa`,
-        dettagli: [t.chi && `da ${t.chi}`, t.motivo && `motivo: ${tronca(t.motivo, 140)}`, gira],
-      }
+      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '🔴', stato: `riavvio a mano fallito ${eta(t.da, ora)} fa`, dettagli: [daChi(t.chi), motivo, gira] }
     return {
+      ...base,
       livello: 'adesso',
       gravita: 1,
       quando: t.da,
-      testo: `🔴  *${r.servizio}*  build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${eta(t.da, ora)} fa`,
-      dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, t.motivo && `motivo: ${tronca(t.motivo, 140)}`, t.log && `<${t.log}|log della build>`],
+      emoji: '🔴',
+      stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${eta(t.da, ora)} fa`,
+      dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, motivo, t.log && `[log della build](${t.log})`],
     }
   }
   if (r.stato === 'in_corso') {
@@ -499,26 +503,24 @@ function voceApp(r, ora) {
       const tipico = durata(r.durataTipica) ? `, di solito ${durata(r.durataTipica)}` : ''
       const verso = t.commit && !stessoCommit(t.commit, r.commit) ? `da ${c} a ${sha(t.commit, r.repo)}` : `commit ${sha(t.commit ?? r.commit, r.repo)}`
       return {
+        ...base,
         livello: 'adesso',
         gravita: 3,
         quando: t.da,
-        testo: `⏳  *${r.servizio}*  build${t.numero ? ` #${t.numero}` : ''} in corso da ${eta(t.da, ora)}${tipico}`,
+        emoji: '⏳',
+        stato: `build${t.numero ? ` #${t.numero}` : ''} in corso da ${eta(t.da, ora)}${tipico}`,
         dettagli: [t.fase && `fase ${t.fase}`, verso, t.chi && `di ${t.chi}`, salute],
       }
     }
-    return {
-      livello: 'adesso',
-      gravita: 3,
-      quando: r.quando,
-      testo: `⏳  *${r.servizio}*  rollout in corso`,
-      dettagli: [`${c}${rev ? ` (${rev})` : ''}`, salute, comeTesto(r.come)],
-    }
+    return { ...base, livello: 'adesso', gravita: 3, quando: r.quando, emoji: '⏳', stato: 'rollout in corso', dettagli: [`${c}${rev ? ` (${rev})` : ''}`, salute, comeTesto(r.come)] }
   }
   return {
+    ...base,
     livello: 'recente',
     gravita: 4,
     quando: r.quando,
-    testo: `🚀  *${r.servizio}*  ${c}${SEP}${eta(r.quando, ora)} fa`,
+    emoji: '🚀',
+    stato: `${c}${SEP}${eta(r.quando, ora)} fa`,
     dettagli: [rev, salute, comeTesto(r.come), r.autore && `commit di ${r.autore}`, r.staging && `staging su \`${r.staging}\``],
   }
 }
@@ -526,96 +528,63 @@ function voceApp(r, ora) {
 function voceImmagine(g, ora) {
   const quanti = [g.servizi.length && plurale(g.servizi.length, 'servizio', 'servizi'), g.cron.length && `${g.cron.length} cron`].filter(Boolean).join(' e ')
   const tutti = [...g.servizi, ...g.cron]
-  if (g.giu.length)
-    return { livello: 'adesso', gravita: 0, quando: g.quando, testo: `🚨  *${g.nome}*  giù: ${elenco(g.giu, 4)}`, dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
+  const base = { nome: g.nome, quando: g.quando }
+  if (g.giu.length) return { ...base, livello: 'adesso', gravita: 0, emoji: '🚨', stato: `giù: ${elenco(g.giu, 4)}`, dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
   if (g.indietro.length)
     return {
+      ...base,
       livello: 'adesso',
       gravita: 2,
-      quando: g.quando,
-      testo: `⚠️  *${g.nome}*  ${g.indietro.length} di ${tutti.length} su un’immagine più vecchia`,
+      emoji: '⚠️',
+      stato: `${g.indietro.length} di ${tutti.length} su un’immagine più vecchia`,
       dettagli: [g.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '), `gli altri su \`${g.tag}\` da ${eta(g.quando, ora)}`],
     }
-  if (g.inRollout)
-    return { livello: 'adesso', gravita: 3, quando: g.quando, testo: `⏳  *${g.nome}*  rollout in corso`, dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
-  return {
-    livello: 'recente',
-    gravita: 4,
-    quando: g.quando,
-    testo: `🔄  *${g.nome}*  \`${g.tag}\` su ${quanti}${SEP}${eta(g.quando, ora)} fa`,
-    dettagli: [g.chi && `registrata ${daChi(g.chi)}`, elenco(tutti)],
-  }
+  if (g.inRollout) return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
+  return { ...base, livello: 'recente', gravita: 4, emoji: '🔄', stato: `\`${g.tag}\` su ${quanti}${SEP}${eta(g.quando, ora)} fa`, dettagli: [g.chi && `registrata ${daChi(g.chi)}`, elenco(tutti)] }
 }
 
 function voceIac(i, ora) {
   const c = `commit ${sha(i.commit, i.repo)}`
   const build = i.numero ? `build #${i.numero}` : null
+  const base = { nome: 'IaC', quando: i.quando }
   if (i.stato === 'in_corso') {
     const tipico = durata(i.durataTipica) ? `, di solito ${durata(i.durataTipica)}` : ''
-    return { livello: 'adesso', gravita: 3, quando: i.quando, testo: `⏳  *IaC*  apply in corso da ${eta(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `fase ${i.fase}`, i.chi && `di ${i.chi}`] }
+    return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: `apply in corso da ${eta(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `fase ${i.fase}`, i.chi && `di ${i.chi}`] }
   }
   if (i.stato === 'fallito')
     return {
+      ...base,
       livello: 'adesso',
       gravita: 1,
-      quando: i.quando,
-      testo: `🔴  *IaC*  apply fallito${i.fase ? ` al ${i.fase}` : ''} ${eta(i.quando, ora)} fa`,
-      dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `<${i.log}|log della build>`],
+      emoji: '🔴',
+      stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${eta(i.quando, ora)} fa`,
+      dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `[log della build](${i.log})`],
     }
-  return {
-    livello: 'recente',
-    gravita: 4,
-    quando: i.quando,
-    testo: `🏗️  *IaC*  apply riuscito${SEP}${eta(i.quando, ora)} fa`,
-    dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `di ${i.chi}`],
-  }
+  return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply riuscito${SEP}${eta(i.quando, ora)} fa`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `di ${i.chi}`] }
 }
 
-// Il testo di ripiego (notifiche, anteprima, lettori di schermo) E il marcatore con cui il messaggio
-// si ritrova se Slack non restituisce i metadati: per questo comincia sempre con le stesse parole.
-export function intestazione(ambiente) {
-  return `Quadro deploy [${AMBIENTI[ambiente]?.tag ?? ambiente.toUpperCase()}]`
-}
-
-// Una voce in due blocchi: la riga principale, col link a Dadaguard in fondo, e i dettagli sotto in
-// piccolo. Slack accetta 3000 caratteri per testo: si taglia prima, o rifiuta il messaggio intero.
-function blocchiVoce(x, link) {
-  const apri = link ? `${SEP}<${link}|Dadaguard ›>` : ''
-  const out = [{ type: 'section', text: { type: 'mrkdwn', text: tronca(`${x.testo}${apri}`, 2900) } }]
-  const dettagli = x.dettagli.filter(Boolean).join(SEP)
-  if (dettagli) out.push({ type: 'context', elements: [{ type: 'mrkdwn', text: tronca(dettagli, 2900) }] })
-  return out
-}
-
-const titolo = (t) => ({ type: 'section', text: { type: 'mrkdwn', text: `*${t}*` } })
-const piccolo = (t) => ({ type: 'context', elements: [{ type: 'mrkdwn', text: tronca(t, 2900) }] })
-
-// Il messaggio Slack di un ambiente. Puro/testabile.
-export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const { ambiente, chiave, app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false, erroreBuild = null } = q
-  const meta = AMBIENTI[ambiente] ?? { titolo: ambiente.toUpperCase(), tag: ambiente.toUpperCase(), colore: '#868686' }
+// Ogni risorsa diventa una voce, e la voce finisce in uno dei tre piani: «adesso», recente, o il
+// conteggio del resto. Più la sintesi, che è la riga che si legge per prima. Puro/testabile.
+export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  const { app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false } = q
   const soglia = ora - ore * 3_600_000
-  const recente = (x) => x.quando && tempo(x.quando) >= soglia
-
-  // Ogni risorsa diventa una voce; chi non è né «adesso» né recente finisce nel conteggio del resto.
   const adesso = []
   const recenti = []
   const resto = { app: 0, immagini: 0, lambda: lambdaSenzaData, esterni: 0, iac: null }
-  const smista = (v, chiaveResto, peso = 1) => {
+  const metti = (v, chiaveResto, peso = 1) => {
     const x = voce(v, { ora })
     if (!x) return
     const conLink = { ...x, link: linkRisorsa(v, url) }
     if (x.livello === 'adesso') adesso.push(conLink)
-    else if (recente(x)) recenti.push(conLink)
+    else if (x.quando && tempo(x.quando) >= soglia) recenti.push(conLink)
     else if (chiaveResto === 'iac') resto.iac = v.quando
     else resto[chiaveResto] += peso
   }
-  app.forEach((r) => smista(r, 'app'))
-  immagini.forEach((g) => smista(g, 'immagini'))
-  esterni.forEach((e) => smista(e, 'esterni'))
-  lambda.forEach((l) => smista(l, 'lambda', l.n))
-  if (infra) smista(infra, 'iac')
-
+  app.forEach((r) => metti(r, 'app'))
+  immagini.forEach((g) => metti(g, 'immagini'))
+  esterni.forEach((e) => metti(e, 'esterni'))
+  lambda.forEach((l) => metti(l, 'lambda', l.n))
+  if (infra) metti(infra, 'iac')
   adesso.sort((a, b) => a.gravita - b.gravita || piuRecente(a.quando, b.quando))
   recenti.sort((a, b) => piuRecente(a.quando, b.quando))
 
@@ -635,32 +604,38 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT
   ].filter(Boolean)
   // «Niente di rotto» si dice solo se lo sappiamo: con le build non lette un fallimento non si vede.
   const sintesi = adesso.length || buildIgnote ? pezzi : ['✅ niente di rotto, niente in corso', ...pezzi]
+  return { adesso, recenti, resto, sintesi, diversi }
+}
+
+// Il canvas di un ambiente: titolo e markdown. Puro/testabile.
+//
+// Le scelte di leggibilità, per chi lo apre dal telefono in mezzo ad altro: in testa la sintesi, che
+// se dice «niente di rotto» chiude la lettura; poi i problemi; poi i rilasci, dal più nuovo; in fondo
+// il resto, contato. Tre colonne e non cinque: l'emoji sta accanto al nome, e il nome È il link a
+// Dadaguard, già filtrato sulla risorsa.
+export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase() }
+  const { adesso, recenti, resto, sintesi, diversi } = smista(q, { ora, url, ore })
   const orario = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
+  const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
+  const tuttiServizi = url && q.chiave ? `${url}/servizi?account=${encodeURIComponent(q.chiave)}` : null
 
-  // Titolo e sintesi stanno FUORI dall'allegato, il corpo dentro: il blocco `header` è garantito solo
-  // al primo livello del messaggio, e un messaggio con un blocco rifiutato non parte affatto.
-  const testa = [
-    { type: 'header', text: { type: 'plain_text', text: meta.titolo, emoji: true } },
-    piccolo([...sintesi, `aggiornato alle ${orario}`].join(SEP)),
-  ]
-
-  const tuttiDeploy = url && chiave ? `${url}/deploy?account=${encodeURIComponent(chiave)}` : null
-  const tuttiServizi = url && chiave ? `${url}/servizi?account=${encodeURIComponent(chiave)}` : null
-  const oltre = (n, link) => piccolo(`e ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: <${link}|tutti su Dadaguard>` : ''}`)
-
-  const corpo = []
-  if (buildIgnote)
-    corpo.push(piccolo(`⚠️ *Build non lette*${erroreBuild ? `: ${erroreBuild}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`))
-  if (adesso.length) {
-    corpo.push(titolo('Adesso'))
-    adesso.slice(0, MAX_ADESSO).forEach((x) => corpo.push(...blocchiVoce(x, x.link)))
-    if (adesso.length > MAX_ADESSO) corpo.push(oltre(adesso.length - MAX_ADESSO, tuttiServizi))
+  const riga = (x) => {
+    const nome = x.link ? `[**${x.nome}**](${x.link})` : `**${x.nome}**`
+    return `| ${x.emoji} ${cella(nome)} | ${cella(x.stato)} | ${cella(x.dettagli.filter(Boolean).join(SEP))} |`
   }
-  corpo.push(titolo(`Ultime ${ore} ore`))
-  if (recenti.length) {
-    recenti.slice(0, MAX_RECENTI).forEach((x) => corpo.push(...blocchiVoce(x, x.link)))
-    if (recenti.length > MAX_RECENTI) corpo.push(oltre(recenti.length - MAX_RECENTI, tuttiDeploy))
-  } else corpo.push(piccolo('nessun rilascio'))
+  const tabella = (voci) => ['| Risorsa | Stato | Dettagli |', '|---|---|---|', ...voci.map(riga)].join('\n')
+  const oltre = (n, link) => `E ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: [tutti su Dadaguard](${link})` : ''}.`
+
+  const parti = [`**${sintesi.join(SEP)}**${SEP}aggiornato alle ${orario}`]
+  if (q.buildIgnote)
+    parti.push(`⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`)
+  if (adesso.length) {
+    parti.push('## Adesso', tabella(adesso.slice(0, MAX_ADESSO)))
+    if (adesso.length > MAX_ADESSO) parti.push(oltre(adesso.length - MAX_ADESSO, tuttiServizi))
+  }
+  parti.push(`## Ultime ${ore} ore`, recenti.length ? tabella(recenti.slice(0, MAX_RECENTI)) : 'Nessun rilascio.')
+  if (recenti.length > MAX_RECENTI) parti.push(oltre(recenti.length - MAX_RECENTI, tuttiDeploy))
 
   const fermi = [
     resto.app && plurale(resto.app, 'applicazione', 'applicazioni'),
@@ -669,39 +644,24 @@ export function messaggioQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT
     resto.esterni && plurale(resto.esterni, 'componente esterno', 'componenti esterni'),
     resto.iac && `IaC, ultimo apply ${eta(resto.iac, ora)} fa`,
   ].filter(Boolean)
-  if (fermi.length) corpo.push(piccolo(`*Senza novità nelle ultime ${ore} ore*: ${fermi.join(SEP)}`))
+  if (fermi.length) parti.push(`**Senza novità nelle ultime ${ore} ore**: ${fermi.join(SEP)}`)
 
   // I filtri: link alla pagina di Dadaguard già filtrata. Quello sui servizi diversi da staging apre i
   // deploy di quei servizi nei due ambienti insieme, cioè il confronto che serve.
   const link = [
-    tuttiDeploy && `<${tuttiDeploy}|Deploy ${meta.tag}>`,
-    tuttiServizi && `<${tuttiServizi}|Servizi ${meta.tag}>`,
-    url && diversi.length && `<${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))}|${diversi.length} diversi da staging>`,
+    tuttiDeploy && `[Deploy ${meta.tag}](${tuttiDeploy})`,
+    tuttiServizi && `[Servizi ${meta.tag}](${tuttiServizi})`,
+    url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
-  if (link.length) corpo.push({ type: 'divider' }, piccolo(`Su Dadaguard: ${link.join(SEP)}`))
+  if (link.length) parti.push(`Su Dadaguard: ${link.join(SEP)}`)
 
-  return {
-    text: `${intestazione(ambiente)}: ${sintesi.join(' · ')}`,
-    blocks: testa,
-    // Gli allegati sono l'unico modo di avere la barra colorata: il corpo sta dentro.
-    attachments: [{ color: meta.colore, blocks: corpo }],
-    metadata: { event_type: EVENTO, event_payload: { ambiente } },
-  }
-}
-
-// Il link che apre il messaggio nel Block Kit Builder di Slack: l'anteprima di come apparirà, senza
-// mandare niente a nessuno. Puro.
-//
-// ⚠️ Col workspace (`T0…`) l'indirizzo è `/block-kit-builder/<workspace>/builder#…`. Senza, Slack
-// reindirizza al workspace di chi apre e per strada perde il contenuto: la pagina si apre VUOTA,
-// che si legge come «l'anteprima non funziona». Il workspace non sta nel codice (il repo è pubblico):
-// arriva da `DADAGUARD_SLACK_TEAM_ID`.
-export function anteprimaUrl(msg, { team = null } = {}) {
-  const payload = encodeURIComponent(JSON.stringify({ blocks: msg.blocks, attachments: msg.attachments }))
-  return team ? `https://app.slack.com/block-kit-builder/${team}/builder#${payload}` : `https://app.slack.com/block-kit-builder/#${payload}`
+  return { titolo: meta.titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(SEP) }
 }
 
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
+
+// I metodi di sola lettura vogliono i parametri nell'indirizzo, gli altri accettano JSON.
+const GET = new Set(['auth.test', 'conversations.info'])
 
 // Una chiamata alla Web API, senza SDK (come `postSlack`). Slack risponde 200 anche sugli errori, col
 // motivo in `error`: si controlla `ok`, non lo status HTTP.
@@ -709,7 +669,7 @@ export async function chiamaSlack(metodo, corpo, token, { timeoutMs = 5000 } = {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const get = metodo === 'pins.list' || metodo === 'auth.test'
+    const get = GET.has(metodo)
     const qs = get ? `?${new URLSearchParams(corpo ?? {})}` : ''
     const res = await fetch(`https://slack.com/api/${metodo}${qs}`, {
       method: get ? 'GET' : 'POST',
@@ -725,43 +685,41 @@ export async function chiamaSlack(metodo, corpo, token, { timeoutMs = 5000 } = {
   }
 }
 
-// Il quadro di un ambiente fra i messaggi fissati: scritto da NOI (stesso bot) e con quell'ambiente
-// nei metadati, o in mancanza con l'intestazione nel testo. Il bot conta: un collega che fissa a mano
-// un messaggio che comincia uguale non deve vedersi riscrivere il suo. Puro/testabile.
-export function trovaFissato(items = [], { botId, ambiente }) {
-  const marcatore = intestazione(ambiente)
-  const msg = items
-    .filter((i) => i.type === 'message' && i.message)
-    .map((i) => i.message)
-    .find((m) => {
-      if (botId && m.bot_id !== botId) return false
-      const meta = m.metadata
-      if (meta?.event_type === EVENTO) return meta.event_payload?.ambiente === ambiente
-      return String(m.text ?? '').startsWith(marcatore)
-    })
-  return msg?.ts ?? null
-}
+// Il canvas del canale, se c'è: `conversations.info` lo dice in `properties.canvas.file_id`. Puro.
+export const canvasDelCanale = (info) => info?.channel?.properties?.canvas?.file_id ?? null
 
-// Un giro: per ogni ambiente ritrova il quadro e lo riscrive, o lo manda e lo fissa se non c'è.
+// Un giro: per ogni ambiente col suo canale, riscrive il canvas del canale, o lo crea se non c'è.
 // `deps` per le prove: `leggiDati` ({ deploys, servizi }) e `api` (la Web API).
+// Un ambiente che fallisce non ferma l'altro: sono due canali, e il guasto di uno non è una ragione
+// per lasciare vecchio il quadro dell'altro.
 export async function aggiornaQuadri(cfg, deps = {}) {
   const api = deps.api ?? ((m, c) => chiamaSlack(m, c, cfg.token))
   const dati = await deps.leggiDati()
   const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
   const ora = deps.ora ?? Date.now()
-  const { bot_id: botId } = await api('auth.test', {})
-  const { items = [] } = await api('pins.list', { channel: cfg.canale })
   const esiti = []
   for (const ambiente of cfg.ambienti) {
-    const msg = messaggioQuadro(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
-    const ts = trovaFissato(items, { botId, ambiente })
-    if (ts) {
-      await api('chat.update', { channel: cfg.canale, ts, ...msg })
-      esiti.push({ ambiente, azione: 'riscritto', ts })
-    } else {
-      const r = await api('chat.postMessage', { channel: cfg.canale, ...msg })
-      await api('pins.add', { channel: cfg.canale, timestamp: r.ts })
-      esiti.push({ ambiente, azione: 'creato', ts: r.ts })
+    const canale = cfg.canali[ambiente]
+    if (!canale) continue
+    try {
+      const { titolo, markdown } = canvasQuadro(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
+      const document_content = { type: 'markdown', markdown }
+      const id = canvasDelCanale(await api('conversations.info', { channel: canale }))
+      if (id) {
+        // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
+        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
+        esiti.push({ ambiente, azione: 'riscritto', canvas: id })
+      } else {
+        const r = await api('conversations.canvases.create', { channel_id: canale, title: titolo, document_content })
+        // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
+        // l'ha fatta. Se non riesce il quadro funziona lo stesso, quindi lo si dice e si va avanti.
+        await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [canale] }).catch((err) =>
+          log.warn('quadro: canvas non messo in sola lettura', { ambiente, err: err.message }),
+        )
+        esiti.push({ ambiente, azione: 'creato', canvas: r.canvas_id })
+      }
+    } catch (err) {
+      esiti.push({ ambiente, azione: 'errore', errore: err.message })
     }
   }
   return esiti
@@ -769,15 +727,19 @@ export async function aggiornaQuadri(cfg, deps = {}) {
 
 export function startQuadro(leggiDati, env = process.env) {
   const cfg = quadroConfig(env)
-  if (!cfg.token || !cfg.canale) {
-    log.info('quadro: nessun DADAGUARD_SLACK_BOT_TOKEN o DADAGUARD_QUADRO_CANALE, quadro spento')
+  if (!cfg.token || !Object.keys(cfg.canali).length) {
+    log.info('quadro: nessun DADAGUARD_SLACK_BOT_TOKEN o DADAGUARD_QUADRO_CANALI, quadro spento')
     return null
   }
-  log.info('quadro: attivo', { ogni: `${cfg.intervalMs / 1000}s`, ambienti: cfg.ambienti })
+  log.info('quadro: attivo', { ogni: `${cfg.intervalMs / 1000}s`, canali: cfg.canali })
   const tick = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
     aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null })
-      .then((esiti) => log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) }))
+      .then((esiti) => {
+        const errori = esiti.filter((e) => e.azione === 'errore')
+        if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
+        log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
+      })
       .catch((err) => log.error('quadro: giro fallito', { err: err.message }))
   tick()
   const timer = setInterval(tick, cfg.intervalMs)
