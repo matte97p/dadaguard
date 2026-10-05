@@ -18,6 +18,7 @@ import {
   canvasDelCanale,
   aggiornaQuadri,
   quadroConfig,
+  alle,
   guardiaQuadro,
   testoAvviso,
   pianoAllarmi,
@@ -87,7 +88,7 @@ test('cosa gira lo dice ECS; autore, numero e durata vengono dalla build che l�
   const v = voce(r, { ora: ORA })
   assert.equal(v.livello, 'recente')
   assert.equal(v.emoji, '🚀')
-  assert.equal(v.stato, '[aaaaaaa](https://github.com/x/api/commit/aaaaaaa) · 2 h fa')
+  assert.equal(v.stato, '[aaaaaaa](https://github.com/x/api/commit/aaaaaaa) · alle 12:07')
   assert.deepEqual(v.dettagli.filter(Boolean), ['rev 699', '3/3 task, 6/6 target sani', 'build #661 della CI in 6 min', 'commit di dev'])
 })
 
@@ -155,7 +156,7 @@ test('fallito: cosa gira ancora, il motivo e il log', () => {
   })
   const v = voce(q.app[0], { ora: ORA })
   assert.equal(v.emoji, '❌')
-  assert.equal(v.stato, 'build #662 fallita al BUILD 30 min fa')
+  assert.equal(v.stato, 'build #662 fallita al BUILD alle 13:30')
   const d = v.dettagli.filter(Boolean).join(' · ')
   assert.match(d, /gira ancora `aaaaaaa` \(rev 699\)/)
   assert.match(d, /motivo: COMMAND_EXECUTION_ERROR: exit status 1/)
@@ -245,11 +246,11 @@ test('le Lambda aggiornate insieme dalla stessa persona sono un giro solo', () =
 test('una Lambda sola si chiama per nome, un giro si conta', () => {
   const una = voce({ tipo: 'lambda', n: 1, nomi: ['notifier'], chi: 'IaC (build #92)', quando: '2026-10-03T11:30:00Z' }, { ora: ORA })
   assert.equal(una.nome, 'notifier')
-  assert.equal(una.stato, 'Lambda aggiornata · 30 min fa')
+  assert.equal(una.stato, 'Lambda aggiornata · alle 13:30')
   assert.deepEqual(una.dettagli.filter(Boolean), ["dall'IaC (build #92)"])
   const giro = voce({ tipo: 'lambda', n: 2, nomi: ['a', 'b'], chi: 'dev', quando: '2026-10-03T11:30:00Z' }, { ora: ORA })
   assert.equal(giro.nome, '2 Lambda')
-  assert.equal(giro.stato, 'aggiornate insieme · 30 min fa')
+  assert.equal(giro.stato, 'aggiornate insieme · alle 13:30')
   assert.deepEqual(giro.dettagli.filter(Boolean), ['da dev', 'a, b'])
 })
 
@@ -327,28 +328,29 @@ function ambienteGrande() {
   return quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi })
 }
 
-test('con una flotta grande il canvas resta corto: «Adesso», poi al massimo 12 recenti, poi un conteggio', () => {
+test('con una flotta grande il canvas resta corto: una tabella, prima i problemi, al massimo 12 rilasci, poi un conteggio', () => {
   const qa = ambienteGrande()
   const c = canvasQuadro(dividi(qa).principale, { ora: ORA, url: URL })
   const md = c.markdown
   assert.equal(c.titolo, '🟥 Quadro deploy PRODUZIONE')
-  assert.ok(md.indexOf('## Adesso') < md.indexOf('## Ultime 24 ore'), 'prima i problemi')
+  assert.doesNotMatch(md, /## Adesso|## Ultime/, 'niente sottotitoli: una tabella sola')
+  assert.equal(md.split('\n').filter((l) => l.startsWith('| Risorsa')).length, 1, 'una tabella, una larghezza')
+  assert.ok(md.indexOf('**rotta**') < md.indexOf('**app-nuova-9**'), 'prima i problemi, poi i rilasci')
   assert.match(md, /\| 🚨 \[\*\*rotta\*\*\]\(https:\/\/dg\.example\.com\/deploy\?service=rotta&account=production\) \| giù: 0\/2 task attivi \|/)
   assert.match(md, /E altri 2: \[tutti su Dadaguard\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)\./, '14 recenti, 12 righe e il resto contato')
   assert.match(md, /\*\*Senza novità nelle ultime 24 ore\*\*: 12 applicazioni/)
   assert.doesNotMatch(md, /Lambda/, 'i cron Lambda stanno nella loro scheda')
   assert.doesNotMatch(md, /app-ferma-3/, 'le risorse ferme non hanno righe')
   assert.doesNotMatch(md, /\u2014/, 'niente trattino lungo')
-  const righeRecenti = md.split('## Ultime 24 ore')[1].split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
-  assert.equal(righeRecenti.length, 12)
+  const righeRilasci = md.split('\n').filter((l) => l.startsWith('| 🚀'))
+  assert.equal(righeRilasci.length, 12)
   assert.match(c.sintesi, /^❌ 1 rotto · 🚀 14 rilasci nelle ultime 24 h/)
   assert.match(md, /^\*\*❌ 1 rotto/, 'la sintesi è la prima riga')
 
   const cron = canvasTrasversale(TITOLO_CRON, [dividi(qa).cron], { ora: ORA, url: URL })
   assert.equal(cron.titolo, '⏰ Quadro deploy CRON')
-  assert.match(cron.markdown, /^aggiornato alle /)
+  assert.doesNotMatch(cron.markdown, /aggiornato alle/, 'un orologio riscriverebbe il canvas ogni minuto')
   assert.match(cron.markdown, /## 🟥 Produzione\n\n\*\*✅ niente di rotto, niente in corso · 🚀 1 rilascio nelle ultime 24 h\*\*/)
-  assert.match(cron.markdown, /### Ultime 24 ore/)
   assert.match(cron.markdown, /\| ⚙️ \[\*\*20 Lambda\*\*\]\([^)]+\) \| aggiornate insieme/, 'venti Lambda dello stesso giro sono una riga')
   assert.match(cron.markdown, /\*\*Senza novità nelle ultime 24 ore\*\*: 40 Lambda/)
 })
@@ -358,7 +360,7 @@ test('tutto tranquillo: la sintesi lo dice per prima', () => {
   const c = canvasQuadro(q, { ora: ORA })
   assert.equal(c.titolo, '🟨 Quadro deploy STAGING')
   assert.match(c.sintesi, /^✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
-  assert.match(c.markdown, /Nessun rilascio\./)
+  assert.doesNotMatch(c.markdown, /\| Risorsa/, 'niente righe, niente tabella vuota')
 })
 
 test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
@@ -650,7 +652,7 @@ test('lettore leggero: solo le risorse che si rilasciano, e il runtime solo dei 
   assert.equal(q.app[0].stato, 'giu', 'la forma è quella che il quadro si aspetta')
 })
 
-test('un canvas uguale all’ultimo scritto non si riscrive', async () => {
+test('un canvas uguale all’ultimo scritto non si riscrive, e senza orologio resta uguale finché non succede qualcosa', async () => {
   const chiamate = []
   const api = async (metodo, corpo) => {
     chiamate.push(metodo)
@@ -668,6 +670,18 @@ test('un canvas uguale all’ultimo scritto non si riscrive', async () => {
   const secondo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA + 20_000, ultimi })
   assert.deepEqual(secondo.map((e) => e.azione), ['invariato', 'invariato'], 'stesso minuto, stesso contenuto')
   assert.equal(chiamate.filter((m) => m === 'canvases.edit').length, 2)
-  const terzo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA + 90_000, ultimi })
-  assert.deepEqual(terzo.map((e) => e.azione), ['riscritto', 'riscritto'], 'il minuto dell’orario è cambiato')
+  const terzo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA + 30 * 60_000, ultimi })
+  assert.deepEqual(terzo.map((e) => e.azione), ['invariato', 'invariato'], 'mezz’ora dopo, se non è successo niente, niente da riscrivere')
+  const conDeploy = async () => ({ deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-03T12:10:00Z')] } }, servizi: [] })
+  const quarto = await aggiornaQuadri(cfg, { api, leggiDati: conDeploy, ora: ORA + 31 * 60_000, ultimi })
+  assert.equal(quarto[0].azione, 'riscritto', 'un rilascio nuovo sì')
+})
+
+test('gli orari sono fissi e in ora di Roma: oggi, ieri, o la data', () => {
+  const ora = Date.parse('2026-10-05T10:00:00Z') // 12:00 a Roma
+  assert.equal(alle('2026-10-05T06:10:00Z', ora), 'alle 08:10')
+  assert.equal(alle('2026-10-04T16:30:00Z', ora), 'ieri alle 18:30')
+  assert.equal(alle('2026-10-03T16:30:00Z', ora), 'il 03/10 alle 18:30')
+  assert.equal(alle('2026-10-04T22:30:00Z', ora), 'alle 00:30', 'la mezzanotte è quella di Roma, non di Greenwich')
+  assert.equal(alle(null, ora), '?')
 })
