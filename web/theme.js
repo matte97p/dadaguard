@@ -11,19 +11,21 @@
 // Livelli di SEGNALE, in ordine di gravità. Sono quattro perché quattro sono le decisioni diverse:
 // intervenire adesso · guardare oggi · sapere che è successo · niente da fare.
 export const LEVEL = {
-  crit: { color: '#cf1322', tag: 'error', badge: 'error' },
-  bad: { color: '#ff4d4f', tag: 'error', badge: 'error' },
-  warn: { color: '#faad14', tag: 'warning', badge: 'warning' },
-  info: { color: '#1677ff', tag: 'processing', badge: 'processing' },
-  ok: { color: '#52c41a', tag: 'success', badge: 'success' },
-  muted: { color: '#8c8c8c', tag: 'default', badge: 'default' },
+  crit: { color: '#c8102e', tag: 'error', badge: 'error' },
+  bad: { color: '#e0364f', tag: 'error', badge: 'error' },
+  warn: { color: '#b26a00', tag: 'warning', badge: 'warning' },
+  info: { color: '#2563c9', tag: 'processing', badge: 'processing' },
+  ok: { color: '#1f8a4c', tag: 'success', badge: 'success' },
+  muted: { color: '#8f8aa3', tag: 'default', badge: 'default' },
 }
 
 export const levelColor = (level) => (LEVEL[level] ?? LEVEL.muted).color
 
 // Viola Dadaguard: colore del marchio, usato per il primario e per gli affordance di navigazione.
 // Non è un livello di segnale e non deve mai indicarne uno.
-export const BRAND = '#7c3aed'
+export const BRAND = '#6d3fe0'
+// In scuro il viola pieno su fondo quasi nero non si legge: stesso tono, piu' chiaro (come in app.css).
+export const BRAND_DARK = '#a585ff'
 
 // Colori "di dominio", quelli che identificano un provider e non uno stato.
 export const PROVIDER = { cloudflare: '#f6821f', aws: '#ff9900' }
@@ -41,7 +43,16 @@ export const SURFACE = {
   brandSoft: 'var(--dg-brand-soft)',
 }
 
-export const MONO = 'ui-monospace, SFMono-Regular, monospace'
+export const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace'
+export const SANS = '"Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+
+// Le stesse tinte dei token CSS (web/app.css), in JS: antd deriva le sue sfumature con calcoli sul
+// colore, quindi vuole un esadecimale vero e non una `var(--...)`. Tenute qui accanto perche' due
+// liste in due file divergono solo se nessuno le vede insieme.
+export const PALETTE = {
+  light: { bg: '#f6f5f9', panel: '#ffffff', ink: '#1b1830', mute: '#5f5a75', faint: '#8f8aa3', line: '#e6e3ee', hover: '#f1eff7', brand: BRAND, brandSoft: '#efe9fd' },
+  dark: { bg: '#13111c', panel: '#1b1928', ink: '#ecebf3', mute: '#a7a2bb', faint: '#7a7590', line: '#2a2739', hover: '#232033', brand: BRAND_DARK, brandSoft: '#2a2346' },
+}
 
 // SCALA DI SPAZIATURE. Non è pedanteria: prima ogni pagina scriveva i suoi `marginBottom: 16`,
 // `gap: 12`, `padding: '9px 12px'` a mano, e il risultato è che due blocchi affiancati respirano in
@@ -66,19 +77,22 @@ export const INK = { strong: 1, mute: 0.65, faint: 0.45 }
 // tocco, cambia insieme; accordarli nelle pagine significa che la decima pagina non somiglia alla
 // prima. `dark` serve perché le neutre non si possono derivare: in scuro un bordo al 6% sparisce.
 export function antdTheme(algorithm, dark = false) {
-  const linea = dark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.09)'
-  const tenue = dark ? 'rgba(255,255,255,0.045)' : 'rgba(15,23,42,0.028)'
-  const brandTenue = dark ? 'rgba(124,58,237,0.22)' : 'rgba(124,58,237,0.07)'
+  const P = dark ? PALETTE.dark : PALETTE.light
+  const linea = P.line
+  const tenue = P.hover
+  const brandTenue = P.brandSoft
   return {
     algorithm,
     token: {
-      colorPrimary: BRAND,
-      colorInfo: BRAND,
+      colorPrimary: P.brand,
+      colorInfo: P.brand,
+      colorText: P.ink,
+      colorTextSecondary: P.mute,
+      colorTextTertiary: P.faint,
       // 13px di base, non 14: questa è una dashboard densa, e un punto in meno è una riga in più di
       // tabella visibile senza scorrere. La gerarchia la fanno i pesi e le tinte, non il corpo.
       fontSize: FONT.body,
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      fontFamily: SANS,
       fontFamilyCode: MONO,
       borderRadius: 8,
       borderRadiusLG: 12,
@@ -86,9 +100,9 @@ export function antdTheme(algorithm, dark = false) {
       controlHeight: 30,
       lineHeight: 1.5,
       colorBorderSecondary: linea,
-      colorBgLayout: dark ? '#141416' : '#f7f7fa',
-      colorBgContainer: dark ? '#1b1b1f' : '#ffffff',
-      colorBgElevated: dark ? '#212127' : '#ffffff',
+      colorBgLayout: P.bg,
+      colorBgContainer: P.panel,
+      colorBgElevated: P.panel,
       // Ombre appena percepibili: una dashboard piena di ombre marcate sembra un collage di finestre.
       boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.5)' : '0 1px 2px rgba(15,23,42,0.05)',
       boxShadowSecondary: dark ? '0 6px 20px rgba(0,0,0,0.5)' : '0 6px 20px rgba(15,23,42,0.09)',
@@ -119,14 +133,14 @@ export function antdTheme(algorithm, dark = false) {
         itemMarginInline: SPACE.sm,
         itemHeight: 34,
         itemSelectedBg: brandTenue,
-        itemSelectedColor: dark ? '#c4a5ff' : BRAND,
+        itemSelectedColor: P.brand,
         itemHoverBg: tenue,
         groupTitleColor: dark ? 'rgba(255,255,255,0.4)' : 'rgba(15,23,42,0.4)',
         groupTitleFontSize: FONT.micro,
         iconMarginInlineEnd: SPACE.md,
         activeBarWidth: 0,
       },
-      Segmented: { itemSelectedBg: dark ? '#2b2b33' : '#ffffff', trackBg: tenue, borderRadius: 8 },
+      Segmented: { itemSelectedBg: P.panel, trackBg: tenue, borderRadius: 8 },
       Tag: { defaultBg: tenue, borderRadiusSM: 6 },
       Button: { fontWeight: 500, primaryShadow: 'none', defaultShadow: 'none' },
       Alert: { borderRadiusLG: 10, withDescriptionPadding: `${SPACE.md}px ${SPACE.lg}px` },
@@ -138,7 +152,7 @@ export function antdTheme(algorithm, dark = false) {
       Input: { paddingBlock: 3 },
       Switch: { handleSize: 14, trackHeight: 18, trackMinWidth: 34 },
       Badge: { dotSize: 7 },
-      Progress: { defaultColor: BRAND },
+      Progress: { defaultColor: P.brand },
     },
   }
 }

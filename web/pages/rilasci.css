@@ -1,0 +1,195 @@
+/* ══ DEPLOY E CRON ═══════════════════════════════════════════════════════════════════════════════
+   Solo le forme che i componenti di web/ui/ non hanno: l'istogramma per ora, i quadratini degli
+   ultimi deploy, la striscia delle corse di un cron. Colori e misure vengono dai token, cosi' il tema
+   scuro funziona senza una riga in piu'. */
+
+/* La colonna di lavoro: App mette le pagine non rifatte in `ui-main-largo`, che e' un blocco senza
+   spaziatura; qui si rimette la stessa colonna della home. */
+.rl-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 1180px;
+  min-width: 0;
+}
+.rl-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.rl-cerca {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font: inherit;
+  min-width: 0;
+  width: 220px;
+  max-width: 100%;
+}
+.rl-chip {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 3px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.rl-chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--panel);
+  border-color: var(--ink);
+}
+.rl-chip span {
+  opacity: 0.7;
+}
+
+/* ── istogramma dei deploy per fascia di tempo ── */
+.rl-bars {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 72px;
+  margin-top: 6px;
+}
+.rl-bars > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  min-width: 0;
+  height: 100%;
+  border-bottom: 1px solid var(--line);
+}
+.rl-bars i {
+  display: block;
+  border-radius: 2px 2px 0 0;
+  min-height: 3px;
+}
+
+/* ── ultimi deploy di un servizio: un quadratino per build, contorno = a mano ── */
+.rl-hist {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+}
+.rl-hist i {
+  width: 8px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--off);
+}
+.rl-hist i.ui-ok {
+  background: var(--ok);
+}
+.rl-hist i.ui-crit {
+  background: var(--crit);
+}
+.rl-hist i.ui-info {
+  background: var(--info);
+}
+.rl-hist i.rl-mano {
+  box-shadow: inset 0 0 0 1.5px var(--warn);
+  background-clip: padding-box;
+  opacity: 0.85;
+}
+
+/* ── striscia delle corse di un cron: larghezza = durata ── */
+.rl-runs {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+.rl-runs i {
+  height: 18px;
+  border-radius: 2px;
+  flex: none;
+  background: var(--off);
+}
+.rl-runs i.ui-ok {
+  background: var(--ok);
+}
+.rl-runs i.ui-crit {
+  background: var(--crit);
+}
+.rl-runs i.ui-warn {
+  background: var(--warn);
+}
+.rl-runs i.ui-info {
+  background: var(--info);
+}
+.rl-runs i.rl-viva {
+  box-shadow: 0 0 0 1px var(--info);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rl-runs i.rl-viva {
+    animation: rl-pulsa 1.4s ease-in-out infinite;
+  }
+  @keyframes rl-pulsa {
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
+/* ── pannello: coppie etichetta/valore e scelta della corsa ── */
+.rl-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.rl-kv dt {
+  color: var(--faint);
+}
+.rl-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rl-fasi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.rl-fasi > div {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.rl-fasi pre {
+  grid-column: 2 / -1;
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--crit);
+}
+.rl-log-tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .rl-pagina .ui-row > .rl-hist,
+  .rl-pagina .ui-row > .rl-runs {
+    display: none;
+  }
+  .rl-cerca {
+    width: 100%;
+  }
+}

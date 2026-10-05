@@ -10,6 +10,9 @@ import {
   SaveOutlined,
   DeleteOutlined,
 } from '@ant-design/icons'
+import { Tabs } from '../ui/index.js'
+import { CHIP } from '../servizi.js'
+import './servizi.css'
 
 // Set di campi per contesto: la Dashboard e la Topologia filtrano SINGOLI servizi (barra piena);
 // i pannelli aggregati (Costi/Sprechi/Quote) sono per-account, quindi solo Account + Regione.
@@ -221,5 +224,33 @@ export default function FilterBar({
         </Dropdown>
       )}
     </Space>
+  )
+}
+
+// La barra della pagina Servizi, ridotta a quello che si usa davvero: una ricerca per nome o tipo e
+// tre chip (con problemi, tutti, spenti) col conteggio accanto. Account e ambiente li sceglie gia' il
+// selettore in alto, gli altri filtri restano raggiungibili dai preset e dall'URL ma non occupano
+// piu' una riga di tendine che nessuno apriva.
+export function FiltroServizi({ query, onQuery, chip, onChip, conteggi, t }) {
+  return (
+    <div className="sv-tools">
+      <input
+        className="sv-search"
+        type="search"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder={t('svc.cerca')}
+        aria-label={t('svc.cerca')}
+      />
+      <Tabs
+        voci={CHIP.map((k) => ({
+          key: k,
+          label: t(`svc.chip.${k}`),
+          n: conteggi?.[k],
+        }))}
+        attiva={chip}
+        onCambia={onChip}
+      />
+    </div>
   )
 }

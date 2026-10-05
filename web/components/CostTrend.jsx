@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Typography } from 'antd'
-
-const { Text } = Typography
 
 // Grafico del trend costi: 13 mesi, due serie sullo STESSO asse (sono entrambe dollari, quindi
-// confrontabili — mai due scale y in un grafico, è il modo più rapido di far leggere una relazione
+// confrontabili: mai due scale y in un grafico, è il modo più rapido di far leggere una relazione
 // che non esiste).
 //
 // Perché una linea e non barre: la domanda è "sta crescendo?", che è una forma nel tempo, non un
 // confronto tra mesi presi a sé.
 //
-// Colori validati con lo script del design system (chiaro E scuro, incluse le tre simulazioni di
-// daltonismo): viola = consumo a listino, arancio scuro = fatturato. Non sono l'unico segnale — c'è
-// la legenda, ci sono i valori scritti sull'ultimo punto e c'è la tabella qui sotto.
-const USAGE = '#7c3aed'
-const INVOICED = '#d46b08'
+// Colori a token, cosi' il tema scuro arriva da solo: viola (il marchio) = consumo a listino, grigio
+// = fatturato. Non arancio: l'arancio qui vuol dire «attenzione», e il fatturato non e' un allarme.
+// Non sono l'unico segnale: c'e' la legenda, ci sono i valori sull'ultimo punto e c'e' la tabella.
+const USAGE = 'var(--brand)'
+const INVOICED = 'var(--mute)'
 
 const H = 210
 const MIN_W = 420
@@ -101,7 +98,7 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
         aria-label={`${t('costs.trend.title')}: ${rows.length} ${t('costs.trend.months')}`}
         style={{ display: 'block', overflow: 'visible' }}
       >
-        {/* griglia: recessiva, tre livelli — deve dare la misura, non disegnare una gabbia */}
+        {/* griglia: recessiva, tre livelli: deve dare la misura, non disegnare una gabbia */}
         {ticks.map((v, i) => (
           <g key={i}>
             <line
@@ -134,7 +131,7 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
             <path
               d={path(s.get, 0, solidEnd)}
               fill="none"
-              stroke={s.color}
+              style={{ stroke: s.color }}
               strokeWidth={2}
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
@@ -143,7 +140,7 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
               <path
                 d={path(s.get, Math.max(0, solidEnd - 1), rows.length)}
                 fill="none"
-                stroke={s.color}
+                style={{ stroke: s.color }}
                 strokeWidth={2}
                 strokeDasharray="4 3"
                 strokeLinecap="round"
@@ -151,8 +148,8 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
               />
             )}
             {/* valore scritto sull'ultimo punto: l'identità della serie non sta solo nel colore */}
-            <circle cx={x(rows.length - 1)} cy={y(s.get(last))} r={3.5} fill={s.color} />
-            <text x={x(rows.length - 1) + 7} y={y(s.get(last)) + 3.5} fontSize={10} fill={s.color} fontWeight={600}>
+            <circle cx={x(rows.length - 1)} cy={y(s.get(last))} r={3.5} style={{ fill: s.color }} />
+            <text x={x(rows.length - 1) + 7} y={y(s.get(last)) + 3.5} fontSize={10} style={{ fill: s.color }} fontWeight={600}>
               {money(s.get(last), currency)}
             </text>
           </g>
@@ -172,7 +169,7 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
               vectorEffect="non-scaling-stroke"
             />
             {series.map((s) => (
-              <circle key={s.key} cx={x(hover)} cy={y(s.get(h))} r={4.5} fill={s.color} stroke="white" strokeWidth={1.5} />
+              <circle key={s.key} cx={x(hover)} cy={y(s.get(h))} r={4.5} style={{ fill: s.color, stroke: 'var(--panel)' }} strokeWidth={1.5} />
             ))}
           </g>
         )}
@@ -201,9 +198,10 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
             top: 0,
             transform: `translateX(${hover > rows.length / 2 ? '-105%' : '8px'})`,
             pointerEvents: 'none',
-            background: 'rgba(0,0,0,0.82)',
-            color: '#fff',
-            borderRadius: 6,
+            background: 'var(--panel)',
+            color: 'var(--ink)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r)',
             padding: '6px 8px',
             fontSize: 11,
             lineHeight: 1.5,
@@ -231,20 +229,18 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
         {series.map((s) => (
           <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
             <span style={{ width: 14, height: 2, background: s.color, display: 'inline-block' }} />
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {s.label}
-            </Text>
+            <span className="ui-mute">{s.label}</span>
           </span>
         ))}
         {lastPartial && (
-          <Text type="secondary" style={{ fontSize: 11 }}>
+          <span className="ui-mute" style={{ fontSize: 11 }}>
             {t('costs.trend.dashed')}
-          </Text>
+          </span>
         )}
       </div>
 
       {/* Vista tabellare: i numeri esatti restano raggiungibili anche senza puntatore (tastiera,
-          screen reader, stampa) — il tooltip non deve essere l'unica strada verso un valore. */}
+          screen reader, stampa): il tooltip non deve essere l'unica strada verso un valore. */}
       <details style={{ marginTop: 6 }}>
         <summary style={{ cursor: 'pointer', fontSize: 11, opacity: 0.65 }}>{t('costs.trend.table')}</summary>
         <div style={{ overflowX: 'auto' }}>
@@ -270,11 +266,11 @@ export default function CostTrend({ months = [], currency = 'USD', metric = 'usa
                     {r.partial ? ' *' : ''}
                   </td>
                   {series.map((s) => (
-                    <td key={s.key} className="dg-num" style={{ textAlign: 'right', padding: '2px 10px 2px 0' }}>
+                    <td key={s.key} className="sp-num" style={{ textAlign: 'right', padding: '2px 10px 2px 0' }}>
                       {money(s.get(r), currency)}
                     </td>
                   ))}
-                  <td className="dg-num" style={{ textAlign: 'right', padding: '2px 0' }}>
+                  <td className="sp-num" style={{ textAlign: 'right', padding: '2px 0' }}>
                     {money(r.aiUsage ?? 0, currency)}
                   </td>
                 </tr>

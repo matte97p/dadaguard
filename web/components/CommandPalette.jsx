@@ -1,106 +1,129 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Modal, Input, List, Badge, Typography } from 'antd'
+import { Dot } from '../ui/index.js'
 import { displayName, omonimiVisibili, chiaveVisibile, distintivo } from '../serviceName.js'
+import { livelloServizio } from '../adattatori.js'
 
-const { Text } = Typography
-
-const STATUS = { down: 'error', degraded: 'warning', up: 'success', idle: 'default', disabled: 'default', unknown: 'default' }
-
-// Palette di ricerca globale (⌘K / Ctrl+K): filtra i servizi per nome/account e ci salta.
-// ↑/↓ per muoversi, Invio per scegliere il primo/selezionato, Esc per chiudere.
-export default function CommandPalette({ open, onClose, services = [], onPick, t = (k) => k }) {
+// Palette comandi (⌘K / Ctrl+K): un campo solo per saltare a un servizio o a una pagina.
+// ↑/↓ per muoversi, Invio per scegliere, Esc o clic fuori per chiudere.
+//
+// Servizi e pagine nella stessa lista perche' chi preme ⌘K sa cosa cerca, non in quale delle due
+// categorie sta: «deploy» e' una pagina, «deploy-worker» un servizio, e farglielo scegliere prima
+// sarebbe un passo in piu' per niente.
+export default function CommandPalette({ open, onClose, services = [], pagine = [], onPick, onPagina, t = (k) => k }) {
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const inputRef = useRef(null)
 
   useEffect(() => {
-    if (open) {
-      setQ('')
-      setIdx(0)
-      setTimeout(() => inputRef.current?.focus(), 50)
+    if (!open) return undefined
+    setQ('')
+    setIdx(0)
+    const id = setTimeout(() => inputRef.current?.focus(), 0)
+    const onKey = (e) => e.key === 'Escape' && onClose?.()
+    window.addEventListener('keydown', onKey)
+    return () => {
+      clearTimeout(id)
+      window.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, onClose])
 
-  const results = useMemo(() => {
+  const risultati = useMemo(() => {
     const s = q.trim().toLowerCase()
-    const list = s
+    const servizi = (s
       ? services.filter(
           (x) =>
             x.name.toLowerCase().includes(s) ||
             displayName(x).toLowerCase().includes(s) ||
-            String(x.account?.label ?? '').toLowerCase().includes(s),
+            String(x.account?.label ?? '').toLowerCase().includes(s) ||
+            String(x.type ?? '').toLowerCase().includes(s),
         )
       : services
-    return list.slice(0, 40)
-  }, [q, services])
+    ).map((x) => ({ tipo: 'servizio', servizio: x }))
+    const pag = pagine
+      .filter((p) => !s || t(`nav.${p.key}`).toLowerCase().includes(s) || p.key.includes(s))
+      .map((p) => ({ tipo: 'pagina', pagina: p }))
+    // Con la casella vuota prima le pagine (sono poche e sono il salto piu' comune), quando si scrive
+    // prima i servizi: chi scrive un nome cerca quasi sempre una risorsa.
+    return (s ? [...servizi, ...pag] : [...pag, ...servizi]).slice(0, 40)
+  }, [q, services, pagine, t])
 
   // Righe indistinguibili fra loro (stesso nome, stesso account): a quelle si aggiunge tipo e region,
-  // che è ciò che le separa davvero. Solo a quelle: metterlo su tutte è rumore su ogni riga per un
-  // caso che riguarda due righe.
-  const ambigue = useMemo(() => omonimiVisibili(results), [results])
+  // che e' cio' che le separa davvero. Solo a quelle, o diventa rumore su ogni riga.
+  const ambigue = useMemo(() => omonimiVisibili(risultati.filter((r) => r.servizio).map((r) => r.servizio)), [risultati])
 
-  const choose = (item) => {
-    if (!item) return
-    onPick?.(item)
+  if (!open) return null
+
+  // Il nome del tipo nella lingua di chi legge; per un tipo che il dizionario non conosce, il tipo
+  // com'e', invece della chiave grezza.
+  const tipo = (ty) => {
+    const k = `type.${ty}`
+    const l = t(k)
+    return l === k ? ty : l
+  }
+
+  const scegli = (r) => {
+    if (!r) return
+    if (r.tipo === 'servizio') onPick?.(r.servizio)
+    else onPagina?.(r.pagina.to)
     onClose?.()
   }
 
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setIdx((i) => Math.min(i + 1, results.length - 1))
+      setIdx((i) => Math.min(i + 1, risultati.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setIdx((i) => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      choose(results[idx])
+      scegli(risultati[idx])
     }
   }
 
   return (
-    <Modal open={open} onCancel={onClose} footer={null} title={null} closable={false} width={560} styles={{ body: { padding: 0 } }} destroyOnHidden>
-      <Input
-        ref={inputRef}
-        size="large"
-        variant="borderless"
-        placeholder={t('palette.placeholder')}
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value)
-          setIdx(0)
-        }}
-        onKeyDown={onKeyDown}
-        style={{ padding: '12px 16px', borderBottom: '1px solid var(--dg-line)' }}
-      />
-      <List
-        size="small"
-        style={{ maxHeight: 360, overflowY: 'auto' }}
-        dataSource={results}
-        locale={{ emptyText: t('palette.empty') }}
-        renderItem={(item, i) => (
-          <List.Item
-            onMouseEnter={() => setIdx(i)}
-            onClick={() => choose(item)}
-            style={{ cursor: 'pointer', padding: '8px 16px', background: i === idx ? 'var(--dg-line)' : undefined }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-              <Badge status={STATUS[item.overall] ?? 'default'} />
-              <span style={{ fontWeight: 500 }}>{displayName(item)}</span>
-              {ambigue.has(chiaveVisibile(item)) && distintivo(item) && (
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {distintivo(item)}
-                </Text>
-              )}
-              {item.account?.label && (
-                <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
-                  {item.account.label}
-                </Text>
-              )}
-            </div>
-          </List.Item>
-        )}
-      />
-    </Modal>
+    <>
+      <div className="ui-scrim" onClick={onClose} />
+      <div className="ui-pal" role="dialog" aria-label={t('palette.cerca')}>
+        <input
+          ref={inputRef}
+          placeholder={t('palette.placeholder')}
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value)
+            setIdx(0)
+          }}
+          onKeyDown={onKeyDown}
+          aria-label={t('palette.cerca')}
+        />
+        <div className="ui-pal-lista" role="listbox">
+          {risultati.length === 0 && <div className="ui-vuoto">{t('palette.empty')}</div>}
+          {risultati.map((r, i) =>
+            r.tipo === 'servizio' ? (
+              <button
+                key={`s:${r.servizio.account?.key ?? ''}:${r.servizio.resourceId ?? r.servizio.name}:${i}`}
+                type="button"
+                role="option"
+                aria-selected={i === idx}
+                onMouseEnter={() => setIdx(i)}
+                onClick={() => scegli(r)}
+              >
+                <span>
+                  <Dot livello={livelloServizio(r.servizio)} />
+                  {displayName(r.servizio)}
+                  {ambigue.has(chiaveVisibile(r.servizio)) && distintivo(r.servizio) && <small>{distintivo(r.servizio)}</small>}
+                </span>
+                <small>{[r.servizio.account?.label, r.servizio.type ? tipo(r.servizio.type) : null].filter(Boolean).join(' · ')}</small>
+              </button>
+            ) : (
+              <button key={`p:${r.pagina.to}`} type="button" role="option" aria-selected={i === idx} onMouseEnter={() => setIdx(i)} onClick={() => scegli(r)}>
+                <span>{t(`nav.${r.pagina.key}`)}</span>
+                <small>{t('palette.pagina')}</small>
+              </button>
+            ),
+          )}
+        </div>
+      </div>
+    </>
   )
 }

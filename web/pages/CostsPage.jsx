@@ -1,103 +1,25 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Alert, Typography, Space, Badge, Select, Segmented, Skeleton } from 'antd'
-import { PageIntro, PANEL_GRID, PANEL_CARD, EmptyState } from './pageKit.jsx'
+import { Card, Lista, Sezione, Meter, Rimedio } from '../ui/index.js'
 import CostTrend from '../components/CostTrend.jsx'
-import BudgetsPanel from '../components/BudgetsPanel.jsx'
 import { mergeTrend } from '../format.js'
+import { soldi, leggi, meseCorrente } from './spesaKit.js'
 
-const { Text } = Typography
+// Quante voci mostra «Dove va» prima di raccogliere il resto in «Altro»: cinque si leggono a colpo
+// d'occhio, la sesta si scorre. La lista intera sta in Ripartizioni.
+const VOCI_DOVE = 5
 
-const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(Number(v ?? 0)).toFixed(2)}`
-
-// Barra orizzontale proporzionale (viola = consumo, verde = credito/rimborso). Se `projected` è dato,
-// l'estensione di fine mese è un alone translucido dello STESSO colore del servizio, dietro la barra
-// piena (MTD), con il valore proiettato accanto → si vede a colpo d'occhio "dove arriverà" ogni voce.
-function Bar({ label, amount, max, credit, projected, ai, t }) {
-  const color = credit ? '#52c41a' : '#7c3aed'
-  const base = Math.min(100, (Math.abs(amount) / max) * 100)
-  const proj = projected != null ? Math.min(100, (Math.abs(projected) / max) * 100) : base
-  return (
-    <div>
-      {/* L'importo non va mai a capo dentro sé stesso: i nomi dei modelli Bedrock sono lunghi quanto
-          mezza card, e un `space-between` senza vincoli li fa crescere finché «$2139.99 → $6633.98» si
-          spezza in due righe e l'incolonnamento salta. La label è l'unica che può andare a capo. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', fontSize: 12, marginBottom: 2 }}>
-        <span style={{ minWidth: 0 }}>
-          {label}
-          {credit && <span style={{ marginLeft: 6, color: '#52c41a', whiteSpace: 'nowrap' }}>{t('costs.creditMark')}</span>}
-          {/* Stesso viola del numero AI in cima: è quello che rende il totale verificabile riga per riga. */}
-          {ai && <span style={{ marginLeft: 6, color: '#7c3aed', whiteSpace: 'nowrap' }}>{t('costs.aiMark')}</span>}
-        </span>
-        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', textAlign: 'right', color: amount < 0 ? '#52c41a' : undefined }}>
-          {money(amount)}
-          {projected != null && (
-            <span style={{ marginLeft: 6, color }} title={t('costs.projection')}>
-              → {money(projected)}
-            </span>
-          )}
-        </span>
-      </div>
-      <div style={{ position: 'relative', height: 8, borderRadius: 4, background: track(credit) }}>
-        {projected != null && (
-          <div
-            style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${proj}%`, borderRadius: BAR_RADIUS, background: color, opacity: 0.28 }}
-          />
-        )}
-        <div
-          style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${base}%`, borderRadius: BAR_RADIUS, background: color }}
-        />
-      </div>
-    </div>
-  )
-}
-
-// Una barra parte da una linea, non da una pillola: base quadrata e punta arrotondata, così a
-// colpo d'occhio si vede da dove cresce. E il "quanto manca" è uno step chiaro dello STESSO colore,
-// non un grigio neutro: fondo e riempimento sono la stessa scala, non due cose diverse.
-const BAR_RADIUS = '0 4px 4px 0'
-const track = (credit) => (credit ? 'rgba(82,196,26,0.16)' : 'rgba(124,58,237,0.16)')
-
-// La barra da mettere in tabella: solo il grafico, senza etichetta né importo — quelli sono colonne.
-// Ripeterli dentro la barra è la ragione per cui la vecchia lista non poteva avere intestazioni.
-function BarCell({ amount, max, credit }) {
-  const w = Math.min(100, (Math.abs(amount) / max) * 100)
-  return (
-    <div style={{ position: 'relative', height: 8, borderRadius: 4, background: track(credit) }}>
-      <div
-        style={{
-          position: 'absolute',
-          insetBlock: 0,
-          left: 0,
-          width: `${w}%`,
-          borderRadius: BAR_RADIUS,
-          background: credit ? '#52c41a' : '#7c3aed',
-        }}
-      />
-    </div>
-  )
-}
-
-// Tabella con data-bar, usata da entrambe le ripartizioni (per livello e per componente).
+// Lista ordinabile con barra, usata da entrambe le ripartizioni (per livello e per componente).
 //
-// Perché non la lista di barre di prima: senza intestazioni non sai cosa stai leggendo, senza
-// incolonnamento non confronti gli importi a occhio, e senza ordinamento non puoi chiedere altro
-// che "dal più grande". Perché non una tabella nuda come su Analytics: la barra è l'unica cosa che
-// dà le proporzioni a colpo d'occhio, e la colonna «%» da sola non la sostituisce. Quindi entrambe:
-// la barra diventa una colonna, dentro la disciplina di una tabella vera.
+// La barra è la resa grafica della colonna «spesa», non un dato in più: per questo la sua colonna non
+// ha intestazione. L'ordinamento resta (per nome o per importo) perché «dal più grande» non è l'unica
+// domanda: chi cerca un componente per nome lo trova in ordine alfabetico.
 //
-// `rows`: { key, label, amount, services?, muted? }. Una riga con `services` si apre; una senza no.
-function BreakdownTable({ rows, headLabel, t, empty }) {
+// `rows`: { key, label, amount, services?, muted? }. Una riga con `services` si apre sui servizi.
+function ListaRipartizione({ rows, headLabel, t, empty, lang }) {
   const [by, setBy] = useState('amount')
   const [dir, setDir] = useState('desc')
   const [open, setOpen] = useState(() => new Set())
-
-  if (!rows.length) {
-    return (
-      <Text type="secondary" style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
-        {empty}
-      </Text>
-    )
-  }
+  const griglia = 'minmax(0,1.2fr) minmax(0,1fr) 100px 64px'
 
   const max = Math.max(1, ...rows.map((r) => Math.abs(r.amount)))
   const total = rows.reduce((s, r) => s + Math.abs(r.amount), 0) || 1
@@ -112,16 +34,7 @@ function BreakdownTable({ rows, headLabel, t, empty }) {
       setDir(key === 'label' ? 'asc' : 'desc')
     }
   }
-  const Head = ({ col, children, right }) => (
-    <th className={right ? 'dg-bt-r' : undefined} aria-sort={by === col ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button type="button" onClick={sortOn(col)}>
-        {children}
-        <span className="dg-bt-sort" aria-hidden="true">
-          {by === col ? (dir === 'asc' ? '▲' : '▼') : ''}
-        </span>
-      </button>
-    </th>
-  )
+  const freccia = (col) => (by === col ? (dir === 'asc' ? ' ▲' : ' ▼') : '')
   const toggle = (key) =>
     setOpen((prev) => {
       const next = new Set(prev)
@@ -130,156 +43,163 @@ function BreakdownTable({ rows, headLabel, t, empty }) {
     })
 
   return (
-    <table className="dg-bt">
-      <thead>
-        <tr>
-          <Head col="label">{headLabel}</Head>
-          {/* La colonna della barra non ha intestazione: è la resa grafica della colonna accanto,
-              non un dato in più — un titolo qui suggerirebbe una terza misura che non esiste. */}
-          <th aria-hidden="true" />
-          <Head col="amount" right>
-            {t('costs.th.spend')}
-          </Head>
-          <th className="dg-bt-r">{t('costs.th.share')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((r) => {
-          const openable = (r.services?.length ?? 0) > 0
-          const isOpen = open.has(r.key)
-          return (
-            <Fragment key={r.key}>
-              <tr className={openable ? 'dg-bt-open' : undefined}>
-                <td>
-                  {openable ? (
-                    <button type="button" onClick={() => toggle(r.key)} aria-expanded={isOpen}>
-                      {/* Triangolo disegnato in CSS, non il glifo ▸ della lista apribile: a 11px quello
-                          si legge come un punto elenco (provato), questo resta nitido. */}
-                      <span className="dg-chev" style={isOpen ? { transform: 'rotate(90deg)' } : undefined} aria-hidden="true" />
-                      <span className={r.muted ? 'dg-bt-muted' : undefined}>{r.label}</span>
-                    </button>
-                  ) : (
-                    <span className="dg-bt-flat">
-                      <span className={r.muted ? 'dg-bt-muted' : undefined}>{r.label}</span>
-                    </span>
-                  )}
-                </td>
-                <td className="dg-bt-bar">
-                  <BarCell amount={r.amount} max={max} />
-                </td>
-                <td className="dg-bt-r dg-num">{money(r.amount)}</td>
-                <td className="dg-bt-r dg-bt-share">{`${((Math.abs(r.amount) / total) * 100).toFixed(1)}%`}</td>
-              </tr>
-              {/* Il dettaglio usa le CELLE della tabella, non un blocco in colSpan: così gli importi dei
-                  servizi cadono nella colonna «spesa» come quelli della riga padre, senza allineamenti
-                  a mano che si sfascerebbero al primo cambio di larghezza. */}
-              {openable &&
-                isOpen &&
-                r.services.map((sv) => (
-                  <tr key={sv.service} className="dg-bt-detail">
-                    <td>{sv.service}</td>
-                    <td />
-                    <td className="dg-bt-r dg-num">{money(sv.amount)}</td>
-                    <td />
-                  </tr>
-                ))}
-            </Fragment>
-          )
-        })}
-      </tbody>
-    </table>
+    <Lista
+      colonne={[
+        <button key="l" type="button" className="sp-sort" onClick={sortOn('label')} aria-sort={by === 'label' ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+          {headLabel}
+          {freccia('label')}
+        </button>,
+        '',
+        <button key="a" type="button" className="sp-sort sp-num" onClick={sortOn('amount')} aria-sort={by === 'amount' ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+          {t('costs.th.spend')}
+          {freccia('amount')}
+        </button>,
+        <span key="s" className="sp-num">
+          {t('costs.th.share')}
+        </span>,
+      ]}
+      griglia={griglia}
+      vuoto={empty}
+    >
+      {sorted.map((r) => {
+        const apribile = (r.services?.length ?? 0) > 0
+        const aperta = open.has(r.key)
+        const Riga = apribile ? 'button' : 'div'
+        return (
+          <Fragment key={r.key}>
+            <Riga
+              type={apribile ? 'button' : undefined}
+              className={`ui-row ${apribile ? 'ui-row-btn' : ''}`}
+              style={{ gridTemplateColumns: griglia }}
+              onClick={apribile ? () => toggle(r.key) : undefined}
+              aria-expanded={apribile ? aperta : undefined}
+            >
+              <span className={`ui-name ${r.muted ? 'ui-mute' : ''}`}>
+                {apribile ? (aperta ? '▾ ' : '▸ ') : ''}
+                {r.label}
+              </span>
+              <Meter valore={(Math.abs(r.amount) / max) * 100} />
+              <span className="sp-num">{soldi(r.amount, lang)}</span>
+              <span className="sp-num ui-mute">{`${((Math.abs(r.amount) / total) * 100).toFixed(1)}%`}</span>
+            </Riga>
+            {/* Il dettaglio usa le stesse colonne: gli importi dei servizi cadono sotto quello della
+                riga padre, senza allineamenti a mano. */}
+            {apribile &&
+              aperta &&
+              r.services.map((sv) => (
+                <div key={sv.service} className="ui-row sp-figlio" style={{ gridTemplateColumns: griglia }}>
+                  <span className="ui-name">{sv.service}</span>
+                  <span />
+                  <span className="sp-num">{soldi(sv.amount, lang)}</span>
+                  <span />
+                </div>
+              ))}
+          </Fragment>
+        )
+      })}
+    </Lista>
   )
 }
 
-// Pagina Costi: consumo per servizio (viola) + crediti/rimborsi (verde) = netto, per account.
-// Cost Explorer è a pagamento → fetch on-mount e al cambio mese.
-// `section` divide la pagina in viste separate invece di impilarle tutte: la Spesa era diventata
-// ~2900px di scroll, e sette sezioni in fila non si leggono — si scorrono cercando quella che serviva.
-// 'summary' (budget + totali + account) · 'trend' (13 mesi) · 'breakdown' (per livello, per componente).
-// 'all' resta il comportamento di prima, per chi monta la pagina intera.
-export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded = false, section = 'all' }) {
-  const show = (s) => section === 'all' || section === s
+// Spesa giornaliera degli account visibili, sommata per giorno: le ultime 30 barre. Il server la
+// manda per account; qui conta il conto intero. Pura.
+export function giorniSommati(dati, accountLabels, n = 30) {
+  const perGiorno = new Map()
+  for (const acc of Object.values(dati ?? {})) {
+    if (!acc || acc.error || (accountLabels && !accountLabels.has(acc.label))) continue
+    for (const g of acc.giorni ?? []) {
+      if (!g?.giorno) continue
+      perGiorno.set(g.giorno, (perGiorno.get(g.giorno) ?? 0) + (Number(g.importo) || 0))
+    }
+  }
+  return [...perGiorno.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-n)
+    .map(([giorno, importo]) => ({ giorno, importo }))
+}
+
+// '2026-09-05' → '5/9': sull'asse servono il giorno e il mese, l'anno è lo stesso su tutte le barre.
+const giornoCorto = (g) => {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(g ?? ''))
+  return m ? `${Number(m[2])}/${Number(m[1])}` : ''
+}
+
+// Le tre viste della spesa vera (Cost Explorer), una per scheda:
+// 'summary' (totali, giorni, dove va) · 'trend' (13 mesi) · 'breakdown' (per servizio, livello, componente).
+// Cost Explorer è a pagamento: ogni vista chiede SOLO i suoi dati, e al cambio di mese o livello.
+export default function CostsPage({ accountLabels, t = (k) => k, lang, section = 'summary' }) {
+  const [month, setMonth] = useState(() => meseCorrente())
+  const [type, setType] = useState('all') // filtro Livello (Cost Category)
   const [data, setData] = useState(null)
-  // `true` da subito: al mount una richiesta parte SEMPRE, quindi partire da `false` dipingeva un
-  // primo fotogramma vuoto (nessuno scheletro, nessun dato) prima che l'effetto la facesse partire.
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [month, setMonth] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  })
+  const [giorni, setGiorni] = useState(null)
   const [trend, setTrend] = useState(null)
   const [comps, setComps] = useState(null)
-  const [trendMetric, setTrendMetric] = useState('usage') // 'usage' = tutto · 'infra' = senza AI
   const [cats, setCats] = useState(null)
-  // Un flag per sezione: senza, "sto ancora arrivando" e "non c'è niente" sono indistinguibili — e la
-  // sezione compariva di colpo, spostando quello che stavi leggendo.
-  const [trendLoading, setTrendLoading] = useState(true)
-  const [compsLoading, setCompsLoading] = useState(true)
-  const [catsLoading, setCatsLoading] = useState(true)
-  const [type, setType] = useState('all') // filtro Livello (Cost Category), come il "TYPE" di analytics
-  // Quale LENTE della ripartizione si guarda. Tre sezioni impilate mettevano lo stesso account tre
-  // volte in tre punti della pagina: per rispondere a "dove vanno i soldi di Production" si scorreva
-  // avanti e indietro fra griglie identiche. La domanda è una, la lente cambia — quindi un
-  // interruttore, non tre sezioni.
+  const [trendMetric, setTrendMetric] = useState('usage') // 'usage' = tutto · 'infra' = senza AI
+  // Quale LENTE della ripartizione si guarda: la domanda è una («dove vanno i soldi»), la lente cambia.
   const [lens, setLens] = useState('service') // service | level | component
 
-  // Ogni sezione chiede SOLO i suoi dati: Cost Explorer si paga a richiesta, e prima aprire la
-  // pagina ne faceva quattro gruppi anche se guardavi una cosa sola.
+  // Le chiamate rispondono SEMPRE ({ dati } o { errore }), quindi `null` vuol dire solo «sta
+  // arrivando»: senza questa distinzione «non c'è niente» e «aspetta» si leggono uguali.
   useEffect(() => {
-    if (!show('summary') && !(show('breakdown') && lens === 'service')) return
-    setLoading(true)
-    setError(null)
-    fetch(`/api/costs?month=${month}&type=${type}&lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [month, type, lang, lens])
+    if (section !== 'summary' && !(section === 'breakdown' && lens === 'service')) return undefined
+    let vivo = true
+    leggi(`/api/costs?month=${month}&type=${type}&lang=${lang}`).then((r) => vivo && setData(r))
+    return () => {
+      vivo = false
+    }
+  }, [section, month, type, lang, lens])
 
-  // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): si carica una volta, così
-  // cambiare mese non rifà una chiamata a pagamento. I componenti invece sono del mese selezionato.
+  // La spesa giornaliera è un extra del riepilogo: se il server non la manda ancora, il resto resta.
   useEffect(() => {
-    if (!show('trend')) return
-    setTrendLoading(true)
-    fetch(`/api/costs/trend?type=${type}&lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setTrend)
-      .catch(() => setTrend(null)) // il trend è un extra: se manca, la pagina resta utile
-      .finally(() => setTrendLoading(false))
-  }, [type, lang])
+    if (section !== 'summary') return undefined
+    let vivo = true
+    leggi(`/api/meta/spesa-giornaliera`).then((r) => vivo && setGiorni(r))
+    return () => {
+      vivo = false
+    }
+  }, [section])
+
+  // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): cambiare mese non rifà una
+  // chiamata a pagamento.
+  useEffect(() => {
+    if (section !== 'trend') return undefined
+    let vivo = true
+    setTrend(null)
+    leggi(`/api/costs/trend?type=${type}&lang=${lang}`).then((r) => vivo && setTrend(r))
+    return () => {
+      vivo = false
+    }
+  }, [section, type, lang])
 
   useEffect(() => {
-    if (!(show('breakdown') && lens === 'component')) return
-    setCompsLoading(true)
-    fetch(`/api/costs/components?month=${month}&type=${type}&lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setComps)
-      .catch(() => setComps(null))
-      .finally(() => setCompsLoading(false))
-  }, [month, type, lang, lens])
+    if (!(section === 'breakdown' && lens === 'component')) return undefined
+    let vivo = true
+    leggi(`/api/costs/components?month=${month}&type=${type}&lang=${lang}`).then((r) => vivo && setComps(r))
+    return () => {
+      vivo = false
+    }
+  }, [section, month, type, lang, lens])
 
   // I livelli NON si filtrano per livello: questa è la vista che li mostra, e dà anche i valori al
-  // menu — così sapere quali livelli esistono non costa una chiamata in più. Per questo è l'unica
-  // chiamata che si fa su OGNI scheda: il menu Livello c'è anche dove la ripartizione non si vede.
+  // menu, così sapere quali livelli esistono non costa una chiamata in più. Per questo si fa su ogni
+  // scheda: il menu Livello c'è anche dove la ripartizione non si vede.
   useEffect(() => {
-    setCatsLoading(true)
-    fetch(`/api/costs/categories?month=${month}&lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setCats)
-      .catch(() => setCats(null))
-      .finally(() => setCatsLoading(false))
+    let vivo = true
+    leggi(`/api/costs/categories?month=${month}&lang=${lang}`).then((r) => vivo && setCats(r))
+    return () => {
+      vivo = false
+    }
   }, [month, lang])
 
-  const accounts = (data ? Object.entries(data) : []).filter(
-    ([, acc]) => !accountLabels || accountLabels.has(acc.label),
-  )
+  const visibile = (acc) => !accountLabels || accountLabels.has(acc?.label)
+  const accounts = Object.entries(data?.dati ?? {}).filter(([, acc]) => visibile(acc))
+
   // Opzioni del filtro: i livelli che ESISTONO in questo mese, sommati su tutti gli account. Un
-  // elenco scritto a mano andrebbe stantio al primo livello nuovo (e la Cost Category cambia: la
-  // tassonomia nostri è stata rivista di recente).
+  // elenco scritto a mano andrebbe stantio al primo livello nuovo.
   const typeOptions = (() => {
     const seen = new Map()
-    for (const acc of cats ? Object.values(cats) : []) {
+    for (const acc of Object.values(cats?.dati ?? {})) {
       if (acc.error) continue
       for (const c of acc.categories ?? []) {
         if (!c.category) continue // il non-categorizzato non è un filtro: si guarda dalla ripartizione
@@ -295,438 +215,364 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, embedded 
   const now = new Date()
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    const value = meseCorrente(d)
+    const label = d.toLocaleDateString(lang === 'en' ? 'en-US' : 'it-IT', { month: 'long', year: 'numeric' })
     return { value, label: i === 0 ? `${label} · ${t('costs.current')}` : label }
   })
 
+  const filtri = (
+    <div className="sp-filtri">
+      <span>{t(`costs.desc.${section}`)}</span>
+      <label>
+        {t('costs.type')}
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          {typeOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {/* Il Mese non compare su Andamento: quel grafico sono SEMPRE gli ultimi 13 mesi, e un filtro
+          inerte insegna a diffidare anche di quelli che funzionano. */}
+      {section !== 'trend' && (
+        <label>
+          {t('costs.month')}
+          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+            {monthOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  )
+
+  // Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli allo
+  // stesso modo manda a cercare un problema di configurazione che non esiste.
+  const statoCosti = !data ? (
+    <p className="ui-mute">{t('spend.carico')}</p>
+  ) : data.errore ? (
+    <Rimedio livello="warn" titolo={t('spend.costi.errore')} testo={data.errore} t={t} />
+  ) : accounts.length === 0 ? (
+    <p className="ui-vuoto">{Object.keys(data.dati ?? {}).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')}</p>
+  ) : null
+
   return (
     <>
-      <PageIntro
-        title={embedded ? null : t('costs.title')}
-        // Ogni scheda dice cosa mostra LEI. Con una descrizione sola, quella della pagina intera,
-        // il Riepilogo prometteva la spesa «per servizio» — che dopo la divisione sta in Ripartizioni.
-        desc={section === 'all' ? t('costs.desc') : t(`costs.desc.${section}`)}
-        extra={
-          <Space size={10} wrap>
-            <Space size={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('costs.type')}
-              </Text>
-              <Select size="small" value={type} onChange={setType} options={typeOptions} style={{ minWidth: 150 }} />
-            </Space>
-            {/* Il Mese non compare sulla scheda Andamento: quel grafico sono SEMPRE gli ultimi 13
-                mesi, quindi lì il controllo non filtrerebbe niente — e un filtro inerte insegna a
-                diffidare anche di quelli che funzionano. */}
-            {section !== 'trend' && (
-              <Space size={6}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {t('costs.month')}
-                </Text>
-                <Select size="small" value={month} onChange={setMonth} options={monthOptions} style={{ minWidth: 170 }} />
-              </Space>
-            )}
-          </Space>
-        }
-      />
-      {/* I budget stanno PRIMA della spesa: "siamo dentro a quello che avevamo deciso?" viene prima
-          di "quanto abbiamo speso", e i budget non dipendono dal mese scelto qui sopra. */}
-      {show('summary') && <BudgetsPanel t={t} lang={lang} />}
-      {(show('summary') || show('breakdown')) && loading && !data && <CostsSkeleton />}
-      {(show('summary') || show('breakdown')) && error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-      {/* Due vuoti diversi: nessun account leggibile, oppure un filtro che li nasconde tutti. Dirli
-          allo stesso modo manda a cercare un problema di configurazione che non esiste. */}
-      {(show('summary') || show('breakdown')) && data && accounts.length === 0 && (
-        <EmptyState description={Object.keys(data).length > 0 ? t('costs.allFiltered') : t('costs.noAccounts')} />
-      )}
-
-      {show('summary') && accounts.length > 0 &&
-        (() => {
-          // Totali aggregati su tutti gli account monitorati → il colpo d'occhio che mancava.
-          const sum = (f) => accounts.reduce((s, [, a]) => s + (f(a) || 0), 0)
-          const gross = sum((a) => a.gross)
-          const credits = sum((a) => a.credits)
-          const net = sum((a) => (a.total != null ? a.total : a.gross))
-          const proj = sum((a) => (a.projection ? a.projection.gross : a.gross))
-          const tax = sum((a) => a.tax)
-          const ai = sum((a) => a.aiGross)
-          const hasCred = Math.abs(credits) > 0.005
-          const hasTax = Math.abs(tax) > 0.005
-          const hasAi = Math.abs(ai) > 0.005
-          const Hero = ({ label, value, size = 22, color }) => (
-            <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.15 }}>
-              <Text type="secondary" style={{ fontSize: 11 }}>
+      {filtri}
+      {section === 'summary' && (statoCosti ?? <Riepilogo accounts={accounts} giorni={giorni} accountLabels={accountLabels} t={t} lang={lang} />)}
+      {section === 'trend' && <Andamento trend={trend} visibile={visibile} metric={trendMetric} setMetric={setTrendMetric} t={t} lang={lang} />}
+      {section === 'breakdown' && (
+        <>
+          <div className="ui-seg" style={{ alignSelf: 'flex-start' }} role="group">
+            {[
+              ['service', t('costs.svc.title')],
+              ['level', t('costs.cat.title')],
+              ['component', t('costs.comp.title')],
+            ].map(([k, label]) => (
+              <button key={k} type="button" aria-pressed={lens === k} onClick={() => setLens(k)}>
                 {label}
-              </Text>
-              <span style={{ fontSize: size, fontWeight: 700, color }}>{value}</span>
-            </span>
-          )
-          // Sette cifre in fila, tutte della stessa importanza, lasciavano al lettore l'aritmetica:
-          // quale si somma a quale, e quale è quella che si paga davvero. Ora il numero grande è UNO
-          // — il netto, cioè la cassa — e sotto c'è la riga che lo spiega con i segni scritti:
-          // `lordo − crediti + tasse = netto`. La ripartizione AI/infrastruttura resta a fianco perché
-          // risponde a un'altra domanda: non "quanto", ma "di cosa".
-          const big = hasCred || hasTax ? net : gross
-          // Etichetta prima del numero, e nessun `= netto` in coda: il risultato è il numero grande
-          // qui sopra, che porta già la sua etichetta. Scriverlo due volte fa cercare una terza cifra.
-          const composizione = [
-            `${t('costs.h.gross')} ${money(gross)}`,
-            hasCred ? `− ${t('costs.h.credits')} ${money(Math.abs(credits))}` : null,
-            hasTax ? `+ ${t('costs.h.tax')} ${money(tax)}` : null,
-          ]
-            .filter(Boolean)
-            .join(' ')
-          return (
-            <div style={{ margin: '10px 0 20px' }}>
-              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                {t('costs.h.thisMonth')}
-              </Text>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 32px', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{money(big)}</span>
-                {(hasCred || hasTax) && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {composizione}
-                  </Text>
-                )}
-                <span style={{ flex: 1 }} />
-                {/* L'AI a parte: con i modelli che valgono la maggior parte del conto, un totale unico
-                    nasconde l'andamento dell'infrastruttura — sale l'uso dei modelli e sembra che sia
-                    cresciuto tutto. Due numeri, due domande diverse. */}
-                {hasAi && <Hero label={t('costs.h.ai')} value={money(ai)} size={17} color="#7c3aed" />}
-                {hasAi && <Hero label={t('costs.h.infra')} value={money(gross - ai)} size={17} />}
-                <Hero label={t('costs.h.proj')} value={money(proj)} size={17} color="#8c8c8c" />
-              </div>
-            </div>
-          )
-        })()}
-
-      {/* Trend: la domanda "sta crescendo?", che un mese solo non può rispondere. Somma degli account
-          visibili, così il grafico parla del conto e non di un pezzo per volta. */}
-      {show('trend') && (() => {
-        const rows = trend
-          ? mergeTrend(
-              Object.values(trend).filter((a) => !a.error && (!accountLabels || accountLabels.has(a.label))),
-            )
-          : []
-        // Mentre arriva, uno scheletro ALTO COME il grafico: se lo spazio non è riservato, quando i
-        // dati atterrano tutto quello che c'è sotto scivola giù e si perde il punto in cui si leggeva.
-        if (trendLoading && !trend) {
-          return (
-            <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
-              <Skeleton active title={{ width: 180 }} paragraph={{ rows: 1, width: '55%' }} />
-              <Skeleton.Node active style={{ width: '100%', height: 210 }}>
-                <span />
-              </Skeleton.Node>
-            </div>
-          )
-        }
-        if (rows.length < 2) return null
-        return (
-          <div style={{ ...PANEL_CARD, marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
-              <div>
-                <Text strong>{t('costs.trend.title')}</Text>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {t('costs.trend.desc')}
-                  </Text>
-                </div>
-              </div>
-              <Segmented
-                size="small"
-                value={trendMetric}
-                onChange={setTrendMetric}
-                options={[
-                  { value: 'usage', label: t('costs.trend.all') },
-                  { value: 'infra', label: t('costs.trend.noAi') },
-                ]}
-              />
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <CostTrend months={rows} metric={trendMetric} t={t} lang={lang} />
-            </div>
+              </button>
+            ))}
           </div>
-        )
-      })()}
+          <p className="ui-mute" style={{ margin: 0 }}>
+            {lens === 'service' ? t('costs.svc.desc') : lens === 'level' ? t('costs.cat.lensDesc') : t('costs.comp.lensDesc')}
+          </p>
+          {lens === 'service' && (statoCosti ?? <PerServizio accounts={accounts} t={t} lang={lang} />)}
+          {lens === 'level' && <PerLivello cats={cats} visibile={visibile} type={type} t={t} lang={lang} />}
+          {lens === 'component' && <PerComponente comps={comps} visibile={visibile} t={t} lang={lang} />}
+        </>
+      )}
+    </>
+  )
+}
 
-      {/* Una lente per volta. Le card per account sono la lente PER SERVIZIO — stanno qui e non nel
-          riepilogo, che così resta una schermata sola. */}
-      {show('breakdown') && (
-        <div style={{ margin: '4px 0 10px' }}>
-          <Segmented
-            value={lens}
-            onChange={setLens}
-            options={[
-              { value: 'service', label: t('costs.svc.title') },
-              { value: 'level', label: t('costs.cat.title') },
-              { value: 'component', label: t('costs.comp.title') },
-            ]}
-          />
-          <div style={{ marginTop: 6 }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {lens === 'service' ? t('costs.svc.desc') : lens === 'level' ? t('costs.cat.lensDesc') : t('costs.comp.lensDesc')}
-            </Text>
+// Riepilogo: i totali del mese con la loro composizione, i giorni, e dove vanno i soldi.
+function Riepilogo({ accounts, giorni, accountLabels, t, lang }) {
+  const conti = accounts.map(([, a]) => a).filter((a) => !a.error)
+  const sum = (f) => conti.reduce((s, a) => s + (f(a) || 0), 0)
+  const gross = sum((a) => a.gross)
+  const credits = sum((a) => a.credits)
+  const net = sum((a) => (a.total != null ? a.total : a.gross))
+  const proj = sum((a) => (a.projection ? a.projection.gross : a.gross))
+  const tax = sum((a) => a.tax)
+  const ai = sum((a) => a.aiGross)
+  const hasCred = Math.abs(credits) > 0.005
+  const hasTax = Math.abs(tax) > 0.005
+  const hasAi = Math.abs(ai) > 0.005
+
+  // «Dove va»: i servizi di tutti gli account sommati per nome, i primi cinque e il resto insieme.
+  const perServizio = new Map()
+  for (const a of conti) for (const it of a.items ?? []) perServizio.set(it.service, (perServizio.get(it.service) ?? 0) + it.amount)
+  const ordinati = [...perServizio.entries()].sort((x, y) => y[1] - x[1])
+  const dove = ordinati.slice(0, VOCI_DOVE)
+  const altro = ordinati.slice(VOCI_DOVE).reduce((s, [, v]) => s + v, 0)
+  if (altro > 0.005) dove.push([t('spend.dove.altro'), altro])
+  const totDove = dove.reduce((s, [, v]) => s + Math.max(0, v), 0) || 1
+
+  const serie = giorni?.dati ? giorniSommati(giorni.dati, accountLabels) : []
+  const maxG = Math.max(1, ...serie.map((g) => g.importo))
+  const media = serie.length ? serie.reduce((s, g) => s + g.importo, 0) / serie.length : null
+
+  return (
+    <>
+      <div className="ui-hero">
+        <Card titolo={t('spend.giorni.titolo')} nota={media != null ? t('spend.giorni.media', { v: soldi(media, lang) }) : null}>
+          {!giorni ? (
+            <span className="ui-mute">{t('spend.carico')}</span>
+          ) : serie.length < 2 ? (
+            // Il server la manda da poco: se manca, si dice cosa manca invece di disegnare un vuoto.
+            <span className="ui-mute">{t('spend.giorni.assente')}</span>
+          ) : (
+            <>
+              <div className="sp-bars" role="img" aria-label={t('spend.giorni.titolo')}>
+                {serie.map((g, i) => (
+                  <i
+                    key={g.giorno}
+                    className={i === serie.length - 1 ? 'sp-oggi' : undefined}
+                    style={{ height: `${(g.importo / maxG) * 100}%` }}
+                    title={`${giornoCorto(g.giorno)} · ${soldi(g.importo, lang)}`}
+                  />
+                ))}
+              </div>
+              <div className="ui-axis">
+                <span>{giornoCorto(serie[0].giorno)}</span>
+                <span>{giornoCorto(serie[Math.floor(serie.length / 2)].giorno)}</span>
+                <span>{t('spend.giorni.oggi')}</span>
+              </div>
+            </>
+          )}
+        </Card>
+        <Card titolo={t('spend.dove.titolo')}>
+          {dove.length === 0 ? (
+            <span className="ui-mute">{t('costs.none')}</span>
+          ) : (
+            dove.map(([nome, v]) => (
+              <div key={nome} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1fr) 84px', gap: 10, alignItems: 'center' }}>
+                <span className="ui-name" style={{ fontWeight: 500 }}>
+                  {nome}
+                </span>
+                <Meter valore={(Math.max(0, v) / totDove) * 100} />
+                <b className="sp-num">{soldi(v, lang)}</b>
+              </div>
+            ))
+          )}
+        </Card>
+      </div>
+
+      {/* Il numero grande del verdetto è il netto; qui la riga che lo spiega con i segni scritti
+          (lordo − crediti + tasse) e, a parte, l'AI: con i modelli che valgono buona parte del conto,
+          un totale unico nasconde l'andamento dell'infrastruttura. */}
+      <Card titolo={t('costs.h.thisMonth')} nota={hasCred || hasTax ? `${t('costs.h.gross')} ${soldi(gross, lang)}${hasCred ? ` − ${t('costs.h.credits')} ${soldi(Math.abs(credits), lang)}` : ''}${hasTax ? ` + ${t('costs.h.tax')} ${soldi(tax, lang)}` : ''}` : null}>
+        <div className="ui-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+          <div className="ui-stat">
+            <b>{soldi(hasCred || hasTax ? net : gross, lang)}</b>
+            <span>{hasCred || hasTax ? t('costs.h.net') : t('costs.h.gross')}</span>
+          </div>
+          {hasAi && (
+            <div className="ui-stat">
+              <b>{soldi(ai, lang)}</b>
+              <span>{t('costs.h.ai')}</span>
+            </div>
+          )}
+          {hasAi && (
+            <div className="ui-stat">
+              <b>{soldi(gross - ai, lang)}</b>
+              <span>{t('costs.h.infra')}</span>
+            </div>
+          )}
+          <div className="ui-stat">
+            <b className="ui-mute">{soldi(proj, lang)}</b>
+            <span>{t('costs.h.proj')}</span>
           </div>
         </div>
-      )}
-      {show('breakdown') && lens === 'service' && (
-      <div style={PANEL_GRID}>
-        {accounts.map(([key, acc]) => {
-          if (acc.error) {
-            return (
-              <div key={key} style={PANEL_CARD}>
-                <Space>
-                  {acc.color && <Badge color={acc.color} />}
-                  <Text strong>{acc.label}</Text>
-                </Space>
-                <Alert type="warning" showIcon style={{ marginTop: 8 }} message={acc.error} />
-              </div>
-            )
-          }
-          const items = acc.items ?? []
-          const hasCredits = Math.abs(acc.credits ?? 0) > 0.005
-          // Stesso run-rate della proiezione aggregata, applicato per-servizio (solo mese corrente).
-          const factor = acc.projection ? acc.projection.daysInMonth / acc.projection.daysElapsed : null
-          // il max include le proiezioni, così gli aloni di fine mese entrano nella barra.
-          const max = Math.max(
-            1,
-            ...items.map((i) => Math.abs(i.amount) * (factor ?? 1)),
-            Math.abs(acc.credits ?? 0),
-          )
-          return (
-            <div key={key} style={PANEL_CARD}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <Space>
-                  {acc.color && <Badge color={acc.color} />}
-                  <Text strong>{acc.label}</Text>
-                </Space>
-                <div style={{ textAlign: 'right' }}>
-                  <Text strong style={{ fontSize: 18 }}>
-                    {money(acc.gross)}
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {' '}
-                      {t('costs.gross')}
-                    </Text>
-                  </Text>
-                  {acc.projection && (
-                    <div style={{ marginTop: 2 }}>
-                      <Text style={{ fontSize: 12 }}>
-                        {t('costs.projection')} <Text strong>{money(acc.projection.gross)}</Text>
-                      </Text>
-                      <div>
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {t('costs.projectionBasis', {
-                            d: acc.projection.daysElapsed,
-                            tot: acc.projection.daysInMonth,
-                            pct: acc.projection.pct,
-                          })}
-                        </Text>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+      </Card>
 
-              {/* I crediti si scalano SEMPRE a parte: il numero grande è il lordo (quello che pagherai a
-                  crediti esauriti), i crediti sono una riga di detrazione esplicita e il netto ne è il residuo. */}
-              {hasCredits && (
-                <div style={{ marginTop: 4 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('costs.credits', { v: money(acc.credits) })}
-                    {' · '}
-                    {t('costs.netAfter', { v: money(acc.total) })}
-                  </Text>
-                </div>
-              )}
-
-              {items.length === 0 && !hasCredits ? (
-                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                  {t('costs.none')}
-                </Text>
-              ) : (
-                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {items.map((it) => (
-                    <Bar
-                      key={it.service}
-                      label={it.service}
-                      amount={it.amount}
-                      projected={factor ? it.amount * factor : null}
-                      max={max}
-                      ai={it.ai}
-                      t={t}
-                    />
-                  ))}
-                  {hasCredits && (
-                    <Bar label={t('costs.creditsRefunds')} amount={acc.credits} max={max} credit t={t} />
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      )}
-
-      {/* Ripartizione per LIVELLO (Cost Category): il "type" della pagina di analytics.
-          Il filtro Livello agisce ANCHE qui, ma non riducendo la lista a una riga (che sarebbe un
-          numero già presente nei riquadri in cima): scelto un livello, la sezione si APRE su di lui
-          e le righe diventano i servizi che lo compongono. Il drill-down non costa una chiamata in
-          più: `/api/costs/categories` raggruppa già per [livello, servizio], quindi i servizi del
-          livello scelto sono un `find` su dati che abbiamo — e Cost Explorer si paga a richiesta.
-          La chiamata resta NON filtrata anche per un secondo motivo: è lei a dare i valori al menu,
-          e filtrarla lo svuoterebbe. */}
-      {show('breakdown') && lens === 'level' && (() => {
-        const list = cats
-          ? Object.entries(cats).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
-          : []
-        if (catsLoading && !cats) return <SectionSkeleton />
-        if (list.length === 0) return null
-        const drill = type !== 'all'
-        return (
-          <>
-            {/* Con un livello scelto dal menu la lente si APRE su di lui: le righe diventano i suoi
-                servizi. Vale la pena dirlo qui, perché è l'unico caso in cui il titolo della lente
-                non descrive più quello che si vede. */}
-            {drill && (
-              <div style={{ margin: '0 0 8px' }}>
-                <Text strong>{t('costs.cat.inside', { level: type })}</Text>
-              </div>
+      {/* Un riquadro per account: quanto pesa ognuno, e i suoi errori senza spegnere gli altri. */}
+      <div className="ui-envgrid">
+        {accounts.map(([key, a]) => (
+          <Card key={key} titolo={a.label} nota={a.error ? null : soldi(a.gross, lang)}>
+            {a.error ? (
+              <span className="ui-t-warn">{a.error}</span>
+            ) : (
+              <span className="ui-mute">
+                {a.projection ? t('spend.conto.previsione', { v: soldi(a.projection.gross, lang) }) : t('costs.gross')}
+                {Math.abs(a.credits ?? 0) > 0.005 ? ` · ${t('costs.credits', { v: soldi(a.credits, lang) })}` : ''}
+              </span>
             )}
-            <div style={PANEL_GRID}>
-              {list.map(([key, acc]) => {
-                const cs = acc.categories ?? []
-                // Con un livello scelto le righe sono i suoi servizi (nessuna sotto-apertura: un
-                // servizio non ha dettaglio); senza filtro sono i livelli, apribili sui servizi.
-                const rows = drill
-                  ? (cs.find((c) => c.category === type)?.services ?? []).map((sv) => ({
-                      key: sv.service,
-                      label: sv.service,
-                      amount: sv.amount,
-                    }))
-                  : cs.map((c) => ({
-                      key: c.category ?? '__none__',
-                      label: c.category ?? t('costs.cat.none'),
-                      amount: c.amount,
-                      services: c.services,
-                      muted: !c.category,
-                    }))
-                return (
-                  <div key={key} style={PANEL_CARD}>
-                    <Space>
-                      {acc.color && <Badge color={acc.color} />}
-                      <Text strong>{acc.label}</Text>
-                    </Space>
-                    <BreakdownTable
-                      rows={rows}
-                      headLabel={drill ? t('costs.th.service') : t('costs.th.level')}
-                      t={t}
-                      empty={drill ? t('costs.cat.emptyLevel', { level: type }) : t('costs.comp.none')}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )
-      })()}
+          </Card>
+        ))}
+      </div>
+    </>
+  )
+}
 
-      {/* Attribuzione per COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è — ed è il
-          secondo a far decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare
-          l'attribuzione completa quando non lo è. */}
-      {show('breakdown') && lens === 'component' && (() => {
-        const list = comps
-          ? Object.entries(comps).filter(([, a]) => !a.error && (!accountLabels || accountLabels.has(a.label)))
-          : []
-        if (compsLoading && !comps) return <SectionSkeleton />
-        if (list.length === 0) return null
+function Andamento({ trend, visibile, metric, setMetric, t, lang }) {
+  if (!trend) return <p className="ui-mute">{t('spend.carico')}</p>
+  // Il trend è un extra: se manca lo si dice, la pagina resta utile.
+  if (trend.errore) return <Rimedio livello="warn" titolo={t('spend.costi.errore')} testo={trend.errore} t={t} />
+  const rows = mergeTrend(Object.values(trend.dati ?? {}).filter((a) => !a.error && visibile(a)))
+  if (rows.length < 2) return <p className="ui-vuoto">{t('spend.trend.pochi')}</p>
+  return (
+    <Card
+      titolo={t('costs.trend.title')}
+      nota={
+        <span className="ui-seg" role="group" style={{ textTransform: 'none', letterSpacing: 0 }}>
+          {[
+            ['usage', t('costs.trend.all')],
+            ['infra', t('costs.trend.noAi')],
+          ].map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={metric === k} onClick={() => setMetric(k)}>
+              {label}
+            </button>
+          ))}
+        </span>
+      }
+    >
+      <span className="ui-mute">{t('costs.trend.desc')}</span>
+      <CostTrend months={rows} metric={metric} t={t} lang={lang} />
+    </Card>
+  )
+}
+
+// Lente PER SERVIZIO: un riquadro per account, con la proiezione di fine mese accanto a ogni voce.
+function PerServizio({ accounts, t, lang }) {
+  return (
+    <div className="sp-col">
+      {accounts.map(([key, acc]) => {
+        if (acc.error) return <Rimedio key={key} livello="warn" titolo={acc.label} testo={acc.error} t={t} />
+        const items = [...(acc.items ?? [])].sort((a, b) => b.amount - a.amount)
+        const hasCredits = Math.abs(acc.credits ?? 0) > 0.005
+        // Stesso run-rate della proiezione aggregata, applicato per servizio (solo mese corrente).
+        const factor = acc.projection ? acc.projection.daysInMonth / acc.projection.daysElapsed : null
+        const max = Math.max(1, ...items.map((i) => Math.abs(i.amount)), Math.abs(acc.credits ?? 0))
+        const griglia = 'minmax(0,1.3fr) minmax(0,1fr) 100px 110px'
         return (
-          <>
-            <div style={PANEL_GRID}>
-              {list.map(([key, acc]) => {
-                const rows = acc.components ?? []
-                return (
-                  <div key={key} style={PANEL_CARD}>
-                    <Space>
-                      {acc.color && <Badge color={acc.color} />}
-                      <Text strong>{acc.label}</Text>
-                    </Space>
-                    {rows.length === 0 ? (
-                      <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                        {t('costs.comp.none')}
-                      </Text>
-                    ) : rows.length === 1 && rows[0].component === null ? (
-                      // Tutto in un'unica voce non taggata: quasi sempre il tag non è attivo come cost
-                      // allocation tag, o è scritto con un'altra maiuscola (Cost Explorer è
-                      // case-sensitive e non dà errore: dà "non taggato"). Meglio dire il sospetto che
-                      // mostrare una riga sola e lasciar pensare che sia l'attribuzione vera.
-                      <Alert
-                        type="info"
-                        showIcon
-                        style={{ marginTop: 8 }}
-                        message={t('costs.comp.allUntagged', { tag: acc.tagKey ?? 'Component' })}
-                      />
-                    ) : (
-                      <BreakdownTable
-                        rows={rows.map((c) => ({
-                          key: c.component ?? '__untagged__',
-                          label: c.component ?? t('costs.comp.untagged'),
-                          amount: c.amount,
-                          services: c.services,
-                          muted: !c.component,
-                        }))}
-                        headLabel={t('costs.th.component')}
-                        t={t}
-                        empty={t('costs.comp.none')}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </>
+          <Sezione
+            key={key}
+            titolo={acc.label}
+            sotto={
+              acc.projection
+                ? `${soldi(acc.gross, lang)} ${t('costs.gross')} · ${t('costs.projectionBasis', { d: acc.projection.daysElapsed, tot: acc.projection.daysInMonth, pct: acc.projection.pct })}`
+                : `${soldi(acc.gross, lang)} ${t('costs.gross')}`
+            }
+          >
+            <Lista
+              colonne={[t('costs.th.service'), '', <span key="s" className="sp-num">{t('costs.th.spend')}</span>, <span key="p" className="sp-num">{t('costs.projection')}</span>]}
+              griglia={griglia}
+              vuoto={t('costs.none')}
+            >
+              {items.map((it) => (
+                <div key={it.service} className="ui-row" style={{ gridTemplateColumns: griglia }}>
+                  <span className="ui-name">
+                    {it.service}
+                    {/* L'AI segnata riga per riga: è quello che rende il totale AI verificabile. */}
+                    {it.ai && <small>{t('costs.aiMark')}</small>}
+                  </span>
+                  <Meter valore={(Math.abs(it.amount) / max) * 100} />
+                  <span className="sp-num">{soldi(it.amount, lang)}</span>
+                  <span className="sp-num ui-mute">{factor ? soldi(it.amount * factor, lang) : '-'}</span>
+                </div>
+              ))}
+              {/* I crediti si scalano SEMPRE a parte: il lordo è quello che pagherai a crediti
+                  esauriti, i crediti una riga di detrazione esplicita, il netto il residuo. */}
+              {hasCredits && (
+                <div className="ui-row" style={{ gridTemplateColumns: griglia }}>
+                  <span className="ui-name ui-t-ok">
+                    {t('costs.creditsRefunds')}
+                    <small>{t('costs.netAfter', { v: soldi(acc.total, lang) })}</small>
+                  </span>
+                  <Meter valore={(Math.abs(acc.credits) / max) * 100} livello="ok" />
+                  <span className="sp-num ui-t-ok">{soldi(acc.credits, lang)}</span>
+                  <span />
+                </div>
+              )}
+            </Lista>
+          </Sezione>
         )
-      })()}
-    </>
+      })}
+    </div>
   )
 }
 
-// Scheletro della pagina: la FORMA che arriverà (riquadri in alto, grafico, pannelli), non uno
-// spinner al centro. Uno spinner dice "attendi" e poi fa saltare la pagina di 600px; lo scheletro
-// tiene lo spazio, così quando i dati atterrano nulla si sposta. Mostrato solo al PRIMO caricamento:
-// cambiando mese i dati vecchi restano visibili, che è meglio di un vuoto.
-function CostsSkeleton() {
+// Lente PER LIVELLO (Cost Category). Scelto un livello dal menu, la lente si APRE su di lui e le righe
+// diventano i suoi servizi: `/api/costs/categories` raggruppa già per [livello, servizio], quindi il
+// drill-down non costa una chiamata in più. La chiamata resta NON filtrata: è lei a dare i valori al
+// menu, e filtrarla lo svuoterebbe.
+function PerLivello({ cats, visibile, type, t, lang }) {
+  if (!cats) return <p className="ui-mute">{t('spend.carico')}</p>
+  if (cats.errore) return <Rimedio livello="warn" titolo={t('spend.costi.errore')} testo={cats.errore} t={t} />
+  const list = Object.entries(cats.dati ?? {}).filter(([, a]) => !a.error && visibile(a))
+  if (list.length === 0) return <p className="ui-vuoto">{t('costs.comp.none')}</p>
+  const drill = type !== 'all'
   return (
-    <>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 36px', alignItems: 'flex-end', margin: '4px 0 18px' }}>
-        {[86, 70, 78, 54, 120, 92, 74].map((w, i) => (
-          <Skeleton.Button key={i} active size="small" style={{ width: w, height: 38 }} />
-        ))}
-      </div>
-      <div style={PANEL_GRID}>
-        {[4, 2, 2].map((rows, i) => (
-          <div key={i} style={PANEL_CARD}>
-            <Skeleton active title={{ width: 140 }} paragraph={{ rows, width: '100%' }} />
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="sp-col">
+      {list.map(([key, acc]) => {
+        const cs = acc.categories ?? []
+        const rows = drill
+          ? (cs.find((c) => c.category === type)?.services ?? []).map((sv) => ({ key: sv.service, label: sv.service, amount: sv.amount }))
+          : cs.map((c) => ({
+              key: c.category ?? '__none__',
+              label: c.category ?? t('costs.cat.none'),
+              amount: c.amount,
+              services: c.services,
+              muted: !c.category,
+            }))
+        return (
+          <Sezione key={key} titolo={acc.label} sotto={drill ? t('costs.cat.inside', { level: type }) : null}>
+            <ListaRipartizione
+              rows={rows}
+              headLabel={drill ? t('costs.th.service') : t('costs.th.level')}
+              t={t}
+              lang={lang}
+              empty={drill ? t('costs.cat.emptyLevel', { level: type }) : t('costs.comp.none')}
+            />
+          </Sezione>
+        )
+      })}
+    </div>
   )
 }
 
-// Scheletro di una sezione a pannelli (Per livello / Per componente): titolo + due pannelli.
-function SectionSkeleton() {
+// Lente PER COMPONENTE: il servizio AWS dice cosa costa, il tag dice di chi è, ed è il secondo a far
+// decidere. Il non-taggato resta in lista: nasconderlo farebbe sembrare l'attribuzione completa.
+function PerComponente({ comps, visibile, t, lang }) {
+  if (!comps) return <p className="ui-mute">{t('spend.carico')}</p>
+  if (comps.errore) return <Rimedio livello="warn" titolo={t('spend.costi.errore')} testo={comps.errore} t={t} />
+  const list = Object.entries(comps.dati ?? {}).filter(([, a]) => !a.error && visibile(a))
+  if (list.length === 0) return <p className="ui-vuoto">{t('costs.comp.none')}</p>
   return (
-    <>
-      <div style={{ margin: '20px 0 8px' }}>
-        <Skeleton active title={{ width: 130 }} paragraph={{ rows: 1, width: '45%' }} />
-      </div>
-      <div style={PANEL_GRID}>
-        {[3, 2].map((rows, i) => (
-          <div key={i} style={PANEL_CARD}>
-            <Skeleton active title={{ width: 120 }} paragraph={{ rows, width: '100%' }} />
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="sp-col">
+      {list.map(([key, acc]) => {
+        const rows = acc.components ?? []
+        return (
+          <Sezione key={key} titolo={acc.label}>
+            {rows.length === 1 && rows[0].component === null ? (
+              // Tutto in un'unica voce non taggata: quasi sempre il tag non è attivo come cost
+              // allocation tag, o è scritto con un'altra maiuscola (Cost Explorer è case-sensitive e
+              // non dà errore: dà "non taggato"). Meglio dire il sospetto che mostrare una riga sola.
+              <Rimedio livello="info" titolo={t('spend.comp.sospetto')} testo={t('costs.comp.allUntagged', { tag: acc.tagKey ?? 'Component' })} t={t} />
+            ) : (
+              <ListaRipartizione
+                rows={rows.map((c) => ({
+                  key: c.component ?? '__untagged__',
+                  label: c.component ?? t('costs.comp.untagged'),
+                  amount: c.amount,
+                  services: c.services,
+                  muted: !c.component,
+                }))}
+                headLabel={t('costs.th.component')}
+                t={t}
+                lang={lang}
+                empty={t('costs.comp.none')}
+              />
+            )}
+          </Sezione>
+        )
+      })}
+    </div>
   )
 }

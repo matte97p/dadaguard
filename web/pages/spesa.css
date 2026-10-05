@@ -1,0 +1,75 @@
+/* Spesa e Limiti: le sole cose che i componenti condivisi non hanno. Tutto a token, cosi' il tema
+   scuro arriva gratis. */
+
+.sp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* filtri (mese, livello): select nativi, che su telefono aprono la ruota del sistema */
+.sp-filtri {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--mute);
+}
+.sp-filtri label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sp-filtri select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 3px 8px;
+}
+
+/* spesa giornaliera: una barra per giorno, oggi attenuato perche' e' a meta' */
+.sp-bars {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 70px;
+}
+.sp-bars i {
+  flex: 1;
+  display: block;
+  min-height: 1px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand);
+}
+.sp-bars i.sp-oggi {
+  opacity: 0.45;
+}
+
+/* intestazione di colonna che ordina: sembra un'intestazione, non un bottone */
+.sp-sort {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+}
+.sp-num {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+.sp-figlio {
+  background: var(--hover);
+}
+.sp-figlio .ui-name {
+  font-weight: 400;
+  padding-left: 18px;
+}

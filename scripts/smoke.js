@@ -27,7 +27,7 @@ const SOGLIA_RENDER = 20
 const BASE = `http://127.0.0.1:${PORTA}`
 const PAGINE = process.argv.slice(2).length
   ? process.argv.slice(2)
-  : ['/', '/servizi', '/esecuzioni', '/deploy', '/spesa', '/limiti', '/topologia', '/iam', '/accessi', '/sicurezza']
+  : ['/', '/servizi', '/cron', '/deploy', '/spesa', '/limiti', '/topologia', '/iam', '/accessi', '/sicurezza']
 
 // I browser dove si trovano davvero: sul Mac di chi sviluppa e sui runner della CI.
 const CANDIDATI = [

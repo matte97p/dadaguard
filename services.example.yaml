@@ -74,6 +74,22 @@ accounts:
 # `org`, poi sulla catena di credenziali di default (in cloud = il task role, che gira nel payer).
 # freeTierAccount: management
 
+# --- Link "Apri altrove" verso PostHog (opzionale) ---
+# Con questa sezione ogni servizio mostra i link a errori e log di PostHog gia' filtrati sul suo nome
+# e sull'ultima ora. Senza, quei link non compaiono (gli altri, CloudWatch, GitHub, CodeBuild, si
+# deducono da soli). `projectId` e' il numero nell'URL del progetto (/project/<id>).
+# posthog:
+#   host: https://eu.posthog.com
+#   projectId: 12345
+#
+# --- Team, canale, runbook e SLO: dai TAG AWS, non da qui ---
+# Dadaguard li legge dai tag della risorsa (tag:GetResources, sola lettura). Chiavi:
+#   dadaguard:team     es. payments
+#   dadaguard:slack    es. #team-payments
+#   dadaguard:runbook  es. https://wiki.example.com/runbook/payments
+#   dadaguard:slo      es. 99.9   (obiettivo di disponibilita': abilita il budget di errore)
+# Tag assente = campo vuoto: nessun valore viene indovinato.
+
 # --- Endpoint pubblici per NOME servizio ---
 # Mappa nome→URL applicata DOPO l'auto-discovery: mostra il link (🌐) sulla card anche per i servizi
 # scoperti automaticamente, senza doverli dichiarare per intero. Precedenza massima (vince su ALB/

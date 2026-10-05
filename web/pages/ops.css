@@ -1,0 +1,72 @@
+/* Le poche regole che servono alle pagine Sicurezza, Accessi, Permessi e Topologia e che i componenti
+   condivisi non hanno: la colonna della pagina, i campi di ricerca e la fila dei filtri. Tutto a
+   token, cosi' il tema scuro arriva da solo. */
+
+/* La colonna larga di App e' `display: block` (serviva alle pagine vecchie): qui si rimette lo stesso
+   respiro fra i blocchi che ha la home, invece di scrivere un margine su ogni sezione. */
+.ui-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+.ui-pagina > .ui-hero > div {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Campo di testo o select: stesso bordo e stessa altezza delle schede, niente componente a parte. */
+.ui-campo {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 0;
+}
+.ui-campo:focus {
+  outline: 2px solid var(--brand-soft);
+  border-color: var(--brand);
+}
+
+/* La fila sopra una lista: finestra, «solo problemi», ricerca. Va a capo su schermi stretti. */
+.ui-filtri {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  font-size: 13px;
+  color: var(--mute);
+}
+.ui-filtri label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.ui-filtri .ui-campo {
+  margin-left: auto;
+  width: 220px;
+}
+
+/* Un'azione che porta altrove (entra nel gruppo, apri il servizio): testo viola come gli inviti delle
+   righe, senza la cornice di un bottone, perche' Dadaguard non esegue niente. */
+.ui-azione {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand);
+  cursor: pointer;
+  text-align: left;
+  justify-self: start;
+}
+.ui-azione:hover {
+  text-decoration: underline;
+}

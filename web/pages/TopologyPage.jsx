@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Segmented, Typography, Space, Alert, Breadcrumb, Button, Tag, Switch } from 'antd'
 import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { PageIntro, EmptyState, Toolbar } from './pageKit.jsx'
+import { EmptyState } from './pageKit.jsx'
+import { Verdetto, Pill, Dot } from '../ui/index.js'
+import { livelloServizio } from '../adattatori.js'
+import './ops.css'
 import { TIPI_NODO } from '../components/TopoNode.jsx'
-import { ArrowLeftOutlined, SyncOutlined } from '@ant-design/icons'
+import { SyncOutlined } from '@ant-design/icons'
 import { FONT, SPACE, MONO } from '../theme.js'
 import { buildMap, buildGroup, rollup, repliche, topologyNodeId, chiaveDi, acctKey, acctLabel, STATUS_COLOR, VIA } from '../topoGraph.js'
 import { familyPrefixes, serviceKey } from '../serviceName.js'
 import { rischi as calcolaRischi, usiDiretti, impatto } from '../topoImpact.js'
 import Loading from '../components/Loading.jsx'
 
-const { Text } = Typography
 
 // --- Vista «Rete»: dove VIVE ogni risorsa (VPC → subnet → zona), con le stesse card della mappa. ---
 //
@@ -135,10 +136,10 @@ const CANVAS = {
   // 300, e la mappa galleggiava in mezzo al vuoto con i box piccoli in un angolo.
   height: 'min(calc(100vh - 320px), 620px)',
   minHeight: 420,
-  border: '1px solid var(--dg-line)',
-  borderRadius: 12,
+  border: '1px solid var(--line)',
+  borderRadius: 'var(--r)',
   position: 'relative',
-  background: 'var(--dg-row)',
+  background: 'var(--bg)',
 }
 
 // Il PANNELLO a destra: cosa si sa di ciò che è selezionato. È l'innesto che tutti gli strumenti seri
@@ -148,9 +149,7 @@ function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) 
   if (!scelto) {
     return (
       <div className="dg-topo-panel">
-        <Text type="secondary" style={{ fontSize: FONT.small }}>
-          {t('topo.panel.hint')}
-        </Text>
+        <span className="ui-mute">{t('topo.panel.hint')}</span>
       </div>
     )
   }
@@ -158,30 +157,30 @@ function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) 
     const r = rollup(scelto.membri, Date.now(), rischi)
     return (
       <div className="dg-topo-panel">
+        <Pill livello={r.problemi ? 'crit' : r.aRischio ? 'warn' : 'ok'}>
+          {r.problemi ? t('topo.panel.problems', { n: r.problemi }) : r.aRischio ? t('topo.g.risk', { n: r.aRischio }) : t('topo.g.noProblems')}
+        </Pill>
         <div className="dg-topo-panel-title">{scelto.titolo}</div>
-        <Text type="secondary" style={{ fontSize: FONT.small }}>
-          {t('topo.panel.members', { n: r.membri })}
-          {r.problemi ? ` · ${t('topo.panel.problems', { n: r.problemi })}` : ''}
-        </Text>
+        <span className="ui-mute">{t('topo.panel.members', { n: r.membri })}</span>
         {r.aRischio > 0 && (
-          <div style={{ fontSize: FONT.small, color: '#d48806' }}>
+          <span className="ui-t-warn">
             {t('topo.g.risk', { n: r.aRischio })}: {r.causa}
-          </div>
+          </span>
         )}
-        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApri(scelto.key)}>
-          {t('topo.panel.open')}
-        </Button>
+        <button type="button" className="ui-azione" onClick={() => onApri(scelto.key)}>
+          {t('topo.panel.open')} →
+        </button>
         <div className="dg-topo-panel-list">
           {/* La chiave è l'identità della RISORSA, non quella del nodo: sotto un nodo `account::nome`
               possono stare più risorse omonime, e due righe con la stessa chiave lasciano una riga
               appesa quando la lista si accorcia (vedi web/serviceName.js). */}
           {scelto.membri.map((s) => (
             <div key={s.esterno ? s.esterno.id : serviceKey(s)} className="dg-topo-panel-row">
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: STATUS_COLOR[s.overall] ?? STATUS_COLOR.unknown }} />
-              <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>{s.name}</span>
-              <Text type="secondary" style={{ fontSize: FONT.micro }}>
-                {s.type}
-              </Text>
+              <Dot livello={livelloServizio(s)} />
+              <span className="ui-mono" style={{ fontSize: 12.5 }}>
+                {s.name}
+              </span>
+              <small className="ui-faint">{s.type}</small>
             </div>
           ))}
         </div>
@@ -208,63 +207,62 @@ function Pannello({ scelto, servizi, topo, rischi, t, onApri, onApriServizio }) 
     const altro = verso === 'in' ? e.source : e.target
     return (
       <div key={`${verso}${e.source}${e.target}`} className="dg-topo-panel-row">
-        <span style={{ fontFamily: MONO, fontSize: FONT.small, overflowWrap: 'anywhere' }}>
+        <span />
+        <span className="ui-mono" style={{ fontSize: 12.5 }}>
           {nomeDi.get(altro) ?? altro.split('::').pop()}
         </span>
-        {(e.vias ?? []).map((v) => (
-          <Tag key={v} bordered={false} style={{ marginInlineEnd: 0, fontSize: 10 }} color={VIA[v]?.forte ? 'orange' : 'default'}>
-            {t(`topo.legend.${v}`)}
-          </Tag>
-        ))}
+        {/* La provenienza come pillola: arancio quando e' un puntatore vero, neutra quando e' dedotta. */}
+        <span className="ui-who">
+          {(e.vias ?? []).map((v) =>
+            VIA[v]?.forte ? (
+              <Pill key={v} livello="warn">
+                {t(`topo.legend.${v}`)}
+              </Pill>
+            ) : (
+              <b key={v}>{t(`topo.legend.${v}`)}</b>
+            ),
+          )}
+        </span>
       </div>
     )
   }
+  const elenco = (nomi) => (nomi.length > 0 ? ` ${nomi.slice(0, 6).join(', ')}${nomi.length > 6 ? '…' : ''}` : '')
   return (
     <div className="dg-topo-panel">
-      <div className="dg-topo-panel-title" style={{ fontFamily: MONO }}>
-        {s.name}
-      </div>
-      <Text type="secondary" style={{ fontSize: FONT.small }}>
+      {!s.esterno && <Pill livello={livelloServizio(s)}>{t(`topo.stato.${livelloServizio(s)}`)}</Pill>}
+      <div className="dg-topo-panel-title ui-mono">{s.name}</div>
+      <span className="ui-mute">
         {s.esterno ? (s.esterno.hosts ?? []).join(' · ') || t('topo.ext.meta') : [s.type, acctLabel(s)].filter(Boolean).join(' · ')}
-      </Text>
+      </span>
+      {s.checks?.runtime?.summary && <span>{s.checks.runtime.summary}</span>}
       {/* Il salto al dettaglio del servizio (check, log, eventi): la mappa dice dove guardare, e il passo
           dopo è guardarci. Di un sistema fuori da AWS non abbiamo un dettaglio, quindi lì non si offre. */}
       {!s.esterno && onApriServizio && s.overall !== 'unknown' && (
-        <Button size="small" type="primary" ghost style={{ marginTop: SPACE.sm }} onClick={() => onApriServizio(s)}>
-          {t('topo.panel.openService')}
-        </Button>
-      )}
-      {s.checks?.runtime?.summary && (
-        <div style={{ marginTop: SPACE.sm, fontSize: FONT.small }}>{s.checks.runtime.summary}</div>
+        <button type="button" className="ui-azione" onClick={() => onApriServizio(s)}>
+          {t('topo.panel.openService')} →
+        </button>
       )}
       {/* LE DUE RISPOSTE per cui questa pagina esiste (vedi web/topoImpact.js): chi ne soffre se si
-          ferma, e da cosa dipende lui, che è dove si guarda quando è lui a non funzionare. Contano
-          anche i rimbalzi: la dipendenza indiretta è proprio quella che a mente non si ricostruisce. */}
+          ferma (in viola, come nel disegno), e da cosa dipende lui, che è dove si guarda quando è lui a
+          non funzionare. Contano anche i rimbalzi: la dipendenza indiretta è proprio quella che a mente
+          non si ricostruisce. */}
       <div className="dg-topo-panel-impact">
         <div>
-          <strong>{t('topo.panel.blast', { n: imp.aValle.length })}</strong>
-          {imp.aValle.length > 0 && (
-            <span style={{ opacity: 0.75 }}> {imp.aValle.slice(0, 6).join(', ')}{imp.aValle.length > 6 ? '…' : ''}</span>
-          )}
+          <b style={{ color: 'var(--brand)' }}>{t('topo.panel.blast', { n: imp.aValle.length })}</b>
+          <span className="ui-mute">{elenco(imp.aValle)}</span>
         </div>
         <div>
-          <strong>{t('topo.panel.dependsOn', { n: imp.dipendenze.length })}</strong>
-          {imp.dipendenze.length > 0 && (
-            <span style={{ opacity: 0.75 }}> {imp.dipendenze.slice(0, 6).join(', ')}{imp.dipendenze.length > 6 ? '…' : ''}</span>
-          )}
+          <b>{t('topo.panel.dependsOn', { n: imp.dipendenze.length })}</b>
+          <span className="ui-mute">{elenco(imp.dipendenze)}</span>
         </div>
-        {colpe && <div style={{ color: '#d48806' }}>{t('topo.panel.riskWhy', { names: colpe.join(', ') })}</div>}
+        {colpe && <div className="ui-t-warn">{t('topo.panel.riskWhy', { names: colpe.join(', ') })}</div>}
       </div>
       <div className="dg-topo-panel-list">
         {entranti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.in', { n: entranti.length })}</div>}
         {entranti.map((e) => riga(e, 'in'))}
         {uscenti.length > 0 && <div className="dg-topo-panel-sub">{t('topo.panel.out', { n: uscenti.length })}</div>}
         {uscenti.map((e) => riga(e, 'out'))}
-        {entranti.length + uscenti.length === 0 && (
-          <Text type="secondary" style={{ fontSize: FONT.micro }}>
-            {t('topo.panel.none')}
-          </Text>
-        )}
+        {entranti.length + uscenti.length === 0 && <small className="ui-faint">{t('topo.panel.none')}</small>}
       </div>
     </div>
   )
@@ -293,7 +291,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
 
   // Di default si chiede il giro VELOCE, e non è una scorciatoia: misurato sulla flotta vera, il giro
   // completo costa 66,5 secondi contro 5,5 e porta DUE archi in più su 34. Quei 61 secondi stanno tutti
-  // nelle passate IAM e security group, che deducono relazioni da un permesso o da una regola di rete —
+  // nelle passate IAM e security group, che deducono relazioni da un permesso o da una regola di rete,
   // vere, ma non sono un flusso. Chi le vuole le chiede con l'interruttore, sapendo cosa costano.
   useEffect(() => {
     let vivo = true
@@ -435,76 +433,79 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
     return card ? { tipo: 'risorsa', servizio: card.data.servizio } : null
   }, [scelto, mappa, dentro])
 
+  // I selettori come pillole della nuova interfaccia (`ui-seg`), non come controlli di antd: sono due
+  // scelte di vista, e devono leggersi come quelle della barra in alto.
+  const seg = (voci, attiva, scegli, etichetta) => (
+    <div className="ui-seg" role="group" aria-label={etichetta}>
+      {voci.map((v) => (
+        <button key={v.value} type="button" aria-pressed={attiva === v.value} onClick={() => scegli(v.value)}>
+          {v.label}
+        </button>
+      ))}
+    </div>
+  )
+  // Quanti nodi dell'ambiente hanno un problema: e' la frase del verdetto, «la mappa e' verde?», prima
+  // di cominciare a cercare il rosso nel disegno.
+  const conProblemi = serviziAmbiente.filter((s) => ['crit', 'warn'].includes(livelloServizio(s))).length
+
   return (
-    <>
-      <PageIntro
-        title={t('topo.title')}
-        desc={t('topo.desc')}
+    <div className="ui-pagina">
+      <Verdetto
+        livello={conProblemi ? 'crit' : undefined}
+        forte={view === 'deps' && statusReady && conProblemi ? t('topo.v.problemi', { n: conProblemi }) : null}
+        resto={view === 'deps' && statusReady && conProblemi ? ` ${t('topo.v.suMappa')}` : t('topo.title')}
+        dettaglio={view === 'deps' ? t('topo.v.dettaglio') : t('topo.netDesc')}
         extra={
-          <Toolbar>
-            {view === 'deps' && conti.length > 1 && (
-              <Segmented
-                size="small"
-                value={contoAttivo}
-                onChange={(v) => {
+          <div className="ui-filtri">
+            {view === 'deps' &&
+              conti.length > 1 &&
+              seg(
+                conti.map((c) => ({ value: c.key, label: `${c.label} · ${c.n}` })),
+                contoAttivo,
+                (v) => {
                   setConto(v)
                   risali()
-                }}
-                options={conti.map((c) => ({ value: c.key, label: `${c.label} · ${c.n}` }))}
-              />
-            )}
-            <Segmented
-              size="small"
-              options={[
+                },
+                t('topo.ambiente'),
+              )}
+            {seg(
+              [
                 { label: t('topo.tab.deps'), value: 'deps' },
                 { label: t('topo.tab.net'), value: 'net' },
-              ]}
-              value={view}
-              onChange={setView}
-            />
-          </Toolbar>
+              ],
+              view,
+              setView,
+              t('topo.title'),
+            )}
+          </div>
         }
       />
 
       {view === 'deps' ? (
         <>
-          {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 8 }} />}
-          <Space size={SPACE.md} wrap style={{ marginBottom: SPACE.sm }}>
+          {error && <div className="ui-readwarn">{error}</div>}
+          <div className="ui-filtri">
             {gruppoAperto ? (
-              <Breadcrumb
-                items={[
-                  { title: <a onClick={risali}>{t('topo.crumb.map')}</a> },
-                  { title: t(`topo.g.${gruppoAperto}`) },
-                ]}
-              />
+              <>
+                <button type="button" className="ui-azione" onClick={risali}>
+                  ← {t('topo.crumb.back')}
+                </button>
+                <span>
+                  {t('topo.crumb.map')} / <b style={{ color: 'var(--ink)' }}>{t(`topo.g.${gruppoAperto}`)}</b>
+                </span>
+              </>
             ) : (
-              <Text type="secondary" style={{ fontSize: FONT.micro }}>
-                {t('topo.mapHint')}
-              </Text>
+              <span>{t('topo.mapHint')}</span>
             )}
-            {gruppoAperto && (
-              <Button size="small" icon={<ArrowLeftOutlined />} onClick={risali}>
-                {t('topo.crumb.back')}
-              </Button>
-            )}
-            <Text type="secondary" style={{ fontSize: FONT.micro }}>
-              {t('topo.edgeHint')}
-            </Text>
             {/* I filtri della barra restringono le altre pagine, non questa: qui il disegno è
                 l'ambiente intero, perché un'architettura con metà dei nodi via non è un'architettura.
                 Dirlo evita la domanda «perché vedo anche quello che ho filtrato». */}
-            {filtriAttivi && (
-              <Text type="secondary" style={{ fontSize: FONT.micro }}>
-                {t('topo.filtersIgnored')}
-              </Text>
-            )}
-            <Space size={SPACE.xs}>
-              <Switch size="small" checked={deboli} onChange={setDeboli} />
-              <Text type="secondary" style={{ fontSize: FONT.micro }}>
-                {t(deboli ? 'topo.weak.on' : 'topo.weak.off')}
-              </Text>
-            </Space>
-          </Space>
+            {filtriAttivi && <span className="ui-faint">{t('topo.filtersIgnored')}</span>}
+            <label>
+              <input type="checkbox" checked={deboli} onChange={(e) => setDeboli(e.target.checked)} />
+              {t(deboli ? 'topo.weak.on' : 'topo.weak.off')}
+            </label>
+          </div>
 
           {/* La mappa NON aspetta gli archi. I box vengono dai servizi, che la pagina ha già in mano;
               le relazioni arrivano da /api/topology, che su una flotta vera è un giro di decine di
@@ -526,7 +527,7 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
                     servizi da /api/status (decine di secondi sulla flotta vera). Senza dirlo, una mappa
                     grigia con «stato non letto» su ogni riquadro si legge come un guasto del disegno. */}
                 {(loading || !statusReady) && (
-                  <div className="dg-topo-loading">
+                  <div className="dg-topo-loading" role="status">
                     <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
                     {loading ? t(deboli ? 'topo.loadingWeak' : 'topo.loadingEdges') : t('topo.loadingState')}
                   </div>
@@ -569,13 +570,11 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
               )}
             </div>
           )}
+          <p className="ui-note">{t('topo.edgeHint')}</p>
         </>
       ) : (
         <>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('topo.netDesc')}
-          </Text>
-          {netError && <Alert type="error" showIcon message={netError} style={{ marginTop: 8 }} />}
+          {netError && <div className="ui-readwarn">{netError}</div>}
           <div style={CANVAS}>
             {netLoading ? (
               <div style={{ textAlign: 'center', paddingTop: 120 }}>
@@ -603,6 +602,6 @@ export default function TopologyPage({ services = [], accountLabels, dark, statu
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }

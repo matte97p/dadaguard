@@ -17,6 +17,17 @@ import {
 import { splitFamily } from '../serviceName.js'
 import { FONT, MONO } from '../theme.js'
 
+// I colori di stato arrivano da web/topoGraph.js come esadecimali (sono dati del grafo, e le prove li
+// confrontano): qui diventano i token del tema, cosi' rosso, arancio e verde sono gli stessi del resto
+// dell'interfaccia e cambiano da soli col tema scuro. Un colore che non e' uno stato resta com'e'.
+const TOKEN = {
+  '#52c41a': 'var(--ok)',
+  '#faad14': 'var(--warn)',
+  '#ff4d4f': 'var(--crit)',
+  '#8c8c8c': 'var(--off)',
+}
+const tono = (c) => TOKEN[c] ?? c
+
 // I pezzi disegnati della mappa dell'architettura: il BOX di un gruppo (livello 1), la CARD di una
 // risorsa (livello 2), lo STUB di un vicino fuori dal gruppo.
 //
@@ -85,7 +96,7 @@ export function TopoGroup({ data, selected }) {
   return (
     <div
       className={`dg-topo-box${selected ? ' dg-topo-sel' : ''}${data.dim ? ' dg-topo-dim' : ''}`}
-      style={{ '--dg-topo-accent': data.colore }}
+      style={{ '--dg-topo-accent': tono(data.colore) }}
       title={data.titolo}
     >
       {MANIGLIE}
@@ -116,13 +127,13 @@ export function TopoGroup({ data, selected }) {
         {/* PROBLEMI, non «X su N attivi»: un servizio senza traffico è `idle`, e contarlo fra i non
             attivi trasforma «nessuno l'ha chiamato» in «è rotto». Zero problemi si dice, non si tace:
             un box muto si legge come «non lo so». */}
-        <span style={{ color: r.problemi ? '#ff4d4f' : undefined, fontWeight: r.problemi ? 600 : 400 }}>
+        <span style={{ color: r.problemi ? 'var(--crit)' : undefined, fontWeight: r.problemi ? 600 : 400 }}>
           {r.problemi ? data.frasi.problemi : data.frasi.nessunProblema}
         </span>
         {/* A rischio: giallo, e mai al posto della riga dei problemi: sono due fatti diversi («è
             rotto» e «dipende da qualcosa di rotto») e accorparli perderebbe quello che si può ancora
             salvare. */}
-        {data.frasi.rischio && <span style={{ color: '#d48806' }}>{data.frasi.rischio}</span>}
+        {data.frasi.rischio && <span className="ui-t-warn">{data.frasi.rischio}</span>}
         {r.task && (
           <span className={r.task.male ? 'dg-topo-rep-male' : undefined}>
             {r.task.attivi}/{r.task.voluti} {data.frasi.task}
@@ -142,7 +153,7 @@ export function TopoNode({ data, selected }) {
   return (
     <div
       className={`dg-topo-node${data.ghost ? ' dg-topo-ghost' : ''}${data.dim ? ' dg-topo-dim' : ''}${selected ? ' dg-topo-sel' : ''}`}
-      style={{ '--dg-topo-accent': data.color }}
+      style={{ '--dg-topo-accent': tono(data.color) }}
       title={data.rischio ? `${data.title}\n${data.rischio.join(', ')}` : data.title}
     >
       {MANIGLIE}
