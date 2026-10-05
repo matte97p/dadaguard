@@ -6,6 +6,17 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Il quadro dei deploy: titoli senza emoji, List che si trova e si legge** (05/10/2026). Via i
+  quadrati colorati da titoli di canvas e List e dalle sezioni («Produzione», «Staging»): le emoji
+  restano sugli stati delle righe. Canvas e List esistenti si rinominano sul posto al primo giro (la
+  sezione nuova riscrive il canvas intero una volta). Il fondo di ogni canvas porta il link alla List
+  del suo ambiente, perché il segnalibro finiva in una cartella dove nessuno lo trovava. Etichette di
+  stato corte (🧪 test, ❌ test KO, ⏳ in corso, 🚀 OK, ❌ fallito, 🚨 giù, ⚠️ indietro, ➖ fermo), che
+  nella colonna stretta della List uscivano tagliate. Nelle List nuove Dettagli viene prima di
+  Versione, i Dettagli sono le due cose che contano e Versione è un testo col link al commit, vuoto
+  senza commit. Un tag che non è un commit (`latest`) non diventa più un link a `/commit/latest`.
+  ⚠️ Le List già create tengono etichette e colonne di prima (l'API non le cambia): per averle nuove
+  si cancellano a mano, e al giro dopo il quadro le ricrea.
 - **Su Servizi tornano i filtri** (05/10/2026). Il nuovo design li aveva ridotti a una ricerca e tre
   chip, e senza il Tipo i modelli Bedrock non si trovavano più. Tornano le tendine Tipo, Stato,
   Account, Regione, cron/on-demand, Terraform e i preset, e i chip diventano i conteggi per stato
