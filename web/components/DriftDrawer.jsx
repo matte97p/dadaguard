@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Drawer, Select, Button, Alert, Space, Typography } from 'antd'
-
-const { Text } = Typography
+import { Drawer, Pill } from '../ui/index.js'
+import './servizi.css'
 
 // #6 drift COMPLETO: lancia `terragrunt plan` per un layer (job async, polling).
 // Esegue comandi → salto consapevole a "servizio".
@@ -75,59 +74,63 @@ export default function DriftDrawer({ open, onClose, t = (k) => k }) {
     }
   }
 
+  // Esito del plan: il livello colora la pillola, il testo lo dice a parole.
+  const finito = job && job.status !== 'running'
+  const esito = finito ? ({ error: 'crit', drift: 'warn', pending: 'info' }[job.kind] ?? 'ok') : null
+  const testoEsito = !finito
+    ? null
+    : ({
+        error: t('drift.failed', { code: job.exitCode }),
+        drift: t('drift.drift'),
+        pending: t('drift.pending', { n: job.counts?.add ?? '?' }),
+      }[job.kind] ?? t('drift.nochanges'))
+
   return (
-    <Drawer title={t('drift.title')} open={open} onClose={onClose} width={640}>
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
-        <Text type="secondary">{t('drift.desc')}</Text>
-        <Select
-          placeholder={t('drift.account')}
-          value={account}
-          onChange={setAccount}
-          style={{ width: '100%' }}
-          options={accounts.map((a) => ({ value: a.key, label: a.label }))}
-        />
-        <Select
-          placeholder={layers.length ? t('drift.layer') : t('drift.noLayer')}
-          value={layer}
-          onChange={setLayer}
-          disabled={!layers.length}
-          style={{ width: '100%' }}
-          options={layers.map((l) => ({ value: l, label: l }))}
-        />
-        <Button type="primary" onClick={run} loading={running} disabled={!account || !layer} block>
-          {t('drift.run')}
-        </Button>
-
-        {running && <Text type="secondary">{t('drift.running')}</Text>}
-        {error && <Alert type="error" message={error} showIcon />}
-
-        {job && job.status !== 'running' && (
-          <>
-            {job.kind === 'error' ? (
-              <Alert type="error" message={t('drift.failed', { code: job.exitCode })} showIcon />
-            ) : job.kind === 'drift' ? (
-              <Alert type="warning" message={t('drift.drift')} showIcon />
-            ) : job.kind === 'pending' ? (
-              <Alert type="info" message={t('drift.pending', { n: job.counts?.add ?? '?' })} showIcon />
-            ) : (
-              <Alert type="success" message={t('drift.nochanges')} showIcon />
-            )}
-            <pre
-              style={{
-                maxHeight: 420,
-                overflow: 'auto',
-                fontSize: 12,
-                background: 'var(--dg-row)',
-                padding: 10,
-                borderRadius: 6,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {job.output || t('drift.nooutput')}
-            </pre>
-          </>
-        )}
-      </Space>
+    <Drawer aperto={open} onChiudi={onClose} titolo={t('drift.title')} etichettaChiudi={t('ui.chiudi')}>
+      <p className="ui-mute">{t('drift.desc')}</p>
+      {/* Select nativi: due scelte da una lista breve, e sopra a un pannello la tendina di antd si
+          apriva sotto lo sfondo. */}
+      <select
+        className="sv-search"
+        value={account ?? ''}
+        onChange={(e) => setAccount(e.target.value || null)}
+        aria-label={t('drift.account')}
+      >
+        <option value="">{t('drift.account')}</option>
+        {accounts.map((a) => (
+          <option key={a.key} value={a.key}>
+            {a.label}
+          </option>
+        ))}
+      </select>
+      <select
+        className="sv-search"
+        value={layer ?? ''}
+        onChange={(e) => setLayer(e.target.value || null)}
+        disabled={!layers.length}
+        aria-label={t('drift.layer')}
+      >
+        <option value="">{layers.length ? t('drift.layer') : t('drift.noLayer')}</option>
+        {layers.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </select>
+      <div>
+        <button type="button" className="ui-kbd" onClick={run} disabled={running || !account || !layer}>
+          {running ? t('drift.running') : t('drift.run')}
+        </button>
+      </div>
+      {error && <div className="ui-readwarn">{error}</div>}
+      {esito && (
+        <>
+          <div>
+            <Pill livello={esito}>{testoEsito}</Pill>
+          </div>
+          <pre className="sv-logs">{job.output || t('drift.nooutput')}</pre>
+        </>
+      )}
     </Drawer>
   )
 }

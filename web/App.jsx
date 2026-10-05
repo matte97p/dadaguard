@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ConfigProvider, theme, Space, Modal, Input, message, Skeleton } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
-import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
+import FilterBar, { FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import TopBar from './components/TopBar.jsx'
 import { antdTheme } from './theme.js'
@@ -46,7 +46,8 @@ const QUICK_PRESETS = [
 //                una (le pagine fuse) = basta che UNA sia concessa, con le schede negate nascoste.
 const NAV = [
   { to: '/', key: 'now', fields: [], surfaces: [] },
-  { to: '/servizi', key: 'services', fields: FILTER_FIELDS_FULL, surfaces: ['dashboard'] },
+  // Servizi ha la sua ricerca coi chip (FiltroServizi): la barra piena di tendine non compare piu'.
+  { to: '/servizi', key: 'services', fields: [], surfaces: ['dashboard'] },
   { to: '/deploy', key: 'deploys', fields: [], surfaces: ['deploys'] },
   // Cron: la pagina delle esecuzioni. Il nome nuovo e' quello con cui la gente le chiama; il percorso
   // vecchio resta come redirect.
@@ -700,14 +701,22 @@ export default function App() {
                     data={data}
                     groups={groups}
                     allServices={services}
-                    statusFilter={statusFilter}
-                    onStatusFilter={setStatusFilter}
-                    caps={caps}
+                    accountFilter={accountFilter}
+                    ambienteLabel={listaAmbienti.find((a) => a.key === ambienteAttivo)?.label}
+                    nameQuery={nameQuery}
+                    onNameQuery={setNameQuery}
+                    // Solo i filtri che la pagina non mostra: ricerca e ambiente si vedono gia'.
+                    filtersActive={
+                      regionFilter.length > 0 ||
+                      typeFilter.length > 0 ||
+                      statusFilter.length > 0 ||
+                      scheduleFilter !== 'all' ||
+                      managedFilter !== 'all' ||
+                      problemsOnly
+                    }
+                    onResetFilters={resetFilters}
                     loading={loading}
                     error={error}
-                    onRemove={removeService}
-                    onLogs={(s) => openDetail(s, 'logs')}
-                    onEvents={(s) => openDetail(s, 'events')}
                     onOpen={(s) => openDetail(s)}
                     t={t}
                   />
@@ -794,6 +803,8 @@ export default function App() {
           logsDefaultErrorsOnly={logsDefaultErrorsOnly}
           onClose={() => setDetailKey(null)}
           onNavigate={navigate}
+          onDrift={caps.fullDrift ? () => (setDetailKey(null), setDriftOpen(true)) : undefined}
+          onRemove={caps.watchlist ? (s) => (removeService(s), setDetailKey(null)) : undefined}
           t={t}
           lang={lang}
         />
