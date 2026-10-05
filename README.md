@@ -18,8 +18,8 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Dadaguard in azione: cosa morde adesso, e un servizio su ma non coerente" width="700"><br>
-  <sub>I primi 29 secondi · <a href="assets/demo.mp4">▶ tour completo (93s)</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a> da <a href="demowright.story.js">uno script che vive qui</a>: cambia la UI, si ri-registra</sub>
+  <img src="assets/demo.gif" alt="Dadaguard in azione: la home Adesso con cosa sistemare, e un servizio che risponde 200 ma non è coerente" width="700"><br>
+  <sub>I primi 30 secondi · <a href="assets/demo.mp4">▶ tour completo (93s)</a> · girato con <a href="https://github.com/matte97p/demowright">demowright</a> da <a href="demowright.story.js">uno script che vive qui</a>: cambia la UI, si ri-registra</sub>
 </p>
 
 **Provalo in 10 secondi, senza AWS** — immagine pubblica, dati finti, zero config:
@@ -33,9 +33,9 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/deploys-dark.jpeg">
-    <img src="assets/deploys-light.jpeg" alt="Vista Deploy: build CodeBuild per account, con esito, tasso di successo e trend per servizio" width="820">
+    <img src="assets/deploys-light.jpeg" alt="Vista Deploy: il verdetto in una riga, i deploy delle ultime 24 ore per fascia e l'elenco per servizio con esito, cosa è successo e le ultime cinque build" width="820">
   </picture><br>
-  <sub>Vista <b>Deploy</b> · cosa sta uscendo ora e com'è andata, <b>per account</b> — ultima build, <b>chi l'ha deployata</b>, tasso di successo e trend per servizio. Gli account si scoprono da soli dai profili SSO di <code>~/.aws/config</code>.</sub>
+  <sub>Vista <b>Deploy</b> · in cima il verdetto (quanti falliti, quanti in corso), poi i deploy delle ultime 24 ore per fascia e una riga per servizio: esito, <b>cosa è successo</b>, <b>chi l'ha lanciato</b> (anche fuori dalla CI) e le ultime cinque build. Gli account si scoprono da soli dai profili SSO di <code>~/.aws/config</code>.</sub>
 </p>
 
 ## Segnali

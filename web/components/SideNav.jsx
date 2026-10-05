@@ -12,6 +12,7 @@ export default function SideNav({ voci = [], vociOps = [], attiva, onScegli, mos
     <button
       key={v.to}
       type="button"
+      data-nav={v.to}
       // La voce attiva si deduce dall'URL, non da uno stato da tenere in sincrono: e' cosi' che una
       // sidebar finisce a evidenziare la pagina sbagliata.
       aria-current={attiva === v.to ? 'page' : undefined}
