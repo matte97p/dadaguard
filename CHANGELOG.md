@@ -6,6 +6,12 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Il canvas del quadro sta nella sua larghezza** (05/10/2026). La tabella ha tre colonne (Risorsa,
+  Stato, Dettagli) e la versione apre i Dettagli, che sono al massimo due voci corte, le stesse della
+  List: «rev 80 · 2/2 task» per un servizio, «build #68 · 4 min» per un sito statico, la build e il
+  motivo per un fallimento. Via «target sani», «commit di …», «della CI», chi ha riavviato e il commit
+  di staging (resta il link «N diversi da staging» in fondo). Con le prove sui dati di produzione la
+  riga più lunga passa da 242 a 110 caratteri. Il cambio di colonne riscrive il canvas intero una volta.
 - **Il quadro dei deploy: titoli senza emoji, List che si trova e si legge** (05/10/2026). Via i
   quadrati colorati da titoli di canvas e List e dalle sezioni («Produzione», «Staging»): le emoji
   restano sugli stati delle righe. Canvas e List esistenti si rinominano sul posto al primo giro (la
