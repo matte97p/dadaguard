@@ -81,6 +81,13 @@ export function intervalliAllarmi(voci = [], { da, meta = {} } = {}) {
     }
     if (aperto) out.push({ allarme: nome, servizio, ...aperto, fine: null })
   }
+  // Un allarme in ALARM da prima della finestra e mai uscito non ha voci nella storia: senza questo
+  // giro la barra sarebbe verde proprio sul guasto piu' lungo. Lo stato attuale lo dice DescribeAlarms.
+  for (const [nome, m] of Object.entries(meta ?? {})) {
+    if (m?.StateValue === 'ALARM' && !perAllarme.has(nome)) {
+      out.push({ allarme: nome, servizio: servizioDiAllarme(m), inizio: ms(da), inizioNoto: false, fine: null })
+    }
+  }
   return out.sort((a, b) => a.inizio - b.inizio)
 }
 
@@ -303,6 +310,7 @@ export function componiStorico({ perConto = {}, ora = Date.now(), ore = 24 } = {
   const ambienti = {}
   const eventi = []
   const tutteBuild = []
+  const buildPerAmbiente = {}
   for (const [chiave, c] of Object.entries(perConto)) {
     const amb = ambienteDiConto(chiave, c)
     if (!amb) continue
@@ -310,7 +318,17 @@ export function componiStorico({ perConto = {}, ora = Date.now(), ore = 24 } = {
     tutteBuild.push(...builds)
     const s = storicoAmbiente({ ambiente: amb, builds, voci: c.voci, meta: c.meta, ecs: c.ecs, ora, ore })
     const blocco = { ...s, kpi: { deploy: kpiDeploy(builds, ora), metriche: kpiMetriche(c.metriche) }, troncato: !!c.troncato, errori: c.errori ?? [], conti: [chiave] }
-    ambienti[amb] = ambienti[amb] ? fondi(ambienti[amb], blocco) : blocco
+    if (ambienti[amb]) {
+      // Fondendo due conti i KPI dei deploy si ricontano su TUTTE le build dell'ambiente: tenere
+      // quelli del primo conto perderebbe in silenzio i rilasci del secondo.
+      const tutte = [...buildPerAmbiente[amb], ...builds]
+      buildPerAmbiente[amb] = tutte
+      ambienti[amb] = fondi(ambienti[amb], blocco)
+      ambienti[amb].kpi = { ...ambienti[amb].kpi, deploy: kpiDeploy(tutte, ora) }
+    } else {
+      buildPerAmbiente[amb] = builds
+      ambienti[amb] = blocco
+    }
   }
   for (const b of Object.values(ambienti)) {
     eventi.push(...b.eventi)

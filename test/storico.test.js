@@ -126,3 +126,13 @@ test('demo: completa, con un guasto correlato al deploy', () => {
   assert.ok(h.cronologia.some((e) => e.tipo === 'guasto' && e.dopoDeploy))
   assert.ok(h.ambienti.produzione.kpi.metriche.albP95ms.delta != null)
 })
+
+test('un allarme in ALARM da prima della finestra, senza voci, e comunque un guasto in corso', () => {
+  const da = Date.parse('2026-01-01T00:00:00Z')
+  const meta = { a1: { Dimensions: [{ Name: 'FunctionName', Value: 'svc' }], StateValue: 'ALARM' }, a2: { Dimensions: [], StateValue: 'OK' } }
+  const iv = intervalliAllarmi([], { da, meta })
+  assert.equal(iv.length, 1)
+  assert.equal(iv[0].allarme, 'a1')
+  assert.equal(iv[0].inizioNoto, false)
+  assert.equal(iv[0].fine, null)
+})

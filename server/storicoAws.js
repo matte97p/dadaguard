@@ -42,7 +42,7 @@ export async function metadatiAllarmi(aws) {
   let pagine = 0
   do {
     const out = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100, NextToken: token }))
-    for (const al of out.MetricAlarms ?? []) if (!isAutoscalingAlarm(al)) meta[al.AlarmName] = { Dimensions: al.Dimensions ?? [] }
+    for (const al of out.MetricAlarms ?? []) if (!isAutoscalingAlarm(al)) meta[al.AlarmName] = { Dimensions: al.Dimensions ?? [], StateValue: al.StateValue ?? null }
     token = out.NextToken
     pagine++
   } while (token && pagine < MAX_PAGINE)
