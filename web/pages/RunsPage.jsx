@@ -32,6 +32,11 @@ const WINDOWS = [
 ]
 const COLONNE_CRON = 'minmax(0,1.1fr) 96px minmax(0,1.6fr) 150px 24px'
 const COLONNE_CORSE = '96px minmax(0,1.1fr) minmax(0,1.6fr) 90px 24px'
+const COLONNE_IN_CORSO = 'minmax(0,1.1fr) minmax(0,1.6fr) 150px 24px'
+// Sul telefono la freccia (`.ui-go`) e le corse (`.rl-runs`) spariscono, e `.ui-what` va a tutta riga.
+const COLONNE_CRON_M = 'minmax(0,1fr) auto'
+const COLONNE_CORSE_M = 'auto minmax(0,1fr) auto'
+const COLONNE_IN_CORSO_M = 'minmax(0,1fr)'
 
 // Le run di tutti i cron, appiattite in righe: una riga = una esecuzione. Pura.
 export function flattenRuns(crons = [], prefect = null) {
@@ -235,7 +240,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
           La barra dice quanto e' passato rispetto al solito, e diventa arancio quando lo supera. */}
       {inCorso.length > 0 && (
         <Sezione titolo={t('runs.nowTitle')} sotto={t('rilasci.cron.inCorsoSotto')}>
-          <Lista>
+          <Lista griglia={COLONNE_IN_CORSO} grigliaMobile={COLONNE_IN_CORSO_M}>
             {inCorso.map((c) => {
               const viva = c.runs.find((r) => r.running)
               const da = durataCorsa(viva, now) ?? 0
@@ -246,7 +251,6 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
                   key={c.key}
                   type="button"
                   className="ui-row ui-row-btn"
-                  style={{ gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,1.6fr) 150px 24px' }}
                   onClick={() => setAperta({ cron: c, run: viva })}
                 >
                   <span className="ui-nm">
@@ -286,6 +290,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         <Lista
           colonne={[t('rilasci.cron.col.cron'), t('rilasci.cron.col.ultima'), t('rilasci.cron.col.cosa'), t('rilasci.cron.col.corse'), '']}
           griglia={COLONNE_CRON}
+          grigliaMobile={COLONNE_CRON_M}
           vuoto={t('runs.empty')}
         >
           {listaCron.map(({ c, stato }) => {
@@ -296,7 +301,6 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
                 key={c.key}
                 type="button"
                 className="ui-row ui-row-btn"
-                style={{ gridTemplateColumns: COLONNE_CRON }}
                 // data-cron: ancora per il video demo, come data-build sulla pagina Deploy.
                 data-cron={c.name}
                 onClick={() => setAperta({ cron: c, run: ultima })}
@@ -327,12 +331,13 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         <Lista
           colonne={[t('rilasci.cron.col.esito'), t('rilasci.cron.col.cron'), t('rilasci.cron.col.cosa'), t('runs.col.duration'), '']}
           griglia={COLONNE_CORSE}
+          grigliaMobile={COLONNE_CORSE_M}
           vuoto={t('runs.empty')}
         >
           {listaCorse.map((r) => {
             const d = durataCorsa(r, now)
             return (
-              <button key={r.key} type="button" className="ui-row ui-row-btn" style={{ gridTemplateColumns: COLONNE_CORSE }} onClick={() => setAperta({ cron: cronOf(r), run: r })}>
+              <button key={r.key} type="button" className="ui-row ui-row-btn" onClick={() => setAperta({ cron: cronOf(r), run: r })}>
                 <Pill livello={livelloCorsa(r)}>{t(`runs.outcome.${r.outcome}`)}</Pill>
                 <span className="ui-name">
                   {r.cronName}

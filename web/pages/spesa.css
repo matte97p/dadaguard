@@ -66,6 +66,12 @@
   text-align: right;
   white-space: nowrap;
 }
+/* Nell'intestazione un titolo piu' lungo della colonna va a capo invece di uscire dal bordo, dove
+   `.ui-lista` lo taglia: «proiezione fine mese:» in 110px si leggeva «PROIEZIONE FINE», e «% of
+   month» in 64px «% OF MONT». I titoli adesso ci stanno; questa e' la rete per il prossimo. */
+.ui-thead .sp-num {
+  white-space: normal;
+}
 .sp-figlio {
   background: var(--hover);
 }

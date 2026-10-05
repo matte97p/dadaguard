@@ -39,6 +39,10 @@ const GRIGLIA = 'minmax(0,1fr) minmax(0,2fr) 120px'
 // la seconda usciva dalla colonna e finiva sopra al nome del servizio. Una colonna `auto` non va:
 // ogni riga è una griglia a sé, e i testi non starebbero più in colonna fra una riga e l'altra.
 const GRIGLIA_ANOMALIE = '188px minmax(0,1fr) 140px 90px'
+// Sul telefono: nome e stato sulla prima riga, il consumo sotto a tutta larghezza; per le anomalie
+// pillola, importo e data in testa, e il servizio sotto.
+const GRIGLIA_M = 'minmax(0,1fr) auto'
+const GRIGLIA_ANOMALIE_M = 'auto minmax(0,1fr) auto'
 
 // Scheda «Budget e anomalie»: quanto della spesa DECISA è già andata, e gli scostamenti che AWS ha
 // rilevato. Prima stava in cima al Riepilogo come griglia di card; qui è una lista sola, dal più
@@ -68,7 +72,7 @@ export default function BudgetsPanel({ accountLabels, t = (k) => k, lang, rispos
     <>
       {dati.error && <Rimedio livello="warn" titolo={t('spend.budget.errore')} testo={dati.error} t={t} />}
       <Sezione titolo={t('spend.budget.titolo')} sotto={t('spend.budget.sotto')}>
-        <Lista colonne={[t('spend.col.budget'), t('spend.col.consumo'), t('spend.col.stato')]} griglia={GRIGLIA} vuoto={t('spend.budget.vuoto')}>
+        <Lista colonne={[t('spend.col.budget'), t('spend.col.consumo'), t('spend.col.stato')]} griglia={GRIGLIA} grigliaMobile={GRIGLIA_M} vuoto={t('spend.budget.vuoto')}>
           {righe.map((r) => {
             const livello = LIVELLO_BUDGET[r.level] ?? 'ok'
             // L'unità di tempo si mostra solo se NON è mensile: una parola identica su ogni riga non
@@ -79,7 +83,6 @@ export default function BudgetsPanel({ accountLabels, t = (k) => k, lang, rispos
                 key={`${r.account}/${r.name}`}
                 type="button"
                 className="ui-row ui-row-btn"
-                style={{ gridTemplateColumns: GRIGLIA }}
                 onClick={() => setAperto({ tipo: 'budget', b: r })}
               >
                 <span className="ui-name">
@@ -116,13 +119,12 @@ export default function BudgetsPanel({ accountLabels, t = (k) => k, lang, rispos
         {dati.anomaliesError ? (
           <Rimedio livello="warn" titolo={t('spend.anom.errore')} testo={dati.anomaliesError} t={t} />
         ) : (
-          <Lista griglia={GRIGLIA_ANOMALIE} vuoto={t('spend.anom.vuoto')}>
+          <Lista griglia={GRIGLIA_ANOMALIE} grigliaMobile={GRIGLIA_ANOMALIE_M} vuoto={t('spend.anom.vuoto')}>
             {anomalie.map((a) => (
               <button
                 key={a.id}
                 type="button"
                 className="ui-row ui-row-btn"
-                style={{ gridTemplateColumns: GRIGLIA_ANOMALIE }}
                 onClick={() => setAperto({ tipo: 'anomalia', a })}
               >
                 <Pill livello={a.feedback === 'YES' ? 'off' : 'warn'}>{a.feedback === 'YES' ? t('budget.expected') : t('spend.anom.pill')}</Pill>

@@ -151,9 +151,9 @@ function Panoramica({ s, livello, has, onNavigate, onDrift, onRemove, onTab, t, 
 
       {controlli.length > 0 && (
         <Sezione titolo={t('svc.controlli')} sotto={t('svc.controlliSotto')}>
-          <Lista>
+          <Lista griglia="96px minmax(0, 1fr)" grigliaMobile="96px minmax(0, 1fr)">
             {controlli.map((c) => (
-              <div key={c.chiave} className="ui-row" style={{ gridTemplateColumns: '96px minmax(0, 1fr)' }}>
+              <div key={c.chiave} className="ui-row">
                 <Pill livello={c.livello}>{c.livello === 'off' ? t('svc.nd') : t(`home.liv.${c.livello}`)}</Pill>
                 <span className="ui-what">
                   <b>{t(`svc.ck.${c.chiave}`)}</b> <span className="ui-mute">{t(`svc.ckSpiega.${c.chiave}`)}</span>

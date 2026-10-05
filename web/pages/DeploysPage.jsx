@@ -19,6 +19,9 @@ const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 const PERIOD_ORE = { '24h': 24, '7d': 168, '30d': 720 }
 const COLONNE_SERVIZI = 'minmax(0,1.1fr) 96px minmax(0,1.4fr) 76px 110px'
 const COLONNE_BUILD = 'minmax(0,1.1fr) 96px minmax(0,1.4fr) 110px'
+// Sul telefono: nome ed esito in testa, cosa e' successo sotto, quando in fondo. Gli ultimi rilasci
+// (`.rl-hist`) li toglie rilasci.css.
+const COLONNE_M = 'minmax(0,1fr) auto'
 
 // Nome fase leggibile: DOWNLOAD_SOURCE → "Download source".
 function phaseLabel(type = '') {
@@ -407,6 +410,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
         <Lista
           colonne={[t('rilasci.dep.col.servizio'), t('rilasci.dep.col.esito'), t('rilasci.dep.col.cosa'), t('rilasci.dep.col.ultimi'), t('rilasci.dep.col.quando')]}
           griglia={COLONNE_SERVIZI}
+          grigliaMobile={COLONNE_M}
           vuoto={isFiltering(serviceFilter) || statusFilter !== 'all' || query ? t('deploys.noneFiltered') : data && !accounts.length ? t('deploys.noAccounts') : t('deploys.none')}
         >
           {gruppi.map((g) => {
@@ -417,7 +421,6 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
                 key={`${g.accountKey}/${g.service}`}
                 type="button"
                 className="ui-row ui-row-btn"
-                style={{ gridTemplateColumns: COLONNE_SERVIZI }}
                 // data-build: ancora per il video demo, vedi pageKit.jsx.
                 data-build={b.service}
                 title={t('deploys.openDetail')}
@@ -450,6 +453,7 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
         <Lista
           colonne={[t('rilasci.dep.col.servizio'), t('rilasci.dep.col.esito'), t('rilasci.dep.col.cosa'), t('rilasci.dep.col.quando')]}
           griglia={COLONNE_BUILD}
+          grigliaMobile={COLONNE_M}
           vuoto={t('deploys.noneFiltered')}
         >
           {[...visibili]
@@ -462,7 +466,6 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
                   key={b.id || `${b.project}:${b.number}`}
                   type="button"
                   className="ui-row ui-row-btn"
-                  style={{ gridTemplateColumns: COLONNE_BUILD }}
                   data-build={b.service}
                   onClick={() => apri(b, b.accountLabel, recenti)}
                 >

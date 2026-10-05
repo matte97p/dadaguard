@@ -6,9 +6,13 @@ import { Card, Lista, Meter, Pill, Sezione } from '../ui/index.js'
 // traffico da bot). I percorsi vanno a capo perché sono lunghi: comprimerli in coda alla prima riga
 // li troncava proprio nel punto che distingue una rotta dall'altra. La barra e' relativa alla regola
 // che ferma di piu' nella zona: dice a colpo d'occhio quale guardare, il numero vero sta accanto.
+// Sul telefono: azione, barra e numero in testa, la regola e i percorsi sotto a tutta riga.
+const GRIGLIA_REGOLE = '96px minmax(0, 1.6fr) minmax(0, 1fr) 72px'
+const GRIGLIA_REGOLE_M = 'auto minmax(0, 1fr) auto'
+
 function RuleRow({ r, max, t }) {
   return (
-    <div className="ui-row" style={{ gridTemplateColumns: '96px minmax(0, 1.6fr) minmax(0, 1fr) 72px' }}>
+    <div className="ui-row">
       <Pill livello={r.blocking ? 'crit' : 'off'}>{r.action}</Pill>
       <span className="ui-what">
         {t(`waf.source.${r.sourceKind}`)}
@@ -56,7 +60,7 @@ function ZoneCard({ z, t }) {
         {t('waf.nonSiSommano')}
       </span>
       {z.rules?.length > 0 && (
-        <Lista>
+        <Lista griglia={GRIGLIA_REGOLE} grigliaMobile={GRIGLIA_REGOLE_M}>
           {z.rules.map((r, i) => (
             <RuleRow key={`${r.ruleId}:${r.action}:${i}`} r={r} max={max} t={t} />
           ))}
