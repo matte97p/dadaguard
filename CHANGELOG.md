@@ -39,6 +39,13 @@ All notable changes to Dadaguard are documented here. Format based on
   virgola): è così che il quadro apre le risorse di una sua riga.
 
 ### Changed
+- **Il quadro ha una tabella per ambiente e orari fissi** (05/10/2026). Le due tabelle «Adesso» e
+  «Ultime 24 ore» Slack le dimensionava ognuna a modo suo, e il canvas sembrava in disordine: ora è una
+  sola, prima quello da guardare e poi i rilasci, e senza righe non c'è tabella. I tempi sono orari
+  («alle 08:10», «ieri alle 18:30») e non «X min fa», e non c'è più «aggiornato alle»: un canvas che
+  cambiava ogni minuto veniva riscritto ogni minuto, e l'app di Slack, ricevendo una modifica a canvas
+  aperto, mostrava la versione vecchia e la nuova una sotto l'altra. Ora si riscrive solo quando cambia
+  qualcosa di vero.
 - **Il quadro dei deploy si aggiorna ogni 15 secondi e legge solo API gratuite** (05/10/2026). Usava
   lo stato completo della dashboard, che legge metriche CloudWatch a pagamento: rifatto ogni 2 minuti
   costava circa 100 $ al mese (misurato in Cost Explorer, ~470 metriche a giro). Ora ha un lettore suo
