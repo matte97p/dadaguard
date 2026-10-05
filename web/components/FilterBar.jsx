@@ -1,4 +1,4 @@
-import { Space, Input, Select, Tooltip, Button, Dropdown } from 'antd'
+import { Input, Select, Tooltip, Button, Dropdown } from 'antd'
 import {
   TeamOutlined,
   AppstoreOutlined,
@@ -11,13 +11,15 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons'
 import { Tabs } from '../ui/index.js'
-import { CHIP } from '../servizi.js'
 import './servizi.css'
 
 // Set di campi per contesto: la Dashboard e la Topologia filtrano SINGOLI servizi (barra piena);
 // i pannelli aggregati (Costi/Sprechi/Quote) sono per-account, quindi solo Account + Regione.
 export const FILTER_FIELDS_FULL = ['name', 'account', 'type', 'status', 'region', 'schedule', 'managed', 'problems', 'presets']
 export const FILTER_FIELDS_ACCOUNT = ['account', 'region']
+// Servizi: le tendine di prima, senza ricerca e senza il bottone «solo problemi», che sulla pagina
+// sono il campo e il chip sopra la lista. Due controlli per la stessa cosa si contraddicono.
+export const FILTER_FIELDS_SERVIZI = ['type', 'status', 'account', 'region', 'schedule', 'managed', 'presets']
 
 // Barra filtri condivisa da tutte le pagine. Lo stato vive in App (persiste tra le pagine); qui
 // mostriamo solo i controlli richiesti da `fields`, così ogni pagina espone solo i filtri sensati.
@@ -50,11 +52,14 @@ export default function FilterBar({
   applyPreset,
   deletePreset,
   onSavePreset,
+  className = '',
+  // Ancora per il CSS (su Servizi le tendine si chiudono sul telefono) e per il video demo.
+  vista = 'filtri',
   t,
 }) {
   const has = (f) => fields.includes(f)
   return (
-    <Space style={{ marginBottom: 16 }} wrap size={8}>
+    <div className={`sv-filtri ${className}`.trim()} data-view={vista}>
       {has('name') && (
         <Input.Search
           allowClear
@@ -223,34 +228,33 @@ export default function FilterBar({
           </Button>
         </Dropdown>
       )}
-    </Space>
+    </div>
   )
 }
 
-// La barra della pagina Servizi, ridotta a quello che si usa davvero: una ricerca per nome o tipo e
-// tre chip (con problemi, tutti, spenti) col conteggio accanto. Account e ambiente li sceglie gia' il
-// selettore in alto, gli altri filtri restano raggiungibili dai preset e dall'URL ma non occupano
-// piu' una riga di tendine che nessuno apriva.
-export function FiltroServizi({ query, onQuery, chip, onChip, conteggi, t }) {
+// La riga sopra la lista di Servizi: la ricerca, i chip di stato col conteggio e, sul telefono, il
+// bottone che apre le tendine. I chip sono scorciatoie dei filtri di App (vedi `vociChip` in
+// web/servizi.js), non uno stato della pagina: quello che premi qui lo ritrovi scelto nella tendina
+// Stato, e viceversa.
+export function FiltroServizi({ query, onQuery, voci, attiva, onChip, nTendine = 0, aperti, onApri, t }) {
   return (
-    <div className="sv-tools">
-      <input
-        className="sv-search"
-        type="search"
-        value={query}
-        onChange={(e) => onQuery(e.target.value)}
-        placeholder={t('svc.cerca')}
-        aria-label={t('svc.cerca')}
-      />
-      <Tabs
-        voci={CHIP.map((k) => ({
-          key: k,
-          label: t(`svc.chip.${k}`),
-          n: conteggi?.[k],
-        }))}
-        attiva={chip}
-        onCambia={onChip}
-      />
-    </div>
+    <>
+      <div className="sv-tools">
+        <input
+          className="sv-search"
+          type="search"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder={t('svc.cerca')}
+          aria-label={t('svc.cerca')}
+        />
+        {/* Solo sul telefono (vedi servizi.css): sopra i 720px le tendine stanno sempre aperte. Il
+            numero dice quante sono scelte, perche' chiuse non si vedono. */}
+        <button type="button" className="ui-kbd sv-filtri-btn" aria-expanded={Boolean(aperti)} onClick={onApri}>
+          {nTendine ? t('svc.filtri.n', { n: nTendine }) : t('svc.filtri')}
+        </button>
+      </div>
+      <Tabs voci={voci} attiva={attiva} onCambia={onChip} />
+    </>
   )
 }

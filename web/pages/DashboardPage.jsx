@@ -3,17 +3,19 @@ import { Lista } from '../ui/index.js'
 import ServiceCard from '../components/ServiceCard.jsx'
 import ServicesTable, { famigliePerAccount, perGravita } from '../components/ServicesTable.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
-import { FiltroServizi } from '../components/FilterBar.jsx'
+import FilterBar, { FiltroServizi, FILTER_FIELDS_SERVIZI } from '../components/FilterBar.jsx'
 import { matchesAny } from '../filters.js'
 import { serviceKey } from '../serviceName.js'
-import { passaChip, contaChip } from '../servizi.js'
+import { vociChip, chipAttivo, premiChip, quanteTendine } from '../servizi.js'
 
 // Pagina Servizi: il verdetto in una frase, l'avviso se qualche account non si e' potuto leggere,
-// la ricerca coi tre chip, e la lista dal piu' grave. Ogni riga apre il pannello del servizio, dove
-// stanno cosa fare, i controlli spiegati, i log e i link alle console.
+// la ricerca coi chip di stato, le tendine (tipo, stato, account, regione, cron, Terraform, preset)
+// e la lista dal piu' grave. Ogni riga apre il pannello del servizio, dove stanno cosa fare, i
+// controlli spiegati, i log e i link alle console.
 //
-// I servizi arrivano gia' filtrati da App (ambiente scelto, ricerca, filtri salvati); qui si
-// applicano solo i chip, che sono uno stato della pagina e non della flotta.
+// I servizi arrivano gia' filtrati da App, che tiene TUTTI i filtri: chip e tendine scrivono lo
+// stesso stato, cosi' non possono dire due cose diverse e restano nell'URL e nei preset. Il redesign
+// aveva tenuto qui solo ricerca e tre chip, e chi cercava i modelli Bedrock non aveva piu' il Tipo.
 const leggi = (k, d) => {
   try {
     return localStorage.getItem(k) ?? d
@@ -32,13 +34,11 @@ const scrivi = (k, v) => {
 export default function DashboardPage({
   data,
   groups,
+  perConteggi = [],
   allServices = [],
   accountFilter = [],
   ambienteLabel,
-  nameQuery = '',
-  onNameQuery,
-  filtersActive,
-  onResetFilters,
+  filtri = {},
   loading,
   error,
   onOpen,
@@ -48,11 +48,12 @@ export default function DashboardPage({
   // e per chi le preferisce. La scelta si ricorda, come prima.
   const [view, setView] = useState(() => leggi('dadaguard-view', 'table'))
   const pickView = (v) => (scrivi('dadaguard-view', v), setView(v))
-  const [chip, setChip] = useState('tutti')
+  // Le tendine sul telefono: chiuse finche' non le apri, perche' sette controlli uno sotto l'altro
+  // spingono la lista fuori dal primo schermo. Sopra i 720px questo stato non conta (servizi.css).
+  const [tendine, setTendine] = useState(false)
 
-  const filtrati = useMemo(() => groups.flatMap((g) => g.services), [groups])
-  const conteggi = contaChip(filtrati)
-  const visibili = filtrati.filter((s) => passaChip(s, chip))
+  const visibili = useMemo(() => groups.flatMap((g) => g.services), [groups])
+  const stato = { statusFilter: filtri.statusFilter, problemsOnly: filtri.problemsOnly }
   // La flotta dell'ambiente, senza ricerca: e' il totale vero contro cui leggere il filtrato.
   const ambiente = useMemo(
     () => allServices.filter((s) => matchesAny(s.account?.key ?? '__none__', accountFilter)),
@@ -110,14 +111,25 @@ export default function DashboardPage({
       {data?.discovered && <p className="ui-note">{t('discover.autoDesc', { n: data.discovered.count })}</p>}
       {error && <div className="ui-readwarn">{`${t('content.errorPrefix')} ${error}`}</div>}
 
-      {data && <FiltroServizi query={nameQuery} onQuery={(v) => onNameQuery?.(v)} chip={chip} onChip={setChip} conteggi={conteggi} t={t} />}
-      {filtersActive && onResetFilters && (
-        <p className="ui-note">
-          {t('svc.filtriAttivi')}{' '}
-          <button type="button" className="ui-kbd" onClick={onResetFilters}>
-            {t('filter.reset')}
-          </button>
-        </p>
+      {data && (
+        <>
+          <FiltroServizi
+            query={filtri.nameQuery ?? ''}
+            onQuery={(v) => filtri.setNameQuery?.(v)}
+            voci={vociChip(perConteggi, t)}
+            attiva={chipAttivo(stato)}
+            onChip={(k) => {
+              const p = premiChip(k, stato)
+              filtri.setStatusFilter?.(p.statusFilter)
+              filtri.setProblemsOnly?.(p.problemsOnly)
+            }}
+            nTendine={quanteTendine(filtri)}
+            aperti={tendine}
+            onApri={() => setTendine((v) => !v)}
+            t={t}
+          />
+          <FilterBar {...filtri} fields={FILTER_FIELDS_SERVIZI} vista="filtri-servizi" className={tendine ? 'sv-filtri-aperti' : ''} />
+        </>
       )}
 
       {loading && !data && <Lista vuoto={t('home.inLettura')} />}

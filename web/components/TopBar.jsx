@@ -11,6 +11,8 @@ import { Dot } from '../ui/index.js'
 export default function TopBar({
   ambienti = [],
   ambiente,
+  // Account scelti che non fanno un ambiente intero (dalla tendina di Servizi): nessuna pillola premuta.
+  parziale = false,
   onAmbiente,
   ruolo,
   onRuolo,
@@ -34,7 +36,7 @@ export default function TopBar({
         <i>D</i>Dadaguard
       </button>
       <div className="ui-envs" role="group" aria-label={t('shell.ambiente')}>
-        <button type="button" className="ui-env" aria-pressed={ambiente == null} onClick={() => onAmbiente(null)}>
+        <button type="button" className="ui-env" aria-pressed={ambiente == null && !parziale} onClick={() => onAmbiente(null)}>
           <Dot livello={ambienti.reduce((p, a) => (rank(a.livello) < rank(p) ? a.livello : p), 'off')} />
           {t('shell.tutti')}
         </button>
