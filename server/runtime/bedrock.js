@@ -1,6 +1,6 @@
 import { metricValues } from './cw.js'
 import { identityT, makeT } from '../i18n.js'
-import { risolviProfilo, valuta, raffica, rafficaBasta, testoRegola } from './soglie.js'
+import { risolviProfilo, valuta, raffica, rafficaBasta, testoRegola, CAMPIONE_MINIMO } from './soglie.js'
 import { fmtMs, fmtCount } from '../util/format.js'
 
 // RuntimeProvider Amazon Bedrock. Serverless: guardiamo le metriche d'uso su una finestra (CloudWatch
@@ -169,7 +169,13 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   const throttles = Math.round(m.thr)
   const inv = Math.round(m.inv)
   const nellOra = sfori(m, soglie)
-  const adesso = acuta ? sfori(acuta, soglie) : nellOra
+  // Sotto al campione minimo i 15 minuti non dicono niente, e «non so» non è «pulito». Il 05/10/2026
+  // un modello con 325 5xx su 352 nell'ora (cioè nessuna chiamata riuscita) è uscito in canale come IN
+  // RIENTRO: negli ultimi 15 minuti le chiamate erano poche, la soglia non le valutava e la finestra
+  // risultava senza errori. Il rientro lo può dire solo una finestra con abbastanza chiamate; se non
+  // le ha, vale quello che dice l'ora.
+  const acutaMuta = acuta && Math.round(acuta.inv) < CAMPIONE_MINIMO && nellOra.length > 0
+  const adesso = acutaMuta ? nellOra : acuta ? sfori(acuta, soglie) : nellOra
   // Tre stati invece di due: `down` = conclamato (persiste E in corso), `degraded` = da guardare (uno
   // dei due), `up` = pulito su entrambe le finestre.
   // `down` lo può produrre SOLO un segnale grave presente su entrambe le finestre (vedi `GRAVI`):
@@ -196,7 +202,8 @@ export async function bedrockRuntime(cfg, aws, opts = {}) {
   // ne è seguita è stata «non so bene su cosa sia costruito questo alert».
   const colpevole = nellOra[0] ?? adesso[0] ?? null
   const coda = []
-  if (nellOra.length && adesso.length) coda.push(t('bedrock.ancora', { window: acuL }))
+  if (acutaMuta) coda.push(t('bedrock.pocheAdesso', { window: acuL, n: Math.round(acuta.inv) }))
+  else if (nellOra.length && adesso.length) coda.push(t('bedrock.ancora', { window: acuL }))
   else if (nellOra.length) coda.push(t('bedrock.rientro', { window: acuL, conferma: winL }))
   else if (adesso.length) coda.push(t('bedrock.appena', { window: acuL, conferma: winL }))
   if (colpevole) coda.push(perche(colpevole, nellOra.length ? winL : acuL, t, soglie.rafficaMinuti))

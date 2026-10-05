@@ -410,3 +410,25 @@ test('contratto: viaggia col risultato, anche quando il modello non è stato chi
   assert.equal(fermo.status, 'idle')
   assert.ok(fermo.contratto, 'un check fermo deve dire lo stesso a che soglie guardava')
 })
+
+test('il caso reale del 05/10/2026: 100% di errori nell ora e 15 minuti quasi muti → down, non in rientro', async () => {
+  // 325 5xx + 27 4xx su 352: nessuna chiamata riuscita. Negli ultimi 15 minuti le chiamate erano
+  // sotto al campione minimo, la soglia non le valutava e la finestra risultava pulita.
+  const r = await leggi({ inv: 352, serr: 325, cerr: 27 }, { inv: 8, serr: 8 })
+  assert.equal(r.status, 'down')
+  assert.doesNotMatch(r.summary, /probabile rientro/)
+  assert.match(r.summary, /troppo poche per dire che è rientrato/)
+  assert.equal(r.provisional, false)
+})
+
+test('15 minuti senza nessuna chiamata dopo un ora rossa: resta down', async () => {
+  assert.equal(await stato({ inv: 352, serr: 325 }, { inv: 0 }), 'down')
+})
+
+test('il rientro vero, con abbastanza chiamate riuscite nei 15 minuti, resta degraded', async () => {
+  assert.equal(await stato({ inv: 352, serr: 325 }, { inv: 40, serr: 0 }), 'degraded')
+})
+
+test('ora pulita e 15 minuti con poche chiamate: la guardia non inventa un allarme', async () => {
+  assert.equal(await stato({ inv: 500 }, { inv: 5, serr: 5 }), 'up')
+})
