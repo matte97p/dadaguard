@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Verdetto, Tabs, Lista, Sezione, Card, Pill } from '../ui/index.js'
+import { Verdetto, Tabs, Lista, Sezione, Card, Pill, stileGriglia } from '../ui/index.js'
 import Loading from '../components/Loading.jsx'
 import './ops.css'
 
@@ -37,20 +37,24 @@ function Entities({ entities, t }) {
     [t('iam.groups'), entities.groups],
   ]
   return (
-    <Lista>
+    <Lista griglia="90px minmax(0, 1fr)" grigliaMobile="90px minmax(0, 1fr)">
       {righe.map(([label, items]) => (
-        <div key={label} className="ui-row" style={{ gridTemplateColumns: '90px minmax(0, 1fr)' }}>
+        <div key={label} className="ui-row">
           <span className="ui-mute">{label}</span>
-          <span className="ui-who">
-            {items.length ? (
-              items.map((n) => (
-                <b key={n} style={{ marginInlineEnd: 4 }}>
-                  {n}
-                </b>
-              ))
-            ) : (
-              <span className="ui-faint">{t('iam.noneEntity')}</span>
-            )}
+          {/* `.ui-who` dentro a uno span, non figlio diretto della riga: sul telefono ui.css nasconde
+              `.ui-row > .ui-who` (il «di chi» delle righe problema), e qui e' l'unica colonna utile. */}
+          <span>
+            <span className="ui-who">
+              {items.length ? (
+                items.map((n) => (
+                  <b key={n} style={{ marginInlineEnd: 4 }}>
+                    {n}
+                  </b>
+                ))
+              ) : (
+                <span className="ui-faint">{t('iam.noneEntity')}</span>
+              )}
+            </span>
           </span>
         </div>
       ))}
@@ -63,9 +67,9 @@ function Entities({ entities, t }) {
 // non sono stati, sono due tipi diversi di chi.
 function Assignments({ items, t }) {
   return (
-    <Lista>
+    <Lista griglia="96px minmax(0, 1fr)" grigliaMobile="96px minmax(0, 1fr)">
       {items.map((a, i) => (
-        <div key={i} className="ui-row" style={{ gridTemplateColumns: '96px minmax(0, 1fr)' }}>
+        <div key={i} className="ui-row">
           <Pill livello={a.type === 'group' ? 'info' : 'off'}>{a.type === 'group' ? t('iam.group') : t('iam.persona')}</Pill>
           <span className="ui-name">
             {a.name}
@@ -120,24 +124,21 @@ function PolicyView({ t, initialSel, data, error }) {
   if (data && !hasAny) return <Lista vuoto={t('iam.none')}>{[]}</Lista>
 
   return (
-    <div className="ui-hero" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.6fr)', alignItems: 'start' }}>
+    <div className="ui-hero" style={{ '--ui-hero-cols': 'minmax(0, 1fr) minmax(0, 1.6fr)', alignItems: 'start' }}>
       <div>
         {accounts.map((a) => (
           <Sezione key={a.account} titolo={a.label}>
             {a.error ? (
               <div className="ui-readwarn">{a.error}</div>
             ) : (
-              <Lista>
+              <Lista griglia="minmax(0, 1fr) auto" grigliaMobile="minmax(0, 1fr) auto">
                 {(a.policies ?? []).map((p) => (
                   <button
                     key={p.arn}
                     type="button"
                     className="ui-row ui-row-btn"
                     aria-pressed={sel?.arn === p.arn}
-                    style={{
-                      gridTemplateColumns: 'minmax(0, 1fr) auto',
-                      background: sel?.arn === p.arn ? 'var(--brand-soft)' : undefined,
-                    }}
+                    style={{ background: sel?.arn === p.arn ? 'var(--brand-soft)' : undefined }}
                     onClick={() => setSel({ account: a.account, arn: p.arn })}
                   >
                     <span className="ui-name">{p.name}</span>
@@ -167,9 +168,9 @@ function PolicyView({ t, initialSel, data, error }) {
               <Entities entities={detail.entities} t={t} />
             </Sezione>
             <Sezione titolo={t('iam.grants')}>
-              <Lista vuoto={t('iam.noGrants')}>
+              <Lista griglia="minmax(0, 1fr)" grigliaMobile="minmax(0, 1fr)" vuoto={t('iam.noGrants')}>
                 {detail.statements.map((st, i) => (
-                  <div key={i} className="ui-row" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+                  <div key={i} className="ui-row">
                     <ActionTags actions={st.actions} />
                     {st.resources.map((r, j) => (
                       <span key={j} className="ui-hint ui-mono" style={{ wordBreak: 'break-all' }}>
@@ -263,7 +264,7 @@ function ResourceView({ services, t, initialResource }) {
     <>
       {/* Due campi scritti a mano invece di due select: l'elenco dei servizi e' lungo, e il datalist
           del browser filtra mentre si scrive, che era la sola ragione per cui serviva un componente. */}
-      <div className="ui-row" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', padding: 0, border: 0 }}>
+      <div className="ui-row" style={{ ...stileGriglia('minmax(0, 1fr) minmax(0, 1fr)', 'minmax(0, 1fr)'), padding: 0, border: 0 }}>
         <select className="ui-campo" value={resource ?? ''} onChange={(e) => setResource(e.target.value || null)} aria-label={t('iam.pickResource')}>
           <option value="">{t('iam.pickResource')}</option>
           {options.map((o) => (

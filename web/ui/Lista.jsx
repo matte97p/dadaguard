@@ -1,12 +1,22 @@
+// Le colonne di una griglia come variabili CSS, non come `gridTemplateColumns`: uno stile in linea
+// vince su qualsiasi media query, e su un telefono le righe restavano a cinque colonne (nomi spezzati
+// una lettera per riga). `desktop` vale sopra gli 860px, `mobile` sotto; senza `mobile` vale quella
+// di ui.css (pillola, poi il resto). `initial` svuota la variabile, cosi' una lista dentro un'altra non
+// eredita le colonne di quella fuori.
+export function stileGriglia(desktop, mobile) {
+  return { '--ui-cols': desktop ?? 'initial', '--ui-cols-m': mobile ?? 'initial' }
+}
+
 // Contenitore delle righe, con un'intestazione di colonne opzionale e il messaggio da mostrare quando
 // e' vuota: una lista vuota senza parole si legge «non funziona», non «niente da fare».
-export default function Lista({ colonne, griglia, vuoto, children }) {
+// `griglia` e `grigliaMobile` arrivano a intestazione e righe per eredita': le righe non le ripetono.
+export default function Lista({ colonne, griglia, grigliaMobile, vuoto, children }) {
   const righe = Array.isArray(children) ? children.filter(Boolean) : children
   const vuota = righe == null || (Array.isArray(righe) && righe.length === 0)
   return (
-    <div className="ui-lista">
+    <div className="ui-lista" style={stileGriglia(griglia, grigliaMobile)}>
       {colonne && !vuota && (
-        <div className="ui-thead" style={griglia ? { gridTemplateColumns: griglia } : undefined}>
+        <div className="ui-thead">
           {colonne.map((c, i) => (
             <span key={i}>{c}</span>
           ))}

@@ -3,7 +3,7 @@
 export { default as Verdetto } from './Verdetto.jsx'
 export { default as Pill, Dot } from './Pill.jsx'
 export { default as RigaProblema } from './RigaProblema.jsx'
-export { default as Lista, Sezione } from './Lista.jsx'
+export { default as Lista, Sezione, stileGriglia } from './Lista.jsx'
 export { default as Card } from './Card.jsx'
 export { default as Sparkline } from './Sparkline.jsx'
 export { default as BarraUptime } from './BarraUptime.jsx'

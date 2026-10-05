@@ -8,6 +8,10 @@ import { soldi, leggi, meseCorrente } from './spesaKit.js'
 // d'occhio, la sesta si scorre. La lista intera sta in Ripartizioni.
 const VOCI_DOVE = 5
 
+// Le liste di importi sul telefono: nome, una barra corta, e i due numeri accanto, su una riga sola.
+// L'intestazione li' non c'e', ma l'ordine delle colonne resta quello di sopra i 860px.
+const GRIGLIA_IMPORTI_M = 'minmax(0,1fr) 48px auto auto'
+
 // Lista ordinabile con barra, usata da entrambe le ripartizioni (per livello e per componente).
 //
 // La barra è la resa grafica della colonna «spesa», non un dato in più: per questo la sua colonna non
@@ -59,6 +63,7 @@ function ListaRipartizione({ rows, headLabel, t, empty, lang }) {
         </span>,
       ]}
       griglia={griglia}
+      grigliaMobile={GRIGLIA_IMPORTI_M}
       vuoto={empty}
     >
       {sorted.map((r) => {
@@ -70,7 +75,6 @@ function ListaRipartizione({ rows, headLabel, t, empty, lang }) {
             <Riga
               type={apribile ? 'button' : undefined}
               className={`ui-row ${apribile ? 'ui-row-btn' : ''}`}
-              style={{ gridTemplateColumns: griglia }}
               onClick={apribile ? () => toggle(r.key) : undefined}
               aria-expanded={apribile ? aperta : undefined}
             >
@@ -87,7 +91,7 @@ function ListaRipartizione({ rows, headLabel, t, empty, lang }) {
             {apribile &&
               aperta &&
               r.services.map((sv) => (
-                <div key={sv.service} className="ui-row sp-figlio" style={{ gridTemplateColumns: griglia }}>
+                <div key={sv.service} className="ui-row sp-figlio">
                   <span className="ui-name">{sv.service}</span>
                   <span />
                   <span className="sp-num">{soldi(sv.amount, lang)}</span>
@@ -461,12 +465,13 @@ function PerServizio({ accounts, t, lang }) {
             }
           >
             <Lista
-              colonne={[t('costs.th.service'), '', <span key="s" className="sp-num">{t('costs.th.spend')}</span>, <span key="p" className="sp-num">{t('costs.projection')}</span>]}
+              colonne={[t('costs.th.service'), '', <span key="s" className="sp-num">{t('costs.th.spend')}</span>, <span key="p" className="sp-num">{t('costs.th.projection')}</span>]}
               griglia={griglia}
+              grigliaMobile={GRIGLIA_IMPORTI_M}
               vuoto={t('costs.none')}
             >
               {items.map((it) => (
-                <div key={it.service} className="ui-row" style={{ gridTemplateColumns: griglia }}>
+                <div key={it.service} className="ui-row">
                   <span className="ui-name">
                     {it.service}
                     {/* L'AI segnata riga per riga: è quello che rende il totale AI verificabile. */}
@@ -480,7 +485,7 @@ function PerServizio({ accounts, t, lang }) {
               {/* I crediti si scalano SEMPRE a parte: il lordo è quello che pagherai a crediti
                   esauriti, i crediti una riga di detrazione esplicita, il netto il residuo. */}
               {hasCredits && (
-                <div className="ui-row" style={{ gridTemplateColumns: griglia }}>
+                <div className="ui-row">
                   <span className="ui-name ui-t-ok">
                     {t('costs.creditsRefunds')}
                     <small>{t('costs.netAfter', { v: soldi(acc.total, lang) })}</small>

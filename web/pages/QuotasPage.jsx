@@ -41,7 +41,6 @@ export default function QuotasPage({ accountLabels, t = (k) => k, risposta }) {
               key={`${q.conto}/${q.service}/${q.name}/${i}`}
               type="button"
               className="ui-row ui-row-btn"
-              style={{ gridTemplateColumns: GRIGLIA }}
               onClick={() => setAperta(q)}
             >
               <Pill livello={livello}>{t(`lim.livello.${livello}`)}</Pill>
