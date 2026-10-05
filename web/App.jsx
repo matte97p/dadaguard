@@ -24,7 +24,7 @@ import {
 import FilterBar, { FILTER_FIELDS_FULL, FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import { antdTheme, SPACE, FONT } from './theme.js'
-import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti } from './filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, corrispondeNome } from './filters.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -187,7 +187,12 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…
   const [scheduleFilter, setScheduleFilter] = useState('all') // all | cron | ondemand
   const [managedFilter, setManagedFilter] = useState('all') // all | managed | unmanaged (Terraform)
-  const [nameQuery, setNameQuery] = useState('')
+  // Filtro iniziale da `?q=`, per la stessa ragione di `?account=`: il quadro dei deploy in Slack linka
+  // qui le risorse di una sua riga (le Lambda aggiornate insieme, i servizi di un'immagine condivisa),
+  // e senza arriveresti sull'intera flotta da cercare a mano.
+  const [nameQuery, setNameQuery] = useState(() =>
+    typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get('q') ?? ''),
+  )
   const [problemsOnly, setProblemsOnly] = useState(false) // scorciatoia: solo degraded/down
 
   useEffect(() => {
@@ -371,7 +376,6 @@ export default function App() {
   const logsDefaultErrorsOnly = isCronSvc && detailService?.overall === 'down'
 
   const groups = useMemo(() => {
-    const q = nameQuery.trim().toLowerCase()
     const filtered = services.filter((s) => {
       const cron = Boolean(s.checks?.runtime?.schedule)
       return (
@@ -382,7 +386,7 @@ export default function App() {
         (scheduleFilter === 'all' || (scheduleFilter === 'cron') === cron) &&
         (managedFilter === 'all' ||
           (managedFilter === 'managed' ? s.managed === true : s.managed === false)) &&
-        (!q || s.name.toLowerCase().includes(q) || displayName(s).toLowerCase().includes(q)) &&
+        corrispondeNome(nameQuery, s.name, displayName(s)) &&
         (!problemsOnly || s.overall === 'degraded' || s.overall === 'down')
       )
     })
