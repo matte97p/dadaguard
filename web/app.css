@@ -751,21 +751,18 @@ details[open] > .dg-summary .dg-chev {
   padding: 12px 14px;
   border: 1px solid var(--dg-line);
   border-inline-start: 4px solid var(--dg-topo-accent, var(--dg-line-strong));
-  border-radius: 14px;
-  background: var(--dg-node-bg, #fff);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--sans);
   cursor: pointer;
   transition:
     box-shadow 0.14s ease,
     transform 0.14s ease;
 }
-.dg-dark .dg-topo-box,
-.dg-dark .dg-topo-node {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-}
 .dg-topo-box:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+  border-color: var(--line-2);
+  background: var(--hover);
 }
 .dg-topo-box-head {
   display: flex;
@@ -798,23 +795,24 @@ details[open] > .dg-summary .dg-chev {
   padding: 8px 11px 8px 9px;
   border: 1px solid var(--dg-line);
   border-inline-start: 3px solid var(--dg-topo-accent, var(--dg-line-strong));
-  border-radius: 10px;
-  background: var(--dg-node-bg, #fff);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--sans);
   transition:
     box-shadow 0.14s ease,
     transform 0.14s ease,
     opacity 0.14s ease;
 }
 .dg-topo-node:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  border-color: var(--line-2);
+  background: var(--hover);
 }
 /* Nodo scelto: anello viola. È il fuoco della lettura, e il pannello a lato racconta lui. */
 .dg-topo-sel {
   box-shadow:
-    0 0 0 2px var(--dg-brand),
-    0 4px 14px rgba(124, 58, 237, 0.25);
+    0 0 0 2px var(--brand),
+    0 0 0 6px var(--brand-soft);
 }
 .dg-topo-ghost {
   border-style: dashed;
@@ -829,8 +827,8 @@ details[open] > .dg-summary .dg-chev {
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: var(--dg-row);
-  color: var(--dg-topo-accent, var(--dg-ink-mute));
+  background: var(--off-soft);
+  color: var(--dg-topo-accent, var(--mute));
   font-size: 14px;
 }
 .dg-topo-name {
@@ -887,7 +885,7 @@ details[open] > .dg-summary .dg-chev {
   font-size: 10px;
 }
 .react-flow__edge-textbg {
-  fill: var(--dg-node-bg, #fff);
+  fill: var(--panel);
 }
 
 /* Repliche sulla card: cifre a larghezza fissa, in un riquadro appena accennato. Rosse quando le
@@ -904,8 +902,8 @@ details[open] > .dg-summary .dg-chev {
   white-space: nowrap;
 }
 .dg-topo-rep-male {
-  color: #ff4d4f;
-  background: rgba(255, 77, 79, 0.12);
+  color: var(--crit);
+  background: var(--crit-soft);
 }
 
 /* Il pannello a destra della mappa: cosa si sa di ciò che è selezionato. Senza, tutto quello che si
@@ -914,12 +912,13 @@ details[open] > .dg-summary .dg-chev {
   width: 280px;
   flex-shrink: 0;
   border-inline-start: 1px solid var(--dg-line);
-  padding: 14px 14px 14px 16px;
+  padding: 16px 16px 16px 18px;
   overflow-y: auto;
-  background: var(--dg-node-bg, #fff);
-}
-.dg-dark .dg-topo-panel {
-  background: #1b1b1f;
+  background: var(--panel);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .dg-topo-panel-title {
   font-size: 14px;
@@ -959,17 +958,11 @@ details[open] > .dg-summary .dg-chev {
   align-items: center;
   padding: 5px 10px;
   border-radius: 999px;
-  background: var(--dg-node-bg, #fff);
-  border: 1px solid var(--dg-brand);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand);
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--dg-brand);
-  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.22);
-}
-.dg-dark .dg-topo-loading {
-  /* In scuro il viola del marchio su fondo quasi nero è poco leggibile: si alza. */
-  color: #c4a5ff;
-  border-color: #7c3aed;
+  color: var(--brand);
 }
 
 /* I nomi dentro al box: la parte che trasforma un contenitore in un'informazione. Piccoli, monospazio,
@@ -992,7 +985,7 @@ details[open] > .dg-summary .dg-chev {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   line-height: 1.35;
   color: var(--dg-ink-mute);
