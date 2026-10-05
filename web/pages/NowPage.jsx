@@ -231,6 +231,8 @@ export default function NowPage({
           {righe.map((r) => (
             <RigaProblema
               key={r.id}
+              data-signal={r.kind}
+              data-service={r.servizio?.name}
               livello={r.livello}
               etichetta={etichetta(r)}
               icona={r.servizio ? SIGLA[r.servizio.type] ?? '·' : SIGLA_KIND[r.kind] ?? '·'}
