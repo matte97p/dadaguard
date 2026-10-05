@@ -92,6 +92,17 @@ const REDIRECTS = {
   '/esecuzioni': '/cron',
 }
 
+// Il redirect tiene la query del link vecchio (`/esecuzioni?cron=x` deve aprire quel cron, non
+// l'elenco): quella della destinazione, se c'e', vince sulle chiavi uguali.
+function Rimanda({ to }) {
+  const { search, hash } = useLocation()
+  const [path, q = ''] = to.split('?')
+  const p = new URLSearchParams(search)
+  for (const [k, v] of new URLSearchParams(q)) p.set(k, v)
+  const qs = p.toString()
+  return <Navigate to={`${path}${qs ? `?${qs}` : ''}${hash}`} replace />
+}
+
 // Preferenze di chi guarda, in localStorage. Sempre dentro un try: in una finestra privata o con i
 // dati del sito bloccati l'accesso lancia, e una preferenza che non si salva non deve rompere la pagina.
 function leggi(chiave) {
@@ -779,7 +790,7 @@ export default function App() {
               <Route path="/sicurezza" element={<SecurityPage t={t} lang={lang} />} />
               {/* I percorsi vecchi non muoiono: reindirizzano alla scheda giusta della pagina fusa. */}
               {Object.entries(REDIRECTS).map(([from, to]) => (
-                <Route key={from} path={from} element={<Navigate to={to} replace />} />
+                <Route key={from} path={from} element={<Rimanda to={to} />} />
               ))}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
