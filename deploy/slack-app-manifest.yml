@@ -3,18 +3,30 @@
 # Il token da dare a Dadaguard è il «Bot User OAuth Token» (`xoxb-…`), in DADAGUARD_SLACK_BOT_TOKEN.
 #
 # I permessi sono i soli che il giro usa, uno per chiamata:
-#   canvases:write   conversations.canvases.create, canvases.edit, canvases.access.set
+#   canvases:write   conversations.canvases.create, canvases.edit (intero o una cella per id),
+#                    canvases.access.set
+#   canvases:read    leggere il canvas (con files:read), per sapere quali celle sono cambiate
+#   files:read       files.info e il suo `url_private_download` (l'HTML del canvas con gli id delle
+#                    celle; lo schema e l'indirizzo della List) e files.list (ritrovare la List del
+#                    bot dopo un riavvio)
 #   chat:write       il messaggio quando qualcosa si rompe, la risposta ✅ e la modifica del messaggio
 #   channels:read    conversations.info sui canali pubblici, per ritrovare il canvas del canale
 #   groups:read      lo stesso sui canali privati
+#   lists:write      slackLists.create, slackLists.items.create/update/delete, slackLists.access.set
+#   lists:read       slackLists.items.list, per rileggere le righe della List dopo un riavvio
+#   bookmarks:write  bookmarks.add, il segnalibro della List in cima al canale
 # Niente interattività, quindi nessun indirizzo pubblico da esporre: i link a Dadaguard sono link, non
 # pulsanti.
 #
+# ⚠️ Un'app già installata che riceve permessi nuovi va REINSTALLATA (Install App → Reinstall): fino ad
+# allora il token resta quello di prima, e la List risponde `missing_scope` a ogni giro.
 # ⚠️ Nei canali privati l'app va invitata (`/invite @Dadaguard`): senza, `conversations.info` risponde
 # `channel_not_found`, che sembra un id sbagliato e invece è un invito mancante.
+# ⚠️ `bookmarks:read` NON serve e non c'è: la List si ritrova fra i file del bot (`files.list`), non
+# fra i segnalibri del canale.
 display_information:
   name: Dadaguard
-  description: Il quadro dei deploy, nel canvas del canale.
+  description: Il quadro dei deploy, nel canvas e nella List del canale.
 features:
   bot_user:
     display_name: Dadaguard
@@ -23,9 +35,14 @@ oauth_config:
   scopes:
     bot:
       - canvases:write
+      - canvases:read
+      - files:read
       - chat:write
       - channels:read
       - groups:read
+      - lists:write
+      - lists:read
+      - bookmarks:write
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false

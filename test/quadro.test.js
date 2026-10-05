@@ -29,6 +29,16 @@ import {
   canvasTrasversale,
   canvasDaScrivere,
   TITOLO_CRON,
+  leggiCanvasHtml,
+  pianoCelle,
+  testoPiatto,
+  righeTabella,
+  conTest,
+  quandoBreve,
+  nuovaMemoriaListe,
+  SCHEMA_LISTA,
+  STATI,
+  MAX_MODIFICHE_GIRO,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -328,39 +338,46 @@ function ambienteGrande() {
   return quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi })
 }
 
-test('con una flotta grande il canvas resta corto: una tabella, prima i problemi, al massimo 12 rilasci, poi un conteggio', () => {
+test('tabella stabile: TUTTE le risorse, in ordine alfabetico, quattro colonne, e il nome senza emoji', () => {
   const qa = ambienteGrande()
   const c = canvasQuadro(dividi(qa).principale, { ora: ORA, url: URL })
   const md = c.markdown
   assert.equal(c.titolo, '🟥 Quadro deploy PRODUZIONE')
   assert.doesNotMatch(md, /## Adesso|## Ultime/, 'niente sottotitoli: una tabella sola')
-  assert.equal(md.split('\n').filter((l) => l.startsWith('| Risorsa')).length, 1, 'una tabella, una larghezza')
-  assert.ok(md.indexOf('**rotta**') < md.indexOf('**app-nuova-9**'), 'prima i problemi, poi i rilasci')
-  assert.match(md, /\| 🚨 \[\*\*rotta\*\*\]\(https:\/\/dg\.example\.com\/deploy\?service=rotta&account=production\) \| giù: 0\/2 task attivi \|/)
-  assert.match(md, /E altri 2: \[tutti su Dadaguard\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)\./, '14 recenti, 12 righe e il resto contato')
-  assert.match(md, /\*\*Senza novità\*\* \(24 h\): 12 applicazioni  \|  Dadaguard: \[Deploy PROD\]/, 'il resto e i link in una riga sola')
+  assert.equal(md.split('\n').filter((l) => l.startsWith('| Risorsa | Stato | Versione | Dettagli |')).length, 1, 'una tabella, quattro colonne')
+  const righe = md.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
+  assert.equal(righe.length, 27, '12 ferme, 14 nuove e quella giù: anche le ferme hanno la loro riga')
+  const nomi = righe.map((l) => /\*\*([^*]+)\*\*/.exec(l)[1])
+  assert.deepEqual(nomi, [...nomi].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })), 'in ordine alfabetico, non per gravità né per data')
+  assert.ok(righe.every((l) => l.startsWith('| [**')), 'la prima cella è il nome e basta: niente emoji, che starebbe nella cella che non si riscrive mai')
+  assert.ok(righe.includes('| [**rotta**](https://dg.example.com/deploy?service=rotta&account=production) | 🚨 giù · 0/2 task attivi | `ccccccc` | n/d |'))
+  assert.match(md, /\| \[\*\*app-ferma-3\*\*\]\([^)]+\) \| ➖ invariato · 01\/09 02:00 \| `aaaaaa3` \|/, 'una risorsa ferma è ➖, con la data del suo ultimo cambio')
+  assert.match(md, /\| \[\*\*app-nuova-9\*\*\]\([^)]+\) \| 🚀 deploy OK · oggi 11:30 \| `bbbbbb9` \|/)
+  assert.doesNotMatch(md, /E altri|Senza novità/, 'niente resto contato: le righe ci sono tutte')
+  assert.match(md, /\n\nDadaguard: \[Deploy PROD\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)/)
   assert.doesNotMatch(md, /Lambda/, 'i cron Lambda stanno nella loro scheda')
-  assert.doesNotMatch(md, /app-ferma-3/, 'le risorse ferme non hanno righe')
   assert.doesNotMatch(md, /\u2014/, 'niente trattino lungo')
-  const righeRilasci = md.split('\n').filter((l) => l.startsWith('| 🚀'))
-  assert.equal(righeRilasci.length, 12)
   assert.match(c.sintesi, /^❌ 1 rotto · 🚀 14 rilasci nelle ultime 24 h/)
   assert.match(md, /^## 🟥 Produzione\n\n\*\*❌ 1 rotto/, 'ogni scheda: titolo dell’ambiente, poi la sintesi')
+  assert.equal(c.modello.sezioni[0].righe.length, 27, 'il modello ha le stesse righe del markdown')
 
   const cron = canvasTrasversale(TITOLO_CRON, [dividi(qa).cron], { ora: ORA, url: URL })
   assert.equal(cron.titolo, '⏰ Quadro deploy CRON')
-  assert.doesNotMatch(cron.markdown, /aggiornato alle/, 'un orologio riscriverebbe il canvas ogni minuto')
+  assert.doesNotMatch(cron.markdown, /aggiornato alle/, 'un orologio riscriverebbe una cella ogni minuto')
   assert.match(cron.markdown, /## 🟥 Produzione\n\n\*\*✅ niente di rotto, niente in corso · 🚀 1 rilascio nelle ultime 24 h\*\*/)
-  assert.match(cron.markdown, /\| ⚙️ \[\*\*20 Lambda\*\*\]\([^)]+\) \| aggiornate insieme/, 'venti Lambda dello stesso giro sono una riga')
-  assert.match(cron.markdown, /\*\*Senza novità\*\* \(24 h\): 40 Lambda/)
+  assert.equal(cron.markdown.split('\n').filter((l) => l.startsWith('| [**')).length, 60, 'una riga per Lambda: un giro non ha una riga fissa')
+  assert.match(cron.markdown, /\| \[\*\*nuovo-0\*\*\]\([^)]+\) \| 🚀 deploy OK · oggi 11:00 \| n\/d \| da dev \|/)
+  assert.match(cron.markdown, /\| \[\*\*vecchio-12\*\*\]\([^)]+\) \| ➖ invariato · 01\/09 02:00 \|/)
 })
 
-test('tutto tranquillo: la sintesi lo dice per prima', () => {
+test('tutto tranquillo: la sintesi lo dice per prima, e la riga c’è lo stesso', () => {
   const q = quadroAmbiente('staging', { deploys: LETTE_STG, servizi: [svc('api', 'staging', { tag: 'aaaaaaa', da: '2026-09-01T00:00:00Z' })] })
   const c = canvasQuadro(q, { ora: ORA })
   assert.equal(c.titolo, '🟨 Quadro deploy STAGING')
   assert.match(c.sintesi, /^✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
-  assert.doesNotMatch(c.markdown, /\| Risorsa/, 'niente righe, niente tabella vuota')
+  assert.match(c.markdown, /\| \*\*api\*\* \| ➖ invariato · 01\/09 02:00 \| `aaaaaaa` \| 1\/1 task · revisione registrata, nessuna build \|/)
+  const vuoto = canvasQuadro(quadroAmbiente('staging', { deploys: LETTE_STG, servizi: [] }), { ora: ORA })
+  assert.doesNotMatch(vuoto.markdown, /\| Risorsa/, 'senza risorse niente tabella vuota')
 })
 
 test('un avviso non è un guasto: la sintesi non lo colora di rosso', () => {
@@ -383,7 +400,7 @@ test('una cella non rompe la tabella: niente `|` né a capo che arrivino da fuor
     servizi: [svc('api', 'production', { tag: 'aaaaaaa' })],
   })
   const riga = canvasQuadro(q, { ora: ORA }).markdown.split('\n').find((l) => l.includes('**api**'))
-  assert.equal(riga.split(/(?<!\\)\|/).length, 5, 'tre celle, quindi quattro separatori')
+  assert.equal(riga.split(/(?<!\\)\|/).length, 6, 'quattro celle, quindi cinque separatori')
 })
 
 test('il nostro canvas si trova fra le SCHEDE del canale, dal titolo', () => {
@@ -418,7 +435,8 @@ test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambient
     if (metodo === 'conversations.canvases.create') return { canvas_id: 'FSTG' }
     return {}
   }
-  const cfg = quadroConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'x', DADAGUARD_QUADRO_CANALI: 'produzione=CPROD,staging=CSTG' })
+  // Le List hanno le loro prove: qui si guardano i canvas.
+  const cfg = quadroConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'x', DADAGUARD_QUADRO_CANALI: 'produzione=CPROD,staging=CSTG', DADAGUARD_QUADRO_LISTE: '0' })
   const leggiDati = async () => ({ deploys: { production: { builds: [b('api', 'a', '2026-10-02T10:00:00Z')] }, staging: { builds: [] } }, servizi: [] })
   const esiti = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA })
   assert.deepEqual(esiti.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:riscritto', 'staging:creato', 'cron:creato'])
@@ -428,7 +446,8 @@ test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambient
   assert.equal(esiti.find((e) => e.ambiente === 'cron').allarmi, undefined, 'le schede trasversali no: gli allarmi sono per ambiente')
   const edit = chiamate.find(([m]) => m === 'canvases.edit')[1]
   assert.equal(edit.canvas_id, 'FPROD')
-  assert.equal(edit.changes[0].operation, 'replace', 'il quadro si riscrive intero')
+  assert.equal(edit.changes[0].operation, 'replace', 'un canvas che non si riesce a leggere si riscrive intero, come prima')
+  assert.equal(edit.changes[0].section_id, undefined)
   assert.equal(edit.changes[0].document_content.type, 'markdown')
   const crea = chiamate.find(([m]) => m === 'conversations.canvases.create')[1]
   assert.equal(crea.channel_id, 'CSTG')
@@ -662,7 +681,7 @@ test('un canvas uguale all’ultimo scritto non si riscrive, e senza orologio re
     ] } } }
     return {}
   }
-  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP' })
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0' })
   const leggiDati = async () => ({ deploys: LETTE_PROD, servizi: [] })
   const ultimi = new Map()
   const primo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA, ultimi })
@@ -692,4 +711,390 @@ test('allarmi: nel canale dei deploy solo i rilasci rotti, non i servizi giù', 
     servizi: [svc('api', 'production', { tag: 'aaaaaaa' }), svc('web', 'production', { tag: 'ccccccc', overall: 'down', task: [0, 2] })],
   })
   assert.deepEqual(datiAllarmi(q, { ora: ORA }).rotti.map((r) => r.nome), ['api'], 'web è giù: lo dice il watchdog')
+})
+
+// ── Celle del canvas e Slack List ─────────────────────────────────────────────────────────────────
+//
+// Un Slack finto che fa con i canvas quello che fa quello vero (visto in un canale di prova il 05/10/2026): il
+// markdown diventa blocchi con un id ciascuno, ogni cella di tabella ha il suo paragrafo, l'HTML che
+// si scarica ha quella forma, un `replace` con `section_id` cambia il solo blocco e tiene l'id, uno
+// senza rifà tutto con id nuovi. E le List: righe, celle, pagine.
+function slackFinto({ bot = 'UBOT', pagina = 100 } = {}) {
+  let n = 0
+  const nuovoId = () => `temp:C:${++n}`
+  const canvas = new Map()
+  const liste = new Map()
+  const chiamate = []
+  const mdInHtml = (md) =>
+    String(md)
+      .replace(/\\\|/g, '\u0000')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\[([^\]]*)\]\(([^)\s]*)\)/g, '<lnk href="$2">$1</lnk>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\u0000/g, '|')
+  const blocchiDa = (titolo, md) => [
+    { tipo: 'h1', id: nuovoId(), md: titolo },
+    ...md.split('\n\n').map((parte) => {
+      if (parte.startsWith('## ')) return { tipo: 'h2', id: nuovoId(), md: parte.slice(3) }
+      if (parte.startsWith('|'))
+        return {
+          tipo: 'table',
+          righe: parte
+            .split('\n')
+            .filter((l) => !/^\|-/.test(l))
+            .map((l) => l.slice(2, -2).split(/ (?<!\\)\| /).map((c) => ({ id: nuovoId(), md: c }))),
+        }
+      return { tipo: 'p', id: nuovoId(), md: parte }
+    }),
+  ]
+  const html = (blocchi) =>
+    `<div class="quip-canvas-content">${blocchi
+      .map((b) =>
+        b.tipo === 'table'
+          ? `<table>${b.righe.map((r) => `<tr>${r.map((c) => `<td><p id="${c.id}" class="line">${mdInHtml(c.md)}</p></td>`).join('')}</tr>`).join('')}</table>`
+          : b.tipo === 'p'
+            ? `<p id="${b.id}" class="line">${mdInHtml(b.md)}</p>`
+            : `<${b.tipo} id="${b.id}">${mdInHtml(b.md)}</${b.tipo}>`,
+      )
+      .join('')}</div>`
+  const trova = (blocchi, id) => blocchi.flatMap((b) => (b.tipo === 'table' ? b.righe.flat() : [b])).find((x) => x.id === id)
+  const colonneDi = (schema) => schema.map((c, i) => ({ ...c, id: `Col${i}` }))
+  const api = async (metodo, corpo) => {
+    chiamate.push([metodo, corpo])
+    if (metodo === 'auth.test') return { user_id: bot }
+    if (metodo === 'conversations.info') return { channel: { properties: { tabs: [...canvas.values()].filter((c) => c.canale === corpo.channel).map((c) => ({ type: 'canvas', label: c.titolo, data: { file_id: c.id, shared_ts: c.ts } })) } } }
+    if (metodo === 'conversations.canvases.create') {
+      const id = `F${++n}`
+      canvas.set(id, { id, canale: corpo.channel_id, titolo: corpo.title, ts: String(n), blocchi: blocchiDa(corpo.title, corpo.document_content.markdown) })
+      return { canvas_id: id }
+    }
+    if (metodo === 'canvases.edit') {
+      const c = canvas.get(corpo.canvas_id)
+      const [m] = corpo.changes
+      if (!m.section_id) c.blocchi = blocchiDa(c.titolo, m.document_content.markdown)
+      else {
+        const b = trova(c.blocchi, m.section_id)
+        if (!b) throw new Error('slack canvases.edit: canvas_editing_failed')
+        b.md = m.document_content.markdown
+      }
+      return {}
+    }
+    if (metodo === 'files.info') {
+      if (canvas.has(corpo.file)) return { file: { id: corpo.file, url_private_download: `mem://${corpo.file}` } }
+      const l = liste.get(corpo.file)
+      return { file: { id: l.id, title: l.titolo, permalink: `https://x.slack.com/lists/T1/${l.id}`, list_metadata: { schema: l.schema } } }
+    }
+    if (metodo === 'files.list')
+      return { files: [...liste.values()].filter((l) => l.user === corpo.user).map((l) => ({ id: l.id, title: l.titolo, created: l.creata, channels: l.canali, filetype: 'list' })) }
+    if (metodo === 'slackLists.create') {
+      const id = `FL${++n}`
+      const schema = colonneDi(corpo.schema)
+      liste.set(id, { id, titolo: corpo.name, user: bot, creata: n, canali: [], schema, righe: new Map(), segnalibri: [] })
+      return { list_id: id, list_metadata: { schema } }
+    }
+    if (metodo === 'slackLists.access.set') {
+      liste.get(corpo.list_id).canali.push(...corpo.channel_ids)
+      return {}
+    }
+    if (metodo === 'bookmarks.add') return { bookmark: { id: 'Bk1' } }
+    const l = liste.get(corpo.list_id)
+    const metti = (riga, cella) => riga.set(cella.column_id, cella)
+    if (metodo === 'slackLists.items.create') {
+      const id = `Rec${++n}`
+      const riga = new Map()
+      for (const f of corpo.initial_fields) metti(riga, f)
+      l.righe.set(id, riga)
+      return { item: { id } }
+    }
+    if (metodo === 'slackLists.items.update') {
+      for (const c of corpo.cells) metti(l.righe.get(c.row_id), c)
+      return {}
+    }
+    if (metodo === 'slackLists.items.delete') {
+      l.righe.delete(corpo.id)
+      return {}
+    }
+    if (metodo === 'slackLists.items.list') {
+      // Come quella vera: testo in `text`, link in camelCase, pagine con un cursore.
+      const tutte = [...l.righe.entries()].map(([id, riga]) => ({
+        id,
+        fields: [...riga.values()].map((c) => ({
+          column_id: c.column_id,
+          ...(c.rich_text ? { text: c.rich_text.flatMap((r) => r.elements.flatMap((s) => s.elements.map((e) => e.text))).join('') } : {}),
+          ...(c.select ? { select: c.select } : {}),
+          ...(c.link ? { link: c.link.map((x) => ({ originalUrl: x.original_url, displayName: x.display_name, displayAsUrl: false })) } : {}),
+        })),
+      }))
+      const da = Number(corpo.cursor ?? 0)
+      const fine = da + Math.min(pagina, corpo.limit ?? 100)
+      return { items: tutte.slice(da, fine), response_metadata: { next_cursor: fine < tutte.length ? String(fine) : '' } }
+    }
+    throw new Error(`metodo non previsto: ${metodo}`)
+  }
+  const scarica = async (url) => html(canvas.get(url.replace('mem://', '')).blocchi)
+  return { api, scarica, canvas, liste, chiamate, html }
+}
+
+// L'HTML vero di un canvas del quadro, preso da un canale di prova il 05/10/2026 e accorciato a due righe.
+const HTML_VERO =
+  '<div class="quip-canvas-content"><h1 id="temp:C:UAf7c">Prova quadro tutti</h1><h2 id="temp:C:UAfc9">🟥 Produzione</h2><p id="temp:C:UAfd7" class="line"><b>❌ 2 rotti · 🚀 10 rilasciati</b></p><table><tr><td><p id="temp:C:h1" class="line">Risorsa</p></td><td><p id="temp:C:h2" class="line">Stato</p></td><td><p id="temp:C:h3" class="line">Versione</p></td><td><p id="temp:C:h4" class="line">Dettagli</p></td></tr><tr><td><p id="temp:C:a1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=agentic-chat"><b>agentic-chat</b></lnk></p></td><td><p id="temp:C:a2" class="line">🚀 deploy OK · oggi 10:40</p></td><td><p id="temp:C:a3" class="line"><lnk href="https://github.com/x/agentic-chat/commit/15ee8d1">15ee8d1</lnk></p></td><td><p id="temp:C:a4" class="line">rev 80 · staging su <code>941ad11</code></p></td></tr><tr><td><p id="temp:C:b1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=IaC"><b>IaC</b></lnk></p></td><td><p id="temp:C:b2" class="line">🚀 apply OK · oggi 13:49</p></td><td><p id="temp:C:b3" class="line"><lnk href="https://github.com/x/aws-management/commit/3ec82ac">3ec82ac</lnk></p></td><td><p id="temp:C:b4" class="line">motivo: a | b &amp; c</p></td></tr></table><p id="temp:C:f1" class="line">Dadaguard: <lnk href="https://dg.example.com/deploy?account=production">Deploy PROD</lnk></p></div>'
+
+test('l’HTML del canvas: titoli, paragrafi e tabelle, con l’id di ogni cella e il testo senza tag', () => {
+  const b = leggiCanvasHtml(HTML_VERO)
+  assert.deepEqual(b.map((x) => x.tipo), ['h1', 'h2', 'p', 'table', 'p'])
+  assert.deepEqual(b[2], { tipo: 'p', id: 'temp:C:UAfd7', testo: '❌ 2 rotti · 🚀 10 rilasciati' })
+  assert.deepEqual(b[3].righe[1].map((c) => c.id), ['temp:C:a1', 'temp:C:a2', 'temp:C:a3', 'temp:C:a4'])
+  assert.deepEqual(b[3].righe[1].map((c) => c.testo), ['agentic-chat', '🚀 deploy OK · oggi 10:40', '15ee8d1', 'rev 80 · staging su 941ad11'])
+  assert.equal(b[3].righe[2][3].testo, 'motivo: a | b & c', 'le entità tornano caratteri')
+  assert.equal(testoPiatto('[**IaC**](https://x?a=1&b=2) · `abc` · a \\| b'), 'IaC · abc · a | b')
+})
+
+test('il piano delle celle: solo quelle cambiate, mai la prima colonna; forma diversa vuol dire riscrivere tutto', () => {
+  const modello = {
+    sezioni: [
+      {
+        titolo: '🟥 Produzione',
+        sintesi: '**❌ 2 rotti · 🚀 10 rilasciati**',
+        righe: [
+          ['[**agentic-chat**](https://dg.example.com/x)', '🚀 deploy OK · oggi 10:40', '[15ee8d1](https://github.com/x/agentic-chat/commit/15ee8d1)', 'rev 80 · staging su `941ad11`'],
+          ['[**IaC**](https://dg.example.com/y)', '⏳ apply avviato · oggi 14:02', '[3ec82ac](https://github.com/x/aws-management/commit/3ec82ac)', 'motivo: a \\| b & c'],
+        ],
+        fondo: 'Dadaguard: [Deploy PROD](https://dg.example.com/deploy?account=production)',
+      },
+    ],
+  }
+  const blocchi = leggiCanvasHtml(HTML_VERO)
+  assert.deepEqual(pianoCelle(modello, blocchi), [{ id: 'temp:C:b2', markdown: '⏳ apply avviato · oggi 14:02' }], 'una cella cambiata, una modifica; i link e il codice non contano')
+  const giaUguale = structuredClone(modello)
+  giaUguale.sezioni[0].righe[1][1] = '🚀 apply OK · oggi 13:49'
+  assert.deepEqual(pianoCelle(giaUguale, blocchi), [], 'niente da fare')
+  const sintesi = structuredClone(giaUguale)
+  sintesi.sezioni[0].sintesi = '**✅ niente di rotto**'
+  assert.deepEqual(pianoCelle(sintesi, blocchi), [{ id: 'temp:C:UAfd7', markdown: '**✅ niente di rotto**' }], 'la sintesi si riscrive per id come una cella')
+
+  const nuova = structuredClone(giaUguale)
+  nuova.sezioni[0].righe.splice(1, 0, ['**backend**', '🚀 deploy OK', 'n/d', 'n/d'])
+  assert.equal(pianoCelle(nuova, blocchi), null, 'una risorsa nuova: le righe non tornano')
+  const rinominata = structuredClone(giaUguale)
+  rinominata.sezioni[0].righe[1][0] = '**IaC-2**'
+  assert.equal(pianoCelle(rinominata, blocchi), null, 'la prima colonna non si riscrive: se il nome non torna, si rifà tutto')
+  const senzaFondo = structuredClone(giaUguale)
+  senzaFondo.sezioni[0].fondo = null
+  assert.equal(pianoCelle(senzaFondo, blocchi), null, 'un paragrafo in più o in meno è un’altra forma')
+  const tre = structuredClone(giaUguale)
+  tre.sezioni[0].righe = tre.sezioni[0].righe.map((r) => r.slice(0, 3))
+  assert.equal(pianoCelle(tre, blocchi), null, 'colonne diverse: altra forma')
+})
+
+test('il giro: un cambio riscrive le sole celle cambiate, per id; una risorsa nuova riscrive tutto', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0' })
+  const servizi = [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-02T10:00:00Z' }), svc('web', 'production', { tag: 'ccccccc', da: '2026-09-01T00:00:00Z' })]
+  const dati = (builds, extra = []) => async () => ({ deploys: { production: { builds } }, servizi: [...servizi, ...extra] })
+  const fermi = [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/x/api', number: 10 })]
+  const ultimi = new Map()
+  const giro = (leggiDati, ora = ORA) => aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati, ora, ultimi })
+  const primo = await giro(dati(fermi))
+  assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:creato', 'cron:creato'])
+  const fp = primo[0].canvas
+  const idPrima = leggiCanvasHtml(s.html(s.canvas.get(fp).blocchi))
+
+  s.chiamate.length = 0
+  const conBuild = [...fermi, b('api', 'bbbbbbb', '2026-10-03T11:50:00Z', 'IN_PROGRESS', { repo: 'https://github.com/x/api', number: 11, phase: 'BUILD' })]
+  const secondo = await giro(dati(conBuild))
+  assert.equal(secondo[0].azione, 'celle')
+  const edit = s.chiamate.filter(([m]) => m === 'canvases.edit').map(([, c]) => c.changes[0])
+  assert.ok(edit.length >= 2 && edit.every((m) => m.section_id && m.operation === 'replace'), 'solo replace per id: niente riscrittura intera, quindi niente sdoppio')
+  assert.ok(edit.some((m) => m.document_content.markdown === '⏳ deploy avviato · oggi 13:50'), 'lo stato della riga di api')
+  assert.ok(edit.some((m) => /^\*\*⏳ 1 in corso/.test(m.document_content.markdown)), 'e la sintesi, per id anche lei')
+  const tabella = leggiCanvasHtml(s.html(s.canvas.get(fp).blocchi)).find((x) => x.tipo === 'table')
+  assert.deepEqual(tabella.righe.map((r) => r[0].testo), ['Risorsa', 'api', 'web'], 'le righe restano dov’erano')
+  assert.deepEqual(tabella.righe.flat().map((c) => c.id), idPrima.find((x) => x.tipo === 'table').righe.flat().map((c) => c.id), 'e con gli stessi id')
+  assert.match(tabella.righe[1][3].testo, /build #11, fase BUILD · verso bbbbbbb/)
+
+  s.chiamate.length = 0
+  const terzo = await giro(dati(conBuild))
+  assert.deepEqual(terzo.map((e) => e.azione), ['invariato', 'invariato'])
+  assert.equal(s.chiamate.filter(([m]) => m === 'files.info' || m === 'canvases.edit').length, 0, 'niente di cambiato: non si rilegge nemmeno il canvas')
+
+  s.chiamate.length = 0
+  const quarto = await giro(dati(conBuild, [svc('nuovo', 'production', { tag: 'ddddddd', da: '2026-10-03T11:00:00Z' })]))
+  assert.equal(quarto[0].azione, 'riscritto', 'una risorsa nuova cambia le righe: si riscrive tutto, e lì lo sdoppio si accetta')
+  const intero = s.chiamate.filter(([m]) => m === 'canvases.edit')
+  assert.equal(intero.length, 1)
+  assert.equal(intero[0][1].changes[0].section_id, undefined)
+  assert.deepEqual(leggiCanvasHtml(s.html(s.canvas.get(fp).blocchi)).find((x) => x.tipo === 'table').righe.map((r) => r[0].testo), ['Risorsa', 'api', 'nuovo', 'web'])
+})
+
+test('il giro: al massimo MAX_MODIFICHE_GIRO celle, il resto al giro dopo rileggendo il canvas', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0' })
+  const nomi = ['a', 'b', 'c', 'd']
+  const leggi = (da) => async () => ({ deploys: LETTE_PROD, servizi: nomi.map((n) => svc(n, 'production', { tag: 'aaaaaaa', da })) })
+  const ultimi = new Map()
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: leggi('2026-09-01T00:00:00Z'), ora: ORA, ultimi })
+  // Quattro rilasci insieme: quattro celle di stato più la sintesi.
+  const giro = () => aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: leggi('2026-10-03T11:00:00Z'), ora: ORA, ultimi, maxModifiche: 3 })
+  const primo = await giro()
+  assert.deepEqual([primo[0].azione, primo[0].celle, primo[0].restano], ['celle', 3, 2])
+  const secondo = await giro()
+  assert.deepEqual([secondo[0].azione, secondo[0].celle, secondo[0].restano], ['celle', 2, 0])
+  s.chiamate.length = 0
+  assert.equal((await giro())[0].azione, 'invariato')
+  assert.equal(s.chiamate.filter(([m]) => m === 'files.info').length, 0)
+  assert.equal(MAX_MODIFICHE_GIRO, 10, '10 ogni 15 secondi resta sotto le ~50 modifiche al minuto di Slack')
+})
+
+test('gli stati delle righe: deploy avviato, fallito, OK, invariato; l’IaC dice apply', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: {
+      production: {
+        builds: [
+          b('api', 'aaaaaaa', '2026-10-02T10:00:00Z'),
+          b('api', 'bbbbbbb', '2026-10-03T11:30:00Z', 'FAILED', { number: 12, failPhase: 'BUILD' }),
+          b('web', 'ccccccc', '2026-10-03T11:40:00Z', 'IN_PROGRESS', { number: 7 }),
+          b('infra-iac-apply', 'ddddddd', '2026-10-03T09:00:00Z', 'SUCCEEDED', { iac: true, number: 93, durationMs: 300_000 }),
+        ],
+      },
+    },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa' }), svc('web', 'production', { tag: 'eeeeeee', da: '2026-10-01T10:00:00Z' })],
+  })
+  const righe = righeTabella(q, { ora: ORA })
+  assert.deepEqual(righe.map((r) => `${r.nome}:${r.stato}`), ['api:deploy_fallito', 'IaC:deploy_ok', 'web:deploy_avviato'], 'IaC fra api e web: l’ordine non bada alle maiuscole')
+  assert.equal(righe[0].celle[1], '❌ deploy fallito · oggi 13:30')
+  assert.match(righe[0].celle[3], /build #12 fallita al BUILD · tentava `bbbbbbb` · gira ancora `aaaaaaa`/)
+  assert.equal(righe[1].celle[1], '🚀 apply OK · oggi 11:00')
+  assert.equal(righe[2].celle[1], '⏳ deploy avviato · oggi 13:40')
+  assert.equal(righe[2].celle[2], '`eeeeeee`', 'la Versione è quello che gira, non quello che sta partendo')
+  assert.equal(quandoBreve('2026-10-02T20:05:00Z', ORA), 'ieri 22:05')
+  assert.equal(quandoBreve('2026-09-30T20:05:00Z', ORA), '30/09 22:05')
+  assert.equal(quandoBreve(null, ORA), null)
+  assert.deepEqual(Object.keys(STATI), ['test_avviati', 'test_falliti', 'deploy_avviato', 'deploy_ok', 'deploy_fallito', 'giu', 'indietro', 'invariato'])
+})
+
+test('lo stato dei test è predisposto: vale solo se più recente dell’ultimo cambio e la riga è ferma', () => {
+  const ok = { stato: 'deploy_ok', quando: '2026-10-03T10:00:00Z', quandoTesto: 'oggi 12:00', dettagli: ['rev 3'] }
+  const avviati = conTest(ok, { stato: 'in_corso', da: '2026-10-03T11:00:00Z', url: 'https://github.com/x/api/actions/runs/1' }, { ora: ORA })
+  assert.equal(avviati.stato, 'test_avviati')
+  assert.equal(avviati.quandoTesto, 'oggi 13:00')
+  assert.equal(avviati.dettagli[0], '[run dei test](https://github.com/x/api/actions/runs/1)')
+  assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T11:00:00Z' }, { ora: ORA }).stato, 'test_falliti')
+  assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T09:00:00Z' }, { ora: ORA }), ok, 'un test più vecchio del rilascio non lo racconta')
+  const inCorso = { ...ok, stato: 'deploy_avviato' }
+  assert.equal(conTest(inCorso, { stato: 'in_corso', da: '2026-10-03T11:00:00Z' }, { ora: ORA }), inCorso, 'un deploy in corso dice di più')
+  assert.equal(conTest(ok, null), ok, 'oggi nessuno li riempie: la riga resta com’è')
+  const q = quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T10:00:00Z' })] })
+  q.app[0].test = { stato: 'fallito', da: '2026-10-03T11:30:00Z' }
+  assert.equal(righeTabella(q, { ora: ORA })[0].celle[1], '❌ test falliti · oggi 13:30', 'la riga lo mostra quando la risorsa lo porta')
+})
+
+const LISTA_CFG = { DADAGUARD_QUADRO_CANALI: 'produzione=CP' }
+const listaDati = (servizi) => async () => ({ deploys: LETTE_PROD, servizi })
+const SERVIZI_LISTA = [
+  svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T10:00:00Z' }),
+  svc('web', 'production', { tag: 'ccccccc', da: '2026-09-01T00:00:00Z' }),
+  lam('acme-production-cron-report', 'production', '2026-10-03T07:00:00Z', 'dev'),
+]
+
+test('la List: la prima volta si crea, in sola lettura per il canale, col segnalibro e una riga per risorsa', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig({ ...LISTA_CFG, DADAGUARD_PUBLIC_URL: URL })
+  const liste = nuovaMemoriaListe()
+  const esiti = await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste })
+  assert.equal(esiti.find((e) => e.ambiente === 'lista-produzione').azione, 'creata')
+  const crea = s.chiamate.find(([m]) => m === 'slackLists.create')[1]
+  assert.equal(crea.name, '🟥 Lista deploy PRODUZIONE')
+  assert.deepEqual(crea.schema.map((c) => `${c.key}:${c.type}`), ['risorsa:text', 'stato:select', 'quando:text', 'versione:link', 'dettagli:text', 'dadaguard:link'])
+  assert.deepEqual(crea.schema[1].options.choices.map((c) => c.value), Object.keys(STATI))
+  assert.equal(crea.schema[1].options.choices[3].label, '🚀 deploy OK')
+  assert.deepEqual(s.chiamate.find(([m]) => m === 'slackLists.access.set')[1], { list_id: [...s.liste.keys()][0], access_level: 'read', channel_ids: ['CP'] })
+  const segnalibro = s.chiamate.find(([m]) => m === 'bookmarks.add')[1]
+  assert.equal(segnalibro.channel_id, 'CP')
+  assert.match(segnalibro.link, /^https:\/\/x\.slack\.com\/lists\//)
+  const create = s.chiamate.filter(([m]) => m === 'slackLists.items.create').map(([, c]) => c)
+  assert.equal(create.length, 3, 'api, web e il cron: la List ha tutte le schede dell’ambiente')
+  const api = create.find((c) => c.initial_fields[0].rich_text[0].elements[0].elements[0].text === 'api')
+  assert.deepEqual(api.initial_fields.find((f) => f.column_id === 'Col1').select, ['deploy_ok'])
+  assert.deepEqual(api.initial_fields.find((f) => f.column_id === 'Col5').link, [{ original_url: `${URL}/deploy?service=api&account=production`, display_as_url: false, display_name: 'apri' }])
+  assert.equal(api.initial_fields.find((f) => f.column_id === 'Col3'), undefined, 'senza repository niente link al commit: la cella vuota non si manda')
+
+  s.chiamate.length = 0
+  const secondo = await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste })
+  assert.equal(secondo.find((e) => e.ambiente === 'lista-produzione').azione, 'invariato')
+  assert.equal(s.chiamate.filter(([m]) => m.startsWith('slackLists') || m === 'files.list' || m === 'auth.test').length, 0, 'niente di cambiato, nessuna chiamata')
+})
+
+test('la List: un cambio è UNA chiamata con le sole celle cambiate; una risorsa sparita si toglie', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig(LISTA_CFG)
+  const liste = nuovaMemoriaListe()
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste })
+  s.chiamate.length = 0
+  const conRilascio = [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T10:00:00Z' }), svc('web', 'production', { tag: 'fffffff', da: '2026-10-03T11:45:00Z' }), SERVIZI_LISTA[2]]
+  const e = (await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(conRilascio), ora: ORA, liste })).find((x) => x.ambiente === 'lista-produzione')
+  assert.equal(e.azione, 'aggiornata')
+  const update = s.chiamate.filter(([m]) => m === 'slackLists.items.update')
+  assert.equal(update.length, 1)
+  assert.deepEqual(update[0][1].cells.map((c) => c.column_id).sort(), ['Col1', 'Col2'], 'stato e quando di web; la versione senza repository resta vuota')
+  assert.deepEqual(update[0][1].cells.find((c) => c.column_id === 'Col1').select, ['deploy_ok'])
+
+  s.chiamate.length = 0
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(conRilascio.slice(0, 2)), ora: ORA, liste })
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.items.delete').length, 1, 'il cron non c’è più: la sua riga si toglie')
+  assert.equal([...s.liste.values()][0].righe.size, 2)
+  s.chiamate.length = 0
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati([]), ora: ORA, liste })
+  assert.equal(s.chiamate.filter(([m]) => m.startsWith('slackLists')).length, 0, 'un ambiente vuoto è una lettura andata male: non si cancella niente')
+})
+
+test('la List dopo un riavvio: si ritrova dal titolo e dal canale, righe rilette per nome, niente doppioni', async () => {
+  const s = slackFinto({ pagina: 2 })
+  const cfg = quadroConfig(LISTA_CFG)
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: nuovaMemoriaListe() })
+  // Una List con lo stesso titolo ma in un altro canale (una prova in un altro canale): non è questa.
+  const altra = await s.api('slackLists.create', { name: '🟥 Lista deploy PRODUZIONE', schema: SCHEMA_LISTA })
+  await s.api('slackLists.access.set', { list_id: altra.list_id, access_level: 'read', channel_ids: ['CPROVA'] })
+  const nostra = [...s.liste.keys()][0]
+
+  s.chiamate.length = 0
+  const dopo = nuovaMemoriaListe() // Dadaguard riavviato: memoria vuota
+  const e = (await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: dopo })).find((x) => x.ambiente === 'lista-produzione')
+  assert.equal(e.azione, 'invariato', 'ritrovata, e già allineata')
+  assert.equal(e.lista, nostra)
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.create' || m === 'slackLists.items.create').length, 0, 'nessuna List e nessuna riga nuova')
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.items.list').length, 2, 'tre righe su pagine da due: si seguono le pagine')
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.items.update').length, 0, 'le firme rilette tornano con quelle calcolate')
+  assert.deepEqual([...dopo.ambienti.get('produzione').righe.keys()].sort(), ['api', 'report', 'web'])
+
+  // Una riga doppia (un giro morto fra la creazione e la memoria) si toglie al ritrovamento.
+  const id = [...s.liste.get(nostra).righe.keys()][0]
+  s.liste.get(nostra).righe.set('RecDoppia', new Map(s.liste.get(nostra).righe.get(id)))
+  s.chiamate.length = 0
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: nuovaMemoriaListe() })
+  assert.deepEqual(s.chiamate.filter(([m]) => m === 'slackLists.items.delete').map(([, c]) => c.id), ['RecDoppia'])
+})
+
+test('la List: un errore la fa ritrovare al giro dopo, e la guardia la chiama per nome', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig(LISTA_CFG)
+  const liste = nuovaMemoriaListe()
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste })
+  const rotta = async (m, c) => {
+    if (m === 'slackLists.items.update') throw new Error('slack slackLists.items.update: list_not_found')
+    return s.api(m, c)
+  }
+  const cambiati = [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T11:55:00Z' }), ...SERVIZI_LISTA.slice(1)]
+  const e = (await aggiornaQuadri(cfg, { api: rotta, scarica: s.scarica, leggiDati: listaDati(cambiati), ora: ORA, liste })).find((x) => x.ambiente === 'lista-produzione')
+  assert.equal(e.azione, 'errore')
+  assert.equal(liste.ambienti.has('produzione'), false, 'la memoria si butta: al giro dopo si riparte dal ritrovarla')
+  s.chiamate.length = 0
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(cambiati), ora: ORA, liste })
+  assert.equal(s.chiamate.filter(([m]) => m === 'files.list').length, 1)
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.items.update').length, 1, 'e la cella rimasta indietro si scrive')
+  assert.match(testoAvviso({ ambiente: 'lista-produzione', tipo: 'fermo', fermoDa: ORA - 11 * 60_000, errore: 'x' }, { ora: ORA }), /\[LISTA PROD\] FERMO · la List non si aggiorna da 11 min/)
+  assert.equal(quadroConfig({ DADAGUARD_QUADRO_LISTE: '0' }).liste, false)
+  assert.equal(quadroConfig({}).liste, true)
 })

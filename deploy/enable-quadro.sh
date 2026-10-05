@@ -123,7 +123,9 @@ fi
 
 step "fatto"
 cat <<'NOTE'
-Il quadro parte col primo giro del task: crea o ritrova il canvas di ogni ambiente nel suo canale.
+Il quadro parte col primo giro del task: crea o ritrova il canvas e la Slack List di ogni ambiente
+nel suo canale (`DADAGUARD_QUADRO_LISTE=0` per il solo canvas). Permessi nuovi nel manifest vogliono
+l'app REINSTALLATA, o la List risponde `missing_scope`.
 Il bot dev'essere nei canali (`/invite @Dadaguard`), o il giro risponde `not_in_channel`.
 Il primo giro degli allarmi è SILENZIOSO per costruzione: prende nota di cosa è già rotto e non lo
 annuncia, altrimenti a ogni rilascio di Dadaguard ripeterebbe tutti i rossi.
