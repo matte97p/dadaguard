@@ -19,6 +19,42 @@
   color: var(--ink);
   font: inherit;
 }
+/* Le tendine dei filtri (FilterBar): su Servizi sotto i chip, su Spesa e Limiti in cima alla pagina. */
+.sv-filtri {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 14px;
+}
+.ui-tabs + .sv-filtri {
+  margin-top: 12px;
+}
+/* Il bottone che apre le tendine esiste solo sul telefono: sopra i 720px sono sempre aperte. */
+.sv-filtri-btn {
+  display: none;
+}
+@media (max-width: 720px) {
+  .sv-filtri-btn {
+    display: inline-flex;
+    color: var(--ink);
+  }
+  .sv-filtri-btn[aria-expanded='true'] {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+  /* Solo quelle di Servizi si chiudono (le riconosce `data-view`): su Spesa e Limiti sono una o due
+     e non c'e' un bottone per riaprirle. */
+  .sv-filtri[data-view='filtri-servizi']:not(.sv-filtri-aperti) {
+    display: none;
+  }
+  /* Due per riga: con la larghezza minima di ognuna, sette tendine su un telefono andavano a capo a
+     caso, una lunga e una corta, e l'ultima restava sola in mezzo alla riga. */
+  .sv-filtri .ant-select {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0 !important;
+  }
+}
 .sv-checks {
   display: flex;
   gap: 3px;

@@ -6,6 +6,15 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Su Servizi tornano i filtri** (05/10/2026). Il nuovo design li aveva ridotti a una ricerca e tre
+  chip, e senza il Tipo i modelli Bedrock non si trovavano più. Tornano le tendine Tipo, Stato,
+  Account, Regione, cron/on-demand, Terraform e i preset, e i chip diventano i conteggi per stato
+  cliccabili (Con problemi, Tutti, Giù, Attenzione…), che scrivono lo stesso filtro della tendina
+  Stato invece di uno a parte. La ricerca guarda anche il tipo («bedrock» trova i modelli). Tutti i
+  filtri stanno nell'URL (`?type=bedrock&status=down`), nei due versi; sul telefono le tendine si
+  aprono da un bottone «Filtri» col numero di quelle scelte. «Azzera filtri» e i preset rapidi non
+  toccano più l'ambiente scelto in alto, e un account scelto dalla tendina che non è un ambiente
+  intero non lascia premuto «Tutti».
 - **Il link «Log in PostHog» apre i log del servizio** (05/10/2026). Puntava a `/logs?service=<nome AWS>`,
   un parametro che PostHog ignora, quindi apriva i log di tutti; e il nome della risorsa AWS non è il
   `service.name` dei log. Ora il nome viene dal nuovo tag `dadaguard:posthog` e il link usa il formato

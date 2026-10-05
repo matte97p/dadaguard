@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti } from '../web/filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, filtriDaUrl, filtriInUrl } from '../web/filters.js'
 
 // Il modello dei filtri: ELENCO VUOTO = TUTTI. Sembra una sciocchezza, ma prima ogni pagina scriveva a
 // mano `x === 'all' || y === x`, in sei file, e ognuno poteva sbagliarlo a modo suo. Qui si fissa il
@@ -66,4 +66,42 @@ test('potaSconosciuti toglie le chiavi che non esistono, e aspetta i dati', () =
   assert.deepEqual(potaSconosciuti(['staging'], ['production', 'staging']), ['staging'])
   // Chiavi non ancora note (dati in arrivo): non si pota niente, sennò il link non varrebbe mai.
   assert.deepEqual(potaSconosciuti(['staging'], []), ['staging'])
+})
+
+// I filtri di Servizi nell'URL: un link `?type=bedrock` deve aprire la pagina con la tendina Tipo gia'
+// scelta, e la pagina deve scrivere nell'indirizzo quello che si sceglie a mano.
+test('filtriDaUrl legge solo i campi presenti, e ignora i valori che non conosce', () => {
+  assert.deepEqual(filtriDaUrl('?type=bedrock,lambda&status=down&region=eu-west-1&schedule=cron&tf=unmanaged&problems=1'), {
+    typeFilter: ['bedrock', 'lambda'],
+    statusFilter: ['down'],
+    regionFilter: ['eu-west-1'],
+    scheduleFilter: 'cron',
+    managedFilter: 'unmanaged',
+    problemsOnly: true,
+  })
+  // Un campo assente non diventa «vuoto»: resta quello che App ha gia' (ricerca, ambiente).
+  assert.deepEqual(filtriDaUrl('?q=api&account=staging'), {})
+  assert.deepEqual(filtriDaUrl('?tf=forse&schedule=sempre&problems=si'), {})
+  assert.deepEqual(filtriDaUrl(''), {})
+})
+
+test('filtriInUrl scrive i filtri scelti, toglie quelli al default e tiene gli altri parametri', () => {
+  const f = {
+    nameQuery: ' api ',
+    accountFilter: ['production'],
+    typeFilter: ['lambda', 'bedrock'],
+    statusFilter: [],
+    regionFilter: [],
+    scheduleFilter: 'all',
+    managedFilter: 'managed',
+    problemsOnly: false,
+  }
+  assert.equal(filtriInUrl('?altro=1&status=down', f), 'altro=1&q=api&account=production&type=lambda,bedrock&tf=managed')
+  // Tutto al default: l'indirizzo torna pulito.
+  assert.equal(filtriInUrl('?q=x&type=ecs&problems=1', { scheduleFilter: 'all', managedFilter: 'all' }), '')
+})
+
+test('filtriInUrl e filtriDaUrl fanno andata e ritorno', () => {
+  const f = { typeFilter: ['bedrock'], statusFilter: ['down', 'degraded'], regionFilter: ['us-east-1'], scheduleFilter: 'ondemand', managedFilter: 'unmanaged', problemsOnly: true }
+  assert.deepEqual(filtriDaUrl(`?${filtriInUrl('', f)}`), f)
 })
