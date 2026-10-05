@@ -39,13 +39,7 @@ import {
   SCHEMA_LISTA,
   STATI,
   MAX_MODIFICHE_GIRO,
-  eventoCi,
-  statiTest,
-  aggiornaCi,
-  nuovaMemoriaCi,
-  GIRI_PER_CI,
 } from '../server/notify/quadro.js'
-import { log } from '../server/log.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
 import { corrispondeNome } from '../web/filters.js'
@@ -1105,138 +1099,35 @@ test('la List: un errore la fa ritrovare al giro dopo, e la guardia la chiama pe
   assert.equal(quadroConfig({}).liste, true)
 })
 
-// ── Lo stato dei test, dal canale della CI ────────────────────────────────────────────────────────
-//
-// Le righe come le scrive GitHub Actions nel canale dei rilasci (con un webhook: testo nudo, link in
-// forma Slack). Nomi e repository inventati.
-// Il separatore della riga del canale è il trattino lungo: qui solo come escape.
-const TR = '\u2014'
-const RUN = 'https://github.com/acme/api/actions/runs/42'
-const COMMIT = 'https://github.com/acme/api/commit/abc1234def5678'
-const RIGHE_CI = {
-  avviati: `🧪 \`api\` [PROD] test avviati ${TR} <${COMMIT}|abc1234> · <${RUN}|run GitHub> · da \`dev\` · aggiunge il filtro · il deploy parte quando i test sono verdi`,
-  avviatiPunto: '🧪 web [PRODUZIONE] test avviati · 9f8e7d6 · run GitHub · da dev · titolo del commit',
-  rossi: `🔴 \`api\` [STAGING] deploy NON avviato ${TR} i check di CI sono rossi, niente è andato su staging · aggiunge il filtro · <${COMMIT}|abc1234> · <${RUN}|run GitHub> · da \`dev\``,
-  avviato: `⏳ \`api\` [PROD] deploy avviato ${TR} <${COMMIT}|abc1234> · build #12`,
-}
-const msg = (text, ts) => ({ type: 'message', subtype: 'bot_message', username: 'devops', text, ts: String(ts) })
-const TS = (iso) => Date.parse(iso) / 1000
-
-test('le righe della CI: test avviati e check rossi, con o senza backtick e trattino; il resto si salta', () => {
-  assert.deepEqual(eventoCi(msg(RIGHE_CI.avviati, '1791200000.000100')), {
-    ts: '1791200000.000100',
-    tipo: 'test_avviati',
-    servizio: 'api',
-    ambiente: 'produzione',
-    sha: 'abc1234def5678',
-    url: RUN,
-    da: new Date(1791200000000.1).toISOString(),
-  })
-  const punto = eventoCi(msg(RIGHE_CI.avviatiPunto, '1'))
-  assert.deepEqual([punto.tipo, punto.servizio, punto.ambiente, punto.sha, punto.url], ['test_avviati', 'web', 'produzione', '9f8e7d6', null], 'la forma col punto e PRODUZIONE')
-  const rossi = eventoCi(msg(RIGHE_CI.rossi, '2'))
-  assert.deepEqual([rossi.tipo, rossi.ambiente, rossi.sha], ['test_falliti', 'staging', 'abc1234def5678'])
-  assert.equal(eventoCi(msg(RIGHE_CI.avviato, '3')).tipo, 'chiude', 'il ⏳ della build chiude i test di quel commit')
-  assert.equal(eventoCi(msg(`🚀 \`api\` [STAGING] deploy OK · 2/2 task attivi ${TR} <x|abc1234>`, '4')).tipo, 'chiude')
-  assert.equal(eventoCi(msg(`🔴 \`api\` [PROD] deploy FAILED ${TR} niente è andato in produzione`, '5')).tipo, 'chiude', 'un deploy fallito non è un test fallito')
-  assert.equal(eventoCi(msg(`🚨 \`api\` [PROD] giù ${TR} 0/2 task`, '6')), null)
-  assert.equal(eventoCi(msg('ciao a tutti', '7')), null)
-  assert.equal(eventoCi(msg('🧪 `api` [DEV] test avviati', '8')), null, 'un ambiente che il quadro non conosce')
-})
-
-test('lo stato dei test: un 🧪 finché la build di quel commit non parte, un ❌ fino al prossimo evento', () => {
-  const ev = (riga, iso) => eventoCi(msg(riga, TS(iso)))
-  const ora = Date.parse('2026-10-03T12:00:00Z')
-  let s = statiTest([ev(RIGHE_CI.avviati, '2026-10-03T11:50:00Z')], { ora })
-  assert.deepEqual(s.produzione.get('api'), { stato: 'in_corso', da: '2026-10-03T11:50:00.000Z', url: RUN, sha: 'abc1234def5678' })
-  s = statiTest([ev(RIGHE_CI.avviato, '2026-10-03T11:58:00Z'), ev(RIGHE_CI.avviati, '2026-10-03T11:50:00Z')], { ora })
-  assert.equal(s.produzione.has('api'), false, 'il ⏳ dello stesso commit lo chiude, anche se letto prima (la history va dal più nuovo)')
-  s = statiTest([ev(RIGHE_CI.avviati, '2026-10-03T11:50:00Z'), ev(RIGHE_CI.avviato.replace(/abc1234/g, 'fff0000'), '2026-10-03T11:58:00Z')], { ora })
-  assert.equal(s.produzione.get('api').stato, 'in_corso', 'la build di un altro commit non chiude questi test')
-  s = statiTest([ev(RIGHE_CI.avviati, '2026-10-03T08:00:00Z')], { ora })
-  assert.equal(s.produzione.has('api'), false, 'un 🧪 senza seguito dopo tre ore si lascia cadere')
-  s = statiTest([ev(RIGHE_CI.rossi, '2026-10-03T06:00:00Z')], { ora })
-  assert.equal(s.staging.get('api').stato, 'fallito', 'un ❌ resta')
-  s = statiTest([ev(RIGHE_CI.rossi, '2026-10-03T06:00:00Z'), ev(RIGHE_CI.avviati.replace('[PROD]', '[STAGING]'), '2026-10-03T11:00:00Z')], { ora })
-  assert.equal(s.staging.get('api').stato, 'in_corso', 'finché un push nuovo non riparte coi test')
-})
-
-test('il canale della CI sulle righe: 🧪 e ❌ test falliti; un deploy più recente vince', async () => {
+test('lo stato dei test da GitHub sulle righe: 🧪 sul repository della build, e un deploy più recente vince', async () => {
   const s = slackFinto()
-  const history = []
-  const api = async (m, c) => (m === 'conversations.history' ? { messages: history.filter((x) => Number(x.ts) > Number(c.oldest)).reverse(), has_more: false } : s.api(m, c))
-  history.push(msg(RIGHE_CI.avviati, TS('2026-10-03T11:50:00Z')), msg(RIGHE_CI.rossi.replace('`api`', '`web`'), TS('2026-10-03T11:40:00Z')))
-  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP,staging=CS', DADAGUARD_QUADRO_LISTE: '0', DADAGUARD_QUADRO_CANALE_CI: 'CCI' })
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0' })
   const leggiDati = async () => ({
-    deploys: { production: { builds: [] }, staging: { builds: [] } },
-    servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-02T10:00:00Z' }), svc('web', 'staging', { tag: 'bbbbbbb', da: '2026-10-03T11:45:00Z' })],
+    deploys: {
+      production: {
+        builds: [
+          b('api', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/api.git' }),
+          b('web', 'ccccccc', '2026-10-03T11:45:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/web' }),
+        ],
+      },
+    },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-02T10:05:00Z' }), svc('web', 'production', { tag: 'ccccccc', da: '2026-10-03T11:50:00Z' })],
   })
-  const ci = nuovaMemoriaCi()
-  await aggiornaQuadri(cfg, { api, scarica: s.scarica, leggiDati, ora: ORA, ci })
-  const testo = (titolo) => leggiCanvasHtml(s.html([...s.canvas.values()].find((c) => c.titolo === titolo).blocchi)).find((x) => x.tipo === 'table').righe
-  const prod = testo('🟥 Quadro deploy PRODUZIONE')
-  assert.equal(prod[1][1].testo, '🧪 test avviati · oggi 13:50')
-  assert.match(prod[1][3].testo, /^run dei test · /)
-  const stg = testo('🟨 Quadro deploy STAGING')
-  assert.equal(stg[1][1].testo, '🚀 deploy OK · oggi 13:45', 'il check rosso è delle 13:40, il rilascio delle 13:45: vince il più recente')
-})
-
-test('il canale della CI: lettura incrementale, una ogni GIRI_PER_CI giri, pagine finite prima di avanzare', async () => {
-  const chiamate = []
-  let risposte = []
-  const api = async (m, c) => {
-    chiamate.push(c)
-    return risposte.shift() ?? { messages: [], has_more: false }
+  const chiesti = []
+  const github = {
+    org: null,
+    leggi: async (repos) => {
+      chiesti.push(repos.map((r) => `${r.owner}/${r.repo}`))
+      return new Map([
+        ['produzione|acme/api', { stato: 'in_corso', da: '2026-10-03T11:50:00Z', url: 'https://github.com/acme/api/actions/runs/9' }],
+        ['produzione|acme/web', { stato: 'fallito', da: '2026-10-03T11:40:00Z', url: 'https://github.com/acme/web/actions/runs/8' }],
+      ])
+    },
   }
-  const mem = nuovaMemoriaCi()
-  const ora = Date.parse('2026-10-03T12:00:00Z')
-  const t = (min) => `${ora / 1000 - min * 60}.000100`
-  risposte = [{ messages: [msg(RIGHE_CI.avviati, t(10))], has_more: false }]
-  const s1 = await aggiornaCi(api, 'CCI', mem, { ora })
-  assert.equal(chiamate[0].oldest, String((ora - 24 * 3_600_000) / 1000), 'al primo giro le ultime 24 ore')
-  assert.equal(chiamate[0].channel, 'CCI')
-  assert.equal(s1.produzione.get('api')?.stato, 'in_corso')
-  for (let i = 0; i < GIRI_PER_CI - 1; i++) await aggiornaCi(api, 'CCI', mem, { ora })
-  assert.equal(chiamate.length, 1, 'fra una lettura e l’altra nessuna chiamata')
-  // Due pagine: la prima porta i più nuovi; l'ultimo ts visto avanza solo a pagine finite.
-  risposte = [
-    { messages: [msg('x', t(1))], has_more: true, response_metadata: { next_cursor: 'C2' } },
-    { messages: [msg('y', t(3))], has_more: true, response_metadata: { next_cursor: 'C3' } },
-  ]
-  await aggiornaCi(api, 'CCI', mem, { ora })
-  assert.equal(chiamate[1].oldest, t(10), 'dal messaggio più nuovo già visto')
-  assert.equal(chiamate[2].cursor, 'C2')
-  assert.equal(mem.ultimoTs, t(10), 'pagine non finite: non si avanza')
-  risposte = [{ messages: [msg('z', t(5))], has_more: false }]
-  await aggiornaCi(api, 'CCI', mem, { ora })
-  assert.equal(chiamate[3].cursor, 'C3', 'al giro subito dopo, dallo stesso cursore')
-  assert.equal(mem.ultimoTs, t(1))
-  assert.equal((await aggiornaCi(api, 'CCI', mem, { ora: ora + 25 * 3_600_000 })).produzione.has('api'), false, 'dopo 24 ore gli eventi escono dalla memoria')
-})
-
-test('il canale della CI senza permesso: il quadro va avanti senza stati di test, e lo dice una volta', async () => {
-  const s = slackFinto()
-  let history = 0
-  const api = async (m, c) => {
-    if (m !== 'conversations.history') return s.api(m, c)
-    history++
-    throw new Error('slack conversations.history: missing_scope')
-  }
-  const avvisi = []
-  const warn = log.warn
-  log.warn = (m, ctx) => avvisi.push([m, ctx])
-  try {
-    const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0', DADAGUARD_QUADRO_CANALE_CI: 'CCI' })
-    const ci = nuovaMemoriaCi()
-    const leggiDati = async () => ({ deploys: LETTE_PROD, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T11:00:00Z' })] })
-    const esiti = []
-    for (let i = 0; i < 50; i++) esiti.push(...(await aggiornaQuadri(cfg, { api, scarica: s.scarica, leggiDati, ora: ORA, ci })))
-    assert.ok(esiti.every((e) => e.azione !== 'errore'), 'il canvas si scrive lo stesso')
-    assert.equal(history, 2, 'si riprova di rado, non a ogni giro')
-    assert.equal(avvisi.filter(([m]) => /canale della CI/.test(m)).length, 1, 'nel log una volta sola')
-    assert.match(avvisi.find(([m]) => /canale della CI/.test(m))[1].err, /missing_scope/)
-  } finally {
-    log.warn = warn
-  }
-  assert.equal(quadroConfig({}).canaleCi, null, 'senza canale non si legge niente')
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati, ora: ORA, github })
+  assert.deepEqual(chiesti, [['acme/api', 'acme/web']], 'i repository vengono dalle build delle righe')
+  const righe = leggiCanvasHtml(s.html([...s.canvas.values()].find((c) => c.titolo === '🟥 Quadro deploy PRODUZIONE').blocchi)).find((x) => x.tipo === 'table').righe
+  assert.equal(righe[1][1].testo, '🧪 test avviati · oggi 13:50')
+  assert.match(righe[1][3].testo, /^run dei test · /)
+  assert.equal(righe[2][1].testo, '🚀 deploy OK · oggi 13:50', 'i test falliti sono delle 13:40, il rilascio delle 13:50: vince il più recente')
 })
