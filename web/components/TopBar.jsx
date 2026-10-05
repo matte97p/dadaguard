@@ -47,14 +47,14 @@ export default function TopBar({
       </div>
       <div className="ui-sp" />
       <div className="ui-seg" role="group" aria-label={t('shell.chiSei')}>
-        <button type="button" aria-pressed={ruolo === 'dev'} onClick={() => onRuolo('dev')}>
+        <button type="button" data-ruolo="dev" aria-pressed={ruolo === 'dev'} onClick={() => onRuolo('dev')}>
           {t('shell.ruolo.dev')}
         </button>
-        <button type="button" aria-pressed={ruolo === 'ops'} onClick={() => onRuolo('ops')}>
+        <button type="button" data-ruolo="ops" aria-pressed={ruolo === 'ops'} onClick={() => onRuolo('ops')}>
           {t('shell.ruolo.ops')}
         </button>
       </div>
-      <button type="button" className="ui-kbd" onClick={onCerca}>
+      <button type="button" className="ui-kbd" data-view="cerca" onClick={onCerca}>
         {t('shell.cerca')}&nbsp;&nbsp;⌘K
       </button>
       <Freschezza aggiornato={aggiornato} inCorso={inCorso} onAggiorna={onAggiorna} t={t} />

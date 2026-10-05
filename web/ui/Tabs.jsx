@@ -5,7 +5,7 @@ export default function Tabs({ voci = [], attiva, onCambia }) {
   return (
     <div className="ui-tabs" role="tablist">
       {voci.map((v) => (
-        <button key={v.key} type="button" role="tab" aria-selected={corrente === v.key} aria-pressed={corrente === v.key} onClick={() => onCambia?.(v.key)}>
+        <button key={v.key} type="button" role="tab" data-tab={v.key} aria-selected={corrente === v.key} aria-pressed={corrente === v.key} onClick={() => onCambia?.(v.key)}>
           {v.label}
           {v.n != null && <span>{v.n}</span>}
         </button>
