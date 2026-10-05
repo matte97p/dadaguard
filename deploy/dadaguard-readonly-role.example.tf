@@ -61,6 +61,8 @@ data "aws_iam_policy_document" "readonly" {
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",    # discovery Bedrock: i ModelId invocati (metriche AWS/Bedrock)
       "cloudwatch:DescribeAlarms", # allarmi in stato ALARM correlati alla risorsa
+      "cloudwatch:DescribeAlarmHistory", # storico della disponibilita (/api/history): quando un allarme e' entrato e uscito
+      "tag:GetResources",                # tag dadaguard:team/slack/runbook/slo dei servizi
       "servicequotas:ListServiceQuotas", # quote vicine al limite (uso vs limite via CloudWatch)
       "scheduler:GetSchedule", "scheduler:ListSchedules",
       "sqs:GetQueueUrl", "sqs:GetQueueAttributes",   # #3 runtime SQS (profondità coda)
