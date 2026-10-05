@@ -42,6 +42,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
+import { quadro, canvasDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -376,6 +377,30 @@ app.get('/api/rilasci', async (req, res) => {
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Le due letture che il quadro unisce, dalle stesse cache delle pagine: i deploy (CodeBuild) e lo
+// stato dei servizi (ECS dice cosa gira davvero). Nessun giro AWS che le pagine non facciano già.
+async function datiQuadro() {
+  const [deploys, stato] = await Promise.all([deploysCached('it').then((r) => r.value), statusFor('it').then((r) => r.value)])
+  return { deploys, servizi: stato?.services ?? [] }
+}
+
+// Il quadro dei deploy per Slack (vedi notify/quadro.js), SENZA mandarlo: lo stesso canvas che il giro
+// riscriverebbe nel canale. Serve a provarlo prima di dargli un token, e a capire cosa dice il quadro
+// quando in canale sembra strano. `?format=markdown` lo dà com'è, da leggere in terminale.
+app.get('/api/quadro', async (req, res) => {
+  try {
+    const dati = isDemo ? { deploys: demoDeploys(), servizi: demoStatus('it').services ?? [] } : await datiQuadro()
+    const cfg = quadroConfig()
+    const q = quadro({ ...dati, persone: isDemo ? null : (loadConfig().people ?? null) }, cfg.ambienti)
+    const canvas = Object.fromEntries(canvasDaScrivere(q, cfg).map((c) => [c.chiave, c]))
+    if (req.query.format === 'markdown')
+      return res.type('text/markdown').send(Object.values(canvas).map((c) => `# ${c.titolo}\n\n${c.markdown}`).join('\n\n---\n\n'))
+    res.json({ quadro: q, canvas })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -797,6 +822,9 @@ app.listen(PORT, '0.0.0.0', () => {
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
   // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
   if (!isDemo) startWatcher()
+  // Il quadro dei deploy in Slack: parte solo con token di un'app e i canali. Legge la stessa cache
+  // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
+  if (!isDemo) startQuadro(datiQuadro)
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.

@@ -12,11 +12,16 @@ import { manualActions } from './manualActions.js'
 import { stripOrgEnv } from './util/envToken.js'
 
 const DEPLOY_SUFFIX = '-deploy'
+// Il progetto che applica l'infrastruttura (`<org>-<env>-iac-apply`): non è il deploy di un servizio,
+// ma passa dallo stesso canale e dalla stessa domanda («è uscito?»), quindi si legge insieme.
+const IAC_SUFFIX = '-iac-apply'
+export const isDeployProject = (n = '') => n.endsWith(DEPLOY_SUFFIX) || n.endsWith(IAC_SUFFIX)
 
 // Ricava il nome-servizio dal progetto CodeBuild: `<org>-<env>-<service>-deploy` → `<service>`.
 // L'ancora è l'AMBIENTE, non il nome dell'organizzazione: quello cambia da chi usa lo strumento (e
 // scriverlo qui, in un repo pubblico, diceva di chi è l'infrastruttura). Puro/testabile.
 export function serviceFromProject(name = '') {
+  if (name.endsWith(IAC_SUFFIX)) return 'IaC'
   return stripOrgEnv(name).replace(/-deploy$/, '') || name
 }
 
@@ -98,6 +103,10 @@ export function mapBuild(b = {}, starter = null) {
     status: b.buildStatus, // IN_PROGRESS | SUCCEEDED | FAILED | FAULT | STOPPED | TIMED_OUT
     inProgress: b.buildStatus === 'IN_PROGRESS',
     commit: shortSha(b.resolvedSourceVersion || b.sourceVersion),
+    // Il repository sorgente, per comporre il link al commit. Solo se è un URL: un sorgente S3 o
+    // CodeCommit non ha una pagina del commit da aprire.
+    repo: /^https:\/\//.test(b.source?.location ?? '') ? b.source.location.replace(/\.git$/, '') : null,
+    ...(b.projectName?.endsWith(IAC_SUFFIX) ? { iac: true } : {}),
     phase: b.currentPhase ?? null,
     trigger: resolveTrigger(b.initiator, starter),
     author: deployerOf(b), // chi ha lanciato (autore commit), da exported-variable DEPLOYER
@@ -143,7 +152,7 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     projects.push(...(r.projects ?? []))
     nextToken = r.nextToken
   } while (nextToken)
-  const deployProjects = projects.filter((n) => n.endsWith(DEPLOY_SUFFIX))
+  const deployProjects = projects.filter(isDeployProject)
 
   // Nessun progetto `*-deploy`: l'account non fa deploy CodeBuild (es. payer/security). I riavvii a
   // mano però ci sono comunque — in management gira Dadaguard stessa — quindi si restituiscono.

@@ -272,7 +272,13 @@ export async function ecsBuildInfo(cfg, aws) {
   // Chi ha deployato: il tag `deployedBy` (la PERSONA, stampata dal buildspec) vince; in fallback
   // `registeredBy` (chi ha registrato la revision — spesso la pipeline).
   const deployedBy = (td.tags ?? []).find((t) => t.key === 'deployedBy')?.value
-  return { tag: imageTag(image), image, deployedAt, modifiedBy: deployedBy || principalName(td.taskDefinition?.registeredBy) }
+  return {
+    tag: imageTag(image),
+    image,
+    deployedAt,
+    modifiedBy: deployedBy || principalName(td.taskDefinition?.registeredBy),
+    revision: td.taskDefinition?.revision ?? null,
+  }
 }
 
 // "repo:tag" / "repo@sha256:…" → il tag NUDO (o le prime 12 cifre del digest).
