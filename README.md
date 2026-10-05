@@ -99,8 +99,14 @@ mai un servizio rosso:
 | `dadaguard:slack` | `#pagamenti-allarmi` | pannello, «Di chi è» |
 | `dadaguard:runbook` | `https://wiki.example.com/runbook` | pannello, «Di chi è» |
 | `dadaguard:slo` | `0.999` | disponibilità contro obiettivo e budget di errore |
+| `dadaguard:posthog` | `shop-checkout-api` | link «Log in PostHog» in «Apri altrove» (vedi sotto) |
 
-Con un progetto PostHog i servizi guadagnano i link a errori e log in «Apri altrove». In `services.yaml`:
+Con un progetto PostHog i servizi che portano il tag `dadaguard:posthog` guadagnano il link ai **log**
+di PostHog in «Apri altrove», già filtrato su quel servizio e sull'ultima ora. Il valore del tag è il
+`service.name` con cui il servizio scrive i log, che di rado coincide col nome della risorsa AWS: per
+questo non si deduce. Senza tag, nessun link a PostHog. Il link agli errori non c'è di proposito: le
+eccezioni di PostHog arrivano dal browser e non portano il servizio, quindi un filtro per servizio non
+troverebbe niente. In `services.yaml`:
 
 ```yaml
 posthog:

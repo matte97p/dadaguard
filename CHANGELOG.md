@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Il link «Log in PostHog» apre i log del servizio** (05/10/2026). Puntava a `/logs?service=<nome AWS>`,
+  un parametro che PostHog ignora, quindi apriva i log di tutti; e il nome della risorsa AWS non è il
+  `service.name` dei log. Ora il nome viene dal nuovo tag `dadaguard:posthog` e il link usa il formato
+  del frontend di PostHog (`activeTab=viewer`, `serviceNames` e `dateRange` in JSON). Senza tag niente
+  link. Tolto «Errori in PostHog»: le eccezioni non portano il servizio, un filtro per servizio non
+  poteva funzionare.
+
 ### Changed
 - **«Cosa è cambiato oggi» si legge** (05/10/2026). Una riga per evento dalla più recente, con l'ora,
   un'etichetta a parole (Rilasciato, Deploy fallito, Riavvio a mano, Guasto, In rilascio) e il dettaglio
