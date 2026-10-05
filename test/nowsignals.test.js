@@ -25,7 +25,7 @@ test('un servizio giù è crit, uno degradato warn, uno sano non compare', () =>
   assert.equal(out.length, 2)
   assert.equal(out[0].level, 'crit')
   assert.equal(out[0].title, 'backend')
-  assert.match(out[0].detail, /cause.runtime — 0\/2 task/)
+  assert.match(out[0].detail, /cause.runtime: 0\/2 task/)
   assert.equal(out[0].to, '/servizi')
   assert.equal(out[1].level, 'warn')
 })

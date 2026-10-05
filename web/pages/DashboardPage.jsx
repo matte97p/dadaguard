@@ -1,185 +1,138 @@
-import { useState } from 'react'
-import { Row, Col, Divider, Badge, Typography, Space, Alert, Card, Skeleton, Segmented } from 'antd'
-import { EmptyState } from './pageKit.jsx'
-import { TableOutlined, AppstoreOutlined } from '@ant-design/icons'
+import { useMemo, useState } from 'react'
+import { Lista } from '../ui/index.js'
 import ServiceCard from '../components/ServiceCard.jsx'
-import ServicesTable from '../components/ServicesTable.jsx'
+import ServicesTable, { famigliePerAccount, perGravita } from '../components/ServicesTable.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
-import { familyPrefixes, serviceKey } from '../serviceName.js'
+import { FiltroServizi } from '../components/FilterBar.jsx'
+import { matchesAny } from '../filters.js'
+import { serviceKey } from '../serviceName.js'
+import { passaChip, contaChip } from '../servizi.js'
 
-const { Text } = Typography
-
-// Ordinamento: problemi in cima (down → degraded → sconosciuto → ok), poi per nome. Così le cose
-// rotte si vedono per prime senza scorrere. In fondo quello che NON è un problema e non deve stare
-// sopra i servizi sani: prima gli inattivi (modelli Bedrock mai invocati, funzioni mai chiamate —
-// roba da pagina Sprechi, non da dashboard), poi gli SPENTI di proposito (cron disattivate).
-const SEV = { down: 0, degraded: 1, unknown: 2, up: 3, idle: 4, disabled: 5 }
-const byseverity = (a, b) => (SEV[a.overall] ?? 2) - (SEV[b.overall] ?? 2) || String(a.name).localeCompare(String(b.name))
-
-// Pagina principale: le card dei servizi, raggruppate per account, con il riepilogo di stato in cima.
-export default function DashboardPage({ data, groups, allServices, statusFilter, onStatusFilter, caps, loading, error, onRemove, onLogs, onEvents, onOpen, t }) {
-  // Tabella o card. Oltre la ventina di servizi la tabella vince (una riga per servizio, colonne
-  // ordinabili); le card restano per le flotte piccole e per chi le preferisce. Scelta ricordata.
-  const [view, setView] = useState(() => localStorage.getItem('dadaguard-view') ?? 'table')
-  const pickView = (v) => {
-    localStorage.setItem('dadaguard-view', v)
-    setView(v)
+// Pagina Servizi: il verdetto in una frase, l'avviso se qualche account non si e' potuto leggere,
+// la ricerca coi tre chip, e la lista dal piu' grave. Ogni riga apre il pannello del servizio, dove
+// stanno cosa fare, i controlli spiegati, i log e i link alle console.
+//
+// I servizi arrivano gia' filtrati da App (ambiente scelto, ricerca, filtri salvati); qui si
+// applicano solo i chip, che sono uno stato della pagina e non della flotta.
+const leggi = (k, d) => {
+  try {
+    return localStorage.getItem(k) ?? d
+  } catch {
+    return d
   }
-  const flat = groups.flatMap((g) => g.services)
+}
+const scrivi = (k, v) => {
+  try {
+    localStorage.setItem(k, v)
+  } catch {
+    /* senza storage la scelta vale per questa visita */
+  }
+}
+
+export default function DashboardPage({
+  data,
+  groups,
+  allServices = [],
+  accountFilter = [],
+  ambienteLabel,
+  nameQuery = '',
+  onNameQuery,
+  filtersActive,
+  onResetFilters,
+  loading,
+  error,
+  onOpen,
+  t,
+}) {
+  // Lista o card. Oltre la ventina di servizi la lista vince; le card restano per le flotte piccole
+  // e per chi le preferisce. La scelta si ricorda, come prima.
+  const [view, setView] = useState(() => leggi('dadaguard-view', 'table'))
+  const pickView = (v) => (scrivi('dadaguard-view', v), setView(v))
+  const [chip, setChip] = useState('tutti')
+
+  const filtrati = useMemo(() => groups.flatMap((g) => g.services), [groups])
+  const conteggi = contaChip(filtrati)
+  const visibili = filtrati.filter((s) => passaChip(s, chip))
+  // La flotta dell'ambiente, senza ricerca: e' il totale vero contro cui leggere il filtrato.
+  const ambiente = useMemo(
+    () => allServices.filter((s) => matchesAny(s.account?.key ?? '__none__', accountFilter)),
+    [allServices, accountFilter],
+  )
+  const famiglie = useMemo(() => famigliePerAccount(visibili), [visibili])
+
+  const vista = (
+    <div className="sv-tools">
+      <div className="ui-seg" role="group" aria-label={t('svc.vista')} data-view="view-switch">
+        {['table', 'cards'].map((v) => (
+          <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)}>
+            {t(`svc.vista.${v}`)}
+          </button>
+        ))}
+      </div>
+      {data?.generatedAt && (
+        <span className="ui-faint">
+          {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
+        </span>
+      )}
+    </div>
+  )
+
   return (
     <>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }} wrap>
-        {data ? (
-          <StatusSummary
-            services={flat}
-            all={allServices}
-            statusFilter={statusFilter}
-            onStatusFilter={onStatusFilter}
-            t={t}
-          />
-        ) : (
-          <span />
-        )}
-        <Space size={12} wrap>
-          {data && (
-            // L'involucro con `data-view` è l'ancora per il video demo (vedi pageKit.jsx): le opzioni
-            // di Segmented non portano attributi propri, e il loro unico appiglio — il `title` — è
-            // tradotto, quindi un selettore su quello funzionerebbe in una lingua sola.
-            <span data-view="view-switch">
-              <Segmented
-                size="small"
-                value={view}
-                onChange={pickView}
-                options={[
-                  { value: 'table', icon: <TableOutlined />, title: t('view.table') },
-                  { value: 'cards', icon: <AppstoreOutlined />, title: t('view.cards') },
-                ]}
-              />
-            </span>
-          )}
-          {data?.generatedAt && (
-            <Text type="secondary">
-              {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
-            </Text>
-          )}
-        </Space>
-      </Space>
+      <div data-view="summary">
+        <StatusSummary services={visibili} all={ambiente} ambiente={ambienteLabel} extra={data ? vista : null} t={t} />
+      </div>
 
-      {data?.discovered && (
-        <Alert
-          type="info"
-          showIcon
-          closable
-          style={{ marginBottom: 16 }}
-          message={t('discover.autoTitle')}
-          description={t('discover.autoDesc', { n: data.discovered.count })}
-        />
-      )}
-
-      {/* Account in cui una lettura è FALLITA. Il server li riporta (`discoveryProblems`) e finora
-          finivano solo nei log: in pagina quell'account sembrava semplicemente vuoto — e «non c'è
-          niente» è l'opposto di «non sono riuscito a guardare». Non è chiudibile: un avviso che si
-          può far sparire su un dato che manca torna a essere una bugia comoda. */}
+      {/* Account in cui una lettura e' FALLITA. In pagina quell'account sembrava semplicemente vuoto,
+          e «non c'e' niente» e' l'opposto di «non sono riuscito a guardare». Non si chiude: un
+          avviso che si fa sparire su un dato che manca torna a essere una bugia comoda. */}
       {data?.discoveryProblems?.length > 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={t('discover.problemsTitle', { n: data.discoveryProblems.length })}
-          description={
-            <div>
-              <div style={{ marginBottom: 6 }}>{t('discover.problemsDesc')}</div>
-              {data.discoveryProblems.map((p) => (
-                <div key={`${p.account}/${p.region}`} style={{ fontSize: 12, marginBottom: 4 }}>
-                  <Text strong>{p.account}</Text>
-                  {p.region ? <Text type="secondary"> · {p.region}</Text> : null}
-                  <div style={{ marginInlineStart: 12 }}>
-                    {(p.problems ?? []).map((x, i) => (
-                      <div key={i}>
-                        <Text code style={{ fontSize: 11 }}>
-                          {x.what}
-                        </Text>{' '}
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {x.err}
-                        </Text>
-                      </div>
-                    ))}
+        <div className="ui-readwarn" role="status">
+          <b>{t('svc.nonLeggibili', { n: data.discoveryProblems.length })}</b>{' '}
+          {data.discoveryProblems
+            .map((p) => `${p.account}${p.region ? ` (${p.region})` : ''}: ${(p.problems ?? []).map((x) => x.what).join(', ')}`)
+            .join(' · ')}
+          . {t('svc.nonLeggibiliSotto')}
+          {data.discoveryProblems.some((p) => p.problems?.some((x) => x.err)) && (
+            <details>
+              <summary>{t('svc.nonLeggibiliErrori')}</summary>
+              {data.discoveryProblems.flatMap((p) =>
+                (p.problems ?? []).map((x, i) => (
+                  <div key={`${p.account}/${p.region}/${i}`} className="ui-mono ui-mute">
+                    {p.account} · {x.what}: {x.err}
                   </div>
-                </div>
-              ))}
-            </div>
-          }
-        />
+                )),
+              )}
+            </details>
+          )}
+        </div>
+      )}
+      {data?.discovered && <p className="ui-note">{t('discover.autoDesc', { n: data.discovered.count })}</p>}
+      {error && <div className="ui-readwarn">{`${t('content.errorPrefix')} ${error}`}</div>}
+
+      {data && <FiltroServizi query={nameQuery} onQuery={(v) => onNameQuery?.(v)} chip={chip} onChip={setChip} conteggi={conteggi} t={t} />}
+      {filtersActive && onResetFilters && (
+        <p className="ui-note">
+          {t('svc.filtriAttivi')}{' '}
+          <button type="button" className="ui-kbd" onClick={onResetFilters}>
+            {t('filter.reset')}
+          </button>
+        </p>
       )}
 
-      {error && (
-        <Alert type="error" message={`${t('content.errorPrefix')} ${error}`} style={{ marginBottom: 16 }} showIcon />
-      )}
-      {loading && !data && (
-        <Row gutter={[16, 16]}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Col key={i} xs={24} sm={12} md={8} lg={6}>
-              <Card size="small">
-                <Skeleton active title={{ width: '60%' }} paragraph={{ rows: 3, width: ['90%', '80%', '70%'] }} />
-              </Card>
-            </Col>
-          ))}
-        </Row>
-      )}
-      {data && groups.length === 0 && <EmptyState description={t('content.noServices')} />}
-
-      {data && view === 'table' && groups.length > 0 && (
-        <ServicesTable
-          services={flat}
-          caps={caps}
-          onRemove={onRemove}
-          onLogs={onLogs}
-          onEvents={onEvents}
-          onOpen={onOpen}
-          t={t}
-        />
-      )}
-
-      {view === 'cards' &&
-        groups.map((g) => {
-        // Prefissi di famiglia calcolati sul GRUPPO visibile (acme-staging-cron-…): la card li mostra
-        // piccoli e muti e tiene in evidenza la coda, la parte che distingue una card dall'altra.
-        // Fuori i Bedrock: hanno il loro nome parlante (Claude Sonnet 4.5) e non usano la testa, ma
-        // nel conteggio alzerebbero la soglia per tutti gli altri.
-        const families = familyPrefixes(g.services.filter((s) => s.type !== 'bedrock').map((s) => s.name))
-        return (
-          <div key={g.key} style={{ marginBottom: 8 }}>
-            <Divider orientation="left" orientationMargin={0}>
-              <Space size={6}>
-                {g.color && <Badge color={g.color} />}
-                <Text strong>{g.label}</Text>
-                <Text type="secondary">({g.services.length})</Text>
-              </Space>
-            </Divider>
-            {/* align="stretch" + Card height:100% → le card di una riga sono alte uguali: bordi
-                allineati invece del zig-zag di buchi che si vedeva prima. */}
-            <Row gutter={[16, 16]} align="stretch">
-              {/* La chiave è `serviceKey`, non il nome: dentro un account lo stesso nome torna su più
-                  region e su più tipi di risorsa, e due card con la stessa chiave lasciano una card
-                  fantasma quando la lista si accorcia (vedi serviceName.js). */}
-              {[...g.services].sort(byseverity).map((svc) => (
-                <Col key={serviceKey(svc)} xs={24} sm={12} md={8} lg={6} style={{ display: 'flex' }}>
-                  <ServiceCard
-                    service={svc}
-                    onRemove={caps.watchlist ? onRemove : undefined}
-                    onLogs={onLogs}
-                    onEvents={onEvents}
-                    onOpen={onOpen}
-                    familyPrefixes={families}
-                    reserveFamily={families.size > 0}
-                    t={t}
-                  />
-                </Col>
-              ))}
-            </Row>
-            </div>
-          )
-        })}
+      {loading && !data && <Lista vuoto={t('home.inLettura')} />}
+      {data && view === 'table' && <ServicesTable services={visibili} onOpen={onOpen} t={t} />}
+      {data &&
+        view === 'cards' &&
+        (visibili.length ? (
+          <div className="sv-grid">
+            {[...visibili].sort(perGravita).map((s) => (
+              <ServiceCard key={serviceKey(s)} service={s} famiglie={famiglie.get(s.account?.key ?? '-')} onOpen={onOpen} t={t} />
+            ))}
+          </div>
+        ) : (
+          <Lista vuoto={t('svc.vuoto')} />
+        ))}
     </>
   )
 }

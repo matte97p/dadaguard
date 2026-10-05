@@ -20,6 +20,10 @@ import * as secrets from './checks/secrets.js'
 import * as security from './checks/security.js'
 import * as alarms from './checks/alarms.js'
 import * as backups from './checks/backups.js'
+import { arricchisciServizio } from './meta/stato.js'
+import { fetchMetaTags, tagsDelServizio, metaDaTags } from './meta/tags.js'
+import { budgetErrore, conteggiDaRuntime } from './meta/budget.js'
+import { linkServizio } from './meta/link.js'
 
 // Registro dei check attivi. Aggiungere un segnale = importare il modulo
 // e aggiungerlo qui. Ogni modulo espone { key, run(service, ctx) }.
@@ -400,6 +404,24 @@ export async function getStatus(lang) {
     }),
   )
 
+  // Pre-carica i tag `dadaguard:*` per account (team, canale, runbook, SLO): quattro chiamate per
+  // account invece di una per servizio. Fallita = nessun tag, non un errore del servizio: sono
+  // metadati, e un permesso mancante non deve colorare niente di rosso.
+  const tagsByAccount = {}
+  await Promise.all(
+    usedAccounts.map(async (k) => {
+      const a = accounts[k]
+      if (!a) return
+      try {
+        tagsByAccount[k] = await fetchMetaTags({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region })
+      } catch (err) {
+        log.error('tag dadaguard non leggibili', { account: k, err: err.message })
+        tagsByAccount[k] = null
+      }
+    }),
+  )
+  const posthog = loadConfig().posthog ?? null
+
   // Un servizio alla volta per slot, e gli slot sono PER ACCOUNT: gli account vanno in parallelo fra
   // loro (quote separate), dentro ognuno si resta sotto la sua quota.
   const perAccount = new Map()
@@ -447,7 +469,13 @@ export async function getStatus(lang) {
       const endpoint =
         urlForService(urls, service.account, service.name) ?? service.url ?? checks.runtime?.url ?? endpointFromHealth(service.healthUrl)
       const { overall, cause, causes } = computeOverall(checks)
-      return {
+      const region = service.aws?.region ?? acct?.region ?? null
+      const meta = metaDaTags(service.account ? tagsDelServizio(service.aws, tagsByAccount[service.account]) : null)
+      const conteggi = conteggiDaRuntime(checks.runtime)
+      return arricchisciServizio({
+        ...meta,
+        budgetErrore: meta.slo && conteggi ? budgetErrore({ slo: meta.slo, ...conteggi }) : null,
+        altrove: linkServizio({ name: service.name, aws: service.aws, region, posthog }),
         name: service.name,
         // Identità della RISORSA (account|tipo|cluster/arn/asg…), non del nome: due servizi ECS
         // omonimi in cluster diversi dello stesso account e della stessa region si distinguono solo
@@ -478,7 +506,7 @@ export async function getStatus(lang) {
         cause, // check colpevole primario → testo del badge (es. "ALLARME", "TASK GIÙ")
         causes, // tutti i check allo stesso livello del peggiore
         checks,
-      }
+      }, { aws: service.aws, profile: acct?.profile ?? null, region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
   }
 
   // `flat()` e non un accumulatore: dentro un account `mapLimit` preserva l'ordine, e fra account non
@@ -489,7 +517,7 @@ export async function getStatus(lang) {
   // Costruiti a parte e appesi: NON entrano nella discovery AWS (costi/topologia/deploys restano intatti).
   let cfResults = []
   try {
-    cfResults = (await cloudflareWorkersStatus()).map((w) => cfServiceResult(w, t))
+    cfResults = (await cloudflareWorkersStatus()).map((w) => arricchisciServizio({ ...metaDaTags(null), budgetErrore: null, altrove: [], ...cfServiceResult(w, t) }))
   } catch (err) {
     log.error('cloudflare: stato Worker non leggibile', { err: err.message })
   }

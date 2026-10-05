@@ -6,6 +6,21 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Il nuovo design** (05/10/2026). Tema chiaro e scuro a token, Instrument Sans e JetBrains Mono,
+  viola come marchio e rosso, arancio e verde solo per lo stato. La home **Adesso** è un semaforo con
+  la disponibilità delle ultime 24 ore e l'elenco di cosa sistemare dal più grave; in alto ambiente,
+  punto di vista **Sviluppo** o **DevOps** e la palette `⌘K`. Servizi, Deploy, Cron, Spesa, Limiti,
+  Sicurezza, Accessi, Permessi e Topologia rifatte sugli stessi componenti (`web/ui/`). Ogni problema
+  dice di chi è, cosa fare con un comando di sola lettura da copiare, e dove aprirlo altrove.
+- **`GET /api/history`**: disponibilità a fasce di mezz'ora per ambiente, KPI di oggi contro ieri e la
+  cronologia della giornata, con i guasti collegati al deploy che li ha preceduti. Dedotta da storia
+  degli allarmi, eventi ECS e build; approssimata, e lo dice. Nuovo permesso
+  `cloudwatch:DescribeAlarmHistory`.
+- **Metadati dal server**: ogni servizio e ogni controllo di `/api/status` portano `livello`, `owner`
+  (sviluppo o DevOps), `dettaglio` e `comando`; team, canale, runbook e SLO dai tag `dadaguard:*`
+  (permesso `tag:GetResources`), budget di errore, link «altrove» (CloudWatch, GitHub, CodeBuild,
+  PostHog con `posthog:` in `services.yaml`). I cron hanno la durata tipica. Rotte nuove
+  `/api/meta/spesa-giornaliera` e `/api/meta/login-falliti`.
 - **Il quadro dei deploy in Slack** (04/10/2026). Un canvas per ambiente, riscritto ogni minuto nel
   canale scelto (`DADAGUARD_QUADRO_CANALI`), al posto del registro in cui ogni build lascia due
   messaggi. In testa cosa è rotto o in corso, poi i rilasci delle ultime 24 ore (al massimo 12

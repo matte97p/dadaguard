@@ -114,10 +114,10 @@ export function story(lang = 'en') {
       // dove sta il confronto fra versione che gira e versione attesa — vive oltre il bordo dello
       // schermo e nessuno zoom la riporta dentro (lo zoom scala, non scrolla). Nella card gli stessi
       // check stanno impilati in 322px: si leggono anche nella GIF del README.
-      { type: 'click', selector: '[data-view="view-switch"] .ant-segmented-item:last-child' },
-      { type: 'wait', selector: '.dg-card[data-service="web"]' },
-      { type: 'scroll', selector: '.dg-card[data-service="web"]', duration: 500 },
-      { type: 'zoom', selector: '.dg-card[data-service="web"]', scale: 1.8 },
+      { type: 'click', selector: '[data-view="view-switch"] button:last-child' },
+      { type: 'wait', selector: '.ui-card[data-service="web"]' },
+      { type: 'scroll', selector: '.ui-card[data-service="web"]', duration: 500 },
+      { type: 'zoom', selector: '.ui-card[data-service="web"]', scale: 1.8 },
       {
         type: 'caption',
         text: say(
@@ -132,8 +132,8 @@ export function story(lang = 'en') {
         duration: 2600,
       },
       { type: 'zoomReset' },
-      { type: 'scroll', selector: '.dg-card[data-service="image-resizer"]', duration: 500 },
-      { type: 'zoom', selector: '.dg-card[data-service="image-resizer"]', scale: 1.8 },
+      { type: 'scroll', selector: '.ui-card[data-service="image-resizer"]', duration: 500 },
+      { type: 'zoom', selector: '.ui-card[data-service="image-resizer"]', scale: 1.8 },
       {
         type: 'caption',
         text: say('This one is really down: errors spiking, and two alarms firing.', 'Questo è davvero giù: errori in salita e due allarmi attivi.'),

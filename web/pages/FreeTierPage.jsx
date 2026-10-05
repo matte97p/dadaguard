@@ -1,98 +1,81 @@
-import { useEffect, useState } from 'react'
-import { Alert, Typography, Space, Progress } from 'antd'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
-import Loading from '../components/Loading.jsx'
+import { useState } from 'react'
+import { Lista, Pill, Meter, Drawer, Rimedio, BloccoComando, ListaLink } from '../ui/index.js'
+import { livelloTetto } from './spesaKit.js'
 
-const { Text } = Typography
+const GRIGLIA = '96px minmax(0,1.3fr) minmax(0,1.6fr) 60px'
+const unita = (it) => (it.unit ? ` ${it.unit}` : '')
 
-// Verde < 85%, ambra < 100%, rosso ≥ 100% (sopra il limite gratuito → si paga l'overage).
-const color = (pct) => (pct >= 100 ? '#ff4d4f' : pct >= 85 ? '#faad14' : '#52c41a')
-
-// Pagina Free Tier: uso mensile vs limite gratuito per offerta AWS (es. CodeBuild 100 build-min).
-// Dato org-wide letto dal payer. On-demand.
-export default function FreeTierPage({ t = (k) => k, lang, embedded = false }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetch(`/api/freetier?lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [lang])
-
-  const items = data?.items ?? []
+// Scheda Free Tier: uso mensile contro il limite gratuito, per offerta (es. CodeBuild 100 minuti).
+// Dato di tutta l'organizzazione, letto dal payer. Verde sotto l'85%, arancio fino al 100%, rosso
+// oltre: sopra il limite quel consumo si paga.
+export default function FreeTierPage({ t = (k) => k, risposta }) {
+  const [aperta, setAperta] = useState(null)
+  if (!risposta) return <p className="ui-mute">{t('freetier.loading')}</p>
+  const errore = risposta.errore ?? risposta.dati?.error
+  if (errore) return <Rimedio livello="warn" titolo={t('lim.f.errore')} testo={errore} t={t} />
+  const items = [...(risposta.dati?.items ?? [])].sort((a, b) => b.pct - a.pct)
 
   return (
     <>
-      <PageIntro title={embedded ? null : t('freetier.title')} desc={t('freetier.desc')} />
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <Loading text={t('freetier.loading')} />
-        </div>
-      )}
-      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 8 }} />}
-      {data?.error && <Alert type="warning" showIcon message={data.error} style={{ marginTop: 8 }} />}
-      {data && !data.error && items.length === 0 && !loading && (
-        <EmptyState description={t('freetier.none')} />
-      )}
-
-      {/* Il verdetto: «sto per pagare qualcosa che finora era gratis?». Le tre cifre c'erano gia',
-          ma «2» accanto a «oltre» non dice se la bolletta e' gia' partita o no. */}
-      {items.length > 0 &&
-        (() => {
-          const oltre = items.filter((i) => i.pct >= 100).length
-          const vicine = items.filter((i) => i.pct >= 85 && i.pct < 100).length
-          const livello = oltre ? 'crit' : vicine ? 'warn' : 'ok'
+      <p className="ui-mute" style={{ margin: 0 }}>
+        {t('freetier.desc')}
+      </p>
+      <Lista colonne={[t('spend.col.stato'), t('lim.col.offerta'), t('lim.col.uso'), '']} griglia={GRIGLIA} vuoto={t('freetier.none')}>
+        {items.map((it, i) => {
+          const livello = livelloTetto(it.pct, 100, 85)
           return (
-            <Verdetto
-              livello={livello}
-              titolo={
-                oltre
-                  ? t('freetier.v.oltreTitolo', { n: oltre })
-                  : vicine
-                    ? t('freetier.v.vicineTitolo', { n: vicine })
-                    : t('freetier.v.okTitolo', { n: items.length })
-              }
-              dettaglio={oltre ? t('freetier.v.oltre') : vicine ? t('freetier.v.vicine') : t('freetier.v.ok')}
-              numeri={[
-                { label: t('freetier.h.offers'), value: items.length },
-                { label: t('freetier.h.near'), value: vicine, color: vicine ? '#faad14' : undefined },
-                { label: t('freetier.h.over'), value: oltre, color: oltre ? '#ff4d4f' : undefined },
-              ]}
-            />
-          )
-        })()}
-
-      {items.length > 0 && (
-        <div style={{ ...PANEL_CARD, maxWidth: 720 }}>
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            {items.map((it, i) => (
-              <div key={i}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, gap: 8 }}>
-                  <span>
-                    {it.service}
-                    {it.usageType ? <Text type="secondary"> · {it.usageType}</Text> : null}
-                  </span>
-                  <span style={{ color: color(it.pct), fontWeight: 600 }}>{it.pct}%</span>
-                </div>
-                <Progress percent={Math.min(it.pct, 100)} showInfo={false} size="small" strokeColor={color(it.pct)} />
-                <Text type="secondary" style={{ fontSize: 11 }}>
+            <button
+              key={`${it.service}/${it.usageType}/${i}`}
+              type="button"
+              className="ui-row ui-row-btn"
+              style={{ gridTemplateColumns: GRIGLIA }}
+              onClick={() => setAperta(it)}
+            >
+              <Pill livello={livello}>{t(`lim.f.livello.${livello}`)}</Pill>
+              <span className="ui-name">
+                {it.service}
+                {it.usageType && <small>{it.usageType}</small>}
+              </span>
+              <span className="ui-what">
+                <Meter valore={it.pct} livello={livello} />
+                <span className="ui-hint">
                   {it.used.toLocaleString(undefined, { maximumFractionDigits: 1 })} / {it.limit.toLocaleString()}
-                  {it.unit ? ` ${it.unit}` : ''}
-                  {it.forecast > 0
-                    ? ` · ${t('freetier.forecast')} ${Math.round(it.forecast).toLocaleString()}${it.unit ? ` ${it.unit}` : ''}`
-                    : ''}
-                </Text>
+                  {unita(it)}
+                  {it.forecast > 0 ? ` · ${t('freetier.forecast')} ${Math.round(it.forecast).toLocaleString()}${unita(it)}` : ''}
+                </span>
+              </span>
+              <b className="sp-num">{it.pct}%</b>
+            </button>
+          )
+        })}
+      </Lista>
+
+      <Drawer aperto={Boolean(aperta)} onChiudi={() => setAperta(null)} titolo={aperta?.service} sotto={aperta?.usageType} etichettaChiudi={t('ui.chiudi')}>
+        {aperta && (
+          <>
+            <div className="ui-stats">
+              <div className="ui-stat">
+                <b className={`ui-t-${livelloTetto(aperta.pct, 100, 85)}`}>{aperta.pct}%</b>
+                <span>{t('lim.f.usato')}</span>
               </div>
-            ))}
-          </Space>
-        </div>
-      )}
+              <div className="ui-stat">
+                <b className="ui-mono">{aperta.forecast > 0 ? `${Math.round(aperta.forecast).toLocaleString()}${unita(aperta)}` : '-'}</b>
+                <span>{t('freetier.forecast')}</span>
+              </div>
+            </div>
+            {aperta.pct >= 85 && (
+              <Rimedio
+                livello={livelloTetto(aperta.pct, 100, 85)}
+                titolo={t('spend.cosaFare')}
+                testo={aperta.pct >= 100 ? t('freetier.v.oltre') : t('freetier.v.vicine')}
+                t={t}
+              />
+            )}
+            <BloccoComando comando="aws freetier get-free-tier-usage --region us-east-1" t={t} />
+            <ListaLink link={[{ label: t('lim.link.free'), href: 'https://console.aws.amazon.com/billing/home#/freetier' }]} />
+          </>
+        )}
+      </Drawer>
     </>
   )
 }

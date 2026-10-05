@@ -1,392 +1,163 @@
-import { Fragment } from 'react'
-import { Table, Typography, Space, Badge, Tooltip, Popconfirm, Tag } from 'antd'
-import { DeleteOutlined, FileTextOutlined, HistoryOutlined, GlobalOutlined, ClockCircleOutlined } from '@ant-design/icons'
-import { fmtMs, fmtSchedule, rowClickOpens } from '../format.js'
-import { prettyBedrock, splitFamily, familyPrefixes, serviceKey, isNonEuInference, omonimiVisibili, chiaveVisibile, distintivo } from '../serviceName.js'
-import { StatusDot, StatusGlyph, StatusTag, Summary, MetricValue, TerraformIcon, latencyOf, STAT_TONE } from './signals.jsx'
+import { Lista, Pill } from '../ui/index.js'
+import { fmtMs, fmtSchedule } from '../format.js'
+import {
+  prettyBedrock,
+  splitFamily,
+  familyPrefixes,
+  serviceKey,
+  isNonEuInference,
+  omonimiVisibili,
+  chiaveVisibile,
+  distintivo,
+} from '../serviceName.js'
+import { livelloServizio, ownerServizio, teamServizio, rangoLivello } from '../adattatori.js'
+import { SIGLA, controlliDi, cosaSuccede, altriProblemi } from '../servizi.js'
+import { latencyOf } from './signals.jsx'
+import './servizi.css'
 
-const { Text, Link } = Typography
-
-// Vista TABELLA della flotta: una riga per servizio. È la forma giusta oltre la ventina di servizi —
-// le card, a 48, diventano un muro (è il pattern delle service list di Datadog/Sentry/ArgoCD).
-// Colonne fisse e ordinabili, i segnali secondari nella riga espansa, il dettaglio nel drawer.
+// La lista della flotta: una riga per servizio, come nel resto della nuova interfaccia. Una riga
+// dice in quest'ordine com'e' messo, cos'e', cosa succede, a chi tocca, come vanno i controlli e
+// quanto ci mette. Il dettaglio (controlli spiegati, cosa fare, log, link) sta nel pannello, che si
+// apre con un clic su tutta la riga: il bersaglio grande e' meta' del lavoro su una lista densa.
 //
-// Nomi DUPLICATI, e non solo tra account (`backend` esiste in staging e in produzione, e i modelli
-// Bedrock in entrambi): anche DENTRO un account, dove una ECS, il suo ALB e la stessa ECS in un altro
-// cluster portano lo stesso nome. La chiave di riga è `serviceKey`, cioè l'identità della risorsa, mai
-// il nome: due righe con la stessa chiave lasciano righe fantasma nel DOM. Stessa identità che apre il
-// pannello e che sceglie quale voce di services.yaml cancella il cestino.
+// Nomi DUPLICATI, e non solo fra account (`backend` esiste in staging e in produzione): anche dentro
+// un account, dove una ECS e il suo ALB portano lo stesso nome. La chiave di riga e' `serviceKey`,
+// l'identita' della risorsa, mai il nome: due righe con la stessa chiave lasciano righe fantasma.
 
-// Severità: problemi in cima, poi i sani, in fondo ciò che non è un problema (inattivi e spenti di
-// proposito). Stesso ordine della vista a card.
-const SEV = { down: 0, degraded: 1, unknown: 2, up: 3, idle: 4, disabled: 5 }
-const sev = (s) => SEV[s.overall] ?? 2
-
-export default function ServicesTable({ services, caps, onRemove, onLogs, onEvents, onOpen, t }) {
-  // Famiglie calcolate PER ACCOUNT: mescolando gli account il prefisso condiviso si riduce al minimo
-  // comune ("acme-") e la testa non compatta più niente. Con l'account come contesto tornano le teste
-  // utili — `acme-staging-cron-` per i cron di staging, `acme-production-cron-` per quelli di prod.
-  const famByAccount = new Map()
-  for (const s of services) {
-    const k = s.account?.key ?? '—'
-    if (!famByAccount.has(k)) famByAccount.set(k, [])
-    if (s.type !== 'bedrock') famByAccount.get(k).push(s.name)
+// Etichetta della pillola: sui problemi il controllo colpevole («Non risponde», «Allarme»), che e'
+// la prima cosa che si vuole sapere; altrove il livello a parole.
+export function etichettaServizio(s, t) {
+  const l = livelloServizio(s)
+  if ((l === 'crit' || l === 'warn') && s.cause) {
+    const k = `svc.causa.${s.cause}`
+    const v = t(k)
+    if (v !== k) return v
   }
-  for (const [k, names] of famByAccount) famByAccount.set(k, familyPrefixes(names))
+  return t(`home.liv.${l}`)
+}
 
-  const rows = [...services].sort((a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)))
+// Ordine: dal piu' grave, poi per nome. I problemi si vedono senza scorrere.
+export const perGravita = (a, b) =>
+  rangoLivello(livelloServizio(a)) - rangoLivello(livelloServizio(b)) || String(a.name).localeCompare(String(b.name))
 
-  // Righe INDISTINGUIBILI a occhio: stesso nome mostrato, stesso account. Succede per davvero (quattro
-  // `…-teleport` in Security, che sono un servizio ECS per cluster più il suo load balancer), e finché
-  // il distintivo stava solo nella riga espansa l'unico modo di sapere quale stavi guardando era
-  // aprirle una per una. Solo a quelle si aggiunge tipo e cluster: su tutte sarebbe rumore su ogni
-  // riga per un caso che riguarda due righe.
-  const ambigue = omonimiVisibili(rows)
+// Famiglie calcolate PER ACCOUNT: mescolando gli account il prefisso comune si riduce al minimo
+// («acme-») e la testa non compatta piu' niente.
+export function famigliePerAccount(services) {
+  const m = new Map()
+  for (const s of services) {
+    const k = s.account?.key ?? '-'
+    if (!m.has(k)) m.set(k, [])
+    if (s.type !== 'bedrock') m.get(k).push(s.name)
+  }
+  for (const [k, names] of m) m.set(k, familyPrefixes(names))
+  return m
+}
 
-  const typeLabel = (ty) => (ty ? (t(`type.${ty}`) === `type.${ty}` ? ty : t(`type.${ty}`)) : '—')
-  const uniq = (vals) => [...new Set(vals.filter(Boolean))]
-
-  const columns = [
-    {
-      title: t('col.status'),
-      key: 'stato',
-      // Stretta: il glifo è tutto il contenuto. Il PERCHÉ (il badge con la causa) sta accanto al nome,
-      // dove l'occhio già legge — leggerlo qui vorrebbe dire tornare indietro di due colonne. Il
-      // dropdown di filtro è sparito: lo fa la striscia di conteggi, che è più visibile.
-      width: 56,
-      align: 'center',
-      sorter: (a, b) => sev(a) - sev(b) || String(a.name).localeCompare(String(b.name)),
-      defaultSortOrder: 'ascend',
-      render: (_, s) => <StatusGlyph status={s.overall} t={t} />,
-    },
-    {
-      title: t('col.service'),
-      key: 'servizio',
-      width: 420,
-      sorter: (a, b) => String(a.name).localeCompare(String(b.name)),
-      render: (_, s) => {
-        // Nome: testa comune del gruppo piccola e muta, coda in evidenza (niente troncature: il nome
-        // intero è testa + coda). I Bedrock hanno il loro nome parlante.
-        const bedrock = s.type === 'bedrock' ? prettyBedrock(s.name) : null
-        const nonEu = isNonEuInference(s)
-        const { family, tail } = bedrock
-          ? { family: null, tail: bedrock.name ?? s.name }
-          : splitFamily(s.name, famByAccount.get(s.account?.key ?? '—'))
-        const cadence = s.checks?.runtime?.schedule ? fmtSchedule(s.checks.runtime.schedule, t) : null
-        return (
-          <Tooltip title={s.name}>
-            <span
-              role={onOpen ? 'button' : undefined}
-              tabIndex={onOpen ? 0 : undefined}
-              className={onOpen ? 'dg-openable' : undefined}
-              onClick={
-                onOpen
-                  ? (e) => {
-                      e.stopPropagation() // la riga apre già: senza questo il gesto conta due volte
-                      onOpen(s)
-                    }
-                  : undefined
-              }
-              onKeyDown={
-                onOpen
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        onOpen(s)
-                      }
-                    }
-                  : undefined
-              }
-              style={{ cursor: onOpen ? 'pointer' : undefined, display: 'inline-flex', alignItems: 'baseline', gap: 6 }}
-            >
-              {family && <span className="dg-fam" style={{ maxWidth: 150 }}>{family}</span>}
-              <span style={{ fontWeight: 600, fontSize: 13 }}>{tail}</span>
-              {/* Profilo di inferenza (eu / global / us …): senza questo due modelli DIVERSI dello
-                  stesso ambiente hanno righe identiche, perché il nome accorciato coincide. In rosso
-                  quando l'inferenza può uscire dall'area UE — è un vincolo di contratto, non un dettaglio. */}
-              {bedrock?.scope && (
-                <Tag
-                  color={nonEu ? 'error' : undefined}
-                  style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px', paddingInline: 5 }}
-                  title={nonEu ? t('bedrock.nonEuHint') : s.name}
-                >
-                  {bedrock.scope}
-                </Tag>
-              )}
-              {ambigue.has(chiaveVisibile(s)) && distintivo(s) && (
-                <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-                  {distintivo(s)}
-                </Text>
-              )}
-              <StatusTag service={s} t={t} />
-              {cadence && (
-                <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-                  <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
-                  {cadence}
-                </Text>
-              )}
-            </span>
-          </Tooltip>
-        )
-      },
-    },
-    {
-      title: t('col.account'),
-      key: 'ambiente',
-      width: 104,
-      sorter: (a, b) => String(a.account?.label ?? '').localeCompare(String(b.account?.label ?? '')),
-      filters: uniq(rows.map((s) => s.account?.label)).map((v) => ({ text: v, value: v })),
-      onFilter: (v, s) => s.account?.label === v,
-      render: (_, s) => (
-        <Space size={6}>
-          {/* il pallino dell'ambiente è decorazione: l'informazione sta nell'etichetta accanto, quindi
-              va nascosto agli screen reader invece di farsi annunciare come elemento senza nome */}
-          {s.account?.color && <Badge color={s.account.color} aria-hidden="true" />}
-          <Text style={{ fontSize: 12 }}>{s.account?.label ?? '—'}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: <ColHead label={t('card.label.runtime')} tip={t('card.tip.runtime')} />,
-      key: 'esecuzione',
-      width: 340,
-      render: (_, s) => {
-        const r = s.checks?.runtime
-        if (!r) return <Text type="secondary">—</Text>
-        const cadence = r.schedule ? fmtSchedule(r.schedule, t) : null
-        // Quando ci sono le metriche la cella le compone da quelle, ESCLUSA la latenza (ha la sua
-        // colonna): ripeterla qui ruba spazio alla colonna più larga e fa leggere due volte lo stesso
-        // numero. Comporre invece di tagliare la frase: nessun parsing, nessuna parola da indovinare.
-        const others = (r.metrics ?? []).filter((m) => m.kind !== 'latency')
-        return (
-          <span className="dg-cell" title={r.summary || undefined}>
-            <StatusDot status={r.status} t={t} />{' '}
-            {others.length ? (
-              <>
-                {others.map((m, i) => {
-                  // Un numero regge l'etichetta DOPO ("3/3 istanze", "1 esecuzioni"); un valore
-                  // descrittivo la vuole PRIMA ("motore aurora-postgresql"), altrimenti si legge
-                  // al contrario. L'etichetta resta muta in entrambi i casi: il valore è il fatto.
-                  const numerico = /^[\d.,]/.test(String(m.value ?? ''))
-                  const val = <span style={{ color: m.tone ? STAT_TONE[m.tone] : undefined }}>{m.value}</span>
-                  const lab = (
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      {m.label}
-                    </Text>
-                  )
-                  return (
-                    <span key={i}>
-                      {i > 0 && (
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {' '}
-                          ·{' '}
-                        </Text>
-                      )}
-                      {numerico ? (
-                        <>
-                          {val} {lab}
-                        </>
-                      ) : (
-                        <>
-                          {lab} {val}
-                        </>
-                      )}
-                    </span>
-                  )
-                })}
-                {r.nextRunLabel && (
-                  <Text type="secondary" style={{ fontSize: 11 }}> · {r.nextRunLabel}</Text>
-                )}
-              </>
-            ) : (
-              <Summary text={r.summary ?? r.reason ?? '—'} dropParen={Boolean(cadence)} extra={r.nextRunLabel} />
-            )}
-          </span>
-        )
-      },
-    },
-    {
-      title: <ColHead label={t('col.latency')} tip={t('col.tip.latency')} />,
-      key: 'latenza',
-      width: 104,
-      align: 'right',
-      // "Chi è il più lento?" è LA domanda che una tabella deve saper rispondere. Ordina sul numero
-      // che il server mette sulla metrica (`ms`), non sulla stringa mostrata ("~4m 30s" ordinato come
-      // testo finirebbe prima di "~51s"). Primo clic = i più lenti in cima; chi non ha latenza (un
-      // bucket S3, un worker senza richieste) resta in fondo in entrambi i versi, non finge di essere 0.
-      sortDirections: ['descend', 'ascend'],
-      sorter: (a, b) => {
-        const ms = (x) => latencyOf(x)?.ms
-        const va = ms(a)
-        const vb = ms(b)
-        if (va == null && vb == null) return 0
-        if (va == null) return -1
-        if (vb == null) return 1
-        return va - vb
-      },
-      render: (_, s) => {
-        const l = latencyOf(s)
-        if (!l) return <Text type="secondary">—</Text>
-        if (l.source === 'metric') return <MetricValue metric={l.metric} window={s.checks?.runtime?.window} inline />
-        // Misura della sonda: etichettata, perché include rete e Cloudflare e non è la stessa cosa
-        // della latenza che il servizio misura di suo.
-        return (
-          <span className="dg-num" title={t('col.tip.latency.probe')}>
-            {fmtMs(l.ms)}{' '}
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('col.latency.probe')}
-            </Text>
-          </span>
-        )
-      },
-    },
-    {
-      title: <ColHead label={t('card.label.build')} tip={t('card.tip.build')} />,
-      key: 'build',
-      width: 250,
-      render: (_, s) =>
-        s.checks?.version ? (
-          <span className="dg-cell" title={s.checks.version.summary || undefined}>
-            <StatusDot status={s.checks.version.status} t={t} />{' '}
-            {s.checks.version.summary ? <Summary text={s.checks.version.summary} /> : (s.checks.version.reason ?? '—')}
-          </span>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
-      title: '',
-      key: 'azioni',
-      width: 104,
-      align: 'right',
-      render: (_, s) => {
-        const hasLogs = ['lambda', 'ecs', 'ecs-scheduled'].includes(s.type)
-        const hasEvents = Boolean(s.type) && s.type !== 'cloudflare-worker'
-        return (
-          <span className="dg-actions">
-            {s.checks?.drift && (
-              <Tooltip title={`${t('card.label.drift')}: ${s.checks.drift.summary ?? s.checks.drift.reason ?? '—'}`}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help' }}>
-                  <TerraformIcon status={s.checks.drift.status} />
-                </span>
-              </Tooltip>
-            )}
-            {s.url && (
-              <Link href={s.url} target="_blank" rel="noreferrer" type="secondary" title={s.url} onClick={(e) => e.stopPropagation()}>
-                <GlobalOutlined />
-              </Link>
-            )}
-            {onLogs && hasLogs && (
-              <Link type="secondary" onClick={() => onLogs(s)} title={t('logs.button')}>
-                <FileTextOutlined />
-              </Link>
-            )}
-            {onEvents && hasEvents && (
-              <Link type="secondary" onClick={() => onEvents(s)} title={t('events.button')}>
-                <HistoryOutlined />
-              </Link>
-            )}
-            {caps?.watchlist && onRemove && (
-              <Popconfirm
-                title={t('card.removeTitle')}
-                description={t('card.removeDesc')}
-                okText={t('card.removeOk')}
-                cancelText={t('card.removeCancel')}
-                onConfirm={() => onRemove(s)}
-              >
-                <Link type="secondary">
-                  <DeleteOutlined />
-                </Link>
-              </Popconfirm>
-            )}
-          </span>
-        )
-      },
-    },
-  ]
-
-  // Segnali senza colonna propria (raggiungibilità, secret, sicurezza, allarmi, backup, Terraform):
-  // stanno nella riga espansa, uno per riga. Nessuna informazione persa, zero colonne in più.
-  const EXTRA = [
-    ['liveness', 'card.label.reachable'],
-    ['secrets', 'card.label.secret'],
-    ['security', 'card.label.security'],
-    ['alarms', 'card.label.alarms'],
-    ['backups', 'card.label.backups'],
-    ['drift', 'card.label.drift'],
-  ]
-  const extrasOf = (s) => EXTRA.filter(([k]) => s.checks?.[k])
-
+// Il nome come si mostra: testa di famiglia muta e coda in evidenza; i Bedrock col loro nome
+// parlante e il profilo di inferenza, in rosso quando puo' uscire dall'UE (e' un vincolo di contratto).
+export function NomeServizio({ s, famiglie, t }) {
+  const bedrock = s.type === 'bedrock' ? prettyBedrock(s.name) : null
+  const { family, tail } = bedrock ? { family: null, tail: bedrock.name ?? s.name } : splitFamily(s.name, famiglie)
   return (
-    <Table
-      className="dg-table"
-      size="small"
-      tableLayout="fixed"
-      rowClassName={(_, i) => (i % 2 ? 'dg-zebra' : '')}
-      rowKey={serviceKey}
-      dataSource={rows}
-      columns={columns}
-      pagination={false}
-      sticky
-      scroll={{ x: 'max-content' }}
-      onRow={(s) => ({
-        'data-service': s.name,
-        // Tutta la riga apre il servizio: il bersaglio grande è metà del lavoro su una tabella densa
-        // (il nome da solo è alto 18px). I gesti interni restano loro — vedi `rowClickOpens`.
-        onClick: onOpen
-          ? (e) => {
-              if (rowClickOpens(e.target, window.getSelection?.()?.toString())) onOpen(s)
-            }
-          : undefined,
-        style: onOpen ? { cursor: 'pointer' } : undefined,
-      })}
-      expandable={{
-        rowExpandable: () => true, // il tipo c'è sempre, quindi la riga si apre sempre
-        expandedRowRender: (s) => (
-          <div className="dg-rows" style={{ marginInlineStart: 8 }}>
-            <div className="dg-label">
-              <span>{t('col.type')}</span>
-            </div>
-            <div className="dg-val">{typeLabel(s.type)}</div>
-            {extrasOf(s).map(([k, labelKey]) => {
-              const c = s.checks[k]
-              return (
-                <Fragment key={k}>
-                  <div className="dg-label">
-                    <span>{t(labelKey)}</span>
-                  </div>
-                  <div className="dg-val" title={c.summary || undefined}>
-                    <StatusDot status={c.status} t={t} />{' '}
-                    {k === 'liveness' && c.httpStatus ? (
-                      <>
-                        <span>{t('card.responds', { code: c.httpStatus })}</span>
-                        {typeof c.latencyMs === 'number' && (
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            {' '}
-                            · {fmtMs(c.latencyMs)}
-                          </Text>
-                        )}
-                      </>
-                    ) : (
-                      <Summary text={c.summary ?? c.reason ?? '—'} />
-                    )}
-                  </div>
-                </Fragment>
-              )
-            })}
-          </div>
-        ),
-      }}
-    />
+    <span title={s.name}>
+      {family && <span className="ui-faint">{family}</span>}
+      {tail}
+      {bedrock?.scope && (
+        <>
+          {' '}
+          <Pill livello={isNonEuInference(s) ? 'crit' : 'off'} title={isNonEuInference(s) ? t('bedrock.nonEuHint') : s.name}>
+            {bedrock.scope}
+          </Pill>
+        </>
+      )}
+    </span>
   )
 }
 
-// Intestazione con tooltip che spiega il segnale (tratteggiata, come le etichette nelle card).
-function ColHead({ label, tip }) {
+export function tipoLabel(ty, t) {
+  if (!ty) return null
+  const k = `type.${ty}`
+  const l = t(k)
+  return l === k ? ty : l
+}
+
+export function latenzaTesto(s, t) {
+  const l = latencyOf(s)
+  if (!l) return null
+  // La misura della sonda include rete e Cloudflare: etichettata, per non confrontarla con quella
+  // che il servizio misura di suo.
+  return l.source === 'metric' ? (l.metric?.value ?? fmtMs(l.ms)) : `${fmtMs(l.ms)} ${t('col.latency.probe')}`
+}
+
+export default function ServicesTable({ services, onOpen, t }) {
+  const famiglie = famigliePerAccount(services)
+  const righe = [...services].sort(perGravita)
+  // Righe indistinguibili a occhio (stesso nome, stesso account): solo a quelle si aggiunge tipo e
+  // cluster, su tutte sarebbe rumore.
+  const ambigue = omonimiVisibili(righe)
+
   return (
-    <Tooltip title={tip}>
-      <span style={{ borderBottom: '1px dotted currentColor', cursor: 'help' }}>{label}</span>
-    </Tooltip>
+    <div className="sv-lista">
+      <Lista
+        colonne={[
+          t('svc.col.stato'),
+          t('svc.col.servizio'),
+          t('svc.col.cosa'),
+          t('svc.col.diChi'),
+          t('svc.col.controlli'),
+          t('svc.col.latenza'),
+          '',
+        ]}
+        vuoto={t('svc.vuoto')}
+      >
+        {righe.map((s) => {
+          const livello = livelloServizio(s)
+          const cadenza = s.checks?.runtime?.schedule ? fmtSchedule(s.checks.runtime.schedule, t) : null
+          const sotto = [s.account?.label, tipoLabel(s.type, t), ambigue.has(chiaveVisibile(s)) ? distintivo(s) : null, cadenza]
+            .filter(Boolean)
+            .join(' · ')
+          const altri = altriProblemi(s)
+          const controlli = controlliDi(s)
+          const lat = latenzaTesto(s, t)
+          return (
+            <button
+              key={serviceKey(s)}
+              type="button"
+              className="ui-row ui-row-btn sv-row"
+              data-service={s.name}
+              onClick={() => onOpen?.(s)}
+            >
+              <Pill livello={livello}>{etichettaServizio(s, t)}</Pill>
+              <span className="ui-nm">
+                <span className="ui-kicon">{SIGLA[s.type] ?? '·'}</span>
+                <span className="ui-name">
+                  <NomeServizio s={s} famiglie={famiglie.get(s.account?.key ?? '-')} t={t} />
+                  {sotto && <small>{sotto}</small>}
+                </span>
+              </span>
+              <span className="ui-what">
+                {cosaSuccede(s) ?? <span className="ui-faint">{t('svc.nienteDaDire')}</span>}
+                {altri > 0 && <span className="ui-hint">{t('svc.altriControlli', { n: altri })}</span>}
+              </span>
+              <span className="ui-who">
+                <b>{teamServizio(s) ?? t(`home.owner.${ownerServizio(s)}`)}</b>
+              </span>
+              <span
+                className="sv-checks"
+                title={controlli.map((c) => `${t(`svc.ck.${c.chiave}`)}: ${t(`home.liv.${c.livello}`)}`).join('\n')}
+              >
+                {controlli.map((c) => (
+                  <i key={c.chiave} className={`ui-bg-${c.livello}`} />
+                ))}
+              </span>
+              <span className="ui-mono ui-mute sv-lat">
+                {livello === 'off' && !lat ? <span className="ui-faint">{t('home.liv.off').toLowerCase()}</span> : (lat ?? '')}
+              </span>
+              <span className="ui-go">›</span>
+            </button>
+          )
+        })}
+      </Lista>
+    </div>
   )
 }

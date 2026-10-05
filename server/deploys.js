@@ -10,6 +10,7 @@ import {
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { manualActions } from './manualActions.js'
 import { stripOrgEnv } from './util/envToken.js'
+import { linkDeploy } from './meta/link.js'
 
 const DEPLOY_SUFFIX = '-deploy'
 // Il progetto che applica l'infrastruttura (`<org>-<env>-iac-apply`): non è il deploy di un servizio,
@@ -94,7 +95,7 @@ export function mapBuild(b = {}, starter = null) {
   const ended = b.endTime ?? null
   const phases = (b.phases ?? []).map(mapPhase)
   const fail = failureOf(b.phases)
-  return {
+  const out = {
     id: b.id ?? null,
     arn: b.arn ?? null, // chiave per attribuire la build al suo evento CloudTrail StartBuild
     service: serviceFromProject(b.projectName),
@@ -125,6 +126,9 @@ export function mapBuild(b = {}, starter = null) {
     failReason: fail?.reason ?? null,
     logsUrl: b.logs?.deepLink ?? null, // console CloudWatch del log stream di questo build
   }
+  // «Apri altrove»: il commit su GitHub e lo storico CodeBuild, composti dai campi qui sopra.
+  out.altrove = linkDeploy(out)
+  return out
 }
 
 const byRecent = (a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0)

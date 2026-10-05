@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Alert, Typography, Table, Tag, Space, Skeleton, Button, Segmented, Switch, Input, Tooltip } from 'antd'
-import { PageIntro, Toolbar, Section, HeroRow, HeroStat, EmptyState, Verdetto, FinestraSwitch } from './pageKit.jsx'
+import { Verdetto, Tabs, Lista, Sezione, Card, Pill, Rimedio, BloccoComando, ListaLink } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
+import Loading from '../components/Loading.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
-import { LEVEL, SPACE, FONT } from '../theme.js'
 import {
   avvioStorto,
   daGuardare,
@@ -32,8 +31,7 @@ import {
   problemaSsh,
   tuttiIndietro,
 } from '../accessi.js'
-
-const { Text } = Typography
+import './ops.css'
 
 // Superficie "Accessi": chi entra dove e chi ha il dev-env indietro.
 //
@@ -69,26 +67,22 @@ const { Text } = Typography
 // il controllo sparirebbe e la pagina resterebbe inchiodata al suo default.
 const FINESTRE_RIPIEGO = [1, 6, 24, 168]
 
-// Un conteggio che parla solo quando non è zero. Lo zero dentro un `Tag` pesa come il cinque: su una
-// colonna dove quasi ogni cella è zero i tag diventano una texture, e la cella che conta si perde.
-function Conta({ n, level = 'warn' }) {
-  return n > 0 ? (
-    <Tag color={LEVEL[level].tag} style={{ marginInlineEnd: 0 }}>
-      {n}
-    </Tag>
-  ) : (
-    <Text type="secondary">0</Text>
-  )
+// Un conteggio che parla solo quando non è zero. Lo zero dentro una pillola pesa come il cinque: su
+// una colonna dove quasi ogni cella è zero le pillole diventano una texture, e la cella che conta si
+// perde.
+function Conta({ n, livello = 'warn' }) {
+  return n > 0 ? <Pill livello={livello}>{n}</Pill> : <span className="ui-faint">0</span>
 }
 
-// «3m fa» in chiaro, il timestamp intero nel tooltip. Quattro tabelle con `31/08/2026, 15:07:09` in
-// ogni riga sono quattro colonne di rumore per rispondere a una domanda che è sempre relativa.
+// «3m fa» in chiaro, il timestamp intero al passaggio del mouse. Quattro liste con
+// `31/08/2026, 15:07:09` in ogni riga sono quattro colonne di rumore per rispondere a una domanda che
+// è sempre relativa.
 function Quando({ ts, t, lang }) {
-  if (!ts) return <Text type="secondary">—</Text>
+  if (!ts) return <span className="ui-faint">-</span>
   return (
-    <Tooltip title={new Date(ts).toLocaleString(lang === 'it' ? 'it-IT' : 'en-GB')}>
-      <span style={{ whiteSpace: 'nowrap' }}>{fmtAgo(ts, t)}</span>
-    </Tooltip>
+    <span className="ui-when" style={{ textAlign: 'left', whiteSpace: 'nowrap' }} title={new Date(ts).toLocaleString(lang === 'it' ? 'it-IT' : 'en-GB')}>
+      {fmtAgo(ts, t)}
+    </span>
   )
 }
 
@@ -97,23 +91,30 @@ function Quando({ ts, t, lang }) {
 // aggiornata (il relativo, «8g fa», risponde a un'altra domanda e la pagina lo dice a parte).
 const dataCorta = (ts, lang) => new Date(ts).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB')
 
-// I comparatori delle colonne: servono ad antd per il riordino a mano, e non sono regole della pagina
-// (quelle stanno in `web/accessi.js`, provate).
-const numerico = (campo) => (a, b) => (a[campo] ?? 0) - (b[campo] ?? 0)
-// Ordina su QUANTI ne ha, non sul campo: le colonne della mappa contengono liste (team, ruoli,
-// permessi), e `numerico` su un array le confronterebbe tutte uguali a zero.
-const quanti = (campo) => (a, b) => (a[campo]?.length ?? 0) - (b[campo]?.length ?? 0)
-const testuale = (campo) => (a, b) => String(a[campo] ?? '').localeCompare(String(b[campo] ?? ''))
-
 // Un nome che porta al suo audit in Teleport, quando la config dice come. Senza modello resta testo:
 // la pagina promette che le sessioni si rivedono, e un link che non porta da nessuna parte è peggio
 // della promessa non mantenuta.
 function Nome({ href, children }) {
   if (!href) return <span>{children}</span>
   return (
-    <a href={href} target="_blank" rel="noreferrer">
+    <a href={href} target="_blank" rel="noreferrer" style={{ color: 'var(--brand)' }}>
       {children}
     </a>
+  )
+}
+
+// La finestra come pillole della barra (`ui-seg`): le etichette sono le stesse del controllo di prima.
+function Finestra({ ore, gradini, onChange, t }) {
+  if (!gradini?.length || gradini.length < 2) return null
+  const etichetta = (h) => (h < 24 ? `${h}h` : h % 24 === 0 && h < 168 ? `${h / 24}g` : h === 168 ? '7g' : `${Math.round(h / 24)}g`)
+  return (
+    <div className="ui-seg" role="group" aria-label={t('finestra.label')}>
+      {gradini.map((h) => (
+        <button key={h} type="button" aria-pressed={ore === h} onClick={() => onChange(h)}>
+          {etichetta(h)}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -211,385 +212,278 @@ export default function AccessiPage({ t, lang }) {
   )
   const ssh = useMemo(() => ordinaSsh(audit.ssh ?? []), [audit.ssh])
 
-  if (errore && !dati) return <Alert type="error" showIcon message={String(errore)} />
-  if (loading || !dati) return <Skeleton active />
+  if (errore && !dati) return <div className="ui-readwarn">{String(errore)}</div>
+  if (loading || !dati) return <Loading text={t('accessi.caricamento')} />
 
   // Senza la sezione `teleport:` nella config non si mostra un vuoto che sembra un guasto: si dice
   // cosa manca. È la stessa scelta del resto dell'app (nessun nome di risorsa cablato nel codice).
-  // ⚠️ `description`, non `title`: `EmptyState` prende `description`, e con la prop sbagliata questo
-  // riquadro usciva senza una parola dentro, cioè un vuoto muto proprio nel caso che esiste per
-  // spiegare un vuoto.
   if (!dati.configurato) {
     return (
-      <>
-        <PageIntro title={t('accessi.title')} desc={t('accessi.desc')} />
-        <EmptyState description={t('accessi.nonConfigurato')} />
-      </>
+      <div className="ui-pagina">
+        <Verdetto resto={t('accessi.title')} dettaglio={t('accessi.desc')} />
+        <Lista vuoto={t('accessi.nonConfigurato')}>{[]}</Lista>
+      </div>
     )
   }
 
-  const colonnePersone = [
-    {
-      title: t('accessi.col.persona'),
-      dataIndex: 'utente',
-      key: 'utente',
-      sorter: testuale('utente'),
-      // ⚠️ Il motivo dell'ultimo rifiuto sta SOTTO AL NOME e non in una colonna sua: e' la frase che
-      // distingue «sessione scaduta» da «ruolo che non esiste», cioe' una persona sola da tutto il
-      // team fuori, e in fondo alla riga la leggeva solo chi arrivava fin la'. Per intero, non
-      // troncata. Con lei l'istante dell'ultima cosa fatta, che era l'ultima colonna di quattro
-      // tabelle: sempre relativo, con la data intera nel tooltip.
-      render: (v, r) => (
-        <Space direction="vertical" size={0}>
-          <Nome href={linkAudit(dati.auditUserUrl, 'utente', v)}>{v}</Nome>
-          {r.motivo && <Text style={{ fontSize: FONT.micro }}>{r.motivo}</Text>}
-          <Text type="secondary" style={{ fontSize: FONT.micro }}>
-            <Quando ts={r.ultima} t={t} lang={lang} />
-          </Text>
-        </Space>
-      ),
-    },
-    // Le fallite E le riuscite: la prima stesura mostrava un tag solo, quindi chi aveva otto login
-    // buone e due fallite risultava «2 fallite» e sembrava fuori, mentre stava lavorando.
-    {
-      title: t('accessi.col.login'),
-      key: 'login',
-      sorter: numerico('loginFallite'),
-      render: (_, r) => (
-        <Space size={SPACE.xs}>
-          <Text type={r.loginOk ? undefined : 'secondary'}>{r.loginOk}</Text>
-          {r.loginFallite > 0 && (
-            <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
-              {t('accessi.falliteN', { n: r.loginFallite })}
-            </Tag>
+  // ⚠️ «1 macchine» e «1 login fallite» sono la prima cosa che si nota in una riga che deve leggersi in
+  // un colpo d'occhio. Il dizionario non ha i plurali: ogni frase ha la sua forma per UNO, e si sceglie
+  // qui in base al numero. Sta PRIMA delle righe che la usano: un `const` letto prima della sua
+  // dichiarazione e' un `ReferenceError` a ogni render, e qui nessuna prova renderizza un componente.
+  const frase = (chiave, n, extra = {}) => t(n === 1 ? `${chiave}.uno` : chiave, { n, ...extra })
+
+  // Tanti nomi uguali sono rumore: sopra i tre si mostra il conteggio e i nomi vanno nel `title`.
+  // `marca`: quali voci contano piu' delle altre (chi ha SCRITTO, fra chi ha solo letto), che diventano
+  // una pillola arancio. Senza, la cella dice «tre persone» e la domanda vera («chi ha scritto?»)
+  // resta senza risposta.
+  const elencoCorto = (valori = [], vuoto = null, marca = () => false) => {
+    if (!valori.length) return vuoto
+    if (valori.length <= 3)
+      return (
+        <span className="ui-who">
+          {valori.map((v) =>
+            marca(v) ? (
+              <Pill key={v} livello="warn">
+                {v}
+              </Pill>
+            ) : (
+              <b key={v} style={{ marginInlineEnd: 4 }}>
+                {v}
+              </b>
+            ),
           )}
-          {/* Quanto è durata la raffica. Tre fallite in due minuti sono un guasto in corso, tre in un
-              giorno sono tre giornate diverse: il conteggio da solo le racconta identiche, ed è la
-              differenza fra «ha sbagliato la password» e «da nove minuti nessuno entra». */}
-          {durataFallite(r) && (
-            <Text type="secondary" style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}>
-              {t('accessi.inTempo', { durata: fmtMs(durataFallite(r)) })}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
+        </span>
+      )
+    return (
+      <span className="ui-who" title={valori.join(' · ')}>
+        <b>{t('accessi.mappa.quanti', { n: valori.length })}</b>
+      </span>
+    )
+  }
+  // Le righe di sotto: piccole, grigie, una per fatto. Sono il secondo livello di una cella.
+  const sotto = (testo, key) =>
+    testo ? (
+      <span key={key} className="ui-hint">
+        {testo}
+      </span>
+    ) : null
+
+  // ── Le righe delle sei liste ──────────────────────────────────────────────────────────────────────
+  // Ogni lista e' una griglia di celle; la prima colonna, quando la lista ha una nozione di problema, e'
+  // la pillola di stato, che e' la cosa che si guarda scorrendo dall'alto.
+
+  // ⚠️ Il motivo dell'ultimo rifiuto sta SOTTO AL NOME e non in una colonna sua: e' la frase che
+  // distingue «sessione scaduta» da «ruolo che non esiste», cioe' una persona sola da tutto il team
+  // fuori, e in fondo alla riga la leggeva solo chi arrivava fin la'. Per intero, non troncata.
+  const cellePersona = (r) => [
+    <span key="n" className="ui-name">
+      <Nome href={linkAudit(dati.auditUserUrl, 'utente', r.utente)}>{r.utente}</Nome>
+      {r.motivo && <span className="ui-hint" style={{ color: 'var(--ink)' }}>{r.motivo}</span>}
+      <small>
+        <Quando ts={r.ultima} t={t} lang={lang} />
+      </small>
+    </span>,
+    // Le fallite E le riuscite: con un numero solo chi aveva otto login buone e due fallite risultava
+    // «2 fallite» e sembrava fuori, mentre stava lavorando. E quanto è durata la raffica: tre fallite
+    // in due minuti sono un guasto in corso, tre in un giorno sono tre giornate diverse.
+    <span key="l" className="ui-what">
+      <span className={r.loginOk ? undefined : 'ui-faint'}>{t('accessi.okN', { n: r.loginOk ?? 0 })}</span>{' '}
+      {r.loginFallite > 0 && <Pill livello="crit">{t('accessi.falliteN', { n: r.loginFallite })}</Pill>}
+      {durataFallite(r) && sotto(t('accessi.inTempo', { durata: fmtMs(durataFallite(r)) }))}
+    </span>,
     // ⚠️ Le sessioni riuscite e i tentativi RIFIUTATI nella stessa cella, ma separati: sommarli e' il
-    // modo in cui un accesso negato sparisce (era cosi' fino al 01/09/2026, e sette rifiuti in un
-    // giorno non si vedevano da nessuna parte). Il tag rosso c'e' solo quando ce n'e' almeno uno.
-    {
-      title: t('accessi.col.sessioniDb'),
-      key: 'sessioniDb',
-      sorter: numerico('sessioniDb'),
-      render: (_, r) => (
-        <Space direction="vertical" size={0}>
-          <Space size={SPACE.xs}>
-            <Text type={r.sessioniDb ? undefined : 'secondary'}>{r.sessioniDb ?? 0}</Text>
-            {r.sessioniDbNegate > 0 && (
-              <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
-                {t('accessi.dbNegateN', { n: r.sessioniDbNegate })}
-              </Tag>
-            )}
-          </Space>
-          {/* COSA ha chiesto, non solo quante volte: il rimedio sta nella coppia utente+database, e il
-              conteggio da solo la nasconde. Dietro i quattordici rifiuti del 01/09/2026 c'erano tre
-              problemi diversi (`dev_readwrite` chiesto al tunnel di sola lettura, il proprio nome dove
-              l'utente e' uno solo, `postgres` dove non si concede mai), e da «14 accessi negati» non se
-              ne ricavava nessuno. Si mostrano TUTTE le coppie: sono una o due, e un «+2» nascosto
-              rimanda a un'altra pagina proprio la persona che ha fretta. */}
-          {(r.negati ?? []).map((n) => (
-            <Text
-              key={`${n.dbUser}/${n.servizio}/${n.nome}`}
-              type="secondary"
-              style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}
-            >
-              {t('accessi.negatoCombo', { n: n.quante, dbUser: n.dbUser, db: n.nome, servizio: n.servizio })}
-            </Text>
-          ))}
-        </Space>
-      ),
-    },
-    // ⚠️ Query e scritture in una cella, e sotto i NOMI dei database. Erano due colonne di numeri, e
-    // «124 query» non si traduce in niente: la domanda dopo e' sempre «su cosa?», e la risposta stava
-    // nell'altra tabella, da incrociare a mano. Le scritture restano colorate, che e' la differenza
-    // fra il mestiere di tutti i giorni e la cosa che si guarda.
-    {
-      title: t('accessi.col.attivita'),
-      key: 'attivita',
-      sorter: numerico('query'),
-      render: (_, r) =>
-        r.query ? (
-          <Space direction="vertical" size={0}>
-            <Space size={SPACE.xs}>
-              <Text>{t('accessi.queryN', { n: r.query })}</Text>
-              {r.scritture > 0 && (
-                <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-                  {frase('accessi.scrittureN', r.scritture)}
-                </Tag>
-              )}
-            </Space>
-            {elencoCorto((r.db ?? []).map((d) => d.nome))}
-          </Space>
-        ) : (
-          <Text type="secondary">0</Text>
-        ),
-    },
-  ]
-
-  const colonneDatabase = [
-    // Nome, ambiente e servizio in una cella sola. Erano tre colonne per identificare UNA cosa, e il
-    // servizio (`un-db-di-produzione-ro`) e' il dettaglio che serve dopo aver riconosciuto il database,
-    // non prima. L'ambiente resta un tag, perche' `prod` e' l'unica parola che cambia come si legge
-    // la riga.
-    // Un `?` in colonna è il nome che il log non aveva (Redis non manda `db_name`): si scrive «—», che
-    // è la stessa informazione senza sembrare un errore di lettura.
-    {
-      title: t('accessi.col.database'),
-      dataIndex: 'nome',
-      key: 'nome',
-      sorter: testuale('nome'),
-      render: (v, r) => (
-        <Space direction="vertical" size={0}>
-          <Space size={SPACE.xs}>
-            {v && v !== '?' ? <Text strong>{v}</Text> : <Text type="secondary">—</Text>}
-            {r.ambiente && (
-              <Tag color={r.ambiente === 'prod' ? LEVEL.crit.tag : undefined} style={{ marginInlineEnd: 0 }}>
-                {r.ambiente}
-              </Tag>
-            )}
-          </Space>
-          <Text type="secondary" style={{ fontSize: FONT.micro }}>
-            {r.servizio}
-          </Text>
-        </Space>
-      ),
-    },
-    // Query e scritture insieme, come sulla riga della persona: la stessa domanda a due livelli di
-    // dettaglio non merita due colonne.
-    {
-      title: t('accessi.col.attivita'),
-      key: 'attivita',
-      sorter: numerico('query'),
-      render: (_, r) => (
-        <Space size={SPACE.xs}>
-          <Text>{t('accessi.queryN', { n: r.query ?? 0 })}</Text>
-          {r.scritture > 0 && (
-            <Tag color={r.ambiente === 'prod' ? LEVEL.crit.tag : LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-              {frase('accessi.scrittureN', r.scritture)}
-            </Tag>
-          )}
-        </Space>
-      ),
-    },
-    // ⚠️ I NOMI, non il numero. «3 persone» costringeva ad aprire l'altra tabella per sapere di chi si
-    // parla, ed e' la stessa cella su cui si risponde a «chi ha scritto in produzione?». Chi ha scritto
-    // e' in grassetto: sopra i tre nomi la lista diventa un conteggio col tooltip, come nella mappa.
-    {
-      title: t('accessi.col.quantePersone'),
-      dataIndex: 'persone',
-      key: 'persone',
-      sorter: numerico('persone'),
-      render: (_, r) =>
-        elencoCorto(r.chi ?? [], <Text type="secondary">—</Text>, (nome) => (r.scriventi ?? []).includes(nome)),
-    },
-  ]
-
-
-  const colonneMacchine = [
-    {
-      title: t('accessi.col.macchina'),
-      dataIndex: 'macchina',
-      key: 'macchina',
-      sorter: testuale('macchina'),
-      // ⚠️ Il LATO e' un attributo della macchina, non una colonna: «host» e «container» sono due
-      // parole che si ripetono su ogni riga e occupavano una colonna intera per dire da che parte del
-      // mount sta quella riga. Come tag accanto al nome dice la stessa cosa e non toglie spazio ai
-      // dati. Con lui scende qui anche il comando per entrare, che era l'ultima colonna a destra.
-      render: (v, r) => (
-        <Space direction="vertical" size={0}>
-          <Space size={SPACE.xs}>
-            <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>
-            {r.lato && <Tag style={{ marginInlineEnd: 0 }}>{r.lato}</Tag>}
-            {/* L'esito dell'avvio compare SOLO quando non è `ok`: una colonna che dice «ok» su ogni riga
-                è una colonna che nessuno legge, e il giorno che dice altro nessuno la nota. */}
-            {avvioStorto(r) && (
-              <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-                {t('accessi.esitoNonOk', { esito: r.esito })}
-              </Tag>
-            )}
-          </Space>
-          {/* Il comando per entrare, copiabile. Il MODELLO arriva dalla config (`teleport.sshCommand`,
-              con `{macchina}` dentro) e non dal codice. Solo per `lato: host`: il container non e' una
-              macchina raggiungibile, e un comando che non funziona e' peggio di nessun comando. */}
-          {dati.sshCommand && r.lato === 'host' && (
-            <Text code copyable style={{ fontSize: FONT.micro }}>
-              {dati.sshCommand.replace('{macchina}', r.macchina)}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: t('accessi.col.persona'),
-      dataIndex: 'utente',
-      key: 'utente',
-      sorter: testuale('utente'),
-      // Fra i nomi con cui la stessa persona è comparsa si mostra quello che Teleport conosce, e gli
-      // altri stanno nel tooltip: senza questa scelta la stessa persona sembrava due.
-      render: (_, r) => {
-        const { nome, altri } = personaMacchina(r, utentiNoti)
-        if (!nome) return <Text type="secondary">—</Text>
-        const link = linkAudit(dati.auditUserUrl, 'utente', nome)
-        const dentro = <Nome href={link}>{nome}</Nome>
-        return altri.length ? <Tooltip title={t('accessi.altriNomi', { nomi: altri.join(', ') })}>{dentro}</Tooltip> : dentro
-      },
-    },
-    // Il digest corto + «indietro»: è la mezza riga che risponde alla seconda domanda della pagina.
-    // Prima qui c'erano cinque hash troncati tutti uguali nei primi sette caratteri, e capire chi fosse
-    // rimasto indietro voleva dire copiarli fuori e confrontarli a mano.
-    {
-      title: (
-        <Tooltip title={riferimento.fonte === 'config' ? t('accessi.imgAttesa') : t('accessi.imgRiferimento')}>
-          <span style={{ borderBottom: '1px dotted currentColor' }}>{t('accessi.col.immagine')}</span>
-        </Tooltip>
-      ),
-      dataIndex: 'immagine',
-      key: 'immagine',
-      sorter: testuale('immagine'),
-      render: (v, r) => (
-        <Space direction="vertical" size={0}>
-          <Space size={SPACE.xs}>
-          {/* Tre stati diversi, e prima erano due. «Non dichiarata» non è una versione vecchia: è una
-              riga in cui l'avvio non ha potuto leggere l'immagine, e mostrarla come un digest a metà
-              la faceva sembrare una versione (e contare fra quelle «in giro»). */}
-          {senzaVersione(r) ? (
-            <Text type="secondary">{t('accessi.img.nonDichiarata')}</Text>
-          ) : (
-            <Text code copyable={{ text: v }}>
-              {digestCorto(v)}
-            </Text>
-          )}
-          {/* ⚠️ «Indietro» è un'accusa e si fa solo con la versione attesa dalla config. Col ripiego si
-              dice «diversa», in grigio: il riferimento sarebbe la più recente AVVIATA, che si elegge
-              con l'orologio, e il 31/08/2026 marcava indietro quattro macchine su cinque, fra cui una
-              che aveva l'immagine più nuova di quella eletta. */}
-          {indietro(r) ? (
-            <Tag color={LEVEL.warn.tag} style={{ marginInlineEnd: 0 }}>
-              {quantoIndietro(r) != null
-                ? frase('accessi.img.indietroGiorni', quantoIndietro(r))
-                : t('accessi.img.indietro')}
-            </Tag>
-          ) : null}
-          </Space>
-          {/* QUANDO e' stata costruita l'immagine che ha in mano. Il digest non ha un ordine e «indietro
-              di 8 giorni» lo dice il tag solo quando c'e' un riferimento: senza la data in chiaro, chi
-              guarda una riga sola non sa se la sua immagine e' di ieri o di marzo. */}
-          {dataImmagine(r) != null && (
-            <Text type="secondary" style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}>
-              {t('accessi.img.del', { data: dataCorta(dataImmagine(r), lang) })}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
-    // ⚠️ Il numero e i NOMI, quando ci sono. «2» non dice cosa installare, e la risposta non e' in
-    // nessun'altra pagina: bisogna chiederla al proprietario del Mac. I nomi li manda l'heartbeat
-    // (`tool_mancanti_nomi`) e li mandano solo i dev-env aggiornati, quindi il numero resta la forma
-    // che regge sempre e i nomi si aggiungono a chi li ha.
-    {
-      title: t('accessi.col.tool'),
-      dataIndex: 'toolMancanti',
-      key: 'tool',
-      sorter: numerico('toolMancanti'),
-      render: (n, r) =>
-        n > 0 && (r.toolMancantiNomi ?? []).length ? (
-          <Tooltip title={r.toolMancantiNomi.join(' · ')}>
-            <span>{elencoCorto(r.toolMancantiNomi)}</span>
-          </Tooltip>
-        ) : (
-          <Conta n={n} />
-        ),
-    },
-    // Quando + quanto ci ha messo, nella stessa cella: la durata è un dato che il server manda da
-    // sempre e che la pagina buttava via, e «il dev-env qui parte in quattro minuti» è metà dei «a me
-    // non funziona». Una colonna in più per un numero che si guarda di rado non se la merita.
-    {
-      title: t('accessi.col.ultimoAvvio'),
-      dataIndex: 'quando',
-      key: 'quando',
-      sorter: numerico('quando'),
-      render: (v, r) => (
-        <Space size={SPACE.xs}>
-          <Quando ts={v} t={t} lang={lang} />
-          {r.durata != null && (
-            <Text type="secondary" style={{ fontSize: FONT.micro, whiteSpace: 'nowrap' }}>
-              {t('accessi.avviatoIn', { durata: fmtMs(r.durata * 1000) })}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
+    // modo in cui un accesso negato sparisce. E sotto COSA ha chiesto, non solo quante volte: il rimedio
+    // sta nella coppia utente+database, e il conteggio da solo la nasconde.
+    <span key="d" className="ui-what">
+      <span className={r.sessioniDb ? undefined : 'ui-faint'}>{r.sessioniDb ?? 0}</span>{' '}
+      {r.sessioniDbNegate > 0 && <Pill livello="crit">{t('accessi.dbNegateN', { n: r.sessioniDbNegate })}</Pill>}
+      {(r.negati ?? []).map((n) =>
+        sotto(t('accessi.negatoCombo', { n: n.quante, dbUser: n.dbUser, db: n.nome, servizio: n.servizio }), `${n.dbUser}/${n.servizio}/${n.nome}`),
+      )}
+    </span>,
+    // Query e scritture in una cella, e sotto i NOMI dei database: «124 query» non si traduce in niente,
+    // la domanda dopo e' sempre «su cosa?».
+    <span key="a" className="ui-what">
+      {r.query ? (
+        <>
+          {t('accessi.queryN', { n: r.query })}{' '}
+          {r.scritture > 0 && <Pill livello="warn">{frase('accessi.scrittureN', r.scritture)}</Pill>}
+          <span className="ui-hint">{elencoCorto((r.db ?? []).map((d) => d.nome))}</span>
+        </>
+      ) : (
+        <span className="ui-faint">0</span>
+      )}
+    </span>,
   ]
 
   // Chi è entrato sulle macchine: la metà che l'heartbeat non copre. L'heartbeat dice chi è rimasto
   // indietro, questa dice chi è andato a vedere, ed è la traccia che rende accettabile il primo.
-  const colonneSsh = [
-    {
-      title: t('accessi.col.macchina'),
-      dataIndex: 'macchina',
-      key: 'macchina',
-      sorter: testuale('macchina'),
-      render: (v, r) => (
-        <Space direction="vertical" size={0}>
-          <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', v)}>{v}</Nome>
-          <Text type="secondary" style={{ fontSize: FONT.micro }}>
-            <Quando ts={r.ultima} t={t} lang={lang} />
-          </Text>
-        </Space>
-      ),
-    },
-    // I nomi, e sopra i tre il conteggio col tooltip: una cella con otto nomi separati da virgole
-    // manda a capo la riga e non si legge comunque.
-    {
-      title: t('accessi.col.chiEntrato'),
-      dataIndex: 'chi',
-      key: 'chi',
-      render: (v) => elencoCorto(v ?? [], <Text type="secondary">—</Text>),
-    },
-    // Sessioni e aperte nella stessa cella: «4 · 1 aperta» in rosso. Erano due colonne di numeri
-    // accanto, e la seconda e' l'unica delle due a cui si reagisce subito.
-    {
-      title: t('accessi.col.quanteSessioni'),
-      key: 'sessioni',
-      sorter: numerico('sessioni'),
-      render: (_, r) => (
-        <Space size={SPACE.xs}>
-          <Text type={r.sessioni ? undefined : 'secondary'}>{r.sessioni ?? 0}</Text>
-          {r.aperte > 0 && (
-            <Tag color={LEVEL.crit.tag} style={{ marginInlineEnd: 0 }}>
-              {frase('accessi.aperteN', r.aperte)}
-            </Tag>
-          )}
-        </Space>
-      ),
-    },
+  const celleSsh = (r) => [
+    <span key="m" className="ui-name">
+      <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', r.macchina)}>{r.macchina}</Nome>
+      <small>
+        <Quando ts={r.ultima} t={t} lang={lang} />
+      </small>
+    </span>,
+    <span key="c">{elencoCorto(r.chi ?? [], <span className="ui-faint">-</span>)}</span>,
+    // Sessioni e aperte nella stessa cella: «4 · 1 aperta» in rosso. La seconda e' l'unica delle due a
+    // cui si reagisce subito.
+    <span key="s" className="ui-what">
+      <span className={r.sessioni ? undefined : 'ui-faint'}>{r.sessioni ?? 0}</span>{' '}
+      {r.aperte > 0 && <Pill livello="crit">{frase('accessi.aperteN', r.aperte)}</Pill>}
+    </span>,
   ]
 
+  // Nome, ambiente e servizio in una cella sola: il servizio e' il dettaglio che serve dopo aver
+  // riconosciuto il database, non prima. Un `?` è il nome che il log non aveva (Redis non manda
+  // `db_name`): si scrive «-», che è la stessa informazione senza sembrare un errore di lettura.
+  const celleDatabase = (r) => [
+    <span key="n" className="ui-name">
+      {r.nome && r.nome !== '?' ? r.nome : <span className="ui-faint">-</span>}{' '}
+      {r.ambiente && <Pill livello={r.ambiente === 'prod' ? 'crit' : 'off'}>{r.ambiente}</Pill>}
+      <small>{r.servizio}</small>
+    </span>,
+    <span key="a" className="ui-what">
+      {t('accessi.queryN', { n: r.query ?? 0 })}{' '}
+      {r.scritture > 0 && <Pill livello={r.ambiente === 'prod' ? 'crit' : 'warn'}>{frase('accessi.scrittureN', r.scritture)}</Pill>}
+    </span>,
+    // ⚠️ I NOMI, non il numero: e' la cella su cui si risponde a «chi ha scritto in produzione?», e chi
+    // ha scritto e' in arancio.
+    <span key="p">{elencoCorto(r.chi ?? [], <span className="ui-faint">-</span>, (nome) => (r.scriventi ?? []).includes(nome))}</span>,
+  ]
 
-  // ⚠️ QUESTE STANNO PRIMA di `viste`, e non e' una questione di stile: l'array `viste` viene
-  // valutato subito e legge `finestraDetta`. Dichiararlo piu' sotto lo fa cadere nella zona morta
-  // temporale del `const`, cioe' `ReferenceError: Cannot access '…' before initialization` a ogni
-  // render. E' successo il 31/08/2026 ed e' arrivato in produzione: il bundler non lo vede (non e'
-  // un errore di sintassi) e i test nemmeno, perche' qui nessuna prova RENDERIZZA un componente.
-  // I segnali che valgono per TUTTA la pagina, contati una volta: decidono se la riga verde «tutto
-  // tranquillo» ha il diritto di esserci. Un riepilogo che tace quando va tutto bene lascia chi guarda
-  // a chiedersi se la pagina ha caricato.
+  const celleMacchina = (r) => {
+    const { nome, altri } = personaMacchina(r, utentiNoti)
+    return [
+      // ⚠️ Il LATO e' un attributo della macchina, non una colonna. L'esito dell'avvio compare SOLO
+      // quando non è `ok`: una colonna che dice «ok» su ogni riga è una colonna che nessuno legge. E il
+      // comando per entrare, copiabile: il MODELLO arriva dalla config (`teleport.sshCommand`, con
+      // `{macchina}` dentro), e solo per `lato: host`, perche' il container non e' raggiungibile.
+      <span key="m" className="ui-name">
+        <Nome href={linkAudit(dati.auditNodeUrl, 'macchina', r.macchina)}>{r.macchina}</Nome>{' '}
+        {r.lato && (
+          <span className="ui-who">
+            <b>{r.lato}</b>
+          </span>
+        )}{' '}
+        {avvioStorto(r) && <Pill livello="warn">{t('accessi.esitoNonOk', { esito: r.esito })}</Pill>}
+        {dati.sshCommand && r.lato === 'host' && <BloccoComando comando={dati.sshCommand.replace('{macchina}', r.macchina)} t={t} />}
+      </span>,
+      // Fra i nomi con cui la stessa persona è comparsa si mostra quello che Teleport conosce, e gli
+      // altri stanno nel `title`: senza questa scelta la stessa persona sembrava due.
+      <span key="p" title={altri.length ? t('accessi.altriNomi', { nomi: altri.join(', ') }) : undefined}>
+        {nome ? <Nome href={linkAudit(dati.auditUserUrl, 'utente', nome)}>{nome}</Nome> : <span className="ui-faint">-</span>}
+      </span>,
+      // Il digest corto, «indietro» e la data dell'immagine: è la mezza riga che risponde alla seconda
+      // domanda della pagina. «Non dichiarata» non è una versione vecchia: è una riga in cui l'avvio non
+      // ha potuto leggere l'immagine. ⚠️ «Indietro» è un'accusa e si fa solo quando il confronto è un
+      // fatto (versione attesa in config o data dell'immagine), come decide `ritardo()`.
+      <span key="i" className="ui-what">
+        {senzaVersione(r) ? (
+          <span className="ui-faint">{t('accessi.img.nonDichiarata')}</span>
+        ) : (
+          <code className="ui-mono" title={r.immagine} style={{ userSelect: 'all' }}>
+            {digestCorto(r.immagine)}
+          </code>
+        )}{' '}
+        {indietro(r) && (
+          <Pill livello="warn">
+            {quantoIndietro(r) != null ? frase('accessi.img.indietroGiorni', quantoIndietro(r)) : t('accessi.img.indietro')}
+          </Pill>
+        )}
+        {dataImmagine(r) != null && sotto(t('accessi.img.del', { data: dataCorta(dataImmagine(r), lang) }))}
+      </span>,
+      // Il numero e i NOMI dei tool mancanti, quando l'heartbeat li manda: «2» non dice cosa installare.
+      <span key="t">{r.toolMancanti > 0 && (r.toolMancantiNomi ?? []).length ? elencoCorto(r.toolMancantiNomi) : <Conta n={r.toolMancanti} />}</span>,
+      // Quando + quanto ci ha messo: «il dev-env qui parte in quattro minuti» è metà dei «a me non
+      // funziona».
+      <span key="q" className="ui-what">
+        <Quando ts={r.quando} t={t} lang={lang} />
+        {r.durata != null && sotto(t('accessi.avviatoIn', { durata: fmtMs(r.durata * 1000) }))}
+      </span>,
+    ]
+  }
+
+  // ── La mappa: una riga per persona, una per team ────────────────────────────────────────────────
+  // I permessi del portale si mostrano RAGGRUPPATI per account e non uno per uno: la domanda («quanto
+  // puo' fare qui dentro?») si risponde col numero, mentre i nomi stanno nel `title`.
+  const perAccount = (permessi = []) => {
+    const m = new Map()
+    for (const p of permessi) m.set(p.account, [...(m.get(p.account) ?? []), p.permissionSet])
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }
+
+  // Cosa ha risposto e cosa no. Serve perche' una fonte muta si legge come «questa persona non ha
+  // niente»: il parametro con la mappa dei team che manca, o Identity Center non leggibile, devono
+  // dirsi in pagina, non restare un vuoto che sembra un fatto.
+  const fonti = mappa?.fonti ?? {}
+  const notaFonti =
+    [
+      fonti.ruoli?.assente ? t('accessi.mappa.senzaMappa', { param: fonti.ruoli.assente }) : null,
+      fonti.ruoli?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'SSM', motivo: fonti.ruoli.errore }) : null,
+      fonti.sso?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Identity Center', motivo: fonti.sso.errore }) : null,
+      fonti.teleport?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Teleport', motivo: fonti.teleport.errore }) : null,
+      mappaErrore ? String(mappaErrore) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || null
+
+  const celleMappa = (r) => [
+    // Chi non entra su Teleport non e' senza accessi: ha quelli del portale, e questa e' la riga da
+    // guardare quando ci si chiede a chi e' rimasto addosso un permesso.
+    <span key="p" className="ui-name">
+      <Nome href={linkAudit(dati.auditUserUrl, 'utente', r.persona)}>{r.persona}</Nome>
+      {r.soloSso && <small>{t('accessi.mappa.soloPortale')}</small>}
+    </span>,
+    <span key="t">
+      {r.teamsNoti ? (
+        elencoCorto(r.teams, <span className="ui-faint">{t('accessi.mappa.nessunTeam')}</span>)
+      ) : (
+        <span className="ui-faint">{t('accessi.mappa.senzaLogin')}</span>
+      )}
+    </span>,
+    // Un team che la mappa non nomina non concede niente su Teleport: di norma e' un team dei
+    // repository, e senza questa nota la riga sembra una mappa incompleta.
+    <span key="r" className="ui-what">
+      {r.ruoli.length ? (
+        <span title={r.ruoli.join(' · ')}>
+          <Pill livello="ok">{t('accessi.mappa.quanti', { n: r.ruoli.length })}</Pill>
+        </span>
+      ) : (
+        <span className="ui-faint">0</span>
+      )}
+      {r.teamsSenzaRuoli?.length > 0 && (
+        <span className="ui-hint" title={r.teamsSenzaRuoli.join(' · ')}>
+          {t('accessi.mappa.soloRepoN', { n: r.teamsSenzaRuoli.length })}
+        </span>
+      )}
+    </span>,
+    <span key="s" className="ui-who">
+      {r.permessi.length ? (
+        perAccount(r.permessi).map(([account, ps]) => (
+          <b key={account} title={ps.join(' · ')} style={{ marginInlineEnd: 4 }}>
+            {`${account} · ${ps.length}`}
+          </b>
+        ))
+      ) : (
+        <span className="ui-faint">{t('accessi.mappa.nessunPortale')}</span>
+      )}
+    </span>,
+    r.ultimoLogin ? <Quando key="u" ts={r.ultimoLogin} t={t} lang={lang} /> : <span key="u" className="ui-faint">{t('accessi.mappa.mai')}</span>,
+  ]
+
+  const celleTeam = (r) => [
+    <span key="n" className="ui-name">
+      {r.team}
+      {r.soloRepo && <small>{t('accessi.mappa.soloRepo')}</small>}
+    </span>,
+    <span key="r">{elencoCorto(r.ruoli, <span className="ui-faint">0</span>)}</span>,
+    <span key="m">{elencoCorto(r.membri, <span className="ui-faint">{t('accessi.mappa.nessunMembro')}</span>)}</span>,
+  ]
+
+  // I segnali che valgono per TUTTA la pagina, contati una volta: decidono il verdetto in cima.
   const quante = daGuardare(audit, battito, riferimento)
   const sintesi = riepilogo(audit, battito, riferimento)
-  // ⚠️ «1 macchine» e «1 login fallite» sono la prima cosa che si nota in una riga che deve leggersi in
-  // un colpo d'occhio. Il dizionario non ha i plurali: ogni frase ha la sua forma per UNO, e si scegle
-  // qui in base al numero.
-  const frase = (chiave, n, extra = {}) => t(n === 1 ? `${chiave}.uno` : chiave, { n, ...extra })
   // La finestra del DATO, non quella chiesta: quando il server sta ancora rileggendo (sette giorni di
   // log non sono istantanei) i numeri sono ancora quelli di prima, e va detto invece di lasciare
   // l'interruttore su «7g» sopra dei numeri di 24 ore.
@@ -599,178 +493,19 @@ export default function AccessiPage({ t, lang }) {
       : t('accessi.ultimeOre', { n: audit.ore ?? ore })
   const nessunoAggiornato = tuttiIndietro(battito.macchine ?? [], riferimento)
 
-  // Le quattro tabelle come DATI, non come quattro blocchi copiati: l'interruttore, il conteggio, il
-  // pallino, il filtro e la ricerca si scrivono una volta e valgono per tutte.
-  // ── La mappa: una riga per persona, una per team ────────────────────────────────────────────────
-  // I permessi del portale si mostrano RAGGRUPPATI per account e non uno per uno: con cinque
-  // permission set su due account la cella diventa una lista, e la domanda («quanto puo' fare qui
-  // dentro?») si risponde col numero, mentre i nomi stanno nel tooltip di chi li vuole.
-  const perAccount = (permessi = []) => {
-    const m = new Map()
-    for (const p of permessi) m.set(p.account, [...(m.get(p.account) ?? []), p.permissionSet])
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }
-  // Tanti tag uguali sono rumore: sopra i tre si mostra il conteggio e i nomi vanno nel tooltip.
-  // `marca`: quali voci contano piu' delle altre (chi ha SCRITTO, fra chi ha solo letto). Senza, la
-  // cella dice «tre persone» e la domanda vera («chi ha scritto?») resta senza risposta.
-  const elencoCorto = (valori = [], vuoto = null, marca = () => false) => {
-    if (!valori.length) return vuoto
-    if (valori.length <= 3)
-      return (
-        <Space size={SPACE.xs} wrap>
-          {valori.map((v) => (
-            <Tag key={v} color={marca(v) ? LEVEL.warn.tag : undefined} style={{ marginInlineEnd: 0 }}>
-              {v}
-            </Tag>
-          ))}
-        </Space>
-      )
-    return (
-      <Tooltip title={valori.join(' · ')}>
-        <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.quanti', { n: valori.length })}</Tag>
-      </Tooltip>
-    )
-  }
-
-  // Cosa ha risposto e cosa no. Serve perche' una fonte muta si legge come «questa persona non ha
-  // niente»: il parametro con la mappa dei team che manca, o Identity Center non leggibile, devono
-  // dirsi in pagina, non restare un vuoto che sembra un fatto.
-  const fonti = mappa?.fonti ?? {}
-  const notaFonti = [
-    fonti.ruoli?.assente ? t('accessi.mappa.senzaMappa', { param: fonti.ruoli.assente }) : null,
-    fonti.ruoli?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'SSM', motivo: fonti.ruoli.errore }) : null,
-    fonti.sso?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Identity Center', motivo: fonti.sso.errore }) : null,
-    fonti.teleport?.errore ? t('accessi.mappa.fonteRotta', { fonte: 'Teleport', motivo: fonti.teleport.errore }) : null,
-    mappaErrore ? String(mappaErrore) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ') || null
-
-  const colonneMappa = [
-    {
-      title: t('accessi.col.persona'),
-      dataIndex: 'persona',
-      key: 'persona',
-      sorter: testuale('persona'),
-      render: (v, r) => (
-        <Space size={SPACE.xs}>
-          <Nome href={linkAudit(dati.auditUserUrl, 'utente', v)}>{v}</Nome>
-          {/* Chi non entra su Teleport non e' senza accessi: ha quelli del portale, e questa e' la
-              riga da guardare quando ci si chiede a chi e' rimasto addosso un permesso. */}
-          {r.soloSso && <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.soloPortale')}</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: t('accessi.mappa.col.team'),
-      key: 'team',
-      sorter: quanti('teams'),
-      render: (_, r) =>
-        r.teamsNoti
-          ? elencoCorto(r.teams, <Text type="secondary">{t('accessi.mappa.nessunTeam')}</Text>)
-          : <Text type="secondary">{t('accessi.mappa.senzaLogin')}</Text>,
-    },
-    {
-      title: t('accessi.mappa.col.ruoli'),
-      key: 'ruoli',
-      sorter: quanti('ruoli'),
-      render: (_, r) => (
-        <Space size={SPACE.xs} wrap>
-          {r.ruoli.length ? (
-            <Tooltip title={r.ruoli.join(' · ')}>
-              <Tag color={LEVEL.ok.tag} style={{ marginInlineEnd: 0 }}>
-                {t('accessi.mappa.quanti', { n: r.ruoli.length })}
-              </Tag>
-            </Tooltip>
-          ) : (
-            <Text type="secondary">0</Text>
-          )}
-          {/* Un team che la mappa non nomina non concede niente su Teleport: di norma e' un team dei
-              repository, e senza questa nota la riga sembra una mappa incompleta. */}
-          {r.teamsSenzaRuoli?.length > 0 && (
-            <Tooltip title={r.teamsSenzaRuoli.join(' · ')}>
-              <Text type="secondary" style={{ fontSize: FONT.micro }}>
-                {t('accessi.mappa.soloRepoN', { n: r.teamsSenzaRuoli.length })}
-              </Text>
-            </Tooltip>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: t('accessi.mappa.col.portale'),
-      key: 'portale',
-      sorter: quanti('permessi'),
-      render: (_, r) =>
-        r.permessi.length ? (
-          <Space size={SPACE.xs} wrap>
-            {perAccount(r.permessi).map(([account, ps]) => (
-              <Tooltip key={account} title={ps.join(' · ')}>
-                <Tag style={{ marginInlineEnd: 0 }}>{`${account} · ${ps.length}`}</Tag>
-              </Tooltip>
-            ))}
-          </Space>
-        ) : (
-          <Text type="secondary">{t('accessi.mappa.nessunPortale')}</Text>
-        ),
-    },
-    {
-      title: t('accessi.mappa.col.ultimoLogin'),
-      key: 'ultimoLogin',
-      sorter: numerico('ultimoLogin'),
-      render: (_, r) =>
-        r.ultimoLogin ? (
-          <Tooltip title={new Date(r.ultimoLogin).toLocaleString()}>
-            <Text type="secondary">{fmtAgo(r.ultimoLogin)}</Text>
-          </Tooltip>
-        ) : (
-          <Text type="secondary">{t('accessi.mappa.mai')}</Text>
-        ),
-    },
-  ]
-
-  const colonneTeam = [
-    {
-      title: t('accessi.mappa.col.teamNome'),
-      dataIndex: 'team',
-      key: 'team',
-      sorter: testuale('team'),
-      render: (v, r) => (
-        <Space size={SPACE.xs}>
-          <Text strong>{v}</Text>
-          {r.soloRepo && <Tag style={{ marginInlineEnd: 0 }}>{t('accessi.mappa.soloRepo')}</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: t('accessi.mappa.col.ruoli'),
-      key: 'ruoli',
-      sorter: quanti('ruoli'),
-      render: (_, r) => elencoCorto(r.ruoli, <Text type="secondary">0</Text>),
-    },
-    {
-      title: t('accessi.mappa.col.membri'),
-      key: 'membri',
-      sorter: quanti('membri'),
-      render: (_, r) => elencoCorto(r.membri, <Text type="secondary">{t('accessi.mappa.nessunMembro')}</Text>),
-    },
-  ]
-
-  // ── Le TABELLE, e poi le viste che le raccolgono ──────────────────────────────────────────────
-  //
-  // Prima erano sei tabelle e sei interruttori, in fila: per sapere com'era andata la giornata si
-  // aprivano tutti e sei, e nessuno dei sei diceva se negli altri cinque ci fosse qualcosa. Le domande
-  // pero' sono quattro, non sei: «chi entra» e' la stessa domanda per le login e per le sessioni sulle
-  // macchine, «chi ha cosa» la stessa per le persone e per i team. Quindi una vista puo' avere piu'
-  // tabelle, l'interruttore conta e segnala per tutte quelle che ha dentro, e il filtro le attraversa.
-  //
-  // L'ORDINE e' quello dell'urgenza, non quello in cui sono state scritte: prima chi non riesce a
-  // entrare o ha sbattuto contro un permesso, poi cosa si sta toccando sui database, poi chi ha il
-  // dev-env indietro, e in fondo gli elenchi da consultare, che non hanno mai una riga rotta.
+  // ── Le LISTE, e poi le viste che le raccolgono ────────────────────────────────────────────────
+  // Le domande sono quattro, non sei: «chi entra» e' la stessa domanda per le login e per le sessioni
+  // sulle macchine, «chi ha cosa» la stessa per le persone e per i team. Quindi una vista puo' avere
+  // piu' liste, la scheda conta e segnala per tutte quelle che ha dentro, e il filtro le attraversa.
+  // L'ORDINE e' quello dell'urgenza: prima chi non riesce a entrare, poi cosa si sta toccando sui
+  // database, poi chi ha il dev-env indietro, e in fondo gli elenchi da consultare.
+  const PILLOLA = '104px '
   const tabellaPersone = {
     titolo: t('accessi.persone'),
     righe: persone,
-    colonne: colonnePersone,
+    celle: cellePersona,
+    colonne: [t('accessi.col.stato'), t('accessi.col.persona'), t('accessi.col.login'), t('accessi.col.sessioniDb'), t('accessi.col.attivita')],
+    griglia: `${PILLOLA}minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.4fr)`,
     rowKey: (r) => r.utente,
     problema: problemaPersona,
     livello: 'crit',
@@ -784,7 +519,9 @@ export default function AccessiPage({ t, lang }) {
   const tabellaSsh = {
     titolo: t('accessi.ssh'),
     righe: ssh,
-    colonne: colonneSsh,
+    celle: celleSsh,
+    colonne: [t('accessi.col.stato'), t('accessi.col.macchina'), t('accessi.col.chiEntrato'), t('accessi.col.quanteSessioni')],
+    griglia: `${PILLOLA}minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, 1fr)`,
     rowKey: (r) => r.macchina,
     problema: problemaSsh,
     livello: 'crit',
@@ -797,7 +534,9 @@ export default function AccessiPage({ t, lang }) {
   const tabellaDatabase = {
     titolo: t('accessi.database'),
     righe: database,
-    colonne: colonneDatabase,
+    celle: celleDatabase,
+    colonne: [t('accessi.col.stato'), t('accessi.col.database'), t('accessi.col.attivita'), t('accessi.col.quantePersone')],
+    griglia: `${PILLOLA}minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.5fr)`,
     rowKey: (r) => `${r.servizio}/${r.nome}`,
     problema: problemaDatabase,
     livello: 'crit',
@@ -809,45 +548,49 @@ export default function AccessiPage({ t, lang }) {
   const tabellaMacchine = {
     titolo: t('accessi.devEnv'),
     righe: macchine,
-    colonne: colonneMacchine,
+    celle: celleMacchina,
+    colonne: [
+      t('accessi.col.stato'),
+      t('accessi.col.macchina'),
+      t('accessi.col.persona'),
+      riferimento.fonte === 'config' ? t('accessi.col.immagineAttesa') : t('accessi.col.immagine'),
+      t('accessi.col.tool'),
+      t('accessi.col.ultimoAvvio'),
+    ],
+    griglia: `${PILLOLA}minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 0.9fr)`,
     rowKey: (r) => `${r.macchina}/${r.lato}`,
     problema: (m) => problemaMacchina(m, riferimento, dataRif),
     livello: 'warn',
     cerca: (m) => [m.macchina, m.utente, m.immagine],
     vuoto: t('accessi.nessunAvvio'),
-    // ⚠️ La data della GOLDEN IMAGE, in chiaro e non solo come «indietro di N giorni». La pagina
-    // sapeva gia' confrontare le immagini fra loro, ma non diceva da quando esiste quella buona:
-    // chi apre questa vista chiede prima di tutto «l'immagine e' stata aggiornata?», e un elenco di
-    // digest non risponde. Se nessun avvio manda la data si dice quello, invece di lasciare il buco.
+    // ⚠️ La data della GOLDEN IMAGE, in chiaro e non solo come «indietro di N giorni»: chi apre questa
+    // vista chiede prima di tutto «l'immagine e' stata aggiornata?», e un elenco di digest non risponde.
     nota:
       dataRif != null
         ? t('accessi.golden.del', {
-            digest: digestCorto(riferimento.immagine) || '—',
+            digest: digestCorto(riferimento.immagine) || '-',
             data: dataCorta(dataRif, lang),
             quando: fmtAgo(dataRif, t),
           })
         : t('accessi.golden.senzaData'),
+    // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la DATA
+    // dell'immagine più recente vista (che è un ordine), oppure niente.
     finestra: `${t('accessi.ultimiGiorni', { n: battito.giorni ?? 7 })} · ${
-      // Su cosa si sta confrontando, detto in una riga: la versione attesa dalla config, oppure la
-      // DATA dell'immagine più recente vista (che è un ordine, quindi «indietro di N giorni» è un
-      // fatto), oppure niente, quando gli avvii non mandano ancora la data.
-      riferimento.fonte === 'config'
-        ? t('accessi.fonte.config')
-        : dataRif != null
-          ? t('accessi.fonte.data')
-          : t('accessi.fonte.vista')
+      riferimento.fonte === 'config' ? t('accessi.fonte.config') : dataRif != null ? t('accessi.fonte.data') : t('accessi.fonte.vista')
     }`,
   }
 
-  // Le due tabelle di «chi ha cosa»: nessun pallino di allarme, e non e' una dimenticanza. Qui non
-  // c'e' una riga rotta da far emergere, c'e' un elenco da consultare, ed e' la ragione per cui sta
-  // in fondo e non in mezzo alle altre.
+  // Le due liste di «chi ha cosa»: nessuna pillola di stato, e non e' una dimenticanza. Qui non c'e'
+  // una riga rotta da far emergere, c'e' un elenco da consultare.
   const tabellaMappa = {
     titolo: t('accessi.mappa.persone'),
     righe: mappa?.persone ?? [],
-    colonne: colonneMappa,
+    celle: celleMappa,
+    colonne: [t('accessi.col.persona'), t('accessi.mappa.col.team'), t('accessi.mappa.col.ruoli'), t('accessi.mappa.col.portale'), t('accessi.mappa.col.ultimoLogin')],
+    griglia: 'minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.5fr) 100px',
     rowKey: (r) => r.persona,
     problema: () => false,
+    senzaStato: true,
     livello: 'warn',
     cerca: (r) => [r.persona, r.ssoUtente, ...(r.teams ?? []), ...(r.ruoli ?? []), ...(r.gruppiSso ?? [])],
     vuoto: t('accessi.mappa.vuoto'),
@@ -858,9 +601,12 @@ export default function AccessiPage({ t, lang }) {
   const tabellaTeam = {
     titolo: t('accessi.mappa.team'),
     righe: mappa?.teams ?? [],
-    colonne: colonneTeam,
+    celle: celleTeam,
+    colonne: [t('accessi.mappa.col.teamNome'), t('accessi.mappa.col.ruoli'), t('accessi.mappa.col.membri')],
+    griglia: 'minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.5fr)',
     rowKey: (r) => r.team,
     problema: () => false,
+    senzaStato: true,
     livello: 'warn',
     cerca: (r) => [r.team, ...(r.ruoli ?? []), ...(r.membri ?? [])],
     vuoto: t('accessi.mappa.vuotoTeam'),
@@ -868,8 +614,8 @@ export default function AccessiPage({ t, lang }) {
     nota: notaFonti,
   }
 
-  // I nomi delle viste sono la DOMANDA a cui rispondono, non il nome della tabella: «Persone» e
-  // «SSH» dicono cosa c'e' dentro a chi gia' lo sa, e chi apre la pagina durante un guasto non lo sa.
+  // I nomi delle viste sono la DOMANDA a cui rispondono, non il nome della tabella: chi apre la pagina
+  // durante un guasto non sa cosa c'e' dentro «SSH».
   const viste = [
     { value: 'chi', label: t('accessi.view.chi'), tabelle: [tabellaPersone, tabellaSsh] },
     { value: 'database', label: t('accessi.view.database'), tabelle: [tabellaDatabase] },
@@ -878,324 +624,224 @@ export default function AccessiPage({ t, lang }) {
   ]
 
   const attiva = viste.find((v) => v.value === vista) ?? viste[0]
-  // Il filtro e la ricerca attraversano TUTTE le tabelle della vista: una riga nascosta in una
-  // tabella e mostrata nell'altra sarebbe lo stesso interruttore con due significati.
+  // Il filtro e la ricerca attraversano TUTTE le liste della vista: una riga nascosta in una lista e
+  // mostrata nell'altra sarebbe lo stesso interruttore con due significati.
   const mostrate = attiva.tabelle.map((tb) => ({
     ...tb,
     filtrate: filtraRighe(tb.righe, { problema: tb.problema, cerca: tb.cerca, query, soloProblemi }),
   }))
   const filtrato = Boolean(query.trim()) || soloProblemi
-  // Quante righe ha una vista e quante ne chiedono un intervento: il conteggio e il pallino
-  // dell'interruttore valgono per tutte le sue tabelle, sennò una tabella chiusa nasconde un segnale.
+  // Quante righe di una vista chiedono un intervento: il numero sulla scheda vale per tutte le sue
+  // liste, sennò una scheda chiusa nasconde un segnale. Senza problemi la scheda porta il totale.
   const quanteRighe = (v) => v.tabelle.reduce((n, tb) => n + tb.righe.length, 0)
   const quantiGuasti = (v) => v.tabelle.reduce((n, tb) => n + tb.righe.filter(tb.problema).length, 0)
-  // Il colore del pallino: quello della tabella messa peggio fra le sue, non della prima.
-  const livelloVista = (v) =>
-    v.tabelle.find((tb) => tb.livello === 'crit' && tb.righe.some(tb.problema))?.livello ??
-    v.tabelle.find((tb) => tb.righe.some(tb.problema))?.livello ??
-    v.tabelle[0].livello
 
+  // ── Il verdetto ───────────────────────────────────────────────────────────────────────────────
+  // Sulla vista dev-env risponde a «chi non ha aggiornato», sulle altre a «c'e' qualcosa da guardare?».
+  // ⚠️ I casi del dev-env restano quattro e nessuno e' stato fuso: «non si puo' dire» NON e' «va tutto
+  // bene» (senza date l'ordine fra le immagini non esiste, quindi indietro non si dichiara).
+  const verdettoDevEnv = () => {
+    const tot = (battito.macchine ?? []).length
+    if (tot === 0) return null
+    const senza = battito.senzaVersione ?? 0
+    const coda = senza > 0 ? ` ${t('accessi.verdetto.senzaVersioneN', { n: senza })}` : ''
+    if (dataRif == null && riferimento.fonte !== 'config')
+      return { livello: 'info', forte: t('accessi.verdetto.nonSiSaTitolo', { n: versioniInGiro }), dettaglio: t('accessi.verdetto.nonSiSa') + coda }
+    if (nessunoAggiornato)
+      return { livello: 'crit', forte: t('accessi.verdetto.nessunoTitolo', { n: tot }), dettaglio: t('accessi.verdetto.nessuno') + coda }
+    if (macchineIndietro.length > 0) {
+      const giorni = Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0))
+      // I NOMI di chi manca, non solo quanti: e' la domanda successiva, sempre.
+      const chi = [...new Set(macchineIndietro.map((m) => m.utente).filter(Boolean))]
+      return {
+        livello: 'warn',
+        forte: t('accessi.verdetto.inPariTitolo', { ok: tot - macchineIndietro.length, tot }),
+        dettaglio:
+          (chi.length
+            ? t('accessi.verdetto.indietroChi', { n: macchineIndietro.length, g: giorni, chi: chi.join(', ') })
+            : t('accessi.verdetto.indietro', { n: macchineIndietro.length, g: giorni })) + coda,
+      }
+    }
+    return {
+      livello: 'ok',
+      forte: t('accessi.verdetto.tuttiTitolo', { n: tot }),
+      dettaglio: (dataRif != null ? t('accessi.verdetto.tutti', { quando: fmtAgo(dataRif, t) }) : '') + coda,
+    }
+  }
+  // Le frasi della sintesi, una per cosa trovata: la prima e' la parte colorata del verdetto, la
+  // seconda la segue dopo la virgola, e tutte restano sotto come inviti che aprono la scheda giusta.
+  const fraseSintesi = (v) =>
+    v.k === 'indietro'
+      ? frase('accessi.sintesi.indietro', v.n, { g: v.giorni })
+      : v.k === 'scritture'
+        ? frase(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', v.n, { dove: v.dove.join(', ') }) +
+          (v.altrove > 0 ? ` ${frase('accessi.sintesi.altrove', v.altrove)}` : '')
+        : v.k === 'versioni'
+          ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
+          : frase(`accessi.sintesi.${v.k}`, v.n)
+  const grave = (audit.loginFallite ?? 0) > 0 || (audit.sessioniDbNegate ?? 0) > 0 || (audit.sshAperte ?? 0) > 0
+  const generale =
+    quante === 0 || sintesi.trovato.length === 0
+      ? { livello: 'ok', forte: t('accessi.tuttoTranquillo'), dettaglio: `${finestraDetta} · ${t('accessi.v.fonti')}` }
+      : {
+          livello: grave ? 'crit' : 'warn',
+          forte: fraseSintesi(sintesi.trovato[0]),
+          resto: sintesi.trovato[1] ? `, ${fraseSintesi(sintesi.trovato[1])}` : null,
+          dettaglio: `${finestraDetta} · ${t('accessi.v.fonti')}`,
+        }
+  const v = (attiva.value === 'devEnv' && verdettoDevEnv()) || generale
+  const errori = [audit.errore, battito.errore].filter(Boolean)
 
   return (
-    <>
-      <PageIntro
-        title={t('accessi.title')}
-        desc={t('accessi.desc')}
-        extra={
-          <Toolbar>
-            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing || mappaRefreshing} t={t} />
-            {/* L'interruttore fra le quattro tabelle porta il conteggio e, quando dentro c'è qualcosa da
-                guardare, un pallino colorato: così una tabella chiusa non nasconde un segnale, ed è la
-                condizione per mostrarne una sola invece di quattro in colonna. */}
-            <Segmented
-              size="small"
-              value={attiva.value}
-              onChange={scegliVista}
-              options={viste.map((v) => {
-                const guasti = quantiGuasti(v)
-                return {
-                  value: v.value,
-                  label: (
-                    <span
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                      title={guasti ? t('accessi.daGuardare', { n: guasti }) : undefined}
-                    >
-                      {v.label}
-                      <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{quanteRighe(v)}</span>
-                      {guasti > 0 && (
-                        <span
-                          aria-label={t('accessi.daGuardare', { n: guasti })}
-                          role="img"
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: 3,
-                            background: LEVEL[livelloVista(v)].color,
-                            display: 'inline-block',
-                          }}
-                        />
-                      )}
-                    </span>
-                  ),
-                }
-              })}
-            />
-            {/* La finestra vale per l'AUDIT del cluster, non per l'heartbeat, che è per definizione
-                «l'ultima riga di ogni macchina» su sette giorni. Sulla vista Dev-env l'interruttore
-                spariva dal lavoro pur restando in pagina: cambiarlo non muoveva una riga, e un comando
-                che non risponde si legge come rotto. Quindi lì non c'è. */}
-            {attiva.value !== 'devEnv' && (
-              <FinestraSwitch ore={ore} gradini={gradini} onChange={setOre} t={t} />
-            )}
-            <Space size={SPACE.xs}>
-              <Switch size="small" checked={soloProblemi} onChange={setSoloProblemi} />
-              <Text style={{ fontSize: FONT.small }}>{t('accessi.onlyProblems')}</Text>
-            </Space>
-            <Input.Search
-              allowClear
-              size="small"
-              placeholder={t('accessi.search')}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ width: 190 }}
-            />
-          </Toolbar>
-        }
+    <div className="ui-pagina">
+      <Verdetto
+        livello={errori.length ? 'warn' : v.livello}
+        forte={v.forte}
+        resto={v.resto}
+        dettaglio={v.dettaglio}
+        extra={<PollStatus lastUpdated={lastUpdated} refreshing={refreshing || mappaRefreshing} t={t} />}
       />
 
-      {/* ⚠️ La riga che risponde a «e quindi?» prima dei numeri. Sui dati veri di una giornata normale
-          i cinque numeri grandi sono tre zeri e due numeri, e per sapere cosa fossero le «6 scritture»
-          bisognava aprire la tabella dei database, poi quella delle persone, e incrociarle a mano.
-          Qui la pagina lo dice: cosa ha trovato, dove, e cosa ha guardato senza trovare niente. */}
+      {/* Le cose trovate, ognuna un invito che apre la scheda giusta, e sotto quello che e' stato
+          guardato senza trovare niente: «a posto» e' una risposta, non un vuoto. */}
       {sintesi.trovato.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SPACE.xs}px ${SPACE.md}px`, marginBottom: SPACE.sm }}>
-          <Text strong style={{ fontSize: FONT.lead }}>
-            {t('accessi.sintesi.trovato')}
-          </Text>
-          {sintesi.trovato.map((v) => (
-            <a
-              key={v.k}
-              onClick={() => scegliVista(v.vista)}
-              style={{ fontSize: FONT.lead, cursor: 'pointer' }}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && scegliVista(v.vista)}
-            >
-              {v.k === 'indietro'
-                ? frase('accessi.sintesi.indietro', v.n, { g: v.giorni })
-                : v.k === 'scritture'
-                  ? frase(v.prod ? 'accessi.sintesi.scrittureProd' : 'accessi.sintesi.scritture', v.n, {
-                      dove: v.dove.join(', '),
-                    }) + (v.altrove > 0 ? ` ${frase('accessi.sintesi.altrove', v.altrove)}` : '')
-                  : v.k === 'versioni'
-                    ? t(v.tutti ? 'accessi.sintesi.versioniTutti' : 'accessi.sintesi.versioni', { n: v.n })
-                    : frase(`accessi.sintesi.${v.k}`, v.n)}
-            </a>
+        <div className="ui-filtri">
+          <b style={{ color: 'var(--ink)' }}>{t('accessi.sintesi.trovato')}</b>
+          {sintesi.trovato.map((x) => (
+            <button key={x.k} type="button" className="ui-azione" onClick={() => scegliVista(x.vista)}>
+              {fraseSintesi(x)}
+            </button>
           ))}
         </div>
       )}
+
+      {errori.map((e) => (
+        <div key={e} className="ui-readwarn">
+          {e}
+        </div>
+      ))}
+      {/* ⚠️ Un campione spacciato per totale e' peggio di nessun numero: se il tetto e' stato toccato
+          lo si dice, e i numeri qui sotto vanno letti come «almeno». */}
+      {audit.troncato && <div className="ui-readwarn">{t('accessi.troncato')}</div>}
+
+      {/* I numeri: a sinistra quelli che possono chiedere un intervento, e prendono colore; a destra
+          il contesto che serve a leggerli. Due card e non una fila di dieci numeri uguali, che non ha
+          una prima cosa da guardare. */}
+      <div className="ui-hero">
+        <Card titolo={t('accessi.kpi.daGuardare')}>
+          <div className="ui-stats" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+            {[
+              ['accessi.kpi.falliteN', audit.loginFallite ?? 0, 'crit'],
+              ['accessi.kpi.dbNegate', audit.sessioniDbNegate ?? 0, 'crit'],
+              ['accessi.kpi.sshAperte', audit.sshAperte ?? 0, 'crit'],
+              ['accessi.kpi.scritture', audit.scritture ?? 0, 'warn'],
+              // Colorato solo quando il confronto è possibile: un numero arancione che non si può
+              // tradurre in «chi» è un allarme che si impara a ignorare.
+              ['accessi.kpi.versioni', versioniInGiro, versioniInGiro > 1 && riferimento.fonte === 'config' ? 'warn' : null],
+              ['accessi.kpi.tool', battito.conToolMancanti ?? 0, 'warn'],
+            ].map(([k, n, livello]) => (
+              <div key={k} className="ui-stat">
+                <b className={n > 0 && livello && !(k === 'accessi.kpi.versioni' && n <= 1) ? `ui-t-${livello}` : undefined}>{n}</b>
+                <span>{t(k)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card titolo={t('accessi.kpi.contesto')} nota={finestraDetta}>
+          <div className="ui-stats">
+            {[
+              ['accessi.kpi.persone', audit.persone?.length ?? 0],
+              ['accessi.kpi.sessioni', audit.sessioniDb ?? 0],
+              ['accessi.kpi.query', audit.query ?? 0],
+              ['accessi.kpi.macchine', battito.macchine?.length ?? 0],
+            ].map(([k, n]) => (
+              <div key={k} className="ui-stat">
+                <b className="ui-mute">{n}</b>
+                <span>{t(k)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
       {sintesi.tranquillo.length > 0 && (
-        <Text type="secondary" style={{ display: 'block', fontSize: FONT.small, marginBottom: SPACE.lg }}>
+        <p className="ui-note" style={{ borderTop: 0, paddingTop: 0 }}>
           {t('accessi.sintesi.aPosto')}{' '}
           {sintesi.tranquillo
-            .map((v) =>
-              v.k === 'versioni'
-                ? t('accessi.sintesi.zero.versioni', { n: v.n })
-                : t(`accessi.sintesi.zero.${v.k}`),
-            )
+            .map((x) => (x.k === 'versioni' ? t('accessi.sintesi.zero.versioni', { n: x.n }) : t(`accessi.sintesi.zero.${x.k}`)))
             .join(' · ')}
-        </Text>
+        </p>
       )}
 
-      {/* La riga dei numeri: si guarda per prima e risponde a «serve che io faccia qualcosa?». I cinque
-          che possono chiedere un intervento stanno grandi e prendono colore; gli altri quattro sono il
-          contesto che serve a leggerli, e stanno più piccoli. Prima erano nove tutti uguali, e una fila
-          di nove numeri identici non ha una prima cosa da guardare. */}
-      <HeroRow>
-        <HeroStat
-          label={t('accessi.kpi.falliteN')}
-          value={audit.loginFallite ?? 0}
-          color={audit.loginFallite ? LEVEL.crit.color : undefined}
-        />
-        {/* Gli accessi ai database NEGATI: un numero a se', accanto alle login fallite, perche' sono
-            la stessa domanda («chi ha sbattuto contro un permesso?») e prima non erano da nessuna
-            parte, sommati alle sessioni riuscite. */}
-        <HeroStat
-          label={t('accessi.kpi.dbNegate')}
-          value={audit.sessioniDbNegate ?? 0}
-          color={audit.sessioniDbNegate ? LEVEL.crit.color : undefined}
-        />
-        {/* Le sessioni SSH APERTE sono un numero a sé, e non il colore rosso appiccicato al totale:
-            «Sessioni SSH 2» tinto di rosso si legge come «2 aperte adesso» anche quando sono chiuse
-            entrambe, che è la cosa sbagliata da capire su un accesso a una macchina di qualcuno. */}
-        <HeroStat
-          label={t('accessi.kpi.sshAperte')}
-          value={audit.sshAperte ?? 0}
-          color={audit.sshAperte ? LEVEL.crit.color : undefined}
-        />
-        <HeroStat
-          label={t('accessi.kpi.scritture')}
-          value={audit.scritture ?? 0}
-          color={audit.scritture ? LEVEL.warn.color : undefined}
-        />
-        {/* Colorato solo quando il confronto è possibile: un numero arancione che non si può tradurre
-            in «chi» è un allarme che si impara a ignorare. */}
-        <HeroStat
-          label={t('accessi.kpi.versioni')}
-          value={versioniInGiro}
-          color={versioniInGiro > 1 && riferimento.fonte === 'config' ? LEVEL.warn.color : undefined}
-        />
-        <HeroStat
-          label={t('accessi.kpi.tool')}
-          value={battito.conToolMancanti ?? 0}
-          color={battito.conToolMancanti ? LEVEL.warn.color : undefined}
-        />
-        {/* Il taglio fra i cinque numeri che possono chiedere un intervento e i quattro che servono a
-            leggerli. Senza, la fila è una sola riga di nove numeri larga tutta la pagina, e la
-            differenza di corpo da sola non basta a dire dove finisce una cosa e comincia l'altra. */}
-        <span aria-hidden="true" style={{ alignSelf: 'stretch', borderInlineStart: '1px solid var(--dg-line)' }} />
-        <HeroStat label={t('accessi.kpi.persone')} value={audit.persone?.length ?? 0} size={18} />
-        <HeroStat label={t('accessi.kpi.sessioni')} value={audit.sessioniDb ?? 0} size={18} />
-        {/* ⚠️ Il totale delle sessioni SSH era un numero di troppo: accanto a «SESSIONI SSH APERTE» dei
-            segnali si leggeva come lo stesso numero contato due volte, perché le due etichette
-            differiscono per una parola. Quante macchine hanno avuto sessioni lo dice già l'interruttore
-            («SSH 1»), e quante ne ha avute ciascuna la sua tabella: qui restava solo a confondere. */}
-        <HeroStat label={t('accessi.kpi.query')} value={audit.query ?? 0} size={18} />
-        <HeroStat label={t('accessi.kpi.macchine')} value={battito.macchine?.length ?? 0} size={18} />
-      </HeroRow>
+      {/* Le schede: una vista per volta, e il numero dice dove guardare prima di aprirla (le righe da
+          guardare, o il totale quando non ce n'e'). */}
+      <Tabs
+        voci={viste.map((x) => ({ key: x.value, label: x.label, n: quantiGuasti(x) || quanteRighe(x) }))}
+        attiva={attiva.value}
+        onCambia={scegliVista}
+      />
 
-      {/* ⚠️ Un campione spacciato per totale e' peggio di nessun numero: se il tetto e' stato toccato
-          lo si dice, e i numeri qui sopra vanno letti come «almeno». */}
-      {audit.troncato && (
-        <Alert type="info" showIcon message={t('accessi.troncato')} style={{ marginBottom: SPACE.md }} />
-      )}
+      {/* La finestra vale per l'AUDIT del cluster, non per l'heartbeat, che è per definizione
+          «l'ultima riga di ogni macchina» su sette giorni: sulla vista dev-env cambiarla non muoverebbe
+          una riga, e un comando che non risponde si legge come rotto. Quindi lì non c'è. */}
+      <div className="ui-filtri">
+        {attiva.value !== 'devEnv' && <Finestra ore={ore} gradini={gradini} onChange={setOre} t={t} />}
+        <label>
+          <input type="checkbox" checked={soloProblemi} onChange={(e) => setSoloProblemi(e.target.checked)} />
+          {t('accessi.onlyProblems')}
+        </label>
+        <input
+          type="search"
+          className="ui-campo"
+          placeholder={t('accessi.search')}
+          aria-label={t('accessi.search')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
 
-      {audit.errore && <Alert type="warning" showIcon message={audit.errore} style={{ marginBottom: SPACE.md }} />}
-      {battito.errore && <Alert type="warning" showIcon message={battito.errore} style={{ marginBottom: SPACE.md }} />}
-      {/* ⚠️ Gli avvisi che seguono stanno DOVE si agisce, non in cima a qualunque vista. Prima erano
-          tutti sempre in pagina: chi apriva i database si prendeva tre righe sul dev-env prima di
-          arrivare alla tabella, e il quarto avviso di fila non lo legge piu' nessuno. Restano sopra a
-          tutto solo i guasti di lettura (l'audit che non risponde) e la riga verde: quelli parlano
-          della pagina intera. */}
+      {/* Il motivo piu' comune dei rifiuti sta DOVE si agisce, sulla vista di chi entra: e' la riga che
+          dice se fuori c'e' una persona o tutto il team. */}
       {attiva.value === 'chi' && audit.motivoPiuComune && (
-        <Alert
-          type="error"
-          showIcon
-          message={t('accessi.motivoComune', { n: audit.motivoPiuComune.quante, motivo: audit.motivoPiuComune.motivo })}
-          style={{ marginBottom: SPACE.md }}
-        />
-      )}
-      {/* IL VERDETTO della vista dev-env, al posto dei TRE banner che stavano qui (indietro tutti,
-          indietro in N / versioni diverse, senza versione). Ognuno diceva una fetta della stessa
-          risposta, e chi apriva la pagina doveva ricomporla leggendoli tutti: la domanda e' una
-          sola, «chi non ha aggiornato», e ora la risposta e' la prima riga.
-          ⚠️ I casi restano quattro e nessuno e' stato fuso: «non si puo' dire» NON e' «va tutto
-          bene», ed e' la distinzione che il ripiego sulla data ha reso necessaria (senza date
-          l'ordine fra le immagini non esiste, quindi indietro non si dichiara). */}
-      {attiva.value === 'devEnv' &&
-        (() => {
-          const tot = (battito.macchine ?? []).length
-          if (tot === 0) return null
-          const senza = battito.senzaVersione ?? 0
-          const numeri = senza > 0 ? [{ label: t('accessi.verdetto.senzaVersione'), value: senza }] : null
-          // Nessuna data e nessuna versione attesa: qui non si puo' dichiarare nessun ritardo, e
-          // dirlo e' l'unica cosa onesta. Il perche' resta la frase gia' scritta per la fonte.
-          if (dataRif == null && riferimento.fonte !== 'config') {
-            return (
-              <Verdetto
-                livello="info"
-                titolo={t('accessi.verdetto.nonSiSaTitolo', { n: versioniInGiro })}
-                dettaglio={t('accessi.verdetto.nonSiSa')}
-                numeri={numeri}
-              />
-            )
-          }
-          if (nessunoAggiornato) {
-            return (
-              <Verdetto
-                livello="crit"
-                titolo={t('accessi.verdetto.nessunoTitolo', { n: tot })}
-                dettaglio={t('accessi.verdetto.nessuno')}
-                numeri={numeri}
-              />
-            )
-          }
-          if (macchineIndietro.length > 0) {
-            const giorni = Math.max(...macchineIndietro.map((m) => quantoIndietro(m) ?? 0))
-            // I NOMI di chi manca, non solo quanti: e' la domanda successiva, sempre, e senza di
-            // loro si torna a leggere la tabella per una cosa che stava in mezza riga.
-            const chi = [...new Set(macchineIndietro.map((m) => m.utente).filter(Boolean))]
-            return (
-              <Verdetto
-                livello="warn"
-                titolo={t('accessi.verdetto.inPariTitolo', { ok: tot - macchineIndietro.length, tot })}
-                dettaglio={
-                  chi.length
-                    ? t('accessi.verdetto.indietroChi', { n: macchineIndietro.length, g: giorni, chi: chi.join(', ') })
-                    : t('accessi.verdetto.indietro', { n: macchineIndietro.length, g: giorni })
-                }
-                numeri={numeri}
-              />
-            )
-          }
-          return (
-            <Verdetto
-              livello="ok"
-              titolo={t('accessi.verdetto.tuttiTitolo', { n: tot })}
-              dettaglio={dataRif != null ? t('accessi.verdetto.tutti', { quando: fmtAgo(dataRif, t) }) : undefined}
-              numeri={numeri}
-            />
-          )
-        })()}
-
-      {/* Il verdetto delle viste diverse da dev-env, che ha il suo qui sopra: «c'e' qualcosa da
-          guardare?». Prima questo caso era un banner verde e il caso opposto non esisteva affatto,
-          quindi «tutto tranquillo» si vedeva e «tre righe da guardare» no. */}
-      {attiva.value !== 'devEnv' && !audit.errore && !battito.errore && (
-        <Verdetto
-          livello={quante === 0 ? 'ok' : 'warn'}
-          titolo={quante === 0 ? t('accessi.tuttoTranquillo') : t('accessi.verdetto.daGuardareTitolo', { n: quante })}
-          dettaglio={quante === 0 ? undefined : t('accessi.verdetto.daGuardare')}
+        <Rimedio
+          livello="crit"
+          titolo={t('accessi.motivoComune', { n: audit.motivoPiuComune.quante, motivo: audit.motivoPiuComune.motivo })}
+          testo={t('accessi.motivoComuneCosa')}
+          t={t}
         />
       )}
 
-      {/* Una sezione per tabella: le viste che ne hanno due le mostrano una sotto l'altra, invece di
+      {/* Una sezione per lista: le viste che ne hanno due le mostrano una sotto l'altra, invece di
           chiedere un altro clic per una domanda che e' la stessa. */}
       {mostrate.map((tb) => (
-        <Section
-          key={tb.titolo}
-          title={tb.titolo}
-          aside={
-            <Text type="secondary" style={{ fontSize: FONT.small }}>
-              {tb.finestra}
-            </Text>
-          }
-        >
-          <Table
-            size="small"
-            className="dg-sticky"
-            rowKey={tb.rowKey}
-            pagination={false}
-            columns={tb.colonne}
-            dataSource={tb.filtrate}
-            locale={{ emptyText: filtrato && tb.righe.length ? t('accessi.nessunRisultato') : tb.vuoto }}
-          />
-          {tb.nota && tb.filtrate.length > 0 && (
-            <Text type="secondary" style={{ display: 'block', marginTop: SPACE.sm, fontSize: FONT.small }}>
-              {tb.nota}
-            </Text>
-          )}
-        </Section>
+        <Sezione key={tb.titolo} titolo={tb.titolo} sotto={tb.finestra}>
+          <Lista
+            colonne={tb.colonne}
+            griglia={tb.griglia}
+            vuoto={filtrato && tb.righe.length ? t('accessi.nessunRisultato') : tb.vuoto}
+          >
+            {tb.filtrate.map((r) => {
+              const male = tb.problema(r)
+              return (
+                <div key={tb.rowKey(r)} className="ui-row" style={{ gridTemplateColumns: tb.griglia }}>
+                  {!tb.senzaStato && (
+                    <Pill livello={male ? tb.livello : 'ok'}>{male ? t('accessi.pill.guarda') : t('accessi.pill.ok')}</Pill>
+                  )}
+                  {tb.celle(r)}
+                </div>
+              )
+            })}
+          </Lista>
+          {tb.nota && tb.filtrate.length > 0 && <p className="ui-note" style={{ borderTop: 0 }}>{tb.nota}</p>}
+        </Sezione>
       ))}
 
+      {/* ⚠️ Read-only per costruzione: le azioni stanno nella Web UI di Teleport, che ha l'audit e il
+          replay. Qui c'e' il link, e la frase che dice perche'. */}
       {dati.webUrl && (
-        <Space style={{ marginTop: SPACE.lg }}>
-          <Button type="primary" href={dati.webUrl} target="_blank" rel="noreferrer">
-            {t('accessi.vaiTeleport')}
-          </Button>
-          <Text type="secondary">{t('accessi.doveSiAgisce')}</Text>
-        </Space>
+        <Sezione titolo={t('accessi.altrove')} sotto={t('accessi.doveSiAgisce')}>
+          <ListaLink link={[{ label: t('accessi.vaiTeleport'), href: dati.webUrl, nota: t('accessi.vaiTeleportNota') }]} />
+        </Sezione>
       )}
-    </>
+    </div>
   )
 }

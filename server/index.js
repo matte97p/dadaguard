@@ -49,6 +49,13 @@ import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
+import { storicoFlotta } from './storicoAws.js'
+import { demoHistory } from './demo.js'
+// rd-server-meta: metadati della UI nuova
+import { spesaGiornaliera } from './meta/spesa.js'
+import { riepilogoLogin } from './meta/accessi.js'
+import { conDurataTipica } from './meta/cron.js'
+import { demoSpesaGiornaliera } from './demo.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -647,7 +654,7 @@ app.get('/api/runs', async (req, res) => {
       only: req.query.cron || null,
       t: makeT(req.query.lang),
     })
-    conEta(res, overview.generatedAt).json(overview)
+    conEta(res, overview.generatedAt).json(conDurataTipica(overview))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -714,6 +721,29 @@ app.get('/api/quotas', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ── Storico (/api/history) ────────────────────────────────────────────────────────────────────────
+// Le ultime ore a semaforo per ambiente, i KPI oggi contro ieri e la cronologia di oggi, ricostruiti
+// da cio' che AWS conserva gia' (storia allarmi, eventi ECS, deploy gia' letti): nessuno stato nostro.
+// I deploy arrivano dalla stessa cache di /api/deploys, allargata a 48 ore perche' il confronto con
+// ieri ne ha bisogno. Cinque minuti di cache: lo storico non cambia a ogni refresh, e GetMetricData si
+// paga a metrica.
+const HISTORY_TTL = Number(process.env.DADAGUARD_HISTORY_TTL_MS) || 5 * 60_000
+app.get('/api/history', async (req, res) => {
+  try {
+    const ore = entroLimiti('history', req.query.ore)
+    if (isDemo) return res.json(demoHistory(ore))
+    const value = await cached(`history:${ore}`, HISTORY_TTL, async () => {
+      const [{ accounts, services }, deploys] = await Promise.all([resolveServices(), deploysCached(req.query.lang, 48).then((r) => r.value)])
+      const queryable = Object.fromEntries(Object.entries(accounts).filter(([, a]) => isQueryable(a)))
+      return storicoFlotta({ accounts: queryable, services, deploys, ore })
+    })
+    res.json(value)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+// ── fine Storico ─────────────────────────────────────────────────────────────────────────────────
 
 // Eventi recenti di un servizio (on-demand, read-only): ECS/RDS/ASG — il "perché" testuale.
 app.get('/api/events', async (req, res) => {
@@ -796,6 +826,49 @@ app.post('/api/watchlist/remove', requireLocal('Watchlist'), (req, res) => {
     res.status(ambiguo ? 409 : 500).json({ error: err.message })
   }
 })
+
+// ===== INIZIO rotte metadati (rd-server-meta) =====
+// Metadati per la UI nuova che non stanno dentro lo stato dei servizi: spesa del giorno e login
+// falliti per il riepilogo della home. Blocco separato apposta: altre rotte si aggiungono accanto.
+
+// Spesa giornaliera, 30 giorni per account. Cache di 6 ore: Cost Explorer costa 0,01 $ a chiamata e
+// il dato si aggiorna poche volte al giorno, quindi rinfrescarlo piu' spesso pagherebbe lo stesso numero.
+const SPESA_TTL = 6 * 60 * 60 * 1000
+app.get('/api/meta/spesa-giornaliera', async (req, res) => {
+  try {
+    if (isDemo) return res.json(demoSpesaGiornaliera())
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const out = {}
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!isQueryable(a)) return
+        try {
+          const spesa = await cached(`spesa-giornaliera:${key}`, SPESA_TTL, () => spesaGiornaliera(a))
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...spesa }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+        }
+      }),
+    )
+    res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Login falliti per il riepilogo: lo stesso payload della pagina Accessi (che ha la sua cache),
+// ridotto a un conteggio. `loginFalliti: null` = audit non configurato o non letto.
+app.get('/api/meta/login-falliti', async (req, res) => {
+  try {
+    const ore = Math.min(168, Math.max(1, Number(req.query.ore) || 24))
+    if (isDemo) return res.json(riepilogoLogin(demoTeleport(ore)))
+    res.json(riepilogoLogin(await statoAccessi({ ore })))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+// ===== FINE rotte metadati (rd-server-meta) =====
 
 // Frontend buildato: in container/prod Express serve dist/ sulla STESSA porta delle API.
 // In dev non esiste (ci pensa Vite su :5173), quindi questo blocco è inerte.

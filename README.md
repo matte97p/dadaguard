@@ -60,6 +60,22 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Read-only sull'infra** — non crea/modifica/distrugge nulla; l'infrastruttura si cambia **solo** via Terraform.
 - **Fetch-on-load, zero storage** — la config (`services.yaml`) è riletta a ogni richiesta.
 
+## Interfaccia
+La home (**Adesso**) è un semaforo: una frase dice cosa è rotto e cosa è da guardare, poi lo stato dei
+servizi con la disponibilità delle ultime 24 ore a fasce di mezz'ora (`GET /api/history`, dedotta dalla
+storia degli allarmi CloudWatch, dagli eventi ECS e dalle build), il riquadro di oggi, una card per
+ambiente e l'elenco **Da sistemare** dal più grave. Ogni problema dice di chi è (sviluppo o DevOps),
+cosa fare con un comando **di sola lettura** da copiare, e porta ad **Apri altrove** (CloudWatch,
+GitHub, CodeBuild, PostHog se configurato).
+
+In alto si sceglie l'ambiente e il punto di vista, **Sviluppo** o **DevOps**: il primo vede Adesso,
+Servizi, Deploy, Cron e Topologia; il secondo anche Spesa, Limiti, Sicurezza, Accessi e Permessi, e
+nel riquadro di oggi la spesa del giorno e i login falliti. `⌘K` apre la palette per saltare a un
+servizio o a una pagina. Tema chiaro e scuro (segue il sistema finché non lo scegli), italiano e inglese.
+
+Livello, owner, comando e link li calcola il server (`server/meta/`), dai dati che AWS già restituisce:
+nessuna mappa scritta a mano per nome di risorsa.
+
 ## Uso locale
 ```bash
 npm install
@@ -71,6 +87,30 @@ Auth AWS in locale: profilo SSO/CLI o credenziali di default dell'ambiente. **`s
 ```bash
 DADAGUARD_DEMO=1 npm run dev
 ```
+
+### Metadati facoltativi: tag e PostHog
+Chi possiede un servizio, dove se ne parla e qual è il suo obiettivo si leggono dai **tag AWS** della
+risorsa (Resource Groups Tagging API, una chiamata per chiave e per account). Tag assente = campo vuoto,
+mai un servizio rosso:
+
+| Tag | Esempio | Dove si vede |
+|---|---|---|
+| `dadaguard:team` | `pagamenti` | colonna «di chi» e pannello del servizio |
+| `dadaguard:slack` | `#pagamenti-allarmi` | pannello, «Di chi è» |
+| `dadaguard:runbook` | `https://wiki.example.com/runbook` | pannello, «Di chi è» |
+| `dadaguard:slo` | `0.999` | disponibilità contro obiettivo e budget di errore |
+
+Con un progetto PostHog i servizi guadagnano i link a errori e log in «Apri altrove». In `services.yaml`:
+
+```yaml
+posthog:
+  host: https://eu.posthog.com
+  projectId: 12345
+```
+
+Permessi di sola lettura in più rispetto a prima: `tag:GetResources` (tag) e
+`cloudwatch:DescribeAlarmHistory` (storico della disponibilità). Senza, quei campi restano vuoti e la
+pagina lo dice; niente si rompe.
 
 In modalità local-first `services.yaml` è anche **editabile dalla dashboard** (aggiungere/togliere servizi dalla watchlist riscrive il file). In cloud la config è read-only e arriva da SSM.
 
@@ -157,7 +197,7 @@ forme, quei test cadono: è il loro scopo. Per aggiornarli si ri-registra e si g
 
 ## Architettura
 - `server/` — Express. `GET /api/status` rilegge `services.yaml` ed esegue i check in parallelo (`server/checks/`). Aggiungere un segnale = un file in `checks/` + una riga in `server/status.js`.
-- `web/` — React + Ant Design. Una card per servizio; il semaforo è il check messo peggio.
+- `web/` (React + Vite): la shell e i componenti condivisi stanno in `web/ui/` (token di colore e font in `web/app.css`, Instrument Sans e JetBrains Mono incluse nel bundle); Ant Design resta per alcuni pannelli interni.
 - In cloud Express serve anche il frontend buildato (`dist/`) sulla stessa porta.
 
 ## Licenza
