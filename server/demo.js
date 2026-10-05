@@ -6,6 +6,7 @@ import { budgetLevel } from './budgets.js'
 import { monthEndProjection } from './costs.js'
 import { computeOverall } from './status.js'
 import { makeT } from './i18n.js'
+import { componiStorico } from './storico.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -1024,6 +1025,49 @@ export function demoSelfcheck() {
       { key: 'staging', label: 'Staging', color: '#1677ff', ok: true, account: '444455556666', arn: 'arn:aws:sts::444455556666:assumed-role/dadaguard-readonly/dadaguard', via: 'roleArn' },
     ],
   }
+}
+
+// Lo storico delle 24 ore: le build sono quelle di demoDeploys, gli allarmi e gli eventi ECS sono
+// inventati qui nella forma in cui li restituisce AWS, e il tutto passa per lo stesso componiStorico
+// del server. Così la demo mostra un guasto «rotto 12 minuti dopo il deploy» vero, calcolato.
+export function demoHistory(ore = 24) {
+  const ora = Date.now()
+  const m = 60_000
+  const voce = (nome, agoMin, da, a) => ({
+    AlarmName: nome,
+    HistoryItemType: 'StateUpdate',
+    Timestamp: new Date(ora - agoMin * m).toISOString(),
+    HistoryData: JSON.stringify({ oldState: { stateValue: da }, newState: { stateValue: a } }),
+  })
+  const dep = demoDeploys()
+  const metriche = (errOggi, errIeri, p95Oggi, p95Ieri) => ({
+    oggi: { lambda: { errori: errOggi, invocazioni: 4200, p95ms: 820 }, alb: { errori: errOggi * 2, richieste: 18000, p95ms: p95Oggi } },
+    ieri: { lambda: { errori: errIeri, invocazioni: 4100, p95ms: 790 }, alb: { errori: errIeri * 2, richieste: 17500, p95ms: p95Ieri } },
+  })
+  const perConto = {
+    prod: {
+      builds: dep.prod.builds,
+      // L'hotfix del backend è di 45 minuti fa: l'allarme scatta 12 minuti dopo e rientra.
+      voci: [voce('backend-5xx-alto', 33, 'OK', 'ALARM'), voce('backend-5xx-alto', 20, 'ALARM', 'OK'), voce('coda-pagamenti-lenta', 900, 'OK', 'ALARM'), voce('coda-pagamenti-lenta', 870, 'ALARM', 'OK')],
+      meta: {
+        'backend-5xx-alto': { Dimensions: [{ Name: 'ServiceName', Value: 'demo-production-backend' }] },
+        'coda-pagamenti-lenta': { Dimensions: [{ Name: 'FunctionName', Value: 'demo-production-billing-worker' }] },
+      },
+      ecs: [{ ts: new Date(ora - 12 * m).toISOString(), message: '(service demo-production-backend) has reached a steady state.', servizio: 'backend' }],
+      metriche: metriche(21, 9, 340, 310),
+      errori: [],
+    },
+    staging: {
+      builds: dep.staging.builds,
+      voci: [voce('search-api-target-unhealthy', 24, 'OK', 'ALARM')],
+      meta: { 'search-api-target-unhealthy': { Dimensions: [{ Name: 'ServiceName', Value: 'demo-staging-search-api' }] } },
+      ecs: [{ ts: new Date(ora - 25 * m).toISOString(), message: '(service demo-staging-search-api) was unable to place a task because no container instance met all of its requirements.', servizio: 'search-api' }],
+      metriche: metriche(3, 4, 410, 450),
+      errori: [],
+    },
+    cloudflare: { provider: 'cloudflare', builds: dep.cloudflare.builds, errori: [] },
+  }
+  return componiStorico({ perConto, ora, ore })
 }
 
 export function demoEvents() {
