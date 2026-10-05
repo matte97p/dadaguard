@@ -91,8 +91,9 @@ export function validateConfig(doc) {
     //         DOVREBBERO avere. Senza, «indietro» si calcola sulla piu' recente che qualcuno ha visto,
     //         che non sa vedere il caso in cui sono indietro tutti (nessuno ha ancora aggiornato).
     teleport: doc?.teleport ?? null,
-    // Link «Apri altrove» verso PostHog (errori e log filtrati sul servizio): `posthog: { host,
-    // projectId }`. Senza, quei link non compaiono: un progetto indovinato apre la pagina sbagliata.
+    // Link «Apri altrove» verso i log di PostHog filtrati sul servizio: `posthog: { host, projectId }`,
+    // piu' il tag `dadaguard:posthog` sulla risorsa col nome che il servizio usa nei log. Senza l'uno
+    // o l'altro quel link non compare: un progetto o un nome indovinato apre la pagina sbagliata.
     posthog: doc?.posthog?.host && doc?.posthog?.projectId != null ? { host: doc.posthog.host, projectId: String(doc.posthog.projectId) } : null,
   }
 }

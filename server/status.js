@@ -475,7 +475,7 @@ export async function getStatus(lang) {
       return arricchisciServizio({
         ...meta,
         budgetErrore: meta.slo && conteggi ? budgetErrore({ slo: meta.slo, ...conteggi }) : null,
-        altrove: linkServizio({ name: service.name, aws: service.aws, region, posthog }),
+        altrove: linkServizio({ aws: service.aws, region, posthog, servizioPosthog: meta.posthog }),
         name: service.name,
         // Identità della RISORSA (account|tipo|cluster/arn/asg…), non del nome: due servizi ECS
         // omonimi in cluster diversi dello stesso account e della stessa region si distinguono solo

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { livelloDi, ownerDi, comandoPer, dettaglioDi, arricchisciServizio } from '../server/meta/stato.js'
 import { tagsDelServizio, metaDaTags, sloDa, CHIAVI } from '../server/meta/tags.js'
 import { budgetErrore, conteggiDaRuntime } from '../server/meta/budget.js'
-import { linkServizio, linkCommit, linkCodeBuild, linkDeploy, cwEncode } from '../server/meta/link.js'
+import { linkServizio, linkPosthogLog, linkCommit, linkCodeBuild, linkDeploy, cwEncode } from '../server/meta/link.js'
 import { durataTipica } from '../server/meta/cron.js'
 import { intervallo30, aggregaGiorni } from '../server/meta/spesa.js'
 import { riepilogoLogin } from '../server/meta/accessi.js'
@@ -79,7 +79,9 @@ test('tag: per ARN e per identificativo, ECS su cluster e servizio insieme', () 
   assert.equal(tagsDelServizio({ type: 'ecs', cluster: 'c2', service: 'api' }, perArn)[CHIAVI.team], 'b')
   assert.equal(tagsDelServizio({ type: 'lambda', function: 'job' }, perArn)[CHIAVI.slo], '99.5')
   assert.equal(tagsDelServizio({ type: 'lambda', function: 'altro' }, perArn), null)
-  assert.deepEqual(metaDaTags(null), { team: null, slack: null, runbook: null, slo: null })
+  assert.deepEqual(metaDaTags(null), { team: null, slack: null, runbook: null, slo: null, posthog: null })
+  assert.equal(metaDaTags({ [CHIAVI.posthog]: ' shop-api ' }).posthog, 'shop-api')
+  assert.equal(metaDaTags({ [CHIAVI.posthog]: '  ' }).posthog, null)
   assert.equal(sloDa('99,9%'), 0.999)
   assert.equal(sloDa('100'), null)
 })
@@ -94,17 +96,39 @@ test('budget di errore', () => {
   assert.equal(conteggiDaRuntime({ summary: 'x' }), null)
 })
 
-test('link: PostHog solo con config, CloudWatch codificato, commit e CodeBuild', () => {
-  assert.equal(linkServizio({ name: 's', aws: { type: 'ecs' }, region: 'eu-west-1' }).length, 0)
-  const l = linkServizio({ name: 's', aws: { type: 'lambda', function: 'f' }, region: 'eu-west-1', posthog: { host: 'https://ph.example.com/', projectId: '7' } })
-  assert.deepEqual(l.map((x) => x.chiave), ['posthog-errori', 'posthog-log', 'cloudwatch-log'])
-  assert.match(l[0].url, /^https:\/\/ph\.example\.com\/project\/7\/error_tracking\?service=s/)
+test('link: PostHog solo con config E tag, CloudWatch codificato, commit e CodeBuild', () => {
+  const ph = { host: 'https://ph.example.com/', projectId: '7' }
+  assert.equal(linkServizio({ aws: { type: 'ecs' }, region: 'eu-west-1' }).length, 0)
+  // senza tag `dadaguard:posthog` nessun link a PostHog, anche col progetto configurato
+  const senzaTag = linkServizio({ aws: { type: 'lambda', function: 'f' }, region: 'eu-west-1', posthog: ph })
+  assert.deepEqual(senzaTag.map((x) => x.chiave), ['cloudwatch-log'])
+  assert.ok(!senzaTag.some((x) => x.url.includes('ph.example.com')))
+  // senza progetto il tag da solo non basta
+  assert.equal(linkServizio({ aws: { type: 'ecs' }, servizioPosthog: 'shop-api' }).length, 0)
+  const l = linkServizio({ aws: { type: 'lambda', function: 'f' }, region: 'eu-west-1', posthog: ph, servizioPosthog: 'shop-api' })
+  assert.deepEqual(l.map((x) => x.chiave), ['posthog-log', 'cloudwatch-log'])
+  assert.ok(!l.some((x) => /error_tracking|[?&]service=/.test(x.url)))
+  assert.equal(
+    l[0].url,
+    'https://ph.example.com/project/7/logs?activeTab=viewer&serviceNames=%5B%22shop-api%22%5D&dateRange=%7B%22date_from%22%3A%22-1h%22%2C%22date_to%22%3Anull%7D',
+  )
   assert.equal(cwEncode('/aws/lambda/f'), '$252Faws$252Flambda$252Ff')
   assert.equal(linkCommit('https://github.com/o/r.git', 'abc1234'), 'https://github.com/o/r/commit/abc1234')
   assert.equal(linkCommit('s3://bucket', 'abc1234'), null)
   assert.equal(linkCommit('https://github.com/o/r', 'non-sha'), null)
   assert.match(linkCodeBuild('p', 'arn:aws:codebuild:eu-west-1:1:build/p:1'), /eu-west-1\.console.*projects\/p\/history/)
   assert.equal(linkDeploy({ project: 'p' }).length, 0)
+})
+
+test('link PostHog: lo stesso formato del frontend di PostHog, ritornabile in JSON', () => {
+  const url = new URL(linkPosthogLog({ host: 'https://eu.posthog.example.com', projectId: '12345' }, 'shop "api"'))
+  assert.equal(url.pathname, '/project/12345/logs')
+  assert.equal(url.searchParams.get('activeTab'), 'viewer')
+  assert.deepEqual(JSON.parse(url.searchParams.get('serviceNames')), ['shop "api"'])
+  assert.deepEqual(JSON.parse(url.searchParams.get('dateRange')), { date_from: '-1h', date_to: null })
+  assert.equal(linkPosthogLog({ host: 'https://eu.posthog.example.com', projectId: '1' }, null), null)
+  assert.equal(linkPosthogLog(null, 'shop-api'), null)
+  assert.equal(linkPosthogLog({ host: 'non un url', projectId: '1' }, 'shop-api'), null)
 })
 
 test('cron: durata tipica = mediana delle riuscite', () => {
