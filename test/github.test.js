@@ -62,6 +62,7 @@ test('dai run allo stato: in corso 🧪, fallito ❌, verde niente; conta l’ul
   assert.deepEqual(s([run(1, { status: 'in_progress', conclusion: null })]), { stato: 'in_corso', da: '2026-10-03T11:00:00Z', url: 'https://github.com/acme/api/actions/runs/1', sha: 'aaaaaaa1111' })
   assert.equal(s([run(1, { status: 'queued', conclusion: null })]).stato, 'in_corso')
   for (const conclusion of ['failure', 'cancelled', 'timed_out']) assert.equal(s([run(1, { conclusion })]).stato, 'fallito', conclusion)
+  assert.equal(s([run(1, { conclusion: 'action_required' })]).stato, 'in_corso', 'in attesa di un’approvazione: ancora 🧪')
   assert.equal(s([run(1)]), null, 'verde: la riga la racconta il deploy')
   assert.equal(s([run(1, { conclusion: 'failure' }), run(2, { head_sha: 'bbbbbbb2222', created_at: '2026-10-03T11:30:00Z' })]), null, 'il fallimento di un commit superato non conta')
   assert.equal(s([run(1, { conclusion: 'failure' }), run(2, { status: 'in_progress', conclusion: null, name: 'Security' })]).stato, 'in_corso', 'un workflow dello stesso commit ancora in corso: test avviati')
@@ -86,7 +87,7 @@ test('le righe del quadro: i repository dalle build, lo stato su ogni riga di qu
 })
 
 // Un GitHub finto: installazione, token che scade, run con ETag, e il rate limit a comando.
-function githubFinto({ runs = () => [], scadenza = (ora) => new Date(ora + 3_600_000).toISOString() } = {}) {
+function githubFinto({ runs = () => [], scadenza = (ora) => new Date(ora + 3_600_000).toISOString(), nascosti = [] } = {}) {
   const chiamate = []
   const stato = { ora: ORA, limite: false, etag: 'W/"v1"' }
   const risposta = (status, json, headers = {}) => ({ status, ok: status >= 200 && status < 300, headers: new Headers(headers), json: async () => json })
@@ -96,6 +97,7 @@ function githubFinto({ runs = () => [], scadenza = (ora) => new Date(ora + 3_600
     if (stato.limite) return risposta(403, { message: 'API rate limit exceeded' }, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String((ORA + 30 * 60_000) / 1000) })
     if (u.pathname === '/orgs/acme/installation') return risposta(200, { id: 77 })
     if (u.pathname === '/app/installations/77/access_tokens') return risposta(201, { token: `ghs_${chiamate.length}`, expires_at: scadenza(stato.ora) })
+    if (nascosti.some((r) => u.pathname.startsWith(`/repos/acme/${r}/`))) return risposta(404, { message: 'Not Found' })
     if (u.pathname.endsWith('/actions/runs')) {
       if (init.headers['If-None-Match'] === stato.etag) return risposta(304, null)
       return risposta(200, { workflow_runs: runs(u.pathname) }, { etag: stato.etag })
@@ -176,6 +178,31 @@ test('credenziali assenti o sbagliate: nessun client, o righe senza stato dei te
     for (let i = 0; i < 5; i++) assert.equal((await gh.leggi(REPO, { ora: ORA, ogni: 1 })).size, 0)
     assert.equal(g.chiamate.length, 0, 'una chiave che non si legge non arriva a GitHub')
     assert.equal(avvisi.length, 1, 'e lo si dice una volta')
+  } finally {
+    log.warn = warn
+  }
+})
+
+test('un repository che l’App non vede (404) si salta da solo, si dice una volta e si riprova ogni mezz’ora', async () => {
+  const g = githubFinto({ runs: () => [run(1, { status: 'in_progress', conclusion: null })], nascosti: ['segreto'] })
+  const gh = nuovoGithub(CFG, { fetch: g.fetch })
+  const repos = [{ owner: 'acme', repo: 'segreto' }, { owner: 'acme', repo: 'api' }]
+  const avvisi = []
+  const warn = log.warn
+  log.warn = (m, ctx) => avvisi.push([m, ctx])
+  try {
+    const stati = await gh.leggi(repos, { ora: ORA, ogni: 1 })
+    assert.equal(stati.get('produzione|acme/api').stato, 'in_corso', 'gli altri repository continuano')
+    assert.equal(stati.has('produzione|acme/segreto'), false)
+    assert.deepEqual(avvisi.map(([, c]) => c.repo), ['acme/segreto'], 'detto una volta, col nome del repository')
+    g.chiamate.length = 0
+    for (let i = 1; i <= 10; i++) await gh.leggi(repos, { ora: ORA + i * 60_000, ogni: 1 })
+    const runsDi = (r) => g.chiamate.filter((c) => c.path === `/repos/acme/${r}/actions/runs`).length
+    assert.equal(runsDi('api'), 10, 'nessun blocco per gli altri: una lettura al giro')
+    assert.equal(runsDi('segreto'), 0, 'il repository nascosto non si richiede per mezz’ora')
+    await gh.leggi(repos, { ora: ORA + 31 * 60_000, ogni: 1 })
+    assert.equal(runsDi('segreto'), 1, 'dopo mezz’ora si riprova')
+    assert.equal(avvisi.length, 1, 'e se è ancora nascosto non lo si ripete nel log')
   } finally {
     log.warn = warn
   }

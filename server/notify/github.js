@@ -14,7 +14,8 @@ import { log } from '../log.js'
 //   3. con quello, i run dei repository delle righe del quadro nelle ultime 24 ore
 //
 // Cosa diventa cosa, per l'ultimo commit spinto su un ramo di rilascio:
-//   in coda o in corso                  🧪 test avviati
+//   in coda, in corso o in attesa di    🧪 test avviati
+//   un'approvazione (action_required)
 //   finito con failure, cancelled,      ❌ test falliti
 //   timed_out o startup_failure
 //   finito con success                  niente: la riga la racconta il deploy che segue
@@ -47,6 +48,12 @@ const FINESTRA_MS = 24 * 3_600_000
 // Il token d'installazione vale un'ora: si rinnova prima, per non usarlo mentre scade.
 const MARGINE_TOKEN_MS = 5 * 60_000
 const IN_CORSO = new Set(['queued', 'in_progress', 'waiting', 'requested', 'pending'])
+// Un run fermo in attesa di un'approvazione finisce con `conclusion: action_required`: non è fallito e
+// non è passato, sta aspettando qualcuno, quindi per la riga è ancora 🧪.
+const IN_ATTESA = new Set(['action_required'])
+// Un repository che l'App non vede (404: non è fra quelli dell'installazione, o non esiste più) si
+// salta da solo e si riprova di rado: gli altri continuano.
+const RIPROVA_NASCOSTO_MS = 30 * 60_000
 const FALLITI = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure'])
 
 export function githubConfig(env = process.env) {
@@ -118,7 +125,7 @@ export function statoDaRun(perRepo, rami) {
     for (const [amb, lista] of perRamo) {
       const ultimo = lista.reduce((a, r) => (Date.parse(r.created_at) > Date.parse(a.created_at) ? r : a), lista[0])
       const delCommit = lista.filter((r) => r.head_sha === ultimo.head_sha)
-      const inCorso = delCommit.filter((r) => IN_CORSO.has(r.status))
+      const inCorso = delCommit.filter((r) => IN_CORSO.has(r.status) || IN_ATTESA.has(r.conclusion))
       const falliti = delCommit.filter((r) => r.status === 'completed' && FALLITI.has(r.conclusion))
       const stato = inCorso.length ? 'in_corso' : falliti.length ? 'fallito' : null
       if (!stato) continue
@@ -150,7 +157,7 @@ class LimiteGithub extends Error {}
 export function nuovoGithub(cfg, deps = {}) {
   if (!cfg) return null
   const fetchGh = deps.fetch ?? globalThis.fetch
-  const mem = { giro: 0, prossimo: 0, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), stati: new Map() }
+  const mem = { giro: 0, prossimo: 0, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), stati: new Map(), nascosti: new Map() }
 
   async function gh(metodo, path, { auth, etag } = {}) {
     const ctrl = new AbortController()
@@ -235,9 +242,21 @@ export function nuovoGithub(cfg, deps = {}) {
       const perRepo = new Map()
       const usati = new Set()
       for (const r of repos) {
-        const { path, runs } = await leggiRepo(r, ora)
-        usati.add(path)
-        perRepo.set(chiaveRepo(r), runs)
+        const k = chiaveRepo(r)
+        if ((mem.nascosti.get(k) ?? 0) > ora) continue
+        try {
+          const { path, runs } = await leggiRepo(r, ora)
+          usati.add(path)
+          perRepo.set(k, runs)
+          if (mem.nascosti.delete(k)) log.info('quadro: repository di nuovo visibile su GitHub', { repo: k })
+        } catch (err) {
+          // Un 404 è di QUEL repository (l'App non lo vede): si salta, lo si dice una volta col suo nome e
+          // lo si riprova fra mezz'ora. Fermare tutti per uno toglierebbe i 🧪 anche dove si vedono.
+          // Autenticazione e rate limit invece valgono per tutti, e salgono.
+          if (err.status !== 404) throw err
+          if (!mem.nascosti.has(k)) log.warn('quadro: repository non visibile alla GitHub App, lo salto', { repo: k, err: err.message })
+          mem.nascosti.set(k, ora + RIPROVA_NASCOSTO_MS)
+        }
       }
       // Le risposte delle finestre passate non servono più.
       for (const path of mem.etag.keys()) if (!usati.has(path)) mem.etag.delete(path)
