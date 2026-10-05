@@ -685,3 +685,11 @@ test('gli orari sono fissi e in ora di Roma: oggi, ieri, o la data', () => {
   assert.equal(alle('2026-10-04T22:30:00Z', ora), 'alle 00:30', 'la mezzanotte è quella di Roma, non di Greenwich')
   assert.equal(alle(null, ora), '?')
 })
+
+test('allarmi: nel canale dei deploy solo i rilasci rotti, non i servizi giù', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z'), b('api', 'bbbbbbb', '2026-10-03T11:30:00Z', 'FAILED')] } },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa' }), svc('web', 'production', { tag: 'ccccccc', overall: 'down', task: [0, 2] })],
+  })
+  assert.deepEqual(datiAllarmi(q, { ora: ORA }).rotti.map((r) => r.nome), ['api'], 'web è giù: lo dice il watchdog')
+})

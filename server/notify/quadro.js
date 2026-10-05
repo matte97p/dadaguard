@@ -918,7 +918,10 @@ export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_OR
   if (!qa) return null
   const { adesso } = smista(qa, { ora, url, ore })
   return {
-    rotti: adesso.filter((x) => x.gravita <= 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })),
+    // Solo i RILASCI rotti (gravità 1: build, apply o riavvio falliti). Un servizio giù (gravità 0)
+    // è un allarme del watchdog, che lo scrive già nel canale degli allarmi: ripeterlo qui era un
+    // doppione (05/10/2026). Nel canvas resta, in cima.
+    rotti: adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })),
     inCorso: adesso.filter((x) => x.gravita === 3).map((x) => x.nome),
     buildIgnote: Boolean(qa.buildIgnote),
   }
