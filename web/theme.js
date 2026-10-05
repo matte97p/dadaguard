@@ -16,16 +16,17 @@ export const LEVEL = {
   warn: { color: '#b26a00', tag: 'warning', badge: 'warning' },
   info: { color: '#2563c9', tag: 'processing', badge: 'processing' },
   ok: { color: '#1f8a4c', tag: 'success', badge: 'success' },
-  muted: { color: '#8f8aa3', tag: 'default', badge: 'default' },
+  muted: { color: '#7d8492', tag: 'default', badge: 'default' },
 }
 
 export const levelColor = (level) => (LEVEL[level] ?? LEVEL.muted).color
 
-// Viola Dadaguard: colore del marchio, usato per il primario e per gli affordance di navigazione.
+// Colore del marchio: grafite, cioè l'inchiostro stesso. Il viola di prima tingeva tutta la pagina e si leggeva
+// come un quinto stato; così il colore resta solo a quello che vuol dire qualcosa (rotto, da guardare, ok).
 // Non è un livello di segnale e non deve mai indicarne uno.
-export const BRAND = '#6d3fe0'
-// In scuro il viola pieno su fondo quasi nero non si legge: stesso tono, piu' chiaro (come in app.css).
-export const BRAND_DARK = '#a585ff'
+export const BRAND = '#111418'
+// In scuro l'inchiostro è chiaro, e il marchio lo segue (come in app.css).
+export const BRAND_DARK = '#eceff3'
 
 // Colori "di dominio", quelli che identificano un provider e non uno stato.
 export const PROVIDER = { cloudflare: '#f6821f', aws: '#ff9900' }
@@ -50,8 +51,8 @@ export const SANS = '"Instrument Sans", ui-sans-serif, system-ui, -apple-system,
 // colore, quindi vuole un esadecimale vero e non una `var(--...)`. Tenute qui accanto perche' due
 // liste in due file divergono solo se nessuno le vede insieme.
 export const PALETTE = {
-  light: { bg: '#f6f5f9', panel: '#ffffff', ink: '#1b1830', mute: '#5f5a75', faint: '#8f8aa3', line: '#e6e3ee', hover: '#f1eff7', brand: BRAND, brandSoft: '#efe9fd' },
-  dark: { bg: '#13111c', panel: '#1b1928', ink: '#ecebf3', mute: '#a7a2bb', faint: '#7a7590', line: '#2a2739', hover: '#232033', brand: BRAND_DARK, brandSoft: '#2a2346' },
+  light: { bg: '#f5f6f8', panel: '#ffffff', ink: '#111418', mute: '#4b5260', faint: '#7d8492', line: '#e3e6eb', hover: '#eef0f3', brand: BRAND, brandSoft: '#e8ebef' },
+  dark: { bg: '#0f1114', panel: '#171a1f', ink: '#eceff3', mute: '#a3aab5', faint: '#737b87', line: '#262a31', hover: '#1f2329', brand: BRAND_DARK, brandSoft: '#262b33' },
 }
 
 // SCALA DI SPAZIATURE. Non è pedanteria: prima ogni pagina scriveva i suoi `marginBottom: 16`,

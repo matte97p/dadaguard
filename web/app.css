@@ -7,16 +7,16 @@
    Le variabili `--dg-*` di prima restano come alias dei token nuovi: le pagine non ancora rifatte le
    usano, e cosi' cambiano tema insieme al resto invece di restare indietro di una tinta. */
 :root {
-  --bg: #f6f5f9;
+  --bg: #f5f6f8;
   --panel: #ffffff;
-  --ink: #1b1830;
-  --mute: #5f5a75;
-  --faint: #8f8aa3;
-  --line: #e6e3ee;
-  --line-2: #d6d2e2;
-  --hover: #f1eff7;
-  --brand: #6d3fe0;
-  --brand-soft: #efe9fd;
+  --ink: #111418;
+  --mute: #4b5260;
+  --faint: #7d8492;
+  --line: #e3e6eb;
+  --line-2: #cfd4dc;
+  --hover: #eef0f3;
+  --brand: #111418;
+  --brand-soft: #e8ebef;
   --crit: #c8102e;
   --crit-soft: #fdecee;
   --warn: #b26a00;
@@ -25,8 +25,8 @@
   --ok-soft: #e7f6ec;
   --info: #2563c9;
   --info-soft: #e8f0fc;
-  --off: #8f8aa3;
-  --off-soft: #f0eff4;
+  --off: #7d8492;
+  --off-soft: #eef0f3;
   --sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --r: 8px;
@@ -48,16 +48,16 @@
    sistema», la seconda quando l'ha scelto chi guarda. Un solo blocco non copre tutti e due i casi. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #13111c;
-    --panel: #1b1928;
-    --ink: #ecebf3;
-    --mute: #a7a2bb;
-    --faint: #7a7590;
-    --line: #2a2739;
-    --line-2: #3a3650;
-    --hover: #232033;
-    --brand: #a585ff;
-    --brand-soft: #2a2346;
+    --bg: #0f1114;
+    --panel: #171a1f;
+    --ink: #eceff3;
+    --mute: #a3aab5;
+    --faint: #737b87;
+    --line: #262a31;
+    --line-2: #353b44;
+    --hover: #1f2329;
+    --brand: #eceff3;
+    --brand-soft: #262b33;
     --crit: #ff6b7f;
     --crit-soft: #3a1720;
     --warn: #f2b64a;
@@ -66,22 +66,22 @@
     --ok-soft: #143023;
     --info: #79a8ff;
     --info-soft: #17264a;
-    --off: #7a7590;
-    --off-soft: #24222f;
+    --off: #737b87;
+    --off-soft: #20242a;
     color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #13111c;
-  --panel: #1b1928;
-  --ink: #ecebf3;
-  --mute: #a7a2bb;
-  --faint: #7a7590;
-  --line: #2a2739;
-  --line-2: #3a3650;
-  --hover: #232033;
-  --brand: #a585ff;
-  --brand-soft: #2a2346;
+  --bg: #0f1114;
+  --panel: #171a1f;
+  --ink: #eceff3;
+  --mute: #a3aab5;
+  --faint: #737b87;
+  --line: #262a31;
+  --line-2: #353b44;
+  --hover: #1f2329;
+  --brand: #eceff3;
+  --brand-soft: #262b33;
   --crit: #ff6b7f;
   --crit-soft: #3a1720;
   --warn: #f2b64a;
@@ -90,8 +90,8 @@
   --ok-soft: #143023;
   --info: #79a8ff;
   --info-soft: #17264a;
-  --off: #7a7590;
-  --off-soft: #24222f;
+  --off: #737b87;
+  --off-soft: #20242a;
   color-scheme: dark;
 }
 
@@ -418,18 +418,18 @@ body {
   background: var(--dg-brand-soft);
 }
 .dg-chip:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid #111418;
   outline-offset: 2px;
 }
 .dg-chip-on {
-  border-color: #7c3aed;
+  border-color: #111418;
   background: rgba(124, 58, 237, 0.16);
 }
 
 /* Nome del servizio: da tastiera è il modo di aprire il pannello (una <tr> non si mette a fuoco),
    quindi il fuoco deve VEDERSI — altrimenti tabulando si finisce su un elemento invisibile. */
 .dg-openable:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid #111418;
   outline-offset: 2px;
   border-radius: 3px;
 }
@@ -456,7 +456,7 @@ details[open] > .dg-summary .dg-chev {
   transform: rotate(90deg);
 }
 .dg-summary:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid #111418;
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -496,7 +496,7 @@ details[open] > .dg-summary .dg-chev {
 }
 .dg-bt thead th button:focus-visible,
 .dg-bt tbody button:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid #111418;
   outline-offset: 2px;
   border-radius: 3px;
 }

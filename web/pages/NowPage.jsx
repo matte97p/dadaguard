@@ -247,7 +247,7 @@ export default function NowPage({
       </Sezione>
 
       <Sezione titolo={t('home.cambiato')} sotto={t('home.cambiatoSotto')}>
-        <Cambiamenti build={build} t={t} />
+        <Cambiamenti build={build} storico={storico} accountFilter={accountFilter} t={t} />
       </Sezione>
 
       <Drawer
@@ -293,42 +293,69 @@ function Stat({ valore, label, livello }) {
   )
 }
 
-// La striscia delle ultime 24 ore con un segno per evento, e sotto l'elenco. La striscia dice QUANDO
-// si sono addensate le cose (tre deploy in dieci minuti si vedono come un grumo), l'elenco dice cosa.
-function Cambiamenti({ build, t }) {
-  if (!build.length) return <Lista vuoto={t('home.nienteCambiato')} />
-  const ora = Date.now()
-  const lettera = { ok: '✓', crit: '!', info: '↑', off: '·' }
+// Cosa è cambiato, dal più recente: una riga per evento con l'ora, un'etichetta a parole (non un
+// simbolo da decifrare) e il dettaglio che serve per agire. La striscia a puntini che c'era prima diceva
+// quando si addensavano le cose, ma i segni si sovrapponevano e non si leggeva né cosa né dove.
+// Le fonti sono due: la cronologia di /api/history (deploy, riavvii e inizio dei guasti, con «dopo il
+// deploy X») e le build ancora in corso, che lo storico non conta perché non hanno un esito.
+function Cambiamenti({ build, storico, accountFilter, t }) {
+  const [tutti, setTutti] = useState(false)
+  const righe = righeCambiamenti({ build, storico, accountFilter })
+  if (!righe.length) return <Lista vuoto={t('home.nienteCambiato')} />
+  const viste = tutti ? righe : righe.slice(0, 10)
   return (
     <div className="ui-tl">
-      <div className="ui-track" aria-hidden="true">
-        {build.map((b) => {
-          const pos = Math.max(0, Math.min(100, 100 - ((ora - b.at) / (ORE * 3600_000)) * 100))
-          const c = `var(--${b.esito === 'off' ? 'off' : b.esito})`
-          return (
-            <span key={b.id ?? `${b.accountKey}:${b.service}:${b.at}`} className="ui-m" style={{ left: `${pos}%` }}>
-              <b style={{ background: c }} />
-              <i style={{ background: c }} />
-            </span>
-          )
-        })}
-      </div>
-      <div className="ui-axis" style={{ marginBottom: 6 }}>
-        <span>{t('home.asse.ieri')}</span>
-        <span>{t('home.asse.adesso')}</span>
-      </div>
-      {build.slice(0, 12).map((b) => (
-        <div key={`e:${b.id ?? `${b.accountKey}:${b.service}:${b.at}`}`} className="ui-e">
-          <span className="ui-mono ui-faint">{new Date(b.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          <span className={`ui-ic ui-${b.esito}`}>{b.aMano && b.esito === 'ok' ? '⟳' : lettera[b.esito]}</span>
-          <span>
-            <b>{b.service ?? '?'}</b> {t(`home.evento.${b.aMano && b.esito === 'ok' ? 'aMano' : b.esito}`, { env: b.accountLabel ?? b.accountKey })}
+      {viste.map((r) => (
+        <div key={r.key} className="ui-e">
+          <span className="ui-mono">{new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</span>
+          <Pill livello={r.livello}>{t(`home.ev.${r.etichetta}`)}</Pill>
+          <span className="ui-name">
+            {r.servizio ?? '?'}
+            {r.env && <small>{r.env}</small>}
           </span>
-          <span className="ui-faint" style={{ fontSize: 12.5 }}>
-            {[b.author, b.commit].filter(Boolean).join(' · ')}
+          <span className={r.dopoDeploy ? 'ui-t-warn' : 'ui-mute'} style={{ fontSize: 13, textAlign: 'right' }}>
+            {r.dopoDeploy
+              ? t('home.ev.dopoDeploy', { min: r.dopoDeploy.minuti, commit: r.dopoDeploy.commit ?? '' })
+              : [r.chi, r.commit].filter(Boolean).join(' · ')}
           </span>
         </div>
       ))}
+      {righe.length > 10 && (
+        <button type="button" className="ui-kbd" style={{ margin: '8px 0' }} onClick={() => setTutti(!tutti)}>
+          {tutti ? t('home.ev.meno') : t('home.ev.tutti', { n: righe.length })}
+        </button>
+      )}
     </div>
   )
+}
+
+// Il nome leggibile di un ambiente lo sa già chi ha letto i conti: lo storico porta solo la chiave.
+const etichettaAmbiente = (blocco, build) => build.find((b) => (blocco?.conti ?? []).includes(b.accountKey))?.accountLabel
+
+// Pura: normalizza le due fonti in righe, filtra per conto e ordina dalla più recente.
+export function righeCambiamenti({ build = [], storico = null, accountFilter = null }) {
+  const blocchi = storico?.ambienti ?? {}
+  const ambientiVisti = Object.entries(blocchi)
+    .filter(([, b]) => !accountFilter?.length || (b?.conti ?? []).some((c) => accountFilter.includes(c)))
+    .map(([k]) => k)
+  const daStorico = (storico?.cronologia ?? [])
+    .filter((e) => !accountFilter?.length || ambientiVisti.includes(e.ambiente))
+    .map((e) => {
+      const etichetta = e.tipo === 'guasto' ? 'guasto' : e.tipo === 'riavvio' ? 'riavvio' : e.esito === 'ok' ? 'rilascio' : 'fallito'
+      const livello = e.tipo === 'guasto' ? (e.finito ? 'warn' : 'crit') : e.esito === 'ok' ? (e.tipo === 'riavvio' ? 'warn' : 'ok') : 'crit'
+      return { key: `s:${e.tipo}:${e.ambiente}:${e.servizio}:${e.ts}`, ts: e.ts, etichetta, livello, servizio: e.servizio ?? e.allarme, env: etichettaAmbiente(blocchi[e.ambiente], build) ?? e.ambiente, chi: e.chi, commit: e.commit, dopoDeploy: e.dopoDeploy }
+    })
+  // Senza storico (permesso mancante, demo vecchia) si ripiega sulle build lette per i deploy.
+  const sorgenteBuild = daStorico.length ? build.filter((b) => b.esito === 'info') : build
+  const daBuild = sorgenteBuild.map((b) => ({
+    key: `b:${b.id ?? `${b.accountKey}:${b.service}:${b.at}`}`,
+    ts: b.at,
+    etichetta: b.esito === 'info' ? 'inCorso' : b.aMano ? 'riavvio' : b.esito === 'ok' ? 'rilascio' : 'fallito',
+    livello: b.esito === 'info' ? 'info' : b.aMano && b.esito === 'ok' ? 'warn' : b.esito,
+    servizio: b.service,
+    env: b.accountLabel ?? b.accountKey,
+    chi: b.author,
+    commit: b.commit,
+  }))
+  return [...daStorico, ...daBuild].filter((r) => Number.isFinite(r.ts)).sort((a, b) => b.ts - a.ts)
 }

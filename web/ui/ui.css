@@ -639,11 +639,25 @@
 }
 .ui-tl .ui-e {
   display: grid;
-  grid-template-columns: 64px 20px minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 8px 0;
-  border-top: 1px dashed var(--line);
+  grid-template-columns: 48px 150px minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
   align-items: center;
+  font-size: 14px;
+}
+.ui-tl .ui-e > .ui-mono {
+  color: var(--ink);
+}
+@media (max-width: 860px) {
+  .ui-tl .ui-e {
+    grid-template-columns: 44px minmax(0, 1fr);
+    row-gap: 4px;
+  }
+  .ui-tl .ui-e > :nth-child(4) {
+    grid-column: 2;
+    text-align: left !important;
+  }
 }
 .ui-tl .ui-e:first-of-type {
   border-top: 0;

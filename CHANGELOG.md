@@ -5,9 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **«Cosa è cambiato oggi» si legge** (05/10/2026). Una riga per evento dalla più recente, con l'ora,
+  un'etichetta a parole (Rilasciato, Deploy fallito, Riavvio a mano, Guasto, In rilascio) e il dettaglio
+  utile, compreso «12 min dopo il deploy c1a2b3d». Ora entrano anche i guasti, presi da `/api/history`;
+  la striscia a puntini, dove i segni si sovrapponevano, non c'è più.
+- **Niente più viola**: il marchio è la grafite dell'inchiostro, i neutri non hanno più la tinta viola,
+  e il colore resta solo agli stati.
+
 ### Added
 - **Il nuovo design** (05/10/2026). Tema chiaro e scuro a token, Instrument Sans e JetBrains Mono,
-  viola come marchio e rosso, arancio e verde solo per lo stato. La home **Adesso** è un semaforo con
+  marchio grafite (il viola di prima tingeva tutta la pagina) e rosso, arancio e verde solo per lo stato. La home **Adesso** è un semaforo con
   la disponibilità delle ultime 24 ore e l'elenco di cosa sistemare dal più grave; in alto ambiente,
   punto di vista **Sviluppo** o **DevOps** e la palette `⌘K`. Servizi, Deploy, Cron, Spesa, Limiti,
   Sicurezza, Accessi, Permessi e Topologia rifatte sugli stessi componenti (`web/ui/`). Ogni problema
