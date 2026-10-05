@@ -1,0 +1,112 @@
+/* Pagina Servizi e pannello del servizio: solo i pezzi che web/ui non ha ancora (campo di ricerca,
+   barretta dei controlli, coppie etichetta/valore, righe di log). Tutto a token, cosi' segue il tema. */
+
+.sv-tools {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 4px 0 12px;
+}
+.sv-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--ink);
+  font: inherit;
+}
+.sv-checks {
+  display: flex;
+  gap: 3px;
+}
+.sv-checks i {
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+}
+.sv-kv {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px 12px;
+  font-size: 13px;
+  margin: 0;
+}
+.sv-kv dt {
+  color: var(--faint);
+}
+.sv-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sv-logs {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+.sv-slo {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sv-slo-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.sv-azioni {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.sv-card-h {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+/* La riga di un servizio: stato, nome, cosa succede, di chi, controlli, latenza, freccia. */
+.ui-row.sv-row,
+.sv-lista .ui-thead {
+  grid-template-columns:
+    104px minmax(0, 1.1fr) minmax(0, 1.6fr)
+    84px 140px 76px 16px;
+}
+@media (max-width: 720px) {
+  .ui-row.sv-row {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  .sv-lista .ui-thead {
+    display: none;
+  }
+  .ui-row.sv-row > .ui-what {
+    grid-column: 1 / -1;
+  }
+  .sv-row > .sv-checks,
+  .sv-row > .ui-who,
+  .sv-row > .ui-go,
+  .sv-row > .sv-lat {
+    display: none;
+  }
+}
