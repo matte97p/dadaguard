@@ -731,7 +731,6 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } 
     resto.esterni && plurale(resto.esterni, 'componente esterno', 'componenti esterni'),
     resto.iac && `IaC, ultimo apply ${alle(resto.iac, ora)}`,
   ].filter(Boolean)
-  if (fermi.length) parti.push(`**Senza novità nelle ultime ${ore} ore**: ${fermi.join(SEP)}`)
 
   // I filtri: link alla pagina di Dadaguard già filtrata. Quello sui servizi diversi da staging apre i
   // deploy di quei servizi nei due ambienti insieme, cioè il confronto che serve.
@@ -740,31 +739,37 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } 
     tuttiServizi && `[Servizi ${meta.tag}](${tuttiServizi})`,
     url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
-  if (link.length) parti.push(`Su Dadaguard: ${link.join(SEP)}`)
+  // Una riga sola in fondo, uguale in ogni scheda: il resto contato e i link. Due paragrafi separati
+  // allungavano ogni sezione di una riga, e nelle schede a due ambienti si leggevano come un elenco.
+  const fondo = [fermi.length && `**Senza novità** (${ore} h): ${fermi.join(SEP)}`, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean)
+  if (fondo.length) parti.push(fondo.join('  |  '))
   return { meta, sintesi, parti }
 }
 
-// Il canvas di un ambiente: in testa la sintesi, che se dice «niente di rotto» chiude la lettura.
-// Puro/testabile.
-export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const { meta, sintesi, parti } = sezioniAmbiente(q, { ora, url, ore })
-  // Niente «aggiornato alle»: cambierebbe ogni minuto e riscriverebbe il canvas per niente (vedi
-  // `alle`). Che il quadro sia vivo lo garantisce la guardia, che avvisa se non si aggiorna da 10 minuti.
-  return { titolo: meta.titolo, markdown: [`**${sintesi.join(SEP)}**`, ...parti].join('\n\n'), sintesi: sintesi.join(SEP) }
-}
-
-// Un canvas che attraversa gli ambienti (⏰ CRON, una squadra): una sezione per ambiente, ognuna con
-// la sua sintesi. Puro/testabile.
-export function canvasTrasversale(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+// Ogni scheda ha la STESSA forma, che contenga un ambiente (🟥 PROD, 🟨 STAGING) o tutti e due (⏰ CRON,
+// una squadra): per ogni ambiente il suo titolo, la sintesi, la tabella e una riga in fondo. Due forme
+// diverse per le schede a uno e a due ambienti obbligavano a reimparare il canvas a ogni scheda.
+// Niente «aggiornato alle»: cambierebbe ogni minuto e riscriverebbe il canvas per niente (vedi
+// `alle`); che il quadro sia vivo lo garantisce la guardia dei 10 minuti. Puro/testabile.
+export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   const parti = []
   const sintesi = []
   for (const q of perAmbiente) {
     const s = sezioniAmbiente(q, { ora, url, ore })
     parti.push(`## ${s.meta.sezione}`, `**${s.sintesi.join(SEP)}**`, ...s.parti)
-    sintesi.push(`${s.meta.tag}: ${s.sintesi.join(SEP)}`)
+    sintesi.push(perAmbiente.length > 1 ? `${s.meta.tag}: ${s.sintesi.join(SEP)}` : s.sintesi.join(SEP))
   }
   return { titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(' | ') }
 }
+
+// La scheda di un ambiente. Puro/testabile.
+export function canvasQuadro(q, opts = {}) {
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}` }
+  return canvasSezioni(meta.titolo, [q], opts)
+}
+
+// La scheda che attraversa gli ambienti (⏰ CRON, una squadra). Puro/testabile.
+export const canvasTrasversale = (titolo, perAmbiente = [], opts = {}) => canvasSezioni(titolo, perAmbiente, opts)
 
 // Tutti i canvas di un giro, ognuno col suo canale: uno per ambiente, poi ⏰ CRON e uno per squadra.
 // Le schede trasversali vanno nel canale del PRIMO ambiente: sono una sola per tutti e due, e quando
