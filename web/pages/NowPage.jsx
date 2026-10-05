@@ -1,252 +1,324 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Space, Tag, Tooltip, Alert, Skeleton, Segmented } from 'antd'
-import {
-  ClockCircleOutlined,
-  SyncOutlined,
-  CloudServerOutlined,
-  RocketOutlined,
-  ReloadOutlined,
-  SafetyCertificateOutlined,
-  DollarOutlined,
-  LineChartOutlined,
-  AlertOutlined,
-} from '@ant-design/icons'
-import { PageIntro, HeroRow, HeroStat, Section, EmptyState, Verdetto } from './pageKit.jsx'
-import { buildSignals, countByLevel } from '../nowSignals.js'
+import { Verdetto, Card, Dot, Lista, Sezione, RigaProblema, BarraUptime, Drawer, Rimedio, ListaLink, Pill } from '../ui/index.js'
+import { buildSignals } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
-import { levelColor, FONT, SPACE } from '../theme.js'
 import { matchesAny } from '../filters.js'
+import {
+  livelloServizio,
+  livelloSegnale,
+  ownerSegnale,
+  teamServizio,
+  comandoServizio,
+  rangoLivello,
+  contaLivelli,
+  buildRecenti,
+  statOggi,
+  fasceDisponibilita,
+  storicoAmbiente,
+  peggiore,
+} from '../adattatori.js'
 
-const { Text } = Typography
+// Pagina «Adesso»: la home, a semaforo. In alto il verdetto in una frase, poi i numeri che lo
+// reggono, poi l'elenco di quello che c'e' da sistemare dal piu' grave, poi cosa e' cambiato oggi.
+//
+// Nessuna fonte nuova: lo stato della flotta arriva da App (/api/status), i deploy anche (servono ai
+// badge del menu), WAF e budget li legge questa pagina. I campi che il server non manda ancora
+// (livello, owner, comando, storico) passano da web/adattatori.js, che li legge se ci sono e li
+// deduce se mancano.
 
-// Un'icona per tipo di segnale: a colpo d'occhio dice DA DOVE arriva la riga, che è metà del lavoro
-// quando in una lista sola convivono servizi, rilasci, firewall e budget.
-const KIND_ICON = {
-  service: <CloudServerOutlined />,
-  deploy: <RocketOutlined />,
-  restart: <ReloadOutlined />,
-  waf: <SafetyCertificateOutlined />,
-  budget: <DollarOutlined />,
-  anomaly: <LineChartOutlined />,
-  alarm: <AlertOutlined />,
+// Sigla del tipo nella casellina accanto al nome: dice DA DOVE arriva la riga prima di leggerla.
+const SIGLA = {
+  lambda: 'λ',
+  ecs: 'ECS',
+  'ecs-scheduled': '⏱',
+  'cloudflare-worker': 'CF',
+  acm: 'TLS',
+  s3: 'S3',
+  rds: 'DB',
+  kinesis: 'KIN',
+  sfn: 'SFN',
+  ec2: 'EC2',
+  alb: 'ALB',
+  elasticache: 'RED',
+}
+const SIGLA_KIND = { deploy: 'CI', restart: '⟳', waf: 'WAF', budget: '$', anomaly: '$', alarm: '!' }
+
+const ORE = 24
+
+export default function NowPage({
+  services = [],
+  alarmiOrfani = [],
+  statusReady = false,
+  statusLoading,
+  statusError,
+  refreshKey,
+  accountFilter = [],
+  deploys = null,
+  storico = null,
+  ruolo = 'dev',
+  ambienti = [],
+  ambiente = null,
+  onAmbiente,
+  onApriServizio,
+  t = (k) => k,
+  lang,
+}) {
+  const navigate = useNavigate()
+  const [waf, setWaf] = useState(null)
+  const [budgets, setBudgets] = useState(null)
+  const [errori, setErrori] = useState([])
+  const [aperto, setAperto] = useState(null)
+
+  useEffect(() => {
+    let vivo = true
+    // Due fonti indipendenti: una che non risponde non deve spegnere l'altra, e mostrarne meta' e'
+    // meglio che mostrare un errore solo.
+    const prendi = (url, set) =>
+      fetch(url)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${url}: HTTP ${r.status}`))))
+        .then((j) => vivo && set(j))
+        .catch((e) => vivo && setErrori((p) => [...p, e.message]))
+    setErrori([])
+    prendi(`/api/waf?hours=${ORE}`, setWaf)
+    prendi(`/api/budgets?lang=${lang ?? ''}`, setBudgets)
+    return () => {
+      vivo = false
+    }
+  }, [lang, refreshKey])
+
+  // I servizi dell'ambiente scelto. Il ruolo NON si applica qui: i numeri della card «Stato dei
+  // servizi» parlano della flotta, e un totale che cambia col ruolo si legge come un guasto.
+  const nelFiltro = useMemo(() => services.filter((s) => matchesAny(s.account?.key ?? '__none__', accountFilter)), [services, accountFilter])
+  const perChiave = useMemo(() => {
+    const m = new Map()
+    for (const s of services) m.set(`svc:${s.account?.key ?? '-'}:${s.resourceId ?? s.name}`, s)
+    return m
+  }, [services])
+
+  // «Da sistemare»: i segnali che mordono (rossi e arancio), dal piu' grave, filtrati per ambiente e
+  // ruolo. Quelli informativi (un deploy in corso, un riavvio) stanno in «Cosa e' cambiato».
+  const righe = useMemo(() => {
+    const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, hours: ORE, t, nameOf: displayName })
+    return tutti
+      .filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
+      .map((s) => {
+        const servizio = s.kind === 'service' ? perChiave.get(s.id) : null
+        return { ...s, servizio, livello: livelloSegnale(s), owner: ownerSegnale(s, servizio), comando: s.comando ?? (servizio ? comandoServizio(servizio) : null) }
+      })
+      .filter((r) => (r.livello === 'crit' || r.livello === 'warn') && (ruolo === 'ops' || r.owner === 'dev'))
+      .sort((a, b) => rangoLivello(a.livello) - rangoLivello(b.livello))
+  }, [services, deploys, waf, budgets, alarmiOrfani, accountFilter, ruolo, perChiave, t])
+
+  const conta = contaLivelli(nelFiltro)
+  const serviziRotti = righe.filter((r) => r.kind === 'service' && r.livello === 'crit').length
+  const deployFalliti = righe.filter((r) => r.kind === 'deploy' && r.livello === 'crit').length
+  const daGuardare = righe.length - righe.filter((r) => r.livello === 'crit').length
+  const altriRotti = righe.filter((r) => r.livello === 'crit').length - serviziRotti - deployFalliti
+
+  const build = useMemo(() => buildRecenti(deploys ?? {}, { ore: ORE, accountKeys: accountFilter }), [deploys, accountFilter])
+  const oggi = statOggi(build)
+  const disp = fasceDisponibilita(storicoAmbiente(storico, ambiente) ?? storico, peggiore(nelFiltro.map(livelloServizio)))
+  const inAttesa = !statusReady || statusLoading
+
+  const verdetto = (() => {
+    if (!statusReady) return { forte: null, resto: t('home.v.attesa') }
+    if (serviziRotti || deployFalliti || altriRotti) {
+      const pezzi = [
+        serviziRotti && t('home.v.serviziRotti', { n: serviziRotti }),
+        deployFalliti && t('home.v.deployFalliti', { n: deployFalliti }),
+        altriRotti && t('home.v.altriRotti', { n: altriRotti }),
+      ].filter(Boolean)
+      return { livello: 'crit', forte: pezzi.join(', '), resto: daGuardare ? t('home.v.eDaGuardare', { n: daGuardare }) : '' }
+    }
+    if (righe.length) return { livello: 'warn', forte: t('home.v.nienteRotto'), resto: t('home.v.eDaGuardare', { n: righe.length }) }
+    return { livello: 'ok', forte: t('home.v.tuttoOk'), resto: '' }
+  })()
+
+  const etichetta = (r) => {
+    if (r.kind === 'deploy') return r.livello === 'crit' ? t('home.pill.deployFallito') : t('home.pill.deploy')
+    if (r.kind === 'budget' || r.kind === 'anomaly') return t('home.pill.spesa')
+    return t(`home.liv.${r.livello}`)
+  }
+  const ownerLabel = (r) => (r.servizio && teamServizio(r.servizio)) || t(`home.owner.${r.owner}`)
+  const apri = (r) => {
+    if (r.servizio && onApriServizio) return onApriServizio(r.servizio)
+    setAperto(r)
+  }
+
+  return (
+    <>
+      <Verdetto livello={verdetto.livello} forte={verdetto.forte} resto={verdetto.resto} dettaglio={t(`home.ruolo.${ruolo}`)} />
+
+      {statusError && <div className="ui-readwarn">{statusError}</div>}
+      {errori.length > 0 && <div className="ui-readwarn">{t('now.partial')}: {errori.join(' · ')}</div>}
+
+      <div className="ui-hero">
+        <Card titolo={t('home.statoServizi')} nota={inAttesa ? t('home.inLettura') : t('home.controllati', { n: nelFiltro.length })}>
+          <div className="ui-stack" aria-hidden="true">
+            {['crit', 'warn', 'ok', 'off'].map((k) => (conta[k] ? <i key={k} className={`ui-bg-${k === 'off' ? 'off' : k}`} style={{ flex: conta[k], opacity: k === 'off' ? 0.4 : 1 }} /> : null))}
+          </div>
+          <div className="ui-legend">
+            {['crit', 'warn', 'ok', 'off'].map((k) => (
+              <span key={k}>
+                <Dot livello={k} />
+                {conta[k]} {t(`home.liv.${k}`).toLowerCase()}
+              </span>
+            ))}
+          </div>
+          <h4 style={{ marginTop: 4 }}>
+            <span>{t('home.disponibilita')}</span>
+            <span>{disp.percento != null ? `${String(disp.percento).replace('.', lang === 'it' ? ',' : '.')}%` : disp.dedotto ? t('home.soloAdesso') : ''}</span>
+          </h4>
+          <BarraUptime fasce={disp.fasce} etichette={[t('home.asse.ieri'), '', '', t('home.asse.adesso')]} titolo={disp.dedotto ? t('home.storicoAssente') : undefined} />
+        </Card>
+        <Card titolo={t('home.oggi')}>
+          <div className="ui-stats">
+            <Stat valore={oggi.riusciti} label={t('home.stat.riusciti')} />
+            <Stat valore={oggi.falliti} label={t('home.stat.falliti')} livello={oggi.falliti ? 'crit' : undefined} />
+            <Stat valore={oggi.inCorso} label={t('home.stat.inCorso')} livello={oggi.inCorso ? 'info' : undefined} />
+            <Stat valore={oggi.aMano} label={t('home.stat.aMano')} livello={oggi.aMano ? 'warn' : undefined} />
+            <Stat valore={conta.crit} label={t('home.stat.rotti')} livello={conta.crit ? 'crit' : undefined} />
+            <Stat valore={conta.warn} label={t('home.stat.daGuardare')} livello={conta.warn ? 'warn' : undefined} />
+          </div>
+        </Card>
+      </div>
+
+      {/* Le card per ambiente servono solo quando si guardano tutti insieme: con un ambiente scelto
+          ripeterebbero la card qui sopra. Cliccarne una e' come sceglierlo dalla barra in alto. */}
+      {ambiente == null && ambienti.length > 1 && (
+        <div className="ui-envgrid">
+          {ambienti.map((a) => {
+            const c = contaLivelli(services.filter((s) => a.accounts.includes(s.account?.key)))
+            const d = fasceDisponibilita(storicoAmbiente(storico, a.key), a.livello, 24)
+            return (
+              <Card key={a.key} className="ui-envcard" onClick={() => onAmbiente?.(a.key)}>
+                <span className="ui-h">
+                  <Dot livello={a.livello} />
+                  {a.label}
+                </span>
+                <span className="ui-c">
+                  <span>
+                    <b className={c.crit ? 'ui-t-crit' : ''}>{c.crit}</b> {t('home.env.rotti')}
+                  </span>
+                  <span>
+                    <b className={c.warn ? 'ui-t-warn' : ''}>{c.warn}</b> {t('home.env.daGuardare')}
+                  </span>
+                  <span>
+                    <b>{c.ok}</b> {t('home.env.ok')}
+                  </span>
+                </span>
+                <BarraUptime fasce={d.fasce} altezza={14} />
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
+        <Lista vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
+          {righe.map((r) => (
+            <RigaProblema
+              key={r.id}
+              livello={r.livello}
+              etichetta={etichetta(r)}
+              icona={r.servizio ? SIGLA[r.servizio.type] ?? '·' : SIGLA_KIND[r.kind] ?? '·'}
+              nome={r.title}
+              sotto={[r.accountLabel, r.servizio?.type ? tipo(r.servizio.type, t) : t(`now.kind.${r.kind}`)].filter(Boolean).join(' · ')}
+              cosa={r.detail || t(`now.kind.${r.kind}`)}
+              owner={ownerLabel(r)}
+              quando={r.when ? fmtAgo(r.when, t) : t('now.ongoing')}
+              azione={r.servizio || r.to || comandoServizio(r.servizio) ? t('home.cosaFare') : ''}
+              onApri={() => apri(r)}
+            />
+          ))}
+        </Lista>
+      </Sezione>
+
+      <Sezione titolo={t('home.cambiato')} sotto={t('home.cambiatoSotto')}>
+        <Cambiamenti build={build} t={t} />
+      </Sezione>
+
+      <Drawer
+        aperto={Boolean(aperto)}
+        onChiudi={() => setAperto(null)}
+        titolo={aperto?.title}
+        sopra={aperto && <Pill livello={aperto.livello}>{etichetta(aperto)}</Pill>}
+        sotto={aperto && [aperto.accountLabel, t(`now.kind.${aperto.kind}`), t(`home.tocca.${aperto.owner}`)].filter(Boolean).join(' · ')}
+        etichettaChiudi={t('ui.chiudi')}
+      >
+        {aperto && (
+          <>
+            <Rimedio livello={aperto.livello} titolo={aperto.detail} testo={aperto.full} comando={aperto.comando} t={t} />
+            {aperto.when && <span className="ui-faint">{t('home.da', { quando: fmtAgo(aperto.when, t) })}</span>}
+            {aperto.to && (
+              <div>
+                <button type="button" className="ui-kbd" onClick={() => (setAperto(null), navigate(aperto.to))}>
+                  {t('home.apriPagina')}
+                </button>
+              </div>
+            )}
+            <ListaLink link={aperto.link ?? []} />
+            <p className="ui-note">{t('home.soloLettura')}</p>
+          </>
+        )}
+      </Drawer>
+    </>
+  )
 }
 
-// Finestre: 1h e 6h ci sono perché è dentro un incidente che si apre questa pagina, e lì la domanda è
-// «cos'è cambiato nell'ultima ora», non «cos'è successo oggi». Partono da 24h: la finestra di chi
-// arriva la mattina, e le due corte si scelgono quando servono. Il WAF le sopporta tutte (l'endpoint
-// prende `hours` e la sua cache è per finestra), gli altri due dati non hanno finestra: si filtra qui.
-const WINDOWS = [1, 6, 24, 72, 168]
+function tipo(ty, t) {
+  const k = `type.${ty}`
+  const l = t(k)
+  return l === k ? ty : l
+}
 
-function SignalRow({ s, t, onOpen }) {
-  const color = levelColor(s.level)
-  // ⚠️ Non tutti i segnali portano da qualche parte: un allarme che nessun servizio possiede non ha
-  // una pagina che ne sappia di piu', e questa riga E' il posto dove compare. Senza la guardia la
-  // riga resterebbe cliccabile e la navigazione finirebbe su `null`; senza il resto (il ruolo, il
-  // focus, il titolo «apri») sembrerebbe cliccabile e non farebbe niente, che e' peggio.
-  const apribile = Boolean(s.to)
+function Stat({ valore, label, livello }) {
   return (
-    <div
-      role={apribile ? 'button' : undefined}
-      tabIndex={apribile ? 0 : undefined}
-      title={s.full ?? (apribile ? t('now.open') : undefined)}
-      // data-signal: ancora per il video demo, vedi pageKit.jsx.
-      data-signal={s.kind}
-      onClick={apribile ? () => onOpen(s) : undefined}
-      onKeyDown={apribile ? (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(s)) : undefined}
-      className="dg-signal"
-      style={{ borderInlineStart: `3px solid ${color}`, cursor: apribile ? undefined : 'default' }}
-    >
-      <span style={{ color, flex: 'none', opacity: 0.85 }}>{KIND_ICON[s.kind] ?? null}</span>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <Space size={8} wrap style={{ rowGap: 2 }}>
-          <Text strong>{s.title}</Text>
-          <Tag bordered={false} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: 0.85 }}>
-            {t(`now.kind.${s.kind}`)}
-          </Tag>
-          {s.accountLabel && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {s.accountLabel}
-            </Text>
-          )}
-        </Space>
-        {s.detail && (
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {s.detail}
-            </Text>
-          </div>
-        )}
-      </div>
-      {/* Un servizio senza data è uno STATO in corso, e vale dirlo. Un budget o un aggregato del WAF
-          no: "in corso" su un budget sforato non significa niente, e una parola che non significa
-          niente occupa lo spazio dove chi legge cerca un orario. */}
-      <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', flex: 'none' }}>
-        {s.when ? (
-          <>
-            <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
-            {fmtAgo(s.when, t)}
-          </>
-        ) : s.kind === 'service' ? (
-          t('now.ongoing')
-        ) : null}
-      </Text>
+    <div className="ui-stat">
+      <b className={livello ? `ui-t-${livello}` : undefined}>{valore}</b>
+      <span>{label}</span>
     </div>
   )
 }
 
-// Pagina "Adesso": la prima che si apre. Raccoglie da tutte le fonti solo ciò che è cambiato nella
-// finestra o che morde in questo momento, e manda alla pagina che ne sa di più. Nessuna fonte nuova:
-// gli stessi endpoint delle altre viste.
-// `statusReady` = lo stato della flotta è ARRIVATO (non "non sto caricando"). Sono due cose diverse e
-// confonderle era il difetto: il flag di caricamento dell'app parte da `false`, quindi c'era una
-// finestra in cui la flotta era vuota e nessuno stava ancora caricando — e questa pagina scriveva
-// «niente da segnalare · controllati 0 servizi», che è un ESITO, mentre i servizi non li aveva
-// nemmeno guardati. Cinque secondi dopo comparivano, giù e degradati, in cima all'elenco.
-export default function NowPage({ services = [], alarmiOrfani = [], statusReady = false, statusLoading, statusError, refreshKey, accountFilter = [], t = (k) => k, lang }) {
-  const navigate = useNavigate()
-  const [hours, setHours] = useState(24)
-  const [deploys, setDeploys] = useState(null)
-  const [waf, setWaf] = useState(null)
-  const [budgets, setBudgets] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [errors, setErrors] = useState([])
-
-  useEffect(() => {
-    let alive = true
-    setLoading(true)
-    // Tre fonti indipendenti: una che non risponde non deve spegnere le altre — questa pagina è
-    // l'unica che le vede insieme, e mostrarne due su tre è meglio che mostrare un errore solo.
-    const grab = (url, set) =>
-      fetch(url)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${url}: HTTP ${r.status}`))))
-        .then((j) => alive && set(j))
-        .catch((e) => alive && setErrors((prev) => [...prev, e.message]))
-    setErrors([])
-    Promise.all([
-      grab(`/api/deploys?lang=${lang ?? ''}`, setDeploys),
-      grab(`/api/waf?hours=${hours}`, setWaf),
-      grab(`/api/budgets?lang=${lang ?? ''}`, setBudgets),
-    ]).finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
-  }, [hours, lang, refreshKey])
-
-  const signals = useMemo(() => {
-    const all = buildSignals({
-      services,
-      deploys: deploys ?? {},
-      waf,
-      budgets,
-      alarmi: alarmiOrfani,
-      hours,
-      t,
-      nameOf: displayName,
-    })
-    // Il filtro Account della barra in alto vale anche qui. Le righe senza account (un'anomalia porta
-    // il NOME dell'account, non la sua chiave) restano visibili: nasconderle per un filtro che non le
-    // riguarda toglierebbe fatti veri senza dirlo.
-    return all.filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
-  }, [services, deploys, waf, budgets, hours, accountFilter, t])
-
-  const counts = useMemo(() => countByLevel(signals), [signals])
-  // Si aspetta finché le proprie fonti sono in volo O finché la flotta non è arrivata.
-  const waiting = loading || statusLoading || !statusReady
-
+// La striscia delle ultime 24 ore con un segno per evento, e sotto l'elenco. La striscia dice QUANDO
+// si sono addensate le cose (tre deploy in dieci minuti si vedono come un grumo), l'elenco dice cosa.
+function Cambiamenti({ build, t }) {
+  if (!build.length) return <Lista vuoto={t('home.nienteCambiato')} />
+  const ora = Date.now()
+  const lettera = { ok: '✓', crit: '!', info: '↑', off: '·' }
   return (
-    <>
-      <PageIntro
-        title={t('now.title')}
-        desc={t('now.desc')}
-        extra={
-          <Segmented
-            size="small"
-            value={hours}
-            onChange={setHours}
-            options={WINDOWS.map((h) => ({ value: h, label: t(`now.window.${h}`) }))}
-          />
-        }
-      />
-
-      {statusError && <Alert type="error" showIcon message={statusError} style={{ marginBottom: 12 }} />}
-      {errors.length > 0 && (
-        <Alert type="warning" showIcon message={t('now.partial')} description={errors.join(' · ')} style={{ marginBottom: 12 }} />
-      )}
-
-      {/* Il verdetto: «sta succedendo qualcosa adesso?». I conteggi per livello c'erano gia', ma
-          quattro numeri affiancati non dicono da soli se guardare o chiudere la pagina: il livello
-          piu' alto e' l'unica cosa che decide, e va detto prima dei numeri. */}
-      {signals.length > 0 &&
-        (() => {
-          const livello = counts.crit ? 'crit' : counts.bad ? 'bad' : counts.warn ? 'warn' : 'info'
-          const gravi = counts.crit + counts.bad
+    <div className="ui-tl">
+      <div className="ui-track" aria-hidden="true">
+        {build.map((b) => {
+          const pos = Math.max(0, Math.min(100, 100 - ((ora - b.at) / (ORE * 3600_000)) * 100))
+          const c = `var(--${b.esito === 'off' ? 'off' : b.esito})`
           return (
-            <Verdetto
-              livello={livello}
-              titolo={gravi ? t('now.v.graviTitolo', { n: gravi }) : t('now.v.minoriTitolo', { n: signals.length })}
-              dettaglio={gravi ? t('now.v.gravi') : t('now.v.minori')}
-              numeri={[
-                counts.crit > 0 && { label: t('now.level.crit'), value: counts.crit, color: levelColor('crit') },
-                counts.bad > 0 && { label: t('now.level.bad'), value: counts.bad, color: levelColor('bad') },
-                counts.warn > 0 && { label: t('now.level.warn'), value: counts.warn, color: levelColor('warn') },
-                counts.info > 0 && { label: t('now.level.info'), value: counts.info, color: levelColor('info') },
-              ].filter(Boolean)}
-            />
+            <span key={b.id ?? `${b.accountKey}:${b.service}:${b.at}`} className="ui-m" style={{ left: `${pos}%` }}>
+              <b style={{ background: c }} />
+              <i style={{ background: c }} />
+            </span>
           )
-        })()}
-      {/* Niente segnali e' la risposta migliore che questa pagina possa dare, e va detta: una pagina
-          vuota si legge come «non lo so», non come «va tutto bene». */}
-      {!waiting && signals.length === 0 && !statusError && (
-        <Verdetto livello="ok" titolo={t('now.v.okTitolo')} dettaglio={t('now.v.ok')} />
-      )}
-
-      {waiting && signals.length === 0 && <Skeleton active paragraph={{ rows: 4 }} />}
-
-      {/* Le fonti non arrivano insieme: deploy, WAF e budget rispondono in meno di un secondo, lo
-          stato della flotta fa ~8 controlli su decine di servizi e ne prende 4-5. Mostrare l'elenco
-          senza dire che manca un pezzo lo fa leggere come completo — e il pezzo che manca sono i
-          servizi giù, cioè le righe che stanno in cima. */}
-      {!statusReady && signals.length > 0 && (
-        <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-          <SyncOutlined spin style={{ marginInlineEnd: 6 }} />
-          {t('now.checkingFleet')}
-        </Text>
-      )}
-
-      {/* Niente da segnalare è un ESITO, non un vuoto: si dice cosa è stato guardato, altrimenti una
-          pagina vuota si legge come "non funziona". */}
-      {!waiting && signals.length === 0 && (
-        <EmptyState
-          description={
-            <Space direction="vertical" size={2}>
-              <Text>{t('now.allQuiet', { h: hours })}</Text>
-              <Text type="secondary" style={{ fontSize: FONT.small }}>
-                {t('now.checked', { n: services.length })}
-              </Text>
-            </Space>
-          }
-        />
-      )}
-
-      {signals.length > 0 && (
-        <Section title={t('now.listTitle', { n: signals.length })}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.xs }}>
-            {signals.map((s) => (
-              <SignalRow key={s.id} s={s} t={t} onOpen={(x) => navigate(x.to)} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {signals.length > 0 && (
-        <Tooltip title={t('now.footerTip')}>
-          <Text type="secondary" style={{ display: 'block', marginTop: 14, fontSize: 12 }}>
-            {t('now.footer')}
-          </Text>
-        </Tooltip>
-      )}
-    </>
+        })}
+      </div>
+      <div className="ui-axis" style={{ marginBottom: 6 }}>
+        <span>{t('home.asse.ieri')}</span>
+        <span>{t('home.asse.adesso')}</span>
+      </div>
+      {build.slice(0, 12).map((b) => (
+        <div key={`e:${b.id ?? `${b.accountKey}:${b.service}:${b.at}`}`} className="ui-e">
+          <span className="ui-mono ui-faint">{new Date(b.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className={`ui-ic ui-${b.esito}`}>{b.aMano && b.esito === 'ok' ? '⟳' : lettera[b.esito]}</span>
+          <span>
+            <b>{b.service ?? '?'}</b> {t(`home.evento.${b.aMano && b.esito === 'ok' ? 'aMano' : b.esito}`, { env: b.accountLabel ?? b.accountKey })}
+          </span>
+          <span className="ui-faint" style={{ fontSize: 12.5 }}>
+            {[b.author, b.commit].filter(Boolean).join(' · ')}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }

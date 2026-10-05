@@ -1,38 +1,105 @@
 /* ══ STRATO BASE ══════════════════════════════════════════════════════════════════════════════════
-   Le decisioni che valgono per TUTTA l'app, e che prima non stavano da nessuna parte: le pagine si
-   arrangiavano ognuna coi suoi pixel a mano. Qui ci sono solo cose che i token antd non esprimono.
+   I TOKEN di colore e tipografia, in un posto solo e in due temi. Il tema lo decide l'attributo
+   `data-theme` sulla radice (lo mette App, dalla preferenza salvata); senza preferenza vale quella
+   del sistema. Il viola e' il marchio e non vuol mai dire uno stato; rosso, arancio e verde servono
+   SOLO per lo stato, cosi' un colore acceso in pagina e' sempre una notizia.
 
-   La variabile `--dg-*` esiste per un motivo pratico: il tema si cambia in JS (algoritmo antd), quindi
-   il CSS non "sa" se è chiaro o scuro. La classe `.dg-dark` sulla radice (la mette App) ribalta le
-   neutre in un posto solo, invece di due valori duplicati in ogni regola. */
+   Le variabili `--dg-*` di prima restano come alias dei token nuovi: le pagine non ancora rifatte le
+   usano, e cosi' cambiano tema insieme al resto invece di restare indietro di una tinta. */
 :root {
-  --dg-line: rgba(15, 23, 42, 0.09);
-  --dg-line-strong: rgba(15, 23, 42, 0.16);
-  --dg-row: rgba(15, 23, 42, 0.028);
-  --dg-track: rgba(15, 23, 42, 0.08);
-  --dg-brand: #7c3aed;
-  --dg-brand-soft: rgba(124, 58, 237, 0.07);
-  --dg-ink-mute: rgba(15, 23, 42, 0.6);
-  --dg-ink-faint: rgba(15, 23, 42, 0.42);
+  --bg: #f6f5f9;
+  --panel: #ffffff;
+  --ink: #1b1830;
+  --mute: #5f5a75;
+  --faint: #8f8aa3;
+  --line: #e6e3ee;
+  --line-2: #d6d2e2;
+  --hover: #f1eff7;
+  --brand: #6d3fe0;
+  --brand-soft: #efe9fd;
+  --crit: #c8102e;
+  --crit-soft: #fdecee;
+  --warn: #b26a00;
+  --warn-soft: #fff4e0;
+  --ok: #1f8a4c;
+  --ok-soft: #e7f6ec;
+  --info: #2563c9;
+  --info-soft: #e8f0fc;
+  --off: #8f8aa3;
+  --off-soft: #f0eff4;
+  --sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r: 8px;
+
+  --dg-line: var(--line);
+  --dg-line-strong: var(--line-2);
+  --dg-row: var(--hover);
+  --dg-track: var(--off-soft);
+  --dg-brand: var(--brand);
+  --dg-brand-soft: var(--brand-soft);
+  --dg-ink-mute: var(--mute);
+  --dg-ink-faint: var(--faint);
   --dg-space: 16px;
   /* Fondo delle superfici che stanno SOPRA la tela (box della mappa, pannello, pillole): deve stare
-     qui, non dentro un selettore. Definita solo su `.dg-topo-box` e `.dg-topo-panel`, chiunque altro la
-     usasse prendeva il ripiego `#fff`, e in tema scuro veniva un riquadro bianco con testo chiaro
-     dentro: invisibile. */
-  --dg-node-bg: #ffffff;
+     qui, non dentro un selettore, o chi la usa altrove prende il ripiego bianco anche in scuro. */
+  --dg-node-bg: var(--panel);
 }
-.dg-dark {
-  --dg-line: rgba(255, 255, 255, 0.12);
-  --dg-line-strong: rgba(255, 255, 255, 0.2);
-  --dg-row: rgba(255, 255, 255, 0.045);
-  --dg-track: rgba(255, 255, 255, 0.12);
-  --dg-brand-soft: rgba(124, 58, 237, 0.22);
-  --dg-ink-mute: rgba(255, 255, 255, 0.62);
-  --dg-ink-faint: rgba(255, 255, 255, 0.42);
-  --dg-node-bg: #202027;
+/* Il tema scuro scritto due volte non e' una svista: la prima vale quando la preferenza e' «segui il
+   sistema», la seconda quando l'ha scelto chi guarda. Un solo blocco non copre tutti e due i casi. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #13111c;
+    --panel: #1b1928;
+    --ink: #ecebf3;
+    --mute: #a7a2bb;
+    --faint: #7a7590;
+    --line: #2a2739;
+    --line-2: #3a3650;
+    --hover: #232033;
+    --brand: #a585ff;
+    --brand-soft: #2a2346;
+    --crit: #ff6b7f;
+    --crit-soft: #3a1720;
+    --warn: #f2b64a;
+    --warn-soft: #3a2b10;
+    --ok: #4fc983;
+    --ok-soft: #143023;
+    --info: #79a8ff;
+    --info-soft: #17264a;
+    --off: #7a7590;
+    --off-soft: #24222f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #13111c;
+  --panel: #1b1928;
+  --ink: #ecebf3;
+  --mute: #a7a2bb;
+  --faint: #7a7590;
+  --line: #2a2739;
+  --line-2: #3a3650;
+  --hover: #232033;
+  --brand: #a585ff;
+  --brand-soft: #2a2346;
+  --crit: #ff6b7f;
+  --crit-soft: #3a1720;
+  --warn: #f2b64a;
+  --warn-soft: #3a2b10;
+  --ok: #4fc983;
+  --ok-soft: #143023;
+  --info: #79a8ff;
+  --info-soft: #17264a;
+  --off: #7a7590;
+  --off-soft: #24222f;
+  color-scheme: dark;
 }
 
 body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.45 var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
