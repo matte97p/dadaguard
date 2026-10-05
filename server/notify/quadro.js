@@ -462,6 +462,22 @@ export function eta(iso, ora = Date.now()) {
   return `${Math.round(ore / 24)} g`
 }
 
+// Quando, con l'orario e non «X min fa» (Europe/Rome): «alle 08:10», «ieri alle 18:30», «il 03/10 alle
+// 18:30». Un tempo relativo cambia ogni minuto, quindi ogni minuto il canvas andava riscritto, e
+// l'app di Slack, ricevendo una modifica a canvas aperto, mostrava la versione vecchia e la nuova una
+// sotto l'altra finché non lo si riapriva (visto il 05/10/2026). Un orario resta uguale: il canvas si
+// riscrive solo quando cambia qualcosa di vero. Puro.
+export function alle(iso, ora = Date.now()) {
+  if (!iso) return '?'
+  const fmt = (d, o) => new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', ...o }).format(d)
+  const giorno = (d) => fmt(d, { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const d = new Date(iso)
+  const ore = fmt(d, { hour: '2-digit', minute: '2-digit' })
+  if (giorno(d) === giorno(new Date(ora))) return `alle ${ore}`
+  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `ieri alle ${ore}`
+  return `il ${fmt(d, { day: '2-digit', month: '2-digit' })} alle ${ore}`
+}
+
 // La durata di una build: «45 s», «6 min». Puro.
 export function durata(ms) {
   if (!(ms > 0)) return null
@@ -517,7 +533,7 @@ export function voce(v, { ora = Date.now() } = {}) {
       quando: v.quando,
       emoji: '⚙️',
       nome: v.n === 1 ? v.nomi[0] : `${v.n} Lambda`,
-      stato: `${v.n === 1 ? 'Lambda aggiornata' : 'aggiornate insieme'}${SEP}${eta(v.quando, ora)} fa`,
+      stato: `${v.n === 1 ? 'Lambda aggiornata' : 'aggiornate insieme'}${SEP}${alle(v.quando, ora)}`,
       dettagli: [daChi(v.chi), v.n > 1 && elenco(v.nomi)],
     }
   if (v.tipo === 'esterno') {
@@ -527,7 +543,7 @@ export function voce(v, { ora = Date.now() } = {}) {
     if (v.inRollout)
       return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [tag, 'componente esterno, versione fissata dall’IaC'] }
     // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
-    return { ...base, livello: 'recente', gravita: 4, stato: `${tag}${SEP}${eta(v.quando, ora)} fa`, dettagli: ['componente esterno, versione fissata dall’IaC', !daIac(v.chi) && daChi(v.chi)] }
+    return { ...base, livello: 'recente', gravita: 4, stato: `${tag}${SEP}${alle(v.quando, ora)}`, dettagli: ['componente esterno, versione fissata dall’IaC', !daIac(v.chi) && daChi(v.chi)] }
   }
   if (v.tipo === 'iac') return voceIac(v, ora)
   return null
@@ -547,21 +563,21 @@ function voceApp(r, ora) {
       quando: r.quando,
       emoji: '🚨',
       stato: `giù: ${r.task ?? '?'} task attivi`,
-      dettagli: [`gira ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} target sani`, r.quando && `ultimo cambio ${eta(r.quando, ora)} fa`],
+      dettagli: [`gira ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} target sani`, r.quando && `ultimo cambio ${alle(r.quando, ora)}`],
     }
   if (r.stato === 'fallito') {
     // Un rosso da solo fa credere il servizio giù: si dice cosa sta ancora girando.
     const gira = r.commit ? `gira ancora ${c}${rev ? ` (${rev})` : ''}` : 'nessun rilascio riuscito visto'
     const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
     if (t.riavvio)
-      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `riavvio a mano fallito ${eta(t.da, ora)} fa`, dettagli: [daChi(t.chi), motivo, gira] }
+      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `riavvio a mano fallito ${alle(t.da, ora)}`, dettagli: [daChi(t.chi), motivo, gira] }
     return {
       ...base,
       livello: 'adesso',
       gravita: 1,
       quando: t.da,
       emoji: '❌',
-      stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${eta(t.da, ora)} fa`,
+      stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${alle(t.da, ora)}`,
       dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, motivo, t.log && `[log della build](${t.log})`],
     }
   }
@@ -587,7 +603,7 @@ function voceApp(r, ora) {
     gravita: 4,
     quando: r.quando,
     emoji: '🚀',
-    stato: `${c}${SEP}${eta(r.quando, ora)} fa`,
+    stato: `${c}${SEP}${alle(r.quando, ora)}`,
     dettagli: [rev, salute, comeTesto(r.come), r.autore && `commit di ${r.autore}`, r.staging && `staging su \`${r.staging}\``],
   }
 }
@@ -604,10 +620,10 @@ function voceImmagine(g, ora) {
       gravita: 2,
       emoji: '⚠️',
       stato: `${g.indietro.length} di ${tutti.length} su un’immagine più vecchia`,
-      dettagli: [g.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '), `gli altri su \`${g.tag}\` da ${eta(g.quando, ora)}`],
+      dettagli: [g.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '), `gli altri su \`${g.tag}\`, aggiornati ${alle(g.quando, ora)}`],
     }
   if (g.inRollout) return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
-  return { ...base, livello: 'recente', gravita: 4, emoji: '🔄', stato: `\`${g.tag}\` su ${quanti}${SEP}${eta(g.quando, ora)} fa`, dettagli: [g.chi && `registrata ${daChi(g.chi)}`, elenco(tutti)] }
+  return { ...base, livello: 'recente', gravita: 4, emoji: '🔄', stato: `\`${g.tag}\` su ${quanti}${SEP}${alle(g.quando, ora)}`, dettagli: [g.chi && `registrata ${daChi(g.chi)}`, elenco(tutti)] }
 }
 
 function voceIac(i, ora) {
@@ -624,10 +640,10 @@ function voceIac(i, ora) {
       livello: 'adesso',
       gravita: 1,
       emoji: '❌',
-      stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${eta(i.quando, ora)} fa`,
+      stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${alle(i.quando, ora)}`,
       dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `[log della build](${i.log})`],
     }
-  return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply riuscito${SEP}${eta(i.quando, ora)} fa`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `di ${i.chi}`] }
+  return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply riuscito${SEP}${alle(i.quando, ora)}`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `di ${i.chi}`] }
 }
 
 // Ogni risorsa diventa una voce, e la voce finisce in uno dei tre piani: «adesso», recente, o il
@@ -675,14 +691,14 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
   return { adesso, recenti, resto, sintesi, diversi }
 }
 
-// Le sezioni di un ambiente: le tabelle «Adesso» e «Ultime N ore», il resto contato e i link. La
-// sintesi la restituisce a parte, perché il canvas di un ambiente la mette in testa e uno trasversale
-// sotto il titolo della sezione. `h` è il livello dei titoli. Puro.
+// Le sezioni di un ambiente: la tabella, il resto contato e i link. La sintesi la restituisce a parte,
+// perché il canvas di un ambiente la mette in testa e uno trasversale sotto il titolo della sezione.
+// Puro.
 //
 // Le scelte di leggibilità, per chi lo apre dal telefono in mezzo ad altro: prima i problemi, poi i
 // rilasci dal più nuovo, in fondo il resto contato. Tre colonne e non cinque: l'emoji sta accanto al
 // nome, e il nome È il link a Dadaguard, già filtrato sulla risorsa.
-function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, h = '##' } = {}) {
+function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
   const { adesso, recenti, resto, sintesi, diversi } = smista(q, { ora, url, ore })
   const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
@@ -695,24 +711,26 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, h
   const tabella = (voci) => ['| Risorsa | Stato | Dettagli |', '|---|---|---|', ...voci.map(riga)].join('\n')
   const oltre = (n, link) => `E ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: [tutti su Dadaguard](${link})` : ''}.`
 
+  // UNA tabella per ambiente: prima quello da guardare (rotto, giù, indietro, in corso), poi i rilasci
+  // dal più nuovo. Due tabelle, «Adesso» e «Ultime N ore», Slack le dimensionava ognuna sul suo
+  // contenuto, con larghezze e rientri diversi, e i due sottotitoli in più facevano sembrare il canvas
+  // disordinato (visto il 05/10/2026). L'ordine e l'emoji in testa alla riga dicono già quale è quale.
   const parti = []
   if (q.buildIgnote)
     parti.push(`⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`)
-  if (adesso.length) {
-    parti.push(`${h} Adesso`, tabella(adesso.slice(0, MAX_ADESSO)))
-    if (adesso.length > MAX_ADESSO) parti.push(oltre(adesso.length - MAX_ADESSO, tuttiServizi))
-  }
-  parti.push(`${h} Ultime ${ore} ore`, recenti.length ? tabella(recenti.slice(0, MAX_RECENTI)) : 'Nessun rilascio.')
-  if (recenti.length > MAX_RECENTI) parti.push(oltre(recenti.length - MAX_RECENTI, tuttiDeploy))
+  const righe = [...adesso.slice(0, MAX_ADESSO), ...recenti.slice(0, MAX_RECENTI)]
+  // Senza righe niente tabella: la sintesi dice già «niente in corso» e «0 rilasci».
+  if (righe.length) parti.push(tabella(righe))
+  const mancano = Math.max(0, adesso.length - MAX_ADESSO) + Math.max(0, recenti.length - MAX_RECENTI)
+  if (mancano) parti.push(oltre(mancano, tuttiDeploy))
 
   const fermi = [
     resto.app && plurale(resto.app, 'applicazione', 'applicazioni'),
     resto.lambda && `${resto.lambda} Lambda`,
     resto.immagini && plurale(resto.immagini, 'immagine condivisa', 'immagini condivise'),
     resto.esterni && plurale(resto.esterni, 'componente esterno', 'componenti esterni'),
-    resto.iac && `IaC, ultimo apply ${eta(resto.iac, ora)} fa`,
+    resto.iac && `IaC, ultimo apply ${alle(resto.iac, ora)}`,
   ].filter(Boolean)
-  if (fermi.length) parti.push(`**Senza novità nelle ultime ${ore} ore**: ${fermi.join(SEP)}`)
 
   // I filtri: link alla pagina di Dadaguard già filtrata. Quello sui servizi diversi da staging apre i
   // deploy di quei servizi nei due ambienti insieme, cioè il confronto che serve.
@@ -721,31 +739,37 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, h
     tuttiServizi && `[Servizi ${meta.tag}](${tuttiServizi})`,
     url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
-  if (link.length) parti.push(`Su Dadaguard: ${link.join(SEP)}`)
+  // Una riga sola in fondo, uguale in ogni scheda: il resto contato e i link. Due paragrafi separati
+  // allungavano ogni sezione di una riga, e nelle schede a due ambienti si leggevano come un elenco.
+  const fondo = [fermi.length && `**Senza novità** (${ore} h): ${fermi.join(SEP)}`, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean)
+  if (fondo.length) parti.push(fondo.join('  |  '))
   return { meta, sintesi, parti }
 }
 
-const orarioDi = (ora) => new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
-
-// Il canvas di un ambiente: in testa la sintesi, che se dice «niente di rotto» chiude la lettura.
-// Puro/testabile.
-export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const { meta, sintesi, parti } = sezioniAmbiente(q, { ora, url, ore, h: '##' })
-  return { titolo: meta.titolo, markdown: [`**${sintesi.join(SEP)}**${SEP}aggiornato alle ${orarioDi(ora)}`, ...parti].join('\n\n'), sintesi: sintesi.join(SEP) }
-}
-
-// Un canvas che attraversa gli ambienti (⏰ CRON, una squadra): una sezione per ambiente, ognuna con
-// la sua sintesi. Puro/testabile.
-export function canvasTrasversale(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const parti = [`aggiornato alle ${orarioDi(ora)}`]
+// Ogni scheda ha la STESSA forma, che contenga un ambiente (🟥 PROD, 🟨 STAGING) o tutti e due (⏰ CRON,
+// una squadra): per ogni ambiente il suo titolo, la sintesi, la tabella e una riga in fondo. Due forme
+// diverse per le schede a uno e a due ambienti obbligavano a reimparare il canvas a ogni scheda.
+// Niente «aggiornato alle»: cambierebbe ogni minuto e riscriverebbe il canvas per niente (vedi
+// `alle`); che il quadro sia vivo lo garantisce la guardia dei 10 minuti. Puro/testabile.
+export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  const parti = []
   const sintesi = []
   for (const q of perAmbiente) {
-    const s = sezioniAmbiente(q, { ora, url, ore, h: '###' })
+    const s = sezioniAmbiente(q, { ora, url, ore })
     parti.push(`## ${s.meta.sezione}`, `**${s.sintesi.join(SEP)}**`, ...s.parti)
-    sintesi.push(`${s.meta.tag}: ${s.sintesi.join(SEP)}`)
+    sintesi.push(perAmbiente.length > 1 ? `${s.meta.tag}: ${s.sintesi.join(SEP)}` : s.sintesi.join(SEP))
   }
   return { titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(' | ') }
 }
+
+// La scheda di un ambiente. Puro/testabile.
+export function canvasQuadro(q, opts = {}) {
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}` }
+  return canvasSezioni(meta.titolo, [q], opts)
+}
+
+// La scheda che attraversa gli ambienti (⏰ CRON, una squadra). Puro/testabile.
+export const canvasTrasversale = (titolo, perAmbiente = [], opts = {}) => canvasSezioni(titolo, perAmbiente, opts)
 
 // Tutti i canvas di un giro, ognuno col suo canale: uno per ambiente, poi ⏰ CRON e uno per squadra.
 // Le schede trasversali vanno nel canale del PRIMO ambiente: sono una sola per tutti e due, e quando
