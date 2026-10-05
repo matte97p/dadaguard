@@ -25,9 +25,9 @@ export const SIGLA = {
 // come gira, poi quello che sta intorno. Le chiavi sono quelle di `checks` del server.
 export const CONTROLLI = ['liveness', 'version', 'runtime', 'secrets', 'drift', 'security', 'alarms', 'backups']
 
-// Livello di un singolo controllo. Il server lo manda (`livello`); senza, si deduce dal suo stato
-// con la stessa regola dei servizi, cosi' un controllo non letto resta grigio e non diventa verde.
-export const livelloControllo = (c) => livelloServizio({ livello: c?.livello, overall: c?.status })
+// Livello di un singolo controllo: lo manda il server (`livello`, server/meta/stato.js). Senza,
+// il controllo non e' stato letto e resta grigio, non diventa verde.
+export const livelloControllo = (c) => livelloServizio({ livello: c?.livello })
 
 export function controlliDi(s) {
   const ch = s?.checks ?? {}

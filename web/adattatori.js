@@ -13,13 +13,10 @@ export const LIVELLI = ['crit', 'warn', 'info', 'ok', 'off']
 const RANGO = { crit: 0, warn: 1, info: 2, ok: 3, off: 4 }
 export const rangoLivello = (l) => RANGO[l] ?? 5
 
-// Stato del server (`overall`) → livello. `unknown` va su spento e non su ok: un controllo non letto
-// non e' una buona notizia, e dipingerlo di verde direbbe il falso.
-const DA_OVERALL = { down: 'crit', degraded: 'warn', up: 'ok', idle: 'off', disabled: 'off', unknown: 'off' }
-
+// Il livello lo decide il server (server/meta/stato.js), che vede i controlli uno per uno. Qui si
+// legge e basta: un servizio senza livello e' uno non ancora letto, e va su spento, non su verde.
 export function livelloServizio(s) {
-  if (LIVELLI.includes(s?.livello)) return s.livello
-  return DA_OVERALL[s?.overall] ?? 'off'
+  return LIVELLI.includes(s?.livello) ? s.livello : 'off'
 }
 
 // Livello di un segnale di "Adesso" (web/nowSignals.js usa crit/bad/warn/info): `bad` e' rosso anche
@@ -31,18 +28,11 @@ export function livelloSegnale(sig) {
   return 'info'
 }
 
-// A chi tocca: 'dev' (chi sviluppa) o 'ops' (DevOps). Se il server lo dice, vale quello. Altrimenti
-// si deduce dal TIPO di risorsa e dalla causa: un certificato, un bucket, un database o un load
-// balancer non si sistemano cambiando il codice, mentre un servizio che va in errore si'. La deriva
-// da Terraform e' sempre di chi tiene l'infrastruttura, qualunque sia la risorsa.
-const TIPI_OPS = new Set(['acm', 's3', 'rds', 'elasticache', 'kinesis', 'alb', 'ec2', 'cloudfront', 'dynamodb', 'sqs', 'sns'])
-const CAUSE_OPS = new Set(['terraform', 'drift', 'iam', 'quota'])
-
+// A chi tocca: 'dev' (chi sviluppa) o 'ops' (DevOps). Lo deduce il server dal check che causa il
+// problema (server/meta/stato.js); senza, il servizio e' di chi sviluppa, che e' il caso comune.
 export function ownerServizio(s) {
   if (s?.owner === 'dev' || s?.owner === 'ops') return s.owner
-  if (s?.owner && typeof s.owner === 'object' && (s.owner.ruolo === 'dev' || s.owner.ruolo === 'ops')) return s.owner.ruolo
-  if (CAUSE_OPS.has(s?.cause)) return 'ops'
-  return TIPI_OPS.has(s?.type) ? 'ops' : 'dev'
+  return 'dev'
 }
 
 // Il nome del team, se il server lo sa (dal tag della risorsa). Senza, si mostra solo il ruolo.
@@ -60,18 +50,11 @@ export function ownerSegnale(sig, servizio) {
   return KIND_OPS.has(sig?.kind) ? 'ops' : 'dev'
 }
 
-// Il comando da copiare per cominciare a capire. Il server lo mandera' gia' composto (`comando`);
-// qui si deduce solo quando la strada e' certa dai dati: il log group di una Lambda si chiama per
-// convenzione AWS come la funzione, quindi `aws logs tail` funziona senza indovinare niente. Per il
-// resto meglio nessun comando che uno inventato, che si copia, fallisce e insegna a non fidarsi.
+// Il comando da copiare per cominciare a capire. Lo compone il server, solo di lettura e solo dove
+// e' certo (server/meta/stato.js): qui niente deduzioni, perche' un comando inventato si copia,
+// fallisce e insegna a non fidarsi.
 export function comandoServizio(s) {
-  if (typeof s?.comando === 'string' && s.comando) return s.comando
-  if (s?.fix?.cmd) return s.fix.cmd
-  if (s?.type === 'lambda' && s?.name) {
-    const regione = s.region ? ` --region ${s.region}` : ''
-    return `aws logs tail /aws/lambda/${s.name} --since 1h${regione}`
-  }
-  return null
+  return typeof s?.comando === 'string' && s.comando ? s.comando : null
 }
 
 // Raggruppa gli account per ambiente. Il campo `environment` lo puo' dichiarare la config o dedurre
@@ -132,20 +115,35 @@ export function statOggi(build = []) {
   }
 }
 
-// Storico della disponibilita' (fasce da mezz'ora, 48 nelle 24 ore). Dal server arrivera' da
-// /api/history come `{ fasce: [{ livello }], percento }`. Senza, si sa solo com'e' ADESSO: l'ultima
-// fascia prende lo stato attuale e le altre restano grigie, cosi' la barra non inventa un passato
-// verde che nessuno ha misurato.
-export function fasceDisponibilita(storico, livelloAdesso, n = 48) {
-  if (Array.isArray(storico?.fasce) && storico.fasce.length) {
-    return { fasce: storico.fasce.slice(-n).map((f) => (typeof f === 'string' ? f : f?.livello ?? 'off')), percento: storico.percento ?? null, dedotto: false }
+// Storico della disponibilita' da /api/history (server/storico.js): secchi da mezz'ora, 48 nelle
+// 24 ore, per ambiente. Senza storico (server che non risponde, o in lettura) si sa solo com'e'
+// ADESSO: l'ultima fascia prende lo stato attuale e le altre restano grigie, cosi' la barra non
+// inventa un passato verde che nessuno ha misurato.
+export function fasceDisponibilita(blocco, livelloAdesso, n = 48) {
+  if (Array.isArray(blocco?.secchi) && blocco.secchi.length) {
+    return { fasce: blocco.secchi.slice(-n).map((f) => f?.livello ?? 'off'), percento: blocco.disponibilita ?? null, dedotto: false }
   }
   const fasce = Array.from({ length: n }, () => 'off')
   fasce[n - 1] = livelloAdesso ?? 'off'
   return { fasce, percento: null, dedotto: true }
 }
 
-// Lo storico per ambiente, se il server lo manda per chiave (`{ perAmbiente: { prod: {...} } }`).
-export function storicoAmbiente(storico, chiave) {
-  return storico?.perAmbiente?.[chiave] ?? null
+// Il blocco di storico che copre un insieme di account. Il server raggruppa per ambiente dedotto dal
+// nome del conto (produzione, staging, cloudflare) e dice quali conti ci sono dentro (`conti`); la UI
+// raggruppa per account scelti in alto. Si tengono i blocchi che toccano quegli account e, se sono
+// piu' d'uno, si fondono: ogni secchio prende il peggiore, la disponibilita' la piu' bassa.
+// `accountKeys` vuoto o null vuol dire tutta la flotta.
+export function storicoPer(storico, accountKeys) {
+  const blocchi = Object.values(storico?.ambienti ?? {}).filter(
+    (b) => !accountKeys?.length || (b?.conti ?? []).some((c) => accountKeys.includes(c)),
+  )
+  if (!blocchi.length) return null
+  if (blocchi.length === 1) return blocchi[0]
+  const lunghezza = Math.max(...blocchi.map((b) => b.secchi?.length ?? 0))
+  const secchi = Array.from({ length: lunghezza }, (_, i) => {
+    const livelli = blocchi.map((b) => b.secchi?.[i]?.livello).filter(Boolean)
+    return { livello: livelli.length ? livelli.reduce((x, y) => (rangoLivello(y) < rangoLivello(x) ? y : x)) : 'off' }
+  })
+  const disp = blocchi.map((b) => b.disponibilita).filter((x) => Number.isFinite(x))
+  return { secchi, disponibilita: disp.length ? Math.min(...disp) : null }
 }

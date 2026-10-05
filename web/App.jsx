@@ -154,6 +154,8 @@ export default function App() {
   // dello stesso endpoint a pochi millisecondi sono solo carico in piu' sul server.
   const [deploys, setDeploys] = useState(null)
   const [storico, setStorico] = useState(null)
+  // Solo per chi guarda da DevOps: spesa del giorno e login falliti, per il riquadro «Oggi».
+  const [metaOps, setMetaOps] = useState(null)
 
   // Filtri: account singolo (switch) + region/type/status multi. Lo stato vive qui e persiste
   // mentre si naviga tra le pagine; ogni pagina mostra solo il sottoinsieme di controlli sensato.
@@ -271,6 +273,19 @@ export default function App() {
       vivo = false
     }
   }, [lang, refreshKey])
+
+  // Spesa di oggi e login falliti si leggono solo con il ruolo DevOps, perche' solo li' si mostrano:
+  // Cost Explorer si paga a chiamata. Un endpoint che risponde errore (permesso o surface spenta)
+  // lascia il riquadro senza quel numero, non e' un guasto da mostrare.
+  useEffect(() => {
+    if (ruolo !== 'ops') return setMetaOps(null)
+    let vivo = true
+    const leggiJson = (u) => fetch(u).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    Promise.all([leggiJson('/api/meta/spesa-giornaliera'), leggiJson('/api/meta/login-falliti?ore=24')]).then(([spesa, login]) => vivo && setMetaOps({ spesa, login }))
+    return () => {
+      vivo = false
+    }
+  }, [ruolo, refreshKey])
 
   // Riceve il SERVIZIO, non il suo nome: la voce di services.yaml da cancellare si sceglie con
   // l'identità della risorsa, perché due voci omonime sono due monitoraggi diversi e cancellare
@@ -684,6 +699,7 @@ export default function App() {
                     accountFilter={accountFilter}
                     deploys={deploys}
                     storico={storico}
+                    metaOps={metaOps}
                     ruolo={ruolo}
                     ambienti={listaAmbienti}
                     ambiente={ambienteAttivo}

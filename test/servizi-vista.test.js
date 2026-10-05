@@ -12,8 +12,8 @@ test('cosaSuccede: vince il dettaglio del server, poi il controllo colpevole', (
   assert.equal(cosaSuccede({}), null)
 })
 
-test('controlliDi: ordine fisso, un controllo non letto resta grigio', () => {
-  const c = controlliDi({ checks: { runtime: { status: 'down' }, liveness: { status: 'up' }, drift: { status: 'unknown' } } })
+test('controlliDi: ordine fisso, il livello lo dice il server, senza livello resta grigio', () => {
+  const c = controlliDi({ checks: { runtime: { status: 'down', livello: 'crit' }, liveness: { status: 'up', livello: 'ok' }, drift: { status: 'unknown' } } })
   assert.deepEqual(
     c.map((x) => [x.chiave, x.livello]),
     [
@@ -25,7 +25,7 @@ test('controlliDi: ordine fisso, un controllo non letto resta grigio', () => {
 })
 
 test('chip: problemi = rossi e arancio, spenti = grigi', () => {
-  const s = [{ overall: 'down' }, { overall: 'degraded' }, { overall: 'up' }, { overall: 'disabled' }]
+  const s = [{ livello: 'crit' }, { livello: 'warn' }, { livello: 'ok' }, { livello: 'off' }]
   assert.deepEqual(contaChip(s), { problemi: 2, tutti: 4, spenti: 1 })
   assert.equal(passaChip({ livello: 'warn' }, 'problemi'), true)
 })

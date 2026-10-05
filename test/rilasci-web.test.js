@@ -41,12 +41,10 @@ test('linkBuild: vince `altrove` del server, poi i link gia presenti, senza dopp
   assert.deepEqual(l.map((x) => x.href), ['https://example.com/c', 'https://example.com/l'])
 })
 
-test('durataTipica: dal server se c e, altrimenti mediana delle riuscite, mai da una corsa sola', () => {
+test('durataTipica: la manda il server, e senza non se ne inventa una', () => {
   assert.equal(durataTipica({ durataTipicaMs: 5000, runs: [] }), 5000)
-  assert.equal(durataTipica({ runs: [{ outcome: 'ok', startedAt: 1, endedAt: 1001 }] }), null)
-  const runs = [1000, 3000, 9000].map((d, i) => ({ outcome: 'ok', startedAt: i + 1, durationMs: d }))
-  runs.push({ outcome: 'failed', startedAt: 9, durationMs: 1e9 })
-  assert.equal(durataTipica({ runs }), 3000)
+  assert.equal(durataTipica({ durataTipicaMs: null, runs: [{ outcome: 'ok', startedAt: 1, endedAt: 1001 }] }), null)
+  assert.equal(durataTipica({}), null)
 })
 
 test('motivoCorsa: memoria, timeout, exit code, poi «errori nei log» per un fallimento con uscita 0', () => {

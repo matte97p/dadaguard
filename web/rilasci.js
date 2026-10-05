@@ -87,19 +87,11 @@ export function durataCorsa(run, now = Date.now()) {
   return Math.max(0, fine - run.startedAt)
 }
 
-// Quanto dura di solito. Il server la mandera' gia' calcolata (`durataTipicaMs`) su una finestra piu'
-// lunga di quella mostrata; senza, la mediana delle corse RIUSCITE che abbiamo, e solo se sono almeno
-// due: una corsa sola non e' un'abitudine, e un «di solito» inventato fa sembrare lento un cron sano.
+// Quanto dura di solito: la mediana delle corse riuscite, calcolata dal server (server/meta/cron.js)
+// e mandata come `durataTipicaMs`, null con meno di due corse. Una corsa sola non e' un'abitudine, e
+// un «di solito» inventato fa sembrare lento un cron sano.
 export function durataTipica(cron) {
-  if (Number.isFinite(cron?.durataTipicaMs)) return cron.durataTipicaMs
-  const d = (cron?.runs ?? [])
-    .filter((r) => !r.running && r.outcome === 'ok')
-    .map((r) => durataCorsa(r))
-    .filter((x) => Number.isFinite(x) && x > 0)
-    .sort((a, b) => a - b)
-  if (d.length < 2) return null
-  const m = Math.floor(d.length / 2)
-  return d.length % 2 ? d[m] : Math.round((d[m - 1] + d[m]) / 2)
+  return Number.isFinite(cron?.durataTipicaMs) ? cron.durataTipicaMs : null
 }
 
 // Perche' una corsa e' fallita, in una frase. In ordine di quanto il motivo e' certo: l'uccisione per

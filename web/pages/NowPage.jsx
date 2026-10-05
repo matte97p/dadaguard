@@ -16,7 +16,7 @@ import {
   buildRecenti,
   statOggi,
   fasceDisponibilita,
-  storicoAmbiente,
+  storicoPer,
   peggiore,
 } from '../adattatori.js'
 
@@ -57,6 +57,7 @@ export default function NowPage({
   accountFilter = [],
   deploys = null,
   storico = null,
+  metaOps = null,
   ruolo = 'dev',
   ambienti = [],
   ambiente = null,
@@ -119,8 +120,15 @@ export default function NowPage({
 
   const build = useMemo(() => buildRecenti(deploys ?? {}, { ore: ORE, accountKeys: accountFilter }), [deploys, accountFilter])
   const oggi = statOggi(build)
-  const disp = fasceDisponibilita(storicoAmbiente(storico, ambiente) ?? storico, peggiore(nelFiltro.map(livelloServizio)))
+  const disp = fasceDisponibilita(storicoPer(storico, accountFilter), peggiore(nelFiltro.map(livelloServizio)))
   const inAttesa = !statusReady || statusLoading
+  // DevOps: la spesa di oggi (somma degli account visibili, il giorno e' ancora parziale) e i login
+  // falliti delle ultime 24 ore. null = non letto, e allora il riquadro non lo mostra.
+  const spesaOggi = (() => {
+    const voci = Object.entries(metaOps?.spesa ?? {}).filter(([k, v]) => Number.isFinite(v?.oggi) && (!accountFilter.length || accountFilter.includes(k)))
+    return voci.length ? Math.round(voci.reduce((x, [, v]) => x + v.oggi, 0)) : null
+  })()
+  const loginFalliti = Number.isFinite(metaOps?.login?.loginFalliti) ? metaOps.login.loginFalliti : null
 
   const verdetto = (() => {
     if (!statusReady) return { forte: null, resto: t('home.v.attesa') }
@@ -181,6 +189,8 @@ export default function NowPage({
             <Stat valore={oggi.aMano} label={t('home.stat.aMano')} livello={oggi.aMano ? 'warn' : undefined} />
             <Stat valore={conta.crit} label={t('home.stat.rotti')} livello={conta.crit ? 'crit' : undefined} />
             <Stat valore={conta.warn} label={t('home.stat.daGuardare')} livello={conta.warn ? 'warn' : undefined} />
+            {ruolo === 'ops' && spesaOggi != null && <Stat valore={`${spesaOggi} $`} label={t('home.stat.spesaOggi')} />}
+            {ruolo === 'ops' && loginFalliti != null && <Stat valore={loginFalliti} label={t('home.stat.loginFalliti')} livello={loginFalliti ? 'warn' : undefined} />}
           </div>
         </Card>
       </div>
@@ -191,7 +201,7 @@ export default function NowPage({
         <div className="ui-envgrid">
           {ambienti.map((a) => {
             const c = contaLivelli(services.filter((s) => a.accounts.includes(s.account?.key)))
-            const d = fasceDisponibilita(storicoAmbiente(storico, a.key), a.livello, 24)
+            const d = fasceDisponibilita(storicoPer(storico, a.accounts), a.livello, 24)
             return (
               <Card key={a.key} className="ui-envcard" onClick={() => onAmbiente?.(a.key)}>
                 <span className="ui-h">
