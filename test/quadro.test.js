@@ -32,6 +32,7 @@ import {
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
 import { corrispondeNome } from '../web/filters.js'
+import { statoLeggero } from '../server/quadroStato.js'
 
 const ORA = Date.parse('2026-10-03T12:00:00Z')
 const URL = 'https://dg.example.com'
@@ -620,4 +621,53 @@ test('i canvas di un giro: uno per ambiente, poi ⏰ CRON e uno per squadra, nel
     'data:CP:📊 Quadro deploy DATA',
   ])
   assert.match(c[3].markdown, /## 🟥 Produzione[\s\S]*## 🟨 Staging/, 'una sezione per ambiente')
+})
+
+test('lettore leggero: solo le risorse che si rilasciano, e il runtime solo dei servizi ECS', async () => {
+  const chiamati = []
+  const resolve = async () => ({
+    accounts: { production: { profile: 'p', region: 'eu-central-1' } },
+    people: null,
+    soglie: null,
+    services: [
+      { name: 'api', account: 'production', aws: { type: 'ecs' } },
+      { name: 'acme-production-cron-x', account: 'production', aws: { type: 'lambda' } },
+      { name: 'shadow', account: 'production', aws: { type: 'ecs-scheduled' } },
+      { name: 'db', account: 'production', aws: { type: 'rds' } },
+    ],
+  })
+  const controlli = {
+    version: async (s) => (chiamati.push(`version:${s.name}`), { key: 'version', build: { tag: 'aaaaaaa' } }),
+    runtime: async (s) => (chiamati.push(`runtime:${s.name}`), { key: 'runtime', status: 'down', desiredCount: 2, runningCount: 0 }),
+  }
+  const voci = await statoLeggero({ resolve, controlli })
+  assert.deepEqual(voci.map((v) => `${v.type}:${v.name}`), ['ecs:api', 'lambda:acme-production-cron-x', 'ecs-scheduled:shadow'], 'un database non si rilascia')
+  assert.deepEqual(chiamati.filter((c) => c.startsWith('runtime')), ['runtime:api'], 'il runtime di Lambda e cron legge metriche a pagamento')
+  assert.equal(voci[0].overall, 'down')
+  assert.deepEqual(voci[0].account, { key: 'production' })
+  assert.equal(voci[0].checks.version.build.tag, 'aaaaaaa')
+  const q = quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi: voci })
+  assert.equal(q.app[0].stato, 'giu', 'la forma è quella che il quadro si aspetta')
+})
+
+test('un canvas uguale all’ultimo scritto non si riscrive', async () => {
+  const chiamate = []
+  const api = async (metodo, corpo) => {
+    chiamate.push(metodo)
+    if (metodo === 'conversations.info') return { channel: { properties: { tabs: [
+      { type: 'canvas', label: ':large_red_square: Quadro deploy PRODUZIONE', data: { file_id: 'FP', shared_ts: '1' } },
+      { type: 'canvas', label: ':alarm_clock: Quadro deploy CRON', data: { file_id: 'FC', shared_ts: '1' } },
+    ] } } }
+    return {}
+  }
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP' })
+  const leggiDati = async () => ({ deploys: LETTE_PROD, servizi: [] })
+  const ultimi = new Map()
+  const primo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA, ultimi })
+  assert.deepEqual(primo.map((e) => e.azione), ['riscritto', 'riscritto'])
+  const secondo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA + 20_000, ultimi })
+  assert.deepEqual(secondo.map((e) => e.azione), ['invariato', 'invariato'], 'stesso minuto, stesso contenuto')
+  assert.equal(chiamate.filter((m) => m === 'canvases.edit').length, 2)
+  const terzo = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA + 90_000, ultimi })
+  assert.deepEqual(terzo.map((e) => e.azione), ['riscritto', 'riscritto'], 'il minuto dell’orario è cambiato')
 })
