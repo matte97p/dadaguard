@@ -7,6 +7,12 @@ import { monthEndProjection } from './costs.js'
 import { computeOverall } from './status.js'
 import { makeT } from './i18n.js'
 import { componiStorico } from './storico.js'
+import { arricchisciServizio } from './meta/stato.js'
+import { metaDaTags, CHIAVI } from './meta/tags.js'
+import { budgetErrore, conteggiDaRuntime } from './meta/budget.js'
+import { linkServizio, linkDeploy } from './meta/link.js'
+import { aggregaGiorni } from './meta/spesa.js'
+import { durataTipica } from './meta/cron.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -43,6 +49,44 @@ const pick = (L, it, en) => (L === 'en' ? en : it)
 // Stessa forma della card reale: overall + cause/causes (badge parlante) dallo stesso computeOverall.
 function svc(name, acc, type, region, checks, dependsOn = []) {
   return { name, links: {}, account: ACC[acc], region, type, dependsOn, ...computeOverall(checks), checks }
+}
+
+// I metadati della UI nuova sui servizi demo: tag `dadaguard:*` finti (team, canale, runbook, SLO),
+// conteggi per il budget di errore e un progetto PostHog d'esempio, cosi' la demo mostra ogni campo.
+// In reale arrivano dai tag della risorsa e dai conteggi del check runtime, qui sono scritti a mano
+// perche' la demo non ha una risorsa da cui leggerli.
+const DEMO_TAGS = {
+  'checkout-api': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/checkout', slo: '99.9', conteggi: { totali: 184_000, errori: 35 } },
+  'payments-worker': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/payments', slo: '99.9', conteggi: { totali: 6_200, errori: 260 } },
+  'image-resizer': { team: 'media', slack: '#team-media', runbook: 'https://wiki.example.com/runbook/image-resizer', slo: '99.5', conteggi: { totali: 1_900, errori: 41 } },
+  notifier: { team: 'growth', slack: '#team-growth', runbook: 'https://wiki.example.com/runbook/notifier', slo: '99', conteggi: { totali: 3_400, errori: 12 } },
+  web: { team: 'web', slack: '#team-web', slo: '99.9', conteggi: { totali: 92_000, errori: 6 } },
+  'cdn-cert': { team: 'devops', slack: '#team-devops' },
+  'user-db': { team: 'devops', slack: '#team-devops', runbook: 'https://wiki.example.com/runbook/database' },
+}
+const DEMO_POSTHOG = { host: 'https://eu.posthog.example.com', projectId: '12345' }
+function demoAws(r) {
+  if (r.type === 'lambda') return { type: 'lambda', function: r.name }
+  if (r.type === 'ecs') return { type: 'ecs', cluster: 'demo-cluster', service: r.name }
+  if (r.type === 'rds') return { type: 'rds', cluster: r.name }
+  if (r.type === 'acm') return { type: 'acm', arn: `arn:aws:acm:us-east-1:000000000000:certificate/demo-${r.name}` }
+  return { type: r.type }
+}
+function demoMeta(r) {
+  const d = DEMO_TAGS[r.name] ?? {}
+  const meta = metaDaTags(d.team || d.slo ? { [CHIAVI.team]: d.team, [CHIAVI.slack]: d.slack, [CHIAVI.runbook]: d.runbook, [CHIAVI.slo]: d.slo } : null)
+  const conteggi = d.conteggi ? { ...d.conteggi, finestra: '1h' } : conteggiDaRuntime(r.checks?.runtime)
+  const aws = demoAws(r)
+  const cf = r.account?.key === 'cloudflare'
+  return arricchisciServizio(
+    {
+      ...meta,
+      budgetErrore: meta.slo && conteggi ? budgetErrore({ slo: meta.slo, ...conteggi }) : null,
+      altrove: cf ? [] : linkServizio({ name: r.name, aws, region: r.region, posthog: DEMO_POSTHOG }),
+      ...r,
+    },
+    { aws, profile: cf ? null : `demo-${r.account?.key ?? 'prod'}`, region: r.region, ssmPath: `/demo/${r.name}`, repoDir: '/path/to/terraform-repo' },
+  )
 }
 
 // Una flotta curata che mostra TUTTI gli stati e parecchi tipi: up / degraded / down / idle,
@@ -200,7 +244,7 @@ export function demoStatus(lang = 'it') {
       { key: 'cloudflare', label: 'Cloudflare', color: '#f38020', region: null, queryable: true },
       { key: 'management', label: 'Management (payer)', color: '#722ed1', region: 'eu-central-1', queryable: true },
     ],
-    services,
+    services: services.map(demoMeta),
     // ⚠️ Un allarme che sta suonando e che NESSUN servizio possiede: e' il caso che la flotta non puo'
     // mostrare, perche' li' gli allarmi si correlano per dimensione e questo non ne ha (nasce da un
     // metric filter su un log group, cioe' conta righe e non risorse). Sta nella demo per la stessa
@@ -242,8 +286,10 @@ export function demoDeploys() {
   const b = (service, env, number, status, agoMin, commit, trigger = 'auto', durMin = 3, author = 'dev@example.com') => {
     const phases = phasesFor(status)
     const fail = FAILED.has(status) ? phases.find((p) => p.status === 'FAILED') : null
-    return {
+    const d = {
       id: `demo-${env}-${service}-deploy:demo-${number}`,
+      arn: `arn:aws:codebuild:eu-west-1:000000000000:build/demo-${env}-${service}-deploy:demo-${number}`,
+      repo: `https://github.com/example-org/${service}`,
       service,
       project: `demo-${env}-${service}-deploy`,
       number,
@@ -261,6 +307,7 @@ export function demoDeploys() {
       failReason: fail ? fail.message : null,
       logsUrl: 'https://console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fdemo',
     }
+    return { ...d, altrove: linkDeploy(d) }
   }
   // Riavvio forzato a mano (`update-service --force-new-deployment`): non è una build — nessuna
   // fase, nessuna durata, nessun commit — e infatti è quello che la pagina prima non vedeva.
@@ -1290,6 +1337,7 @@ export function demoRuns() {
       // Uccisa per memoria: il log non lo dice, l'API ECS sì. Ecco perché servono due sorgenti.
       run({ id: 'f0a3c85d7e19426bb2d8f60a1c53e947', startedAt: now - 2940 * min, endedAt: now - 2902 * min, running: false, exitCode: 137, stopCode: 'EssentialContainerExited', stopReason: 'OutOfMemoryError: Container killed due to memory usage', outcome: 'failed', source: 'both', stream: 'cron/crawler/f0a3c85d7e19426bb2d8f60a1c53e947' }),
       run({ id: 'a5e2708c4b6d41f9ae30c8b52d71f064', startedAt: now - 4380 * min, endedAt: now - 4322 * min, running: false, exitCode: 0, outcome: 'ok', stream: 'cron/crawler/a5e2708c4b6d41f9ae30c8b52d71f064' }),
+      run({ id: 'c3d9f1a07e5b4c2d8a6f0b1e9d7c5a34', startedAt: now - 5820 * min, endedAt: now - 5765 * min, running: false, exitCode: 0, outcome: 'ok', stream: 'cron/crawler/c3d9f1a07e5b4c2d8a6f0b1e9d7c5a34' }),
     ],
   }
 
@@ -1343,7 +1391,7 @@ export function demoRuns() {
   return {
     window: 4320,
     truncated: false,
-    crons: [crawler, digest, legacy].map(withSummary),
+    crons: [crawler, digest, legacy].map(withSummary).map((c) => ({ ...c, durataTipicaMs: durataTipica(c.runs) })),
     problems: [],
     prefect: {
       runs: [
@@ -1475,4 +1523,24 @@ export function demoMappaAccessi() {
       sso: { ok: true, permissionSets: 3 },
     },
   }
+}
+
+// Spesa giornaliera demo: 30 giorni fino a oggi, stessa forma di `meta/spesa.js`. Valori calcolati da
+// una funzione del giorno e non casuali, cosi' la stessa demo mostra lo stesso grafico a ogni apertura.
+export function demoSpesaGiornaliera(now = new Date()) {
+  const perAccount = { prod: 140, staging: 38, management: 22 }
+  const out = {}
+  for (const [k, base] of Object.entries(perAccount)) {
+    const righe = Array.from({ length: 30 }, (_, i) => {
+      const g = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29 + i))
+      const giorno = g.toISOString().slice(0, 10)
+      // Oggi e' parziale: e' il caso vero, e senza la colonna di oggi sembrerebbe un giorno qualunque.
+      const quota = i === 29 ? now.getUTCHours() / 24 || 0.4 : 1
+      const onda = 1 + 0.18 * Math.sin(i / 2.3) + (g.getUTCDay() % 6 === 0 ? -0.25 : 0)
+      return { TimePeriod: { Start: giorno }, Total: { UnblendedCost: { Amount: String(base * onda * quota) } } }
+    })
+    const label = { prod: 'Production', staging: 'Staging', management: 'Management (payer)' }[k]
+    out[k] = { label, currency: 'USD', ...aggregaGiorni(righe, righe[29].TimePeriod.Start) }
+  }
+  return out
 }

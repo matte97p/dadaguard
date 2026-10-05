@@ -91,6 +91,9 @@ export function validateConfig(doc) {
     //         DOVREBBERO avere. Senza, «indietro» si calcola sulla piu' recente che qualcuno ha visto,
     //         che non sa vedere il caso in cui sono indietro tutti (nessuno ha ancora aggiornato).
     teleport: doc?.teleport ?? null,
+    // Link «Apri altrove» verso PostHog (errori e log filtrati sul servizio): `posthog: { host,
+    // projectId }`. Senza, quei link non compaiono: un progetto indovinato apre la pagina sbagliata.
+    posthog: doc?.posthog?.host && doc?.posthog?.projectId != null ? { host: doc.posthog.host, projectId: String(doc.posthog.projectId) } : null,
   }
 }
 
