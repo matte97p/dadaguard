@@ -15,10 +15,6 @@
 #   lists:write      slackLists.create, slackLists.items.create/update/delete, slackLists.access.set
 #   lists:read       slackLists.items.list, per rileggere le righe della List dopo un riavvio
 #   bookmarks:write  bookmarks.add, il segnalibro della List in cima al canale
-#   channels:history conversations.history sul canale della CI (DADAGUARD_QUADRO_CANALE_CI), da cui
-#                    vengono 🧪 test avviati e ❌ test falliti. Senza, il quadro funziona lo stesso,
-#                    senza stati di test, e lo dice una volta nel log. Se quel canale è privato serve
-#                    `groups:history` al suo posto
 # Niente interattività, quindi nessun indirizzo pubblico da esporre: i link a Dadaguard sono link, non
 # pulsanti.
 #
@@ -27,7 +23,8 @@
 # ⚠️ Nei canali privati l'app va invitata (`/invite @Dadaguard`): senza, `conversations.info` risponde
 # `channel_not_found`, che sembra un id sbagliato e invece è un invito mancante.
 # ⚠️ `bookmarks:read` NON serve e non c'è: la List si ritrova fra i file del bot (`files.list`), non
-# fra i segnalibri del canale.
+# fra i segnalibri del canale. E non serve nessun `*:history`: lo stato dei test non viene dal canale
+# ma da GitHub Actions, con una GitHub App (server/notify/github.js).
 display_information:
   name: Dadaguard
   description: Il quadro dei deploy, nel canvas e nella List del canale.
@@ -47,7 +44,6 @@ oauth_config:
       - lists:write
       - lists:read
       - bookmarks:write
-      - channels:history
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false
