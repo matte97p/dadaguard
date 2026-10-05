@@ -70,3 +70,43 @@ export function corrispondeNome(query, ...nomi) {
   if (!pezzi.length) return true
   return nomi.some((n) => pezzi.some((p) => String(n ?? '').toLowerCase().includes(p)))
 }
+
+// I filtri della pagina Servizi nell'URL, nei due versi. Un link deve poter dire «i Bedrock di
+// produzione» (`/servizi?account=production&type=bedrock`) e chi lo apre deve trovare le tendine
+// gia' scelte; e chi sceglie a mano deve poter copiare l'indirizzo e mandarlo, invece di spiegare in
+// chat quali tendine aprire. I nomi dei parametri sono corti e in inglese come `q` e `account`, che
+// arrivano gia' cosi' dalle notifiche di Slack.
+const LISTE_URL = { typeFilter: 'type', statusFilter: 'status', regionFilter: 'region' }
+const SCHEDULE_URL = ['cron', 'ondemand']
+const TF_URL = ['managed', 'unmanaged']
+
+// Solo i campi che l'URL dice davvero: un campo assente resta al valore che ha gia' App, cosi' un
+// link con il solo `?type=` non azzera la ricerca o l'ambiente scelti da un'altra parte. Un valore
+// che non si conosce (`?tf=forse`) si ignora: meglio nessun filtro che uno che non si vede.
+export function filtriDaUrl(search) {
+  const p = new URLSearchParams(search || '')
+  const out = {}
+  for (const [campo, chiave] of Object.entries(LISTE_URL)) {
+    const l = listaDaUrl(search, chiave)
+    if (l.length) out[campo] = l
+  }
+  if (SCHEDULE_URL.includes(p.get('schedule'))) out.scheduleFilter = p.get('schedule')
+  if (TF_URL.includes(p.get('tf'))) out.managedFilter = p.get('tf')
+  if (p.get('problems') === '1') out.problemsOnly = true
+  return out
+}
+
+// La query string con i filtri di adesso. Tiene i parametri che non sono filtri (quello che aggiunge
+// un link esterno) e toglie quelli tornati al default, cosi' l'indirizzo dice solo cosa e' stato
+// scelto. Le virgole restano virgole: `type=lambda,bedrock` si legge, `%2C` no.
+export function filtriInUrl(search, f = {}) {
+  const p = new URLSearchParams(search || '')
+  const metti = (k, v) => (v ? p.set(k, v) : p.delete(k))
+  metti('q', String(f.nameQuery ?? '').trim())
+  metti('account', asList(f.accountFilter).join(','))
+  for (const [campo, chiave] of Object.entries(LISTE_URL)) metti(chiave, asList(f[campo]).join(','))
+  metti('schedule', SCHEDULE_URL.includes(f.scheduleFilter) ? f.scheduleFilter : '')
+  metti('tf', TF_URL.includes(f.managedFilter) ? f.managedFilter : '')
+  metti('problems', f.problemsOnly ? '1' : '')
+  return p.toString().replace(/%2C/gi, ',')
+}

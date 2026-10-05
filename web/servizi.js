@@ -3,6 +3,9 @@
 // provate senza un browser. Tutto tollerante: i campi nuovi del server (dettaglio, comando, altrove,
 // slo, budgetErrore, team, slack, runbook) possono mancare, e allora si ricade su quello che c'e'.
 import { livelloServizio } from './adattatori.js'
+import { asList, matchesAny, corrispondeNome } from './filters.js'
+import { countByStatus } from './format.js'
+import { displayName } from './serviceName.js'
 
 // Sigla del tipo nella casellina accanto al nome: dice DA DOVE arriva la riga prima di leggerla.
 export const SIGLA = {
@@ -55,22 +58,92 @@ export function altriProblemi(s) {
   return n > 0 ? n : 0
 }
 
-// I tre filtri a chip. Contati sulla lista gia' ristretta dalla ricerca, cosi' i numeri dicono
-// cosa compare premendoli.
-export const CHIP = ['problemi', 'tutti', 'spenti']
-export function passaChip(s, chip) {
+// «Con problemi» = rosso o arancio, la stessa regola del verdetto in cima e dei badge del menu. Prima
+// il filtro guardava `overall` (giu' e degradato) e il chip il livello: un servizio su con un drift
+// arancio era «con problemi» per uno e non per l'altro.
+export const conProblemi = (s) => {
   const l = livelloServizio(s)
-  if (chip === 'problemi') return l === 'crit' || l === 'warn'
-  if (chip === 'spenti') return l === 'off'
-  return true
+  return l === 'crit' || l === 'warn'
 }
-export function contaChip(servizi = []) {
-  const out = { problemi: 0, tutti: servizi.length, spenti: 0 }
-  for (const s of servizi) {
-    if (passaChip(s, 'problemi')) out.problemi++
-    if (passaChip(s, 'spenti')) out.spenti++
-  }
-  return out
+
+// Il filtro della flotta, tutto insieme: ambiente, tendine, ricerca, problemi. `conStato: false`
+// lascia fuori stato e «con problemi», ed e' la lista su cui si contano i chip: i numeri dicono
+// cosa compare premendoli, e premuto «Giu'» gli altri chip continuano a dire quanti ce ne sono,
+// invece di scendere a zero e togliere la strada per tornare indietro.
+//
+// La ricerca guarda anche il TIPO: «bedrock» nel campo deve trovare i modelli, che si chiamano
+// «Claude Sonnet 4.5» e non contengono la parola. E' la domanda che ha fatto nascere questo codice.
+export function passaFiltri(s, f = {}, { conStato = true } = {}) {
+  const cron = Boolean(s?.checks?.runtime?.schedule)
+  const schedule = f.scheduleFilter ?? 'all'
+  const managed = f.managedFilter ?? 'all'
+  return (
+    matchesAny(s?.account?.key ?? '__none__', f.accountFilter) &&
+    matchesAny(s?.region, f.regionFilter) &&
+    matchesAny(s?.type, f.typeFilter) &&
+    (!conStato || matchesAny(s?.overall, f.statusFilter)) &&
+    (schedule === 'all' || (schedule === 'cron') === cron) &&
+    (managed === 'all' || (managed === 'managed' ? s?.managed === true : s?.managed === false)) &&
+    corrispondeNome(f.nameQuery, s?.name, displayName(s), s?.type) &&
+    (!conStato || !f.problemsOnly || conProblemi(s))
+  )
+}
+
+// Opzioni delle tendine, dai servizi che ci sono: un tipo che la flotta non ha non si offre, perche'
+// sceglierlo darebbe una pagina vuota senza dire perche'. L'etichetta tradotta se c'e', la chiave se no.
+const etichetta = (t, k, grezzo) => {
+  const v = t(k)
+  return v === k ? grezzo : v
+}
+export function opzioniTipo(servizi = [], t = (k) => k) {
+  return [...new Set(servizi.map((s) => s?.type).filter(Boolean))]
+    .map((ty) => ({ value: ty, label: etichetta(t, `type.${ty}`, ty) }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+export function opzioniStato(servizi = [], t = (k) => k) {
+  return countByStatus(servizi).map(({ status }) => ({ value: status, label: etichetta(t, `svc.stato.${status}`, status) }))
+}
+
+// La fila di chip sopra la lista: «Con problemi», «Tutti», e uno per stato col suo conteggio, dal
+// peggio. Sono SCORCIATOIE degli stessi filtri delle tendine (`statusFilter`, `problemsOnly`), non
+// uno stato a parte: due controlli per la stessa cosa finiscono a contraddirsi, e la lista vuota non
+// dice quale dei due la sta svuotando.
+export function vociChip(base = [], t = (k) => k) {
+  return [
+    { key: 'problemi', label: t('svc.chip.problemi'), n: base.filter(conProblemi).length },
+    { key: 'tutti', label: t('svc.chip.tutti'), n: base.length },
+    ...countByStatus(base).map(({ status, count }) => ({ key: status, label: etichetta(t, `svc.stato.${status}`, status), n: count })),
+  ]
+}
+
+// Quale chip e' premuto. Stringa vuota = nessuno: succede quando dalla tendina si sceglie piu' di
+// uno stato, o uno stato insieme a «con problemi», che nessun chip da solo rappresenta. Mostrare
+// premuto «Tutti» li' sarebbe una bugia.
+export function chipAttivo(f = {}) {
+  const stati = asList(f.statusFilter)
+  if (f.problemsOnly) return stati.length ? '' : 'problemi'
+  if (stati.length === 0) return 'tutti'
+  return stati.length === 1 ? stati[0] : ''
+}
+
+// Cosa cambia premendo un chip. Ripremere quello attivo torna a «Tutti», come prima del redesign:
+// e' il gesto che ci si aspetta da un filtro che si accende con un clic.
+export function premiChip(key, f = {}) {
+  const tutti = { statusFilter: [], problemsOnly: false }
+  if (key === 'tutti' || key === chipAttivo(f)) return tutti
+  if (key === 'problemi') return { statusFilter: [], problemsOnly: true }
+  return { statusFilter: [key], problemsOnly: false }
+}
+
+// Quante tendine sono scelte: e' il numero sul bottone «Filtri» del telefono, dove le tendine stanno
+// chiuse. Senza, un filtro scelto ieri resta acceso sotto un bottone chiuso e la lista sembra corta
+// per nessun motivo. L'account conta: sul telefono la tendina e' l'unico posto che lo mostra intero.
+export function quanteTendine(f = {}) {
+  return (
+    [f.typeFilter, f.statusFilter, f.accountFilter, f.regionFilter].filter((l) => asList(l).length > 0).length +
+    ((f.scheduleFilter ?? 'all') !== 'all' ? 1 : 0) +
+    ((f.managedFilter ?? 'all') !== 'all' ? 1 : 0)
+  )
 }
 
 // «Apri altrove»: i link che il server ha gia' composto e filtrato (`altrove`), poi quelli vecchi

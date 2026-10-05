@@ -6,13 +6,14 @@ import FilterBar, { FILTER_FIELDS_ACCOUNT } from './components/FilterBar.jsx'
 import SideNav from './components/SideNav.jsx'
 import TopBar from './components/TopBar.jsx'
 import { antdTheme } from './theme.js'
-import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, corrispondeNome } from './filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, filtriDaUrl, filtriInUrl } from './filters.js'
+import { passaFiltri, opzioniTipo, opzioniStato } from './servizi.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import ServiceDetailDrawer from './components/ServiceDetailDrawer.jsx'
-import { displayName, serviceKey } from './serviceName.js'
+import { serviceKey } from './serviceName.js'
 import { ambienti as raggruppaAmbienti, livelloServizio, ownerServizio, peggiore } from './adattatori.js'
 import { lastSuccessBySvc } from './nowSignals.js'
 import DashboardPage from './pages/DashboardPage.jsx'
@@ -46,7 +47,8 @@ const QUICK_PRESETS = [
 //                una (le pagine fuse) = basta che UNA sia concessa, con le schede negate nascoste.
 const NAV = [
   { to: '/', key: 'now', fields: [], surfaces: [] },
-  // Servizi ha la sua ricerca coi chip (FiltroServizi): la barra piena di tendine non compare piu'.
+  // Servizi disegna le sue tendine dentro la pagina (sotto la ricerca e i chip di stato), non nella
+  // barra generica: per questo qui non ne dichiara.
   { to: '/servizi', key: 'services', fields: [], surfaces: ['dashboard'] },
   { to: '/deploy', key: 'deploys', fields: [], surfaces: ['deploys'] },
   // Cron: la pagina delle esecuzioni. Il nome nuovo e' quello con cui la gente le chiama; il percorso
@@ -186,18 +188,24 @@ export default function App() {
       ? []
       : listaDaUrl(window.location.search, 'account'),
   )
-  const [regionFilter, setRegionFilter] = useState([])
-  const [typeFilter, setTypeFilter] = useState([])
-  const [statusFilter, setStatusFilter] = useState([]) // multi: up/degraded/down/idle/disabled…
-  const [scheduleFilter, setScheduleFilter] = useState('all') // all | cron | ondemand
-  const [managedFilter, setManagedFilter] = useState('all') // all | managed | unmanaged (Terraform)
+  // Le tendine di Servizi partono dall'URL (`?type=bedrock&status=down`), ma solo su quella pagina:
+  // altrove `status` o `type` potrebbero essere parametri di qualcun altro, e un filtro acceso da un
+  // parametro che non era suo si scoprirebbe arrivando su Servizi con mezza flotta sparita.
+  const [daUrl] = useState(() =>
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/servizi') ? filtriDaUrl(window.location.search) : {},
+  )
+  const [regionFilter, setRegionFilter] = useState(daUrl.regionFilter ?? [])
+  const [typeFilter, setTypeFilter] = useState(daUrl.typeFilter ?? [])
+  const [statusFilter, setStatusFilter] = useState(daUrl.statusFilter ?? []) // multi: up/degraded/down/idle/disabled…
+  const [scheduleFilter, setScheduleFilter] = useState(daUrl.scheduleFilter ?? 'all') // all | cron | ondemand
+  const [managedFilter, setManagedFilter] = useState(daUrl.managedFilter ?? 'all') // all | managed | unmanaged (Terraform)
   // Filtro iniziale da `?q=`, per la stessa ragione di `?account=`: il quadro dei deploy in Slack linka
   // qui le risorse di una sua riga (le Lambda aggiornate insieme, i servizi di un'immagine condivisa),
   // e senza arriveresti sull'intera flotta da cercare a mano.
   const [nameQuery, setNameQuery] = useState(() =>
     typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get('q') ?? ''),
   )
-  const [problemsOnly, setProblemsOnly] = useState(false) // scorciatoia: solo degraded/down
+  const [problemsOnly, setProblemsOnly] = useState(daUrl.problemsOnly ?? false) // scorciatoia: rossi e arancio (conProblemi)
 
   useEffect(() => {
     scrivi('opsdash-dark', dark ? '1' : '0')
@@ -387,23 +395,8 @@ export default function App() {
     [services],
   )
 
-  const typeOptions = useMemo(
-    () =>
-      [...new Set(services.map((s) => s.type).filter(Boolean))].sort().map((ty) => {
-        const k = `type.${ty}`
-        const label = t(k)
-        return { value: ty, label: label === k ? ty : label }
-      }),
-    [services, t],
-  )
-
-  const statusOptions = useMemo(
-    () =>
-      [...new Set(services.map((s) => s.overall).filter(Boolean))]
-        .sort()
-        .map((v) => ({ value: v, label: t(`card.status.${v}`) })),
-    [services, t],
-  )
+  const typeOptions = useMemo(() => opzioniTipo(services, t), [services, t])
+  const statusOptions = useMemo(() => opzioniStato(services, t), [services, t])
 
   // Default del drawer log per il servizio selezionato: un cron gira di rado → apri con finestra
   // ampia (48h) e, se è rosso, già filtrato sugli errori → risponde subito a "perché è fallito?".
@@ -411,21 +404,16 @@ export default function App() {
   const logsDefaultMinutes = isCronSvc ? 2880 : 60
   const logsDefaultErrorsOnly = isCronSvc && detailService?.overall === 'down'
 
+  const filtri = useMemo(
+    () => ({ accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly }),
+    [accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly],
+  )
+  // La flotta con tutti i filtri tranne stato e «con problemi»: e' la base dei conteggi dei chip di
+  // Servizi (vedi `passaFiltri` in web/servizi.js).
+  const perConteggi = useMemo(() => services.filter((s) => passaFiltri(s, filtri, { conStato: false })), [services, filtri])
+
   const groups = useMemo(() => {
-    const filtered = services.filter((s) => {
-      const cron = Boolean(s.checks?.runtime?.schedule)
-      return (
-        matchesAny(s.account?.key ?? '__none__', accountFilter) &&
-        (regionFilter.length === 0 || regionFilter.includes(s.region)) &&
-        (typeFilter.length === 0 || typeFilter.includes(s.type)) &&
-        (statusFilter.length === 0 || statusFilter.includes(s.overall)) &&
-        (scheduleFilter === 'all' || (scheduleFilter === 'cron') === cron) &&
-        (managedFilter === 'all' ||
-          (managedFilter === 'managed' ? s.managed === true : s.managed === false)) &&
-        corrispondeNome(nameQuery, s.name, displayName(s)) &&
-        (!problemsOnly || s.overall === 'degraded' || s.overall === 'down')
-      )
-    })
+    const filtered = perConteggi.filter((s) => passaFiltri(s, filtri))
     const m = new Map()
     for (const s of filtered) {
       const key = s.account?.key ?? '__none__'
@@ -435,7 +423,7 @@ export default function App() {
       m.get(key).services.push(s)
     }
     return [...m.values()]
-  }, [services, accountFilter, regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, nameQuery, problemsOnly, t])
+  }, [perConteggi, filtri, t])
 
   // La lista piatta dei servizi filtrati, con identità STABILE. Ricrearla inline a ogni render
   // (`groups.flatMap(...)`) invalidava i `useMemo` di chi la riceve: la Topologia rifaceva il layout
@@ -518,8 +506,10 @@ export default function App() {
     setPresets(next)
     scrivi('dadaguard-presets', JSON.stringify(next))
   }
+  // L'account si tocca solo se il preset lo dice: i rapidi («Solo cron», «A riposo») non lo nominano,
+  // e applicarli riportava l'ambiente in alto su «Tutti» senza che nessuno l'avesse chiesto.
   const applyPreset = (f) => {
-    setAccountFilter(asList(f.accountFilter))
+    if ('accountFilter' in f) setAccountFilter(asList(f.accountFilter))
     setRegionFilter(asList(f.regionFilter))
     setTypeFilter(asList(f.typeFilter))
     setStatusFilter(asList(f.statusFilter))
@@ -537,6 +527,39 @@ export default function App() {
     setPresetName('')
   }
   const deletePreset = (name) => persistPresets(presets.filter((p) => p.name !== name))
+
+  // «Azzera filtri» su Servizi lascia stare l'account: l'ambiente si sceglie in alto e vale per tutte
+  // le pagine, e azzerare una tendina non deve spostare chi stava guardando Staging su tutta la flotta.
+  // La tendina Account ha la sua crocetta per chi vuole toglierlo.
+  const filtriServiziAttivi =
+    regionFilter.length > 0 ||
+    typeFilter.length > 0 ||
+    statusFilter.length > 0 ||
+    scheduleFilter !== 'all' ||
+    managedFilter !== 'all' ||
+    nameQuery.trim() !== '' ||
+    problemsOnly
+  const resetFiltriServizi = useCallback(() => {
+    setRegionFilter([])
+    setTypeFilter([])
+    setStatusFilter([])
+    setScheduleFilter('all')
+    setManagedFilter('all')
+    setNameQuery('')
+    setProblemsOnly(false)
+  }, [])
+
+  // Su Servizi l'indirizzo segue i filtri: si copia e si manda, e un ricarica della pagina ritrova la
+  // stessa vista. `replace` e non una voce nuova di storia per ogni lettera scritta nella ricerca,
+  // sennò «indietro» diventerebbe cancellare un carattere alla volta. Solo su Servizi: le altre pagine
+  // hanno parametri loro (`tab`, `view`, `account` di IAM) che qui non si devono toccare.
+  useEffect(() => {
+    if (location.pathname !== '/servizi') return
+    const voluta = filtriInUrl(location.search, filtri)
+    if (voluta !== location.search.replace(/^\?/, '')) {
+      navigate({ pathname: location.pathname, search: voluta ? `?${voluta}` : '', hash: location.hash }, { replace: true })
+    }
+  }, [location.pathname, location.search, location.hash, filtri, navigate])
 
   const themeConfig = antdTheme(dark ? theme.darkAlgorithm : theme.defaultAlgorithm, dark)
 
@@ -565,6 +588,9 @@ export default function App() {
       livello: peggiore(services.filter((s) => g.accounts.includes(s.account?.key)).map(livelloServizio)),
     }))
   }, [data, accountOptions, services])
+  // Un account scelto dalla tendina di Servizi che non e' un ambiente intero: in alto non va premuto
+  // nessun ambiente, nemmeno «Tutti», che direbbe il contrario di quello che la lista mostra.
+  const ambienteParziale = asList(accountFilter).length > 0
   const ambienteAttivo = useMemo(() => {
     const scelti = asList(accountFilter)
     if (!scelti.length) return null
@@ -658,6 +684,7 @@ export default function App() {
         <TopBar
           ambienti={listaAmbienti}
           ambiente={ambienteAttivo}
+          parziale={ambienteParziale && ambienteAttivo == null}
           onAmbiente={scegliAmbiente}
           ruolo={ruolo}
           onRuolo={cambiaRuolo}
@@ -727,21 +754,11 @@ export default function App() {
                   <DashboardPage
                     data={data}
                     groups={groups}
+                    perConteggi={perConteggi}
                     allServices={services}
                     accountFilter={accountFilter}
                     ambienteLabel={listaAmbienti.find((a) => a.key === ambienteAttivo)?.label}
-                    nameQuery={nameQuery}
-                    onNameQuery={setNameQuery}
-                    // Solo i filtri che la pagina non mostra: ricerca e ambiente si vedono gia'.
-                    filtersActive={
-                      regionFilter.length > 0 ||
-                      typeFilter.length > 0 ||
-                      statusFilter.length > 0 ||
-                      scheduleFilter !== 'all' ||
-                      managedFilter !== 'all' ||
-                      problemsOnly
-                    }
-                    onResetFilters={resetFilters}
+                    filtri={{ ...filterProps, filtersActive: filtriServiziAttivi, resetFilters: resetFiltriServizi }}
                     loading={loading}
                     error={error}
                     onOpen={(s) => openDetail(s)}
