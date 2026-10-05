@@ -34,7 +34,11 @@ export function budgetDaGuardare(dati, accountLabels) {
 }
 
 const GRIGLIA = 'minmax(0,1fr) minmax(0,2fr) 120px'
-const GRIGLIA_ANOMALIE = '110px minmax(0,1fr) 140px 90px'
+// La prima colonna tiene la pillola, che non va a capo: deve contenere la più lunga delle due,
+// «già marcata come attesa» (156px) e «already marked as expected» (176px). Con i 110px di prima
+// la seconda usciva dalla colonna e finiva sopra al nome del servizio. Una colonna `auto` non va:
+// ogni riga è una griglia a sé, e i testi non starebbero più in colonna fra una riga e l'altra.
+const GRIGLIA_ANOMALIE = '188px minmax(0,1fr) 140px 90px'
 
 // Scheda «Budget e anomalie»: quanto della spesa DECISA è già andata, e gli scostamenti che AWS ha
 // rilevato. Prima stava in cima al Riepilogo come griglia di card; qui è una lista sola, dal più
