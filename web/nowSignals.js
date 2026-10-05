@@ -48,7 +48,7 @@ function serviceSignals(services = [], t, nameOf) {
       level: s.overall === 'down' ? 'crit' : 'warn',
       kind: 'service',
       title: nameOf(s),
-      detail: [s.cause ? t(`cause.${s.cause}`) : null, cause?.summary ?? cause?.reason].filter(Boolean).join(' — '),
+      detail: [s.cause ? t(`cause.${s.cause}`) : null, cause?.summary ?? cause?.reason].filter(Boolean).join(': '),
       when: null, // stato in corso: "quanto fa" non si applica, e inventarlo sarebbe peggio
       to: '/servizi',
       accountKey: s.account?.key ?? null,
