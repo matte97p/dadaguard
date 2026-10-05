@@ -24,6 +24,10 @@ import {
   eseguiAllarmi,
   testoAllarme,
   datiAllarmi,
+  dividi,
+  canvasTrasversale,
+  canvasDaScrivere,
+  TITOLO_CRON,
 } from '../server/notify/quadro.js'
 import { imageRepo } from '../server/checks/version.js'
 import { serviceFromProject } from '../server/deploys.js'
@@ -323,20 +327,29 @@ function ambienteGrande() {
 }
 
 test('con una flotta grande il canvas resta corto: «Adesso», poi al massimo 12 recenti, poi un conteggio', () => {
-  const c = canvasQuadro(ambienteGrande(), { ora: ORA, url: URL })
+  const qa = ambienteGrande()
+  const c = canvasQuadro(dividi(qa).principale, { ora: ORA, url: URL })
   const md = c.markdown
   assert.equal(c.titolo, '🟥 Quadro deploy PRODUZIONE')
   assert.ok(md.indexOf('## Adesso') < md.indexOf('## Ultime 24 ore'), 'prima i problemi')
   assert.match(md, /\| 🚨 \[\*\*rotta\*\*\]\(https:\/\/dg\.example\.com\/deploy\?service=rotta&account=production\) \| giù: 0\/2 task attivi \|/)
-  assert.match(md, /\| ⚙️ \[\*\*20 Lambda\*\*\]\([^)]+\) \| aggiornate insieme/, 'venti Lambda dello stesso giro sono una riga')
-  assert.match(md, /E altri 3: \[tutti su Dadaguard\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)\./, '15 recenti, 12 righe e il resto contato')
-  assert.match(md, /\*\*Senza novità nelle ultime 24 ore\*\*: 12 applicazioni · 40 Lambda/)
+  assert.match(md, /E altri 2: \[tutti su Dadaguard\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)\./, '14 recenti, 12 righe e il resto contato')
+  assert.match(md, /\*\*Senza novità nelle ultime 24 ore\*\*: 12 applicazioni/)
+  assert.doesNotMatch(md, /Lambda/, 'i cron Lambda stanno nella loro scheda')
   assert.doesNotMatch(md, /app-ferma-3/, 'le risorse ferme non hanno righe')
-  assert.doesNotMatch(md, /—/, 'niente trattino lungo')
+  assert.doesNotMatch(md, /\u2014/, 'niente trattino lungo')
   const righeRecenti = md.split('## Ultime 24 ore')[1].split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
   assert.equal(righeRecenti.length, 12)
-  assert.match(c.sintesi, /^❌ 1 rotto · 🚀 15 rilasci nelle ultime 24 h/)
+  assert.match(c.sintesi, /^❌ 1 rotto · 🚀 14 rilasci nelle ultime 24 h/)
   assert.match(md, /^\*\*❌ 1 rotto/, 'la sintesi è la prima riga')
+
+  const cron = canvasTrasversale(TITOLO_CRON, [dividi(qa).cron], { ora: ORA, url: URL })
+  assert.equal(cron.titolo, '⏰ Quadro deploy CRON')
+  assert.match(cron.markdown, /^aggiornato alle /)
+  assert.match(cron.markdown, /## 🟥 Produzione\n\n\*\*✅ niente di rotto, niente in corso · 🚀 1 rilascio nelle ultime 24 h\*\*/)
+  assert.match(cron.markdown, /### Ultime 24 ore/)
+  assert.match(cron.markdown, /\| ⚙️ \[\*\*20 Lambda\*\*\]\([^)]+\) \| aggiornate insieme/, 'venti Lambda dello stesso giro sono una riga')
+  assert.match(cron.markdown, /\*\*Senza novità nelle ultime 24 ore\*\*: 40 Lambda/)
 })
 
 test('tutto tranquillo: la sintesi lo dice per prima', () => {
@@ -405,7 +418,11 @@ test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambient
   const cfg = quadroConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'x', DADAGUARD_QUADRO_CANALI: 'produzione=CPROD,staging=CSTG' })
   const leggiDati = async () => ({ deploys: { production: { builds: [b('api', 'a', '2026-10-02T10:00:00Z')] }, staging: { builds: [] } }, servizi: [] })
   const esiti = await aggiornaQuadri(cfg, { api, leggiDati, ora: ORA })
-  assert.deepEqual(esiti.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:riscritto', 'staging:creato'])
+  assert.deepEqual(esiti.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:riscritto', 'staging:creato', 'cron:creato'])
+  assert.equal(chiamate.filter(([m, c]) => m === 'conversations.canvases.create' && c.title === '⏰ Quadro deploy CRON')[0][1].channel_id, 'CPROD', 'le schede trasversali stanno nel canale del primo ambiente')
+  assert.equal(chiamate.filter(([m, c]) => m === 'conversations.info' && c.channel === 'CPROD').length, 1, 'le schede di un canale si chiedono una volta per giro')
+  assert.ok(esiti.find((e) => e.ambiente === 'produzione').allarmi, 'gli ambienti portano i dati degli allarmi')
+  assert.equal(esiti.find((e) => e.ambiente === 'cron').allarmi, undefined, 'le schede trasversali no: gli allarmi sono per ambiente')
   const edit = chiamate.find(([m]) => m === 'canvases.edit')[1]
   assert.equal(edit.canvas_id, 'FPROD')
   assert.equal(edit.changes[0].operation, 'replace', 'il quadro si riscrive intero')
@@ -420,7 +437,7 @@ test('il giro riscrive il canvas che c’è, crea quello che manca, e un ambient
     return api(metodo, corpo)
   }
   const esiti2 = await aggiornaQuadri(cfg, { api: rotta, leggiDati, ora: ORA })
-  assert.deepEqual(esiti2.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:errore', 'staging:creato'])
+  assert.deepEqual(esiti2.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:errore', 'staging:creato', 'cron:errore'])
   assert.match(esiti2[0].errore, /channel_not_found/)
 })
 
@@ -553,4 +570,54 @@ test('allarmi: si scrivono nel canale, il ✅ va nella discussione e cambia il m
   }
   const dopo = await eseguiAllarmi(rotta, 'C1', pianoAllarmi({}, { rotti: [{ nome: 'api', firma: 'A', testo: 'x' }], inCorso: [], buildIgnote: false }))
   assert.deepEqual(dopo, {}, 'un allarme non scritto non resta aperto senza messaggio: il giro dopo riprova')
+})
+
+test('le schede: la squadra vince, poi i cron, il resto è della principale', () => {
+  const qa = quadroAmbiente('produzione', {
+    deploys: {
+      production: {
+        builds: [
+          b('scraper-dashboard', 'aaaaaaa', '2026-10-03T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/Scraper.git' }),
+          b('api', 'bbbbbbb', '2026-10-03T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/Backend' }),
+        ],
+      },
+    },
+    servizi: [
+      svc('acme-production-scraper-dashboard', 'production', { tag: 'aaaaaaa', repo: 'scraper-dashboard', da: '2026-10-03T10:05:00Z' }),
+      svc('acme-production-api', 'production', { tag: 'bbbbbbb', repo: 'api', da: '2026-10-03T10:05:00Z' }),
+      svc('tenders', 'production', { tag: 'e4ce302', repo: 'scraper-image', da: '2026-10-03T09:00:00Z' }),
+      svc('acme-production-cron-shadow', 'production', { type: 'ecs-scheduled', tag: 'e4ce302', repo: 'scraper-image', da: '2026-10-03T09:00:00Z' }),
+      svc('acme-production-cron-backup-a', 'production', { type: 'ecs-scheduled', tag: 'ccccccc', repo: 'backup', da: '2026-10-03T08:00:00Z' }),
+      svc('acme-production-cron-backup-b', 'production', { type: 'ecs-scheduled', tag: 'ccccccc', repo: 'backup', da: '2026-10-03T08:00:00Z' }),
+      lam('acme-production-cron-report', 'production', '2026-10-03T07:00:00Z', 'dev'),
+      lam('acme-production-deploy-notifier', 'production', '2026-10-03T07:00:00Z', 'codebuild-iac-12'),
+    ],
+  })
+  const d = dividi(qa, { squadre: { data: ['scraper', 'scraper-image'] } })
+  assert.deepEqual(d.squadre.data.app.map((r) => r.servizio), ['scraper-dashboard'], 'dal sorgente della build, senza badare alle maiuscole')
+  assert.deepEqual(d.squadre.data.immagini.map((g) => g.nome), ['scraper-image'], 'dal repo dell’immagine, cron compresi: la squadra vince')
+  assert.deepEqual(d.principale.app.map((r) => r.servizio), ['api'])
+  assert.deepEqual(d.cron.immagini.map((g) => g.nome), ['backup'], 'un’immagine fatta di soli cron è dei cron')
+  assert.deepEqual(d.cron.lambda.flatMap((l) => l.nomi), ['report'])
+  assert.deepEqual(d.principale.lambda.flatMap((l) => l.nomi), ['deploy-notifier'], 'le Lambda dell’infrastruttura restano nella principale')
+  assert.equal(dividi(undefined), null)
+})
+
+test('configurazione delle squadre: nomi e repository in minuscolo, righe vuote scartate', () => {
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_SQUADRE: 'Data=Scraper, scraper-image;vuota=;=x' })
+  assert.deepEqual(cfg.squadre, { data: ['scraper', 'scraper-image'] })
+  assert.deepEqual(quadroConfig({}).squadre, {})
+})
+
+test('i canvas di un giro: uno per ambiente, poi ⏰ CRON e uno per squadra, nel canale del primo ambiente', () => {
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP,staging=CS', DADAGUARD_QUADRO_SQUADRE: 'data=scraper' })
+  const q = quadro({ deploys: LETTE_PROD, servizi: [] }, cfg.ambienti)
+  const c = canvasDaScrivere(q, cfg, { ora: ORA })
+  assert.deepEqual(c.map((x) => `${x.chiave}:${x.canale}:${x.titolo}`), [
+    'produzione:CP:🟥 Quadro deploy PRODUZIONE',
+    'staging:CS:🟨 Quadro deploy STAGING',
+    'cron:CP:⏰ Quadro deploy CRON',
+    'data:CP:📊 Quadro deploy DATA',
+  ])
+  assert.match(c[3].markdown, /## 🟥 Produzione[\s\S]*## 🟨 Staging/, 'una sezione per ambiente')
 })

@@ -17,7 +17,9 @@
 #   DADAGUARD_SLACK_BOT_TOKEN_FILE=<file col token xoxb-, permessi 600> \
 #   DADAGUARD_QUADRO_CANALI='produzione=C0123,staging=C0123' \
 #   DADAGUARD_PUBLIC_URL=https://dadaguard.example.com \
+#   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image' \
 #   bash deploy/enable-quadro.sh
+# Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron.
 # `FORCE=1` riscrive un token già presente in SSM e riavvia il servizio perché lo rilegga.
 set -euo pipefail
 
@@ -32,6 +34,7 @@ P_TOKEN=/dadaguard/slack-bot-token
 TOKEN_FILE=${DADAGUARD_SLACK_BOT_TOKEN_FILE:?serve DADAGUARD_SLACK_BOT_TOKEN_FILE: il file col token del bot}
 CANALI=${DADAGUARD_QUADRO_CANALI:?serve DADAGUARD_QUADRO_CANALI, es. produzione=C0123,staging=C0123}
 PUBLIC_URL=${DADAGUARD_PUBLIC_URL:-}
+SQUADRE=${DADAGUARD_QUADRO_SQUADRE:-}
 
 ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
 ARN_TOKEN="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_TOKEN"
@@ -82,13 +85,14 @@ fi
 step "task definition"
 TD=$(payer ecs describe-services --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
 payer ecs describe-task-definition --region "$REGION" --task-definition "$TD" --query taskDefinition >"$TMP/td.json"
-jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" '
+jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" '
   def metti(lista; nome; campo; valore): [lista[]? | select(.name != nome)] + [{name: nome, (campo): valore}];
   .containerDefinitions |= map(
     if .name == $C then
       .secrets = metti(.secrets; "DADAGUARD_SLACK_BOT_TOKEN"; "valueFrom"; $T)
       | .environment = metti(.environment; "DADAGUARD_QUADRO_CANALI"; "value"; $CANALI)
       | (if $URL != "" then .environment = metti(.environment; "DADAGUARD_PUBLIC_URL"; "value"; $URL) else . end)
+      | (if $SQ != "" then .environment = metti(.environment; "DADAGUARD_QUADRO_SQUADRE"; "value"; $SQ) else . end)
     else . end)
   | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
      requiresCompatibilities, cpu, memory}
@@ -96,7 +100,7 @@ jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$
 # Uguale a quella viva (a meno dell'ordine delle voci)? Allora non c'è niente da registrare.
 norm='.containerDefinitions[] | select(.name=="'"$CONTAINER"'") | {secrets: (.secrets // [] | sort_by(.name)), environment: (.environment // [] | sort_by(.name))}'
 if [ "$(jq -S "$norm" "$TMP/td.json")" = "$(jq -S "$norm" "$TMP/new-td.json")" ]; then
-  echo "  ${TD##*/} ha già token, canali e indirizzo: nessuna revision da registrare"
+  echo "  ${TD##*/} ha già token, canali, indirizzo e squadre: nessuna revision da registrare"
 else
   NEW=$(payer ecs register-task-definition --region "$REGION" --cli-input-json "file://$TMP/new-td.json" --query taskDefinition.taskDefinitionArn --output text)
   payer ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$NEW" >/dev/null

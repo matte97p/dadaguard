@@ -42,7 +42,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
-import { quadro, canvasQuadro, quadroConfig, startQuadro } from './notify/quadro.js'
+import { quadro, canvasDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -395,9 +395,9 @@ async function datiQuadro() {
 app.get('/api/quadro', async (req, res) => {
   try {
     const dati = isDemo ? { deploys: demoDeploys(), servizi: demoStatus('it').services ?? [] } : await datiQuadro()
-    const { ambienti, publicUrl, ore } = quadroConfig()
-    const q = quadro({ ...dati, persone: isDemo ? null : (loadConfig().people ?? null) }, ambienti)
-    const canvas = Object.fromEntries(ambienti.map((a) => [a, canvasQuadro(q[a], { url: publicUrl, ore })]))
+    const cfg = quadroConfig()
+    const q = quadro({ ...dati, persone: isDemo ? null : (loadConfig().people ?? null) }, cfg.ambienti)
+    const canvas = Object.fromEntries(canvasDaScrivere(q, cfg).map((c) => [c.chiave, c]))
     if (req.query.format === 'markdown')
       return res.type('text/markdown').send(Object.values(canvas).map((c) => `# ${c.titolo}\n\n${c.markdown}`).join('\n\n---\n\n'))
     res.json({ quadro: q, canvas })

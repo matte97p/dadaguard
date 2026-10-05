@@ -56,6 +56,11 @@ import { postSlack } from './slack.js'
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
 //                               rilascio intero passerebbe senza che il quadro lo veda in corso)
 //   DADAGUARD_QUADRO_ORE        quanto indietro guarda «Ultime N ore» (default 24)
+//   DADAGUARD_QUADRO_SQUADRE    le squadre con una scheda loro, e i repository che possiedono:
+//                               `data=Scraper,scraper-image;altra=repo`. Chi possiede cosa AWS non lo
+//                               sa, quindi questa è la sola riga scritta a mano, ed è per REPOSITORY
+//                               (il sorgente della build o il repo dell'immagine): una risorsa nuova
+//                               di quei repo entra da sé
 //   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
 //                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
@@ -75,9 +80,12 @@ const FALLITI = new Set(['FAILED', 'FAULT', 'TIMED_OUT', 'STOPPED'])
 // Il titolo del canvas porta l'ambiente col suo colore: il canale lo dice già, ma un canvas aperto da
 // un link o dalla ricerca si legge da solo.
 export const AMBIENTI = {
-  produzione: { titolo: '🟥 Quadro deploy PRODUZIONE', tag: 'PROD' },
-  staging: { titolo: '🟨 Quadro deploy STAGING', tag: 'STAGING' },
+  produzione: { titolo: '🟥 Quadro deploy PRODUZIONE', tag: 'PROD', sezione: '🟥 Produzione' },
+  staging: { titolo: '🟨 Quadro deploy STAGING', tag: 'STAGING', sezione: '🟨 Staging' },
 }
+// Le schede che attraversano gli ambienti, una sezione per ambiente dentro.
+export const TITOLO_CRON = '⏰ Quadro deploy CRON'
+export const titoloSquadra = (s) => `📊 Quadro deploy ${String(s).toUpperCase()}`
 
 export function quadroConfig(env = process.env) {
   // `produzione=C0123,staging=C0456`. L'ordine è quello dei giri; un ambiente che non conosciamo si
@@ -89,9 +97,19 @@ export function quadroConfig(env = process.env) {
       .filter(([amb, id]) => AMBIENTI[amb] && id),
   )
   const ore = Number(env.DADAGUARD_QUADRO_ORE)
+  // `data=Scraper,scraper-image;altra=repo`, in minuscolo: i nomi dei repository non distinguono le
+  // maiuscole quando li si confronta, e un `Scraper` contro `scraper` mancato sarebbe un buco muto.
+  const squadre = Object.fromEntries(
+    String(env.DADAGUARD_QUADRO_SQUADRE ?? '')
+      .split(';')
+      .map((x) => x.split('='))
+      .filter(([nome, repo]) => nome?.trim() && repo?.trim())
+      .map(([nome, repo]) => [nome.trim().toLowerCase(), repo.split(',').map((r) => r.trim().toLowerCase()).filter(Boolean)]),
+  )
   return {
     token: env.DADAGUARD_SLACK_BOT_TOKEN || null,
     canali,
+    squadre,
     // Senza canali si calcolano comunque tutti e due: servono all'anteprima di `/api/quadro`.
     ambienti: Object.keys(canali).length ? Object.keys(canali) : Object.keys(AMBIENTI),
     intervalMs: Math.max(30, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
@@ -258,6 +276,7 @@ function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
     tentativo,
     durataTipica: b?.durataTipica ?? null,
     esterno: !builds.length && Boolean(ecs?.tag) && !tagDiCommit(ecs.tag),
+    immagine: ecs?.repo ?? null,
   }
 }
 
@@ -289,9 +308,18 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
 
   const delQui = servizi.filter((s) => ambienteDi(s.account?.key ?? '') === ambiente)
   const ecs = delQui.filter((s) => s.type === 'ecs' || s.type === 'ecs-scheduled').map(datiEcs)
-  const lambda = delQui
+  // Una Lambda è un cron se il suo nome lo dice (`<org>-<env>-cron-…`): si decide qui, prima che
+  // `nomeBreve` tolga quel `cron-` per la lettura.
+  const tutteLambda = delQui
     .filter((s) => s.type === 'lambda')
-    .map((s) => ({ nome: nomeBreve(s.name), da: s.checks?.version?.build?.deployedAt ?? null, chi: s.checks?.version?.build?.by ?? null }))
+    .map((s) => ({
+      nome: nomeBreve(s.name),
+      cron: /^cron-/.test(stripOrgEnv(String(s.name))),
+      da: s.checks?.version?.build?.deployedAt ?? null,
+      chi: s.checks?.version?.build?.by ?? null,
+    }))
+  const lambda = tutteLambda.filter((l) => !l.cron)
+  const lambdaCron = tutteLambda.filter((l) => l.cron)
 
   // Le immagini condivise: stesso repo su due o più servizi o cron, e NESSUNO di loro ha una build
   // propria. Dedotto dal dato, senza elenchi: un repo nuovo condiviso entra da sé.
@@ -363,6 +391,8 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     esterni,
     lambda: lottiLambda(lambda).map((l) => ({ ...l, tipo: 'lambda', chiave, chi: chiLeggibile(l.chi) })),
     lambdaSenzaData: lambda.filter((l) => !l.da).length,
+    lambdaCron: lottiLambda(lambdaCron).map((l) => ({ ...l, tipo: 'lambda', chiave, chi: chiLeggibile(l.chi) })),
+    lambdaCronSenzaData: lambdaCron.filter((l) => !l.da).length,
     infra,
     buildIgnote,
     erroreBuild,
@@ -383,6 +413,35 @@ export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambi
     }
   }
   return out
+}
+
+// Il nome del repository da un indirizzo (`https://github.com/org/Scraper.git` → `Scraper`). Puro.
+const repoNome = (url) => (url ? String(url).replace(/\.git$/, '').split('/').pop() : null)
+
+// Un ambiente diviso nelle schede: la PRINCIPALE, ⏰ CRON e una per ogni squadra. Puro/testabile.
+//   squadra    un'applicazione o un'immagine condivisa il cui repository (sorgente della build o repo
+//              dell'immagine) è di quella squadra: vince su tutto, perché è la domanda «di chi è»
+//   cron       le Lambda col nome da cron e le immagini condivise fatte di soli cron
+//   principale tutto il resto, con l'IaC, i componenti esterni e le Lambda dell'infrastruttura
+// Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse funzioni.
+export function dividi(qa, { squadre = {} } = {}) {
+  if (!qa) return null
+  const vuoto = () => ({ ...qa, app: [], immagini: [], esterni: [], lambda: [], lambdaSenzaData: 0, infra: null })
+  const principale = { ...vuoto(), esterni: qa.esterni ?? [], lambda: qa.lambda ?? [], lambdaSenzaData: qa.lambdaSenzaData ?? 0, infra: qa.infra ?? null }
+  const cron = { ...vuoto(), lambda: qa.lambdaCron ?? [], lambdaSenzaData: qa.lambdaCronSenzaData ?? 0 }
+  const perSquadra = Object.fromEntries(Object.keys(squadre).map((nome) => [nome, vuoto()]))
+  const squadraDi = (...nomi) => Object.keys(squadre).find((nome) => nomi.some((n) => n && squadre[nome].includes(String(n).toLowerCase())))
+  for (const r of qa.app ?? []) {
+    const sq = squadraDi(repoNome(r.repo), r.immagine)
+    ;(sq ? perSquadra[sq] : principale).app.push(r)
+  }
+  for (const g of qa.immagini ?? []) {
+    const sq = squadraDi(g.nome)
+    if (sq) perSquadra[sq].immagini.push(g)
+    else if (!g.servizi.length) cron.immagini.push(g)
+    else principale.immagini.push(g)
+  }
+  return { principale, cron, squadre: perSquadra }
 }
 
 // ── La resa ──────────────────────────────────────────────────────────────────────────────────────
@@ -614,16 +673,16 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
   return { adesso, recenti, resto, sintesi, diversi }
 }
 
-// Il canvas di un ambiente: titolo e markdown. Puro/testabile.
+// Le sezioni di un ambiente: le tabelle «Adesso» e «Ultime N ore», il resto contato e i link. La
+// sintesi la restituisce a parte, perché il canvas di un ambiente la mette in testa e uno trasversale
+// sotto il titolo della sezione. `h` è il livello dei titoli. Puro.
 //
-// Le scelte di leggibilità, per chi lo apre dal telefono in mezzo ad altro: in testa la sintesi, che
-// se dice «niente di rotto» chiude la lettura; poi i problemi; poi i rilasci, dal più nuovo; in fondo
-// il resto, contato. Tre colonne e non cinque: l'emoji sta accanto al nome, e il nome È il link a
-// Dadaguard, già filtrato sulla risorsa.
-export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase() }
+// Le scelte di leggibilità, per chi lo apre dal telefono in mezzo ad altro: prima i problemi, poi i
+// rilasci dal più nuovo, in fondo il resto contato. Tre colonne e non cinque: l'emoji sta accanto al
+// nome, e il nome È il link a Dadaguard, già filtrato sulla risorsa.
+function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, h = '##' } = {}) {
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
   const { adesso, recenti, resto, sintesi, diversi } = smista(q, { ora, url, ore })
-  const orario = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
   const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
   const tuttiServizi = url && q.chiave ? `${url}/servizi?account=${encodeURIComponent(q.chiave)}` : null
 
@@ -634,14 +693,14 @@ export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_OR
   const tabella = (voci) => ['| Risorsa | Stato | Dettagli |', '|---|---|---|', ...voci.map(riga)].join('\n')
   const oltre = (n, link) => `E ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: [tutti su Dadaguard](${link})` : ''}.`
 
-  const parti = [`**${sintesi.join(SEP)}**${SEP}aggiornato alle ${orario}`]
+  const parti = []
   if (q.buildIgnote)
     parti.push(`⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`)
   if (adesso.length) {
-    parti.push('## Adesso', tabella(adesso.slice(0, MAX_ADESSO)))
+    parti.push(`${h} Adesso`, tabella(adesso.slice(0, MAX_ADESSO)))
     if (adesso.length > MAX_ADESSO) parti.push(oltre(adesso.length - MAX_ADESSO, tuttiServizi))
   }
-  parti.push(`## Ultime ${ore} ore`, recenti.length ? tabella(recenti.slice(0, MAX_RECENTI)) : 'Nessun rilascio.')
+  parti.push(`${h} Ultime ${ore} ore`, recenti.length ? tabella(recenti.slice(0, MAX_RECENTI)) : 'Nessun rilascio.')
   if (recenti.length > MAX_RECENTI) parti.push(oltre(recenti.length - MAX_RECENTI, tuttiDeploy))
 
   const fermi = [
@@ -661,8 +720,44 @@ export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_OR
     url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
   if (link.length) parti.push(`Su Dadaguard: ${link.join(SEP)}`)
+  return { meta, sintesi, parti }
+}
 
-  return { titolo: meta.titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(SEP) }
+const orarioDi = (ora) => new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
+
+// Il canvas di un ambiente: in testa la sintesi, che se dice «niente di rotto» chiude la lettura.
+// Puro/testabile.
+export function canvasQuadro(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  const { meta, sintesi, parti } = sezioniAmbiente(q, { ora, url, ore, h: '##' })
+  return { titolo: meta.titolo, markdown: [`**${sintesi.join(SEP)}**${SEP}aggiornato alle ${orarioDi(ora)}`, ...parti].join('\n\n'), sintesi: sintesi.join(SEP) }
+}
+
+// Un canvas che attraversa gli ambienti (⏰ CRON, una squadra): una sezione per ambiente, ognuna con
+// la sua sintesi. Puro/testabile.
+export function canvasTrasversale(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  const parti = [`aggiornato alle ${orarioDi(ora)}`]
+  const sintesi = []
+  for (const q of perAmbiente) {
+    const s = sezioniAmbiente(q, { ora, url, ore, h: '###' })
+    parti.push(`## ${s.meta.sezione}`, `**${s.sintesi.join(SEP)}**`, ...s.parti)
+    sintesi.push(`${s.meta.tag}: ${s.sintesi.join(SEP)}`)
+  }
+  return { titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(' | ') }
+}
+
+// Tutti i canvas di un giro, ognuno col suo canale: uno per ambiente, poi ⏰ CRON e uno per squadra.
+// Le schede trasversali vanno nel canale del PRIMO ambiente: sono una sola per tutti e due, e quando
+// i due ambienti hanno lo stesso canale stanno accanto alle loro. Puro/testabile.
+export function canvasDaScrivere(q, cfg, { ora = Date.now() } = {}) {
+  const opts = { ora, url: cfg.publicUrl ?? null, ore: cfg.ore ?? DEFAULT_ORE }
+  const parti = Object.fromEntries(cfg.ambienti.map((a) => [a, dividi(q[a], { squadre: cfg.squadre ?? {} })]))
+  const presenti = cfg.ambienti.filter((a) => parti[a])
+  const out = presenti.map((a) => ({ chiave: a, canale: cfg.canali?.[a] ?? null, ...canvasQuadro(parti[a].principale, opts) }))
+  const canaleTrasversale = cfg.canali?.[cfg.ambienti.find((a) => cfg.canali?.[a])] ?? null
+  const trasversale = (chiave, titolo, scegli) => ({ chiave, canale: canaleTrasversale, ...canvasTrasversale(titolo, presenti.map((a) => scegli(parti[a])), opts) })
+  out.push(trasversale('cron', TITOLO_CRON, (p) => p.cron))
+  for (const sq of Object.keys(cfg.squadre ?? {})) out.push(trasversale(sq, titoloSquadra(sq), (p) => p.squadre[sq]))
+  return out
 }
 
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
@@ -719,33 +814,37 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   const dati = await deps.leggiDati()
   const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
   const ora = deps.ora ?? Date.now()
+  // Le schede di un canale si chiedono una volta per giro: i canvas sono più d'uno nello stesso canale.
+  const infoDi = new Map()
+  const info = async (canale) => {
+    if (!infoDi.has(canale)) infoDi.set(canale, await api('conversations.info', { channel: canale }))
+    return infoDi.get(canale)
+  }
   const esiti = []
-  for (const ambiente of cfg.ambienti) {
-    const canale = cfg.canali[ambiente]
-    if (!canale) continue
-    // Gli allarmi dipendono dai DATI, non dal canvas: si calcolano prima, così un canvas che non si
-    // riesce a scrivere non tace anche un servizio giù.
-    const allarmi = datiAllarmi(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
+  for (const c of canvasDaScrivere(q, cfg, { ora })) {
+    if (!c.canale) continue
+    // Gli allarmi dipendono dai DATI di un ambiente, non dal canvas: si calcolano prima, così un
+    // canvas che non si riesce a scrivere non tace anche un servizio giù.
+    const allarmi = AMBIENTI[c.chiave] ? { allarmi: datiAllarmi(q[c.chiave], { ora, url: cfg.publicUrl, ore: cfg.ore }) } : {}
     try {
-      const { titolo, markdown } = canvasQuadro(q[ambiente], { ora, url: cfg.publicUrl, ore: cfg.ore })
-      const document_content = { type: 'markdown', markdown }
-      const { id, doppioni } = canvasDelCanale(await api('conversations.info', { channel: canale }), titolo)
-      if (doppioni.length) log.warn('quadro: il canale ha più canvas del quadro, riscrivo il più recente', { ambiente, doppioni })
+      const document_content = { type: 'markdown', markdown: c.markdown }
+      const { id, doppioni } = canvasDelCanale(await info(c.canale), c.titolo)
+      if (doppioni.length) log.warn('quadro: il canale ha più canvas con lo stesso titolo, riscrivo il più recente', { canvas: c.chiave, doppioni })
       if (id) {
         // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
         await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
-        esiti.push({ ambiente, azione: 'riscritto', canvas: id, allarmi })
+        esiti.push({ ambiente: c.chiave, azione: 'riscritto', canvas: id, ...allarmi })
       } else {
-        const r = await api('conversations.canvases.create', { channel_id: canale, title: titolo, document_content })
+        const r = await api('conversations.canvases.create', { channel_id: c.canale, title: c.titolo, document_content })
         // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
         // l'ha fatta. Se non riesce il quadro funziona lo stesso, quindi lo si dice e si va avanti.
-        await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [canale] }).catch((err) =>
-          log.warn('quadro: canvas non messo in sola lettura', { ambiente, err: err.message }),
+        await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [c.canale] }).catch((err) =>
+          log.warn('quadro: canvas non messo in sola lettura', { canvas: c.chiave, err: err.message }),
         )
-        esiti.push({ ambiente, azione: 'creato', canvas: r.canvas_id, allarmi })
+        esiti.push({ ambiente: c.chiave, azione: 'creato', canvas: r.canvas_id, ...allarmi })
       }
     } catch (err) {
-      esiti.push({ ambiente, azione: 'errore', errore: err.message, allarmi })
+      esiti.push({ ambiente: c.chiave, azione: 'errore', errore: err.message, ...allarmi })
     }
   }
   return esiti

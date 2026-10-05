@@ -15,8 +15,11 @@ All notable changes to Dadaguard are documented here. Format based on
   componenti esterni (tag di versione) stanno a parte. Ogni riga porta a Dadaguard già filtrato sulla
   sua risorsa. Il canvas non notifica, quindi quando qualcosa si rompe il bot scrive anche un
   messaggio nel canale e lo chiude con ✅ quando torna a posto, e se il canvas non si aggiorna da 10
-  minuti lo dice nel canale degli allarmi. App Slack in `deploy/slack-app-manifest.yml`, accensione
-  con `deploy/enable-quadro.sh`, anteprima senza mandare niente su `/api/quadro?format=markdown`.
+  minuti lo dice nel canale degli allarmi. Accanto alle schede degli ambienti ce n'è una dei cron
+  (Lambda col nome da cron e immagini fatte di soli cron) e una per ogni squadra
+  (`DADAGUARD_QUADRO_SQUADRE`, per repository: chi possiede cosa AWS non lo sa), ognuna con una sezione
+  per ambiente. App Slack in `deploy/slack-app-manifest.yml`, accensione con
+  `deploy/enable-quadro.sh`, anteprima senza mandare niente su `/api/quadro?format=markdown`.
 - **La pagina Servizi si filtra per nome dall'indirizzo** (`?q=`, anche più nomi separati da
   virgola): è così che il quadro apre le risorse di una sua riga.
 
