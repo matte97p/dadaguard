@@ -30,6 +30,8 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 //   fondo al canvas invece di sostituirlo (provato il 05/10/2026, «frontend» finito sotto la tabella)
 //   il canvas intero si riscrive solo quando cambiano le righe (una risorsa nuova o sparita) o quando
 //   quello che si legge non torna con quello che ci si aspetta: è raro, e lì lo sdoppio si accetta
+//   le righe le decidono le RISORSE che esistono, mai il loro stato: niente righe che si uniscono o si
+//   separano con un riavvio, un rilascio o una lettura andata male (vedi `quadroAmbiente`)
 // Accanto al canvas c'è una Slack LIST per ambiente con le stesse righe (vedi `sincronizzaLista`): si
 // filtra e si ordina, e chi la preferisce la usa. Le due viste dicono la stessa cosa, con gli stessi
 // stati (`STATI`).
@@ -42,7 +44,7 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 // Cosa il quadro copre del canale dei rilasci, e cosa no:
 //   ⏳ 🚀 🔴 deploy da CodeBuild                  righe delle applicazioni
 //   ⏳ revisione promossa a mano, riavvii, SSM    revisione o rollout nuovo, visto da ECS
-//   🔄 revisione nuova da un automatismo          una riga per IMMAGINE condivisa
+//   🔄 revisione nuova da un automatismo          la riga di ogni risorsa; l'immagine condivisa nei Dettagli
 //   ⏳ 🚀 deploy dei cron Lambda                  una riga per Lambda; la sintesi conta i giri, dedotti
 //                                                 da ora e autore
 //   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
@@ -157,6 +159,12 @@ export const nomeBreve = (n = '') => stripOrgEnv(String(n)).replace(/^cron-/, ''
 // (`v2.195.0`, `18.9.1`, `3.6-python3.12`) è un componente esterno, fissato dall'IaC. Dedotto dal tag,
 // senza elenchi di nomi.
 export const tagDiCommit = (t) => /^[0-9a-f]{7,40}$/i.test(String(t ?? ''))
+// Una versione, cioè numeri con almeno un punto (`v2.195.0`, `2026.8.1`, `3.6.26-python3.12`). Non
+// basta «non è un commit»: `latest` non è un commit e nemmeno un componente esterno, e da quando ogni
+// cron ECS ha la sua riga quello sul tag `latest` del Backend si sarebbe detto esterno.
+export const tagDiVersione = (t) => /^v?\d+(\.\d+)+(?:[-+_.][\w.+-]*)?$/i.test(String(t ?? ''))
+// Le letture della discovery che fanno sparire risorse quando non riescono (vedi `quadroAmbiente`).
+const LETTURE_RISORSE = new Set(['lambda', 'ecs', 'schedules'])
 
 // Chi ha fatto il cambio, detto per esteso quando il nome grezzo non si capisce: la sessione con cui
 // l'apply dell'infrastruttura registra le risorse si chiama `codebuild-iac-<build>`.
@@ -301,7 +309,9 @@ function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
     come: come && { ...come, chi: chiLeggibile(canonicalActor(come.chi, persone)) },
     tentativo,
     durataTipica: b?.durataTipica ?? null,
-    esterno: !builds.length && Boolean(ecs?.tag) && !tagDiCommit(ecs.tag),
+    // Un riavvio non è una build nostra: con `builds.length` un orchestratore riavviato a mano smetteva
+    // di essere un componente esterno per sette giorni.
+    esterno: !builds.some((x) => x.kind !== 'restart') && tagDiVersione(ecs?.tag),
     immagine: ecs?.repo ?? null,
   }
 }
@@ -350,49 +360,62 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
   // da chi ha rilasciato quando, e una riga che nasce e muore con i giri non avrebbe una cella fissa.
   const una = (l) => ({ tipo: 'lambda', chiave, nomi: [l.nome], n: 1, da: l.da, quando: l.da, chi: chiLeggibile(l.chi) })
 
-  // Le immagini condivise: stesso repo su due o più servizi o cron, e NESSUNO di loro ha una build
-  // propria. Dedotto dal dato, senza elenchi: un repo nuovo condiviso entra da sé.
+  // ⚠️ UNA RISORSA, UNA RIGA, sempre: ogni servizio ECS, ogni cron ECS, ogni Lambda e ogni componente
+  // esterno ha la sua riga, che ci sia o no un rilascio, una build o un riavvio. Fino al 05/10/2026 le
+  // risorse con la stessa immagine e senza build proprie diventavano UNA riga col nome del repo, e il
+  // primo riavvio a mano di una di loro (un riavvio è una «build» per sette giorni, quanto lo ricorda
+  // CloudTrail) le separava di nuovo: sei righe al posto di una, cioè una forma diversa e il canvas
+  // riscritto intero, quello che il client aperto mostra doppio (visto quel giorno su un orchestratore
+  // con sei servizi, alle 21:30). Il raggruppamento resta, ma come fatto di ogni riga: «stessa immagine
+  // di 6» nei Dettagli, e chi è rimasto indietro rispetto agli altri lo dice il suo stato.
+  //
+  // Le build si attaccano alla risorsa col loro nome; a parità di nome fra un servizio e un cron, al
+  // servizio, che è quello che una build di deploy rilascia.
+  const vere = (n) => (perServizio.get(n) ?? []).filter((x) => x.kind !== 'restart')
   const perRepo = new Map()
   for (const e of ecs) if (e.repo) perRepo.set(e.repo, [...(perRepo.get(e.repo) ?? []), e])
-  const gruppi = []
-  const inGruppo = new Set()
-  for (const [repo, lista] of perRepo) {
-    // Senza build lette non si sa chi ne ha una propria: raggruppare metterebbe il Backend fra le
-    // immagini condivise, col primo cron sul tag `latest` segnato come «rimasto indietro».
-    if (buildIgnote || lista.length < 2 || lista.some((e) => perServizio.has(e.nome))) continue
-    lista.forEach((e) => inGruppo.add(e.nome))
-    // Il tag più recente è «quello che gira»; chi ne ha un altro è rimasto indietro e si dice per nome.
+  const condivise = new Map()
+  for (const lista of perRepo.values()) {
+    if (lista.length < 2) continue
+    // Il tag più recente è «quello che gira»; chi ne ha un altro è rimasto indietro. Si dice solo se
+    // NESSUNO ha build proprie (e le build si sono lette): il Backend col cron ancora sul tag `latest`
+    // non è rimasto indietro, ha un'altra strada di rilascio.
     const recente = lista.reduce((a, e) => (tempo(e.da) > tempo(a.da) ? e : a), lista[0])
-    gruppi.push({
-      tipo: 'immagine',
-      nome: repo,
-      chiave,
-      tag: corto(recente.tag),
-      servizi: lista.filter((e) => e.tipo === 'ecs').map((e) => e.nome).sort(),
-      cron: lista.filter((e) => e.tipo === 'ecs-scheduled').map((e) => e.nome).sort(),
-      indietro: lista.filter((e) => e.tag !== recente.tag).map((e) => ({ nome: e.nome, tag: corto(e.tag) })),
-      quando: recente.da,
-      chi: chiLeggibile(recente.chi),
-      giu: lista.filter((e) => e.giu).map((e) => e.nome),
-      inRollout: lista.some((e) => e.inRollout),
-      esterno: !tagDiCommit(recente.tag),
-    })
+    const confronta = !buildIgnote && !lista.some((e) => vere(e.nome).length)
+    for (const e of lista) condivise.set(e, { n: lista.length, tag: corto(recente.tag), indietro: confronta && e.tag !== recente.tag })
   }
+  const prese = new Set()
+  const tutte = []
+  for (const e of [...ecs.filter((x) => x.tipo === 'ecs'), ...ecs.filter((x) => x.tipo !== 'ecs')]) {
+    const builds = prese.has(e.nome) ? [] : (perServizio.get(e.nome) ?? [])
+    prese.add(e.nome)
+    tutte.push({ ...rigaApp(e.nome, e, builds, { persone, chiave, buildIgnote }), cron: e.tipo === 'ecs-scheduled', condivisa: condivise.get(e) ?? null })
+  }
+  // Le risorse che si conoscono solo dalle build (un sito statico). Un riavvio da solo, senza un
+  // servizio ECS dietro, non è una risorsa: sarebbe una riga che vive sette giorni e poi sparisce.
+  for (const [n, builds] of perServizio) if (!prese.has(n) && vere(n).length) tutte.push({ ...rigaApp(n, null, builds, { persone, chiave, buildIgnote }), cron: false, condivisa: null })
 
-  const ecsServizi = new Map(ecs.filter((e) => e.tipo === 'ecs' && !inGruppo.has(e.nome)).map((e) => [e.nome, e]))
-  const nomi = [...new Set([...ecsServizi.keys(), ...perServizio.keys()])]
-  const tutte = nomi.map((n) => rigaApp(n, ecsServizi.get(n) ?? null, perServizio.get(n) ?? [], { persone, chiave, buildIgnote }))
-
-  // I componenti esterni (proxy, agenti, orchestratori: versioni fissate dall'IaC) stanno a parte,
-  // che siano un servizio solo o un'immagine condivisa: non sono rilasci di nessuno.
-  const esterni = [
-    ...tutte
-      .filter((r) => r.esterno)
-      .map((r) => ({ tipo: 'esterno', nome: r.servizio, chiave, tag: r.commit, nomi: [r.servizio], quando: r.quando, chi: r.come?.chi ?? null, giu: r.stato === 'giu', inRollout: r.stato === 'in_corso' })),
-    ...gruppi
-      .filter((g) => g.esterno)
-      .map((g) => ({ tipo: 'esterno', nome: g.nome, chiave, tag: g.tag, nomi: [...g.servizi, ...g.cron], quando: g.quando, chi: g.chi, giu: g.giu.length > 0, inRollout: g.inRollout })),
-  ]
+  // I componenti esterni (proxy, agenti, orchestratori: versioni fissate dall'IaC) hanno la stessa riga
+  // di prima, detta come componente esterno: non sono rilasci di nessuno.
+  const esterni = tutte
+    .filter((r) => r.esterno)
+    .map((r) => ({
+      tipo: 'esterno',
+      nome: r.servizio,
+      chiave,
+      tag: r.commit,
+      nomi: [r.servizio],
+      quando: r.quando,
+      chi: r.come?.chi ?? null,
+      giu: r.stato === 'giu',
+      inRollout: r.stato === 'in_corso',
+      immagine: r.immagine,
+      cron: r.cron,
+      condivisa: r.condivisa,
+    }))
+  // Le build e le risorse dell'ambiente si sono lette tutte? Se no, una riga che manca vuol dire «non
+  // letta», non «sparita», e il canvas e la List la lasciano dov'è (vedi `pianoCelle`).
+  const problemi = (servizi.problemi ?? []).filter((p) => ambienteDi(p.account ?? '') === ambiente && (p.problems ?? []).some((x) => LETTURE_RISORSE.has(x.what)))
 
   const i = statoBuild(iac)
   const ultimaIac = i?.ultima ?? null
@@ -416,7 +439,6 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     ambiente,
     chiave,
     app: tutte.filter((r) => !r.esterno),
-    immagini: gruppi.filter((g) => !g.esterno).sort((a, b) => a.nome.localeCompare(b.nome)),
     esterni,
     lambda: lottiLambda(lambda).map((l) => ({ ...l, tipo: 'lambda', chiave, chi: chiLeggibile(l.chi) })),
     lambdaSenzaData: lambda.filter((l) => !l.da).length,
@@ -427,6 +449,7 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     infra,
     buildIgnote,
     erroreBuild,
+    incompleto: buildIgnote || problemi.length > 0,
   }
 }
 
@@ -450,17 +473,18 @@ export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambi
 const repoNome = (url) => (url ? String(url).replace(/\.git$/, '').split('/').pop() : null)
 
 // Un ambiente diviso nelle schede: la PRINCIPALE, CRON e una per ogni squadra. Puro/testabile.
-//   squadra    un'applicazione o un'immagine condivisa il cui repository (sorgente della build o repo
-//              dell'immagine) è di quella squadra: vince su tutto, perché è la domanda «di chi è»
-//   cron       le Lambda col nome da cron e le immagini condivise fatte di soli cron
-//   principale tutto il resto, con l'IaC, i componenti esterni e le Lambda dell'infrastruttura
+//   squadra    una risorsa il cui repository (sorgente della build o repo dell'immagine) è di quella
+//              squadra: vince su tutto, perché è la domanda «di chi è»
+//   cron       le Lambda col nome da cron e i cron ECS
+//   principale tutto il resto, con l'IaC e le Lambda dell'infrastruttura
+// Dove va una riga lo decide la risorsa (il suo tipo, il suo repository), non il suo stato: una riga
+// che cambia scheda sparisce da un canvas e nasce in un altro, cioè due canvas riscritti interi.
 // Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse funzioni.
 export function dividi(qa, { squadre = {} } = {}) {
   if (!qa) return null
-  const vuoto = () => ({ ...qa, app: [], immagini: [], esterni: [], lambda: [], lambdaSenzaData: 0, lambdaTutte: [], infra: null })
+  const vuoto = () => ({ ...qa, app: [], esterni: [], lambda: [], lambdaSenzaData: 0, lambdaTutte: [], infra: null })
   const principale = {
     ...vuoto(),
-    esterni: qa.esterni ?? [],
     lambda: qa.lambda ?? [],
     lambdaSenzaData: qa.lambdaSenzaData ?? 0,
     lambdaTutte: qa.lambdaTutte ?? [],
@@ -469,16 +493,9 @@ export function dividi(qa, { squadre = {} } = {}) {
   const cron = { ...vuoto(), lambda: qa.lambdaCron ?? [], lambdaSenzaData: qa.lambdaCronSenzaData ?? 0, lambdaTutte: qa.lambdaCronTutte ?? [] }
   const perSquadra = Object.fromEntries(Object.keys(squadre).map((nome) => [nome, vuoto()]))
   const squadraDi = (...nomi) => Object.keys(squadre).find((nome) => nomi.some((n) => n && squadre[nome].includes(String(n).toLowerCase())))
-  for (const r of qa.app ?? []) {
-    const sq = squadraDi(repoNome(r.repo), r.immagine)
-    ;(sq ? perSquadra[sq] : principale).app.push(r)
-  }
-  for (const g of qa.immagini ?? []) {
-    const sq = squadraDi(g.nome)
-    if (sq) perSquadra[sq].immagini.push(g)
-    else if (!g.servizi.length) cron.immagini.push(g)
-    else principale.immagini.push(g)
-  }
+  const parte = (sq, diCron) => (sq ? perSquadra[sq] : diCron ? cron : principale)
+  for (const r of qa.app ?? []) parte(squadraDi(repoNome(r.repo), r.immagine), r.cron).app.push(r)
+  for (const e of qa.esterni ?? []) parte(squadraDi(e.immagine), e.cron).esterni.push(e)
   return { principale, cron, squadre: perSquadra }
 }
 
@@ -536,15 +553,14 @@ const plurale = (n, uno, tanti) => `${n} ${n === 1 ? uno : tanti}`
 export const cella = (t) => String(t ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')
 
 // I link a Dadaguard già filtrati sulla risorsa della riga. Le applicazioni e l'IaC hanno una storia
-// di build, quindi vanno alla pagina Deploy; Lambda, immagini condivise e componenti esterni non ne
-// hanno, quindi vanno alla pagina Servizi filtrata sui loro nomi.
+// di build, quindi vanno alla pagina Deploy; Lambda e componenti esterni non ne hanno, quindi vanno
+// alla pagina Servizi filtrata sui loro nomi.
 export function linkRisorsa(v, url) {
   if (!url || !v.chiave) return null
   const account = encodeURIComponent(v.chiave)
   if (v.tipo === 'app') return `${url}/deploy?service=${encodeURIComponent(v.servizio)}&account=${account}`
   if (v.tipo === 'iac') return `${url}/deploy?service=IaC&account=${account}`
-  const nomi = v.tipo === 'immagine' ? [...v.servizi, ...v.cron] : v.nomi
-  const conNomi = `${url}/servizi?account=${account}&q=${encodeURIComponent(nomi.join(','))}`
+  const conNomi = `${url}/servizi?account=${account}&q=${encodeURIComponent(v.nomi.join(','))}`
   // Un indirizzo lunghissimo (un giro di cento Lambda) si accorcia alla pagina dell'ambiente: meglio
   // tutto che un filtro tagliato a metà, che mostrerebbe solo una parte senza dirlo.
   return conNomi.length <= 2900 ? conNomi : `${url}/servizi?account=${account}`
@@ -566,7 +582,6 @@ function comeTesto(c) {
 // Puro/testabile.
 export function voce(v, { ora = Date.now() } = {}) {
   if (v.tipo === 'app') return voceApp(v, ora)
-  if (v.tipo === 'immagine') return voceImmagine(v, ora)
   if (v.tipo === 'lambda')
     // Una Lambda sola si chiama per nome; un giro intero si conta, e i nomi vanno nei dettagli.
     return {
@@ -639,6 +654,18 @@ function voceApp(r, ora) {
     }
     return { ...base, livello: 'adesso', gravita: 3, quando: r.quando, emoji: '⏳', stato: 'rollout in corso', dettagli: [`${c}${rev ? ` (${rev})` : ''}`, salute, comeTesto(r.come)] }
   }
+  // Un'immagine condivisa su cui questa risorsa è rimasta indietro rispetto alle altre.
+  const cond = r.condivisa
+  if (cond?.indietro)
+    return {
+      ...base,
+      livello: 'adesso',
+      gravita: 2,
+      quando: r.quando,
+      emoji: '⚠️',
+      stato: 'su un’immagine più vecchia',
+      dettagli: [`gira ${c}`, `la più recente è ${sha(cond.tag, r.repo)}`, `stessa immagine di ${cond.n}`],
+    }
   return {
     ...base,
     livello: 'recente',
@@ -648,24 +675,6 @@ function voceApp(r, ora) {
     stato: `${c}${SEP}${alle(r.quando, ora)}`,
     dettagli: [rev, salute, comeTesto(r.come), r.autore && `commit di ${r.autore}`, r.staging && `staging su \`${r.staging}\``],
   }
-}
-
-function voceImmagine(g, ora) {
-  const quanti = [g.servizi.length && plurale(g.servizi.length, 'servizio', 'servizi'), g.cron.length && `${g.cron.length} cron`].filter(Boolean).join(' e ')
-  const tutti = [...g.servizi, ...g.cron]
-  const base = { nome: g.nome, quando: g.quando }
-  if (g.giu.length) return { ...base, livello: 'adesso', gravita: 0, emoji: '🚨', stato: `giù: ${elenco(g.giu, 4)}`, dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
-  if (g.indietro.length)
-    return {
-      ...base,
-      livello: 'adesso',
-      gravita: 2,
-      emoji: '⚠️',
-      stato: `${g.indietro.length} di ${tutti.length} su un’immagine più vecchia`,
-      dettagli: [g.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '), `gli altri su \`${g.tag}\`, aggiornati ${alle(g.quando, ora)}`],
-    }
-  if (g.inRollout) return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [`immagine \`${g.tag}\` su ${quanti}`] }
-  return { ...base, livello: 'recente', gravita: 4, emoji: '🔄', stato: `\`${g.tag}\` su ${quanti}${SEP}${alle(g.quando, ora)}`, dettagli: [g.chi && `registrata ${daChi(g.chi)}`, elenco(tutti)] }
 }
 
 function voceIac(i, ora) {
@@ -692,11 +701,11 @@ function voceIac(i, ora) {
 // conteggio del resto. La tabella non li usa più (ha tutte le righe, vedi `righeTabella`): servono
 // alla sintesi, la riga che si legge per prima, e agli allarmi nel canale. Puro/testabile.
 export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
-  const { app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false } = q
+  const { app = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false } = q
   const soglia = ora - ore * 3_600_000
   const adesso = []
   const recenti = []
-  const resto = { app: 0, immagini: 0, lambda: lambdaSenzaData, esterni: 0, iac: null }
+  const resto = { app: 0, lambda: lambdaSenzaData, esterni: 0, iac: null }
   const metti = (v, chiaveResto, peso = 1) => {
     const x = voce(v, { ora })
     if (!x) return
@@ -707,7 +716,6 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
     else resto[chiaveResto] += peso
   }
   app.forEach((r) => metti(r, 'app'))
-  immagini.forEach((g) => metti(g, 'immagini'))
   esterni.forEach((e) => metti(e, 'esterni'))
   lambda.forEach((l) => metti(l, 'lambda', l.n))
   if (infra) metti(infra, 'iac')
@@ -795,21 +803,15 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
   const fermo = (quando) => (quando && tempo(quando) >= ora - ore * 3_600_000 ? 'deploy_ok' : 'invariato')
   let r
   if (v.tipo === 'app') r = rigaDiApp(v, fermo)
-  else if (v.tipo === 'immagine') {
-    const quanti = [v.servizi.length && plurale(v.servizi.length, 'servizio', 'servizi'), v.cron.length && `${v.cron.length} cron`].filter(Boolean).join(' e ')
-    const tutti = [...v.servizi, ...v.cron]
-    const stato = v.giu.length ? 'giu' : v.indietro.length ? 'indietro' : v.inRollout ? 'deploy_avviato' : fermo(v.quando)
+  else if (v.tipo === 'esterno')
+    // La versione la fissa l'IaC: chi l'ha cambiata non serve, e «componente esterno» dice già perché.
     r = {
       nome: v.nome,
-      stato,
+      stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando),
       quando: v.quando,
-      suffisso: stato === 'giu' ? elenco(v.giu, 2) : stato === 'indietro' ? `${v.indietro.length} di ${tutti.length}` : null,
       versione: `\`${v.tag ?? '?'}\``,
-      dettagli: [`su ${quanti}`, v.indietro.length && elenco(v.indietro.map((x) => x.nome), 2)],
+      dettagli: ['esterno', v.condivisa && `stessa immagine di ${v.condivisa.n}`],
     }
-  } else if (v.tipo === 'esterno')
-    // La versione la fissa l'IaC: chi l'ha cambiata non serve, e «componente esterno» dice già perché.
-    r = { nome: v.nome, stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando), quando: v.quando, versione: `\`${v.tag ?? '?'}\``, dettagli: ['esterno'] }
   else if (v.tipo === 'lambda')
     // Una Lambda dice di sé solo quando è stata aggiornata e da chi: niente versione, niente «in corso».
     r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'data non letta'] }
@@ -874,10 +876,15 @@ function rigaDiApp(a, fermo) {
     return { ...base, stato: 'deploy_avviato', quando: a.quando, dettagli: ['rollout', task] }
   }
   // Ferma: con un servizio ECS la revisione e i task; senza (un sito statico) la build e quanto è durata.
+  // Un'immagine condivisa con altre risorse lo dice in fondo: è il raggruppamento che una volta faceva
+  // una riga sola, e qui non cambia la forma della tabella.
   const come = a.come
+  const stessa = a.condivisa && `stessa immagine di ${a.condivisa.n}`
+  if (a.condivisa?.indietro)
+    return { ...base, stato: 'indietro', quando: a.quando, dettagli: [`la più recente è ${sha(a.condivisa.tag, a.repo)}`, stessa] }
   const dettagli =
     come?.tipo === 'riavvio' ? ['riavvio', task] : rev || task ? [rev, task] : come?.build ? [`build #${come.build}`, durata(come.durataMs)] : [comeBreve(come)]
-  return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli }
+  return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli: [...dettagli, stessa] }
 }
 
 // Come è arrivato, in due parole: «build #661», «riavvio», «hotfix #12». Puro.
@@ -895,7 +902,7 @@ const perNome = (a, b) => a.nome.localeCompare(b.nome, 'it', { sensitivity: 'bas
 // Tutte le righe di una parte del quadro, in ordine alfabetico per nome: l'ordine non dipende da cosa
 // succede, quindi una riga resta dov'era e cambiano solo le sue celle. Puro/testabile.
 export function righeTabella(q, opts = {}) {
-  const voci = [...(q.app ?? []), ...(q.immagini ?? []), ...(q.esterni ?? []), ...(q.lambdaTutte ?? []), ...(q.infra ? [q.infra] : [])]
+  const voci = [...(q.app ?? []), ...(q.esterni ?? []), ...(q.lambdaTutte ?? []), ...(q.infra ? [q.infra] : [])]
   return voci
     .map((v) => rigaRisorsa(v, opts))
     .filter(Boolean)
@@ -945,7 +952,8 @@ export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url 
   const sezioni = []
   for (const q of perAmbiente) {
     const s = sezioniAmbiente(q, { ora, url, ore, liste })
-    const sezione = { titolo: s.meta.sezione, sintesi: `**${s.sintesi.join(SEP)}**`, righe: s.righe.map((r) => r.celle), fondo: s.fondo }
+    // `tollera`: le righe di questo ambiente non si sono lette tutte (vedi `pianoCelle`).
+    const sezione = { titolo: s.meta.sezione, sintesi: `**${s.sintesi.join(SEP)}**`, righe: s.righe.map((r) => r.celle), fondo: s.fondo, tollera: Boolean(q.incompleto) }
     sezioni.push(sezione)
     parti.push(`## ${sezione.titolo}`, sezione.sintesi)
     // Senza righe niente tabella: un'intestazione senza righe non dice niente.
@@ -994,7 +1002,8 @@ export function listeDaScrivere(q, cfg, { ora = Date.now() } = {}) {
     .map((a) => {
       const p = dividi(q[a], { squadre: cfg.squadre ?? {} })
       const righe = [p.principale, p.cron, ...Object.values(p.squadre)].flatMap((x) => righeTabella(x, opts)).sort(perNome)
-      return { chiave: a, canale: cfg.canali?.[a] ?? null, titolo: titoloLista(a), righe }
+      // `tieni`: le righe non si sono lette tutte, e una che manca non si toglie (vedi `pianoCelle`).
+      return { chiave: a, canale: cfg.canali?.[a] ?? null, titolo: titoloLista(a), righe, tieni: Boolean(q[a].incompleto) }
     })
 }
 
@@ -1139,15 +1148,25 @@ export function pianoCelle(modello, blocchi) {
     if (h?.tipo !== 'h2' || !uguale(s.titolo, h.testo)) return null
     const p = b[i++]
     if (p?.tipo !== 'p' || !cambia(p, s.sintesi)) return null
-    if (s.righe.length) {
+    if (s.righe.length || (s.tollera && b[i]?.tipo === 'table')) {
       const t = b[i++]
-      if (t?.tipo !== 'table' || t.righe.length !== s.righe.length + 1) return null
+      if (t?.tipo !== 'table' || t.righe.length < 1) return null
       if (t.righe[0].length !== INTESTAZIONE.length || t.righe[0].some((c, k) => !uguale(INTESTAZIONE[k], c.testo))) return null
-      for (const [j, celle] of s.righe.entries()) {
-        const viste = t.righe[j + 1]
-        if (viste.length !== celle.length || !uguale(celle[0], viste[0].testo)) return null
-        for (let k = 1; k < celle.length; k++) if (!cambia(viste[k], celle[k])) return null
+      // Le righe si appaiano per nome, nello stesso ordine. Una riga del canvas che il modello non ha
+      // vuol dire una risorsa sparita, cioè un'altra forma; ma con le build o la discovery non lette
+      // (`tollera`) vuol dire solo «non letta»: un sito statico o l'IaC, che si conoscono dalle build,
+      // sparirebbero per riapparire al ritorno di CodeBuild, due riscritture intere per un buco di rete.
+      // Lì la riga resta com'è, con l'ultimo stato letto. Una riga del modello che il canvas non ha è
+      // invece una risorsa nuova, e vuole sempre la riscrittura.
+      let j = 0
+      for (const viste of t.righe.slice(1)) {
+        const celle = s.righe[j]
+        if (celle && viste.length === celle.length && uguale(celle[0], viste[0].testo)) {
+          for (let k = 1; k < celle.length; k++) if (!cambia(viste[k], celle[k])) return null
+          j++
+        } else if (!s.tollera) return null
       }
+      if (j !== s.righe.length) return null
     }
     if (s.fondo) {
       const f = b[i++]
@@ -1468,7 +1487,8 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
   }
   st.doppie = []
   for (const [nome, riga] of st.righe) {
-    if (voluti.has(nome)) continue
+    // Con build o risorse non lette, una riga che manca non è sparita: si toglie al giro in cui si sa.
+    if (voluti.has(nome) || l.tieni) continue
     await api('slackLists.items.delete', { list_id: st.id, id: riga.id })
     st.righe.delete(nome)
     tolte++
