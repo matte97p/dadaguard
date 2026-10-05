@@ -478,6 +478,9 @@ export function alle(iso, ora = Date.now()) {
   return `il ${fmt(d, { day: '2-digit', month: '2-digit' })} alle ${ore}`
 }
 
+// «dalle 08:41», «da ieri alle 22:07»: l'inizio di qualcosa in corso, fisso come `alle`. Puro.
+export const dalle = (iso, ora = Date.now()) => alle(iso, ora).replace(/^alle /, 'dalle ').replace(/^(ieri|il) /, 'da $1 ')
+
 // La durata di una build: «45 s», «6 min». Puro.
 export function durata(ms) {
   if (!(ms > 0)) return null
@@ -591,7 +594,7 @@ function voceApp(r, ora) {
         gravita: 3,
         quando: t.da,
         emoji: '⏳',
-        stato: `build${t.numero ? ` #${t.numero}` : ''} in corso da ${eta(t.da, ora)}${tipico}`,
+        stato: `build${t.numero ? ` #${t.numero}` : ''} in corso ${dalle(t.da, ora)}${tipico}`,
         dettagli: [t.fase && `fase ${t.fase}`, verso, t.chi && `di ${t.chi}`, salute],
       }
     }
@@ -632,7 +635,7 @@ function voceIac(i, ora) {
   const base = { nome: 'IaC', quando: i.quando }
   if (i.stato === 'in_corso') {
     const tipico = durata(i.durataTipica) ? `, di solito ${durata(i.durataTipica)}` : ''
-    return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: `apply in corso da ${eta(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `fase ${i.fase}`, i.chi && `di ${i.chi}`] }
+    return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: `apply in corso ${dalle(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `fase ${i.fase}`, i.chi && `di ${i.chi}`] }
   }
   if (i.stato === 'fallito')
     return {

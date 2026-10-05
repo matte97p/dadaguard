@@ -138,7 +138,7 @@ test('in corso: numero della build, da quanto, quanto dura di solito, da che com
   const v = voce(q.app[0], { ora: ORA })
   assert.equal(v.livello, 'adesso')
   assert.equal(v.emoji, '⏳')
-  assert.equal(v.stato, 'build #662 in corso da 3 min, di solito 6 min')
+  assert.equal(v.stato, 'build #662 in corso dalle 13:57, di solito 6 min')
   assert.deepEqual(v.dettagli.filter(Boolean).slice(0, 3), ['fase BUILD', 'da `aaaaaaa` a `bbbbbbb`', 'di dev'])
 })
 
@@ -269,7 +269,7 @@ test('le altre azioni a mano non diventano servizi, l’IaC ha la sua riga', () 
   })
   assert.deepEqual(q.app.map((r) => r.servizio), ['api'])
   const v = voce(q.infra, { ora: ORA })
-  assert.equal(`${v.emoji} ${v.nome}: ${v.stato}`, '⏳ IaC: apply in corso da 1 h')
+  assert.equal(`${v.emoji} ${v.nome}: ${v.stato}`, '⏳ IaC: apply in corso dalle 13:00')
 })
 
 test('build non lette: il quadro lo dice e non inventa niente che ne dipenda', () => {
