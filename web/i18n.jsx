@@ -853,7 +853,6 @@ const STRINGS = {
     'costs.desc':
       'Spesa MTD per servizio (lordo); i crediti/rimborsi si scalano a parte → netto. Proiezione a fine mese sul ritmo dei giorni trascorsi. Dati con ~24h di ritardo, on-demand. Diverso da «Sprechi», che è la stima a listino.',
     'costs.gross': 'lordo',
-    'costs.projection': 'proiezione fine mese:',
     'costs.projectionBasis': 'su {d}/{tot} gg · {pct}%',
     'costs.netAfter': 'netto {v}',
     'costs.credits': 'crediti {v}',
@@ -889,6 +888,7 @@ const STRINGS = {
     'costs.th.service': 'servizio',
     'costs.th.spend': 'spesa',
     'costs.th.share': '% mese',
+    'costs.th.projection': 'a fine mese',
     'costs.svc.title': 'Per servizio',
     'costs.svc.desc': 'Quanto costa ogni servizio AWS, per account. L’ombra chiara è la proiezione a fine mese.',
     'costs.cat.lensDesc': 'Per la Cost Category «Livello» (compute, database, llms…). Scegli un livello dal menu qui sopra e la lente si apre sui servizi che lo compongono.',
@@ -2136,7 +2136,6 @@ const STRINGS = {
     'costs.desc':
       'MTD spend per service (gross); credits/refunds are deducted separately → net. Month-end projection from the pace of days elapsed. Data ~24h delayed, on-demand. Different from «Waste», which is the list-price estimate.',
     'costs.gross': 'gross',
-    'costs.projection': 'projected month-end:',
     'costs.projectionBasis': '{d}/{tot} days · {pct}%',
     'costs.netAfter': 'net {v}',
     'costs.credits': 'credits {v}',
@@ -2171,7 +2170,8 @@ const STRINGS = {
     'costs.th.component': 'component',
     'costs.th.service': 'service',
     'costs.th.spend': 'spend',
-    'costs.th.share': '% of month',
+    'costs.th.share': '% month',
+    'costs.th.projection': 'month-end',
     'costs.svc.title': 'By service',
     'costs.svc.desc': 'What each AWS service costs, per account. The pale shadow is the end-of-month forecast.',
     'costs.cat.lensDesc': 'By the «Level» cost category (compute, database, llms…). Pick a level from the menu above and the lens opens up on the services behind it.',

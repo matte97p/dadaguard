@@ -124,7 +124,6 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, risposta 
               key={r.chiave}
               type="button"
               className="ui-row ui-row-btn"
-              style={{ gridTemplateColumns: GRIGLIA }}
               onClick={() => setAperta(r)}
             >
               <Pill livello={r.level === 'spreco' ? 'warn' : 'info'}>{r.level === 'spreco' ? t('waste.level.waste') : t('waste.level.check')}</Pill>
@@ -148,9 +147,9 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, risposta 
         {aperta && (
           <>
             <p className="ui-mute">{aperta.reason}</p>
-            <Lista>
+            <Lista griglia="minmax(0,1fr) auto" grigliaMobile="minmax(0,1fr) auto">
               {aperta.names.map((n) => (
-                <div key={n.id} className="ui-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+                <div key={n.id} className="ui-row">
                   <span className="ui-mono" style={{ overflowWrap: 'anywhere' }}>
                     {n.id}
                   </span>

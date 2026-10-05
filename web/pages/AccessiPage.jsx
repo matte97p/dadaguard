@@ -822,7 +822,7 @@ export default function AccessiPage({ t, lang }) {
             {tb.filtrate.map((r) => {
               const male = tb.problema(r)
               return (
-                <div key={tb.rowKey(r)} className="ui-row" style={{ gridTemplateColumns: tb.griglia }}>
+                <div key={tb.rowKey(r)} className="ui-row">
                   {!tb.senzaStato && (
                     <Pill livello={male ? tb.livello : 'ok'}>{male ? t('accessi.pill.guarda') : t('accessi.pill.ok')}</Pill>
                   )}

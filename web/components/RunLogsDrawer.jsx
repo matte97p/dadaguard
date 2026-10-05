@@ -129,13 +129,13 @@ export default function RunLogsDrawer({ open, onClose, cron, run, t = (k) => k, 
             )
           }
         >
-          <Lista>
+          <Lista griglia="92px minmax(0,1fr) auto">
             {runs.map((r) => (
               <button
                 key={r.id ?? r.startedAt}
                 type="button"
                 className="ui-row ui-row-btn"
-                style={{ gridTemplateColumns: '92px minmax(0,1fr) auto', background: r === corsa ? 'var(--brand-soft)' : undefined }}
+                style={{ background: r === corsa ? 'var(--brand-soft)' : undefined }}
                 aria-pressed={r === corsa}
                 onClick={() => setScelta(r)}
               >

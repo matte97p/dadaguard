@@ -3,6 +3,8 @@ import { Lista, Pill, Meter, Drawer, Rimedio, BloccoComando, ListaLink } from '.
 import { livelloTetto } from './spesaKit.js'
 
 const GRIGLIA = '96px minmax(0,1.3fr) minmax(0,1.6fr) 60px'
+// Sul telefono: stato, offerta e percentuale in testa, la barra sotto.
+const GRIGLIA_M = 'auto minmax(0,1fr) auto'
 const unita = (it) => (it.unit ? ` ${it.unit}` : '')
 
 // Scheda Free Tier: uso mensile contro il limite gratuito, per offerta (es. CodeBuild 100 minuti).
@@ -20,7 +22,7 @@ export default function FreeTierPage({ t = (k) => k, risposta }) {
       <p className="ui-mute" style={{ margin: 0 }}>
         {t('freetier.desc')}
       </p>
-      <Lista colonne={[t('spend.col.stato'), t('lim.col.offerta'), t('lim.col.uso'), '']} griglia={GRIGLIA} vuoto={t('freetier.none')}>
+      <Lista colonne={[t('spend.col.stato'), t('lim.col.offerta'), t('lim.col.uso'), '']} griglia={GRIGLIA} grigliaMobile={GRIGLIA_M} vuoto={t('freetier.none')}>
         {items.map((it, i) => {
           const livello = livelloTetto(it.pct, 100, 85)
           return (
@@ -28,7 +30,6 @@ export default function FreeTierPage({ t = (k) => k, risposta }) {
               key={`${it.service}/${it.usageType}/${i}`}
               type="button"
               className="ui-row ui-row-btn"
-              style={{ gridTemplateColumns: GRIGLIA }}
               onClick={() => setAperta(it)}
             >
               <Pill livello={livello}>{t(`lim.f.livello.${livello}`)}</Pill>
