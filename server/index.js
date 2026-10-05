@@ -42,7 +42,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
-import { quadro, canvasDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
+import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statoLeggero } from './quadroStato.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
@@ -410,7 +410,9 @@ app.get('/api/quadro', async (req, res) => {
     const canvas = Object.fromEntries(canvasDaScrivere(q, cfg).map((c) => [c.chiave, c]))
     if (req.query.format === 'markdown')
       return res.type('text/markdown').send(Object.values(canvas).map((c) => `# ${c.titolo}\n\n${c.markdown}`).join('\n\n---\n\n'))
-    res.json({ quadro: q, canvas })
+    // Le righe che la Slack List di ogni ambiente avrebbe, accanto al canvas.
+    const liste = cfg.liste ? Object.fromEntries(listeDaScrivere(q, cfg).map((l) => [l.chiave, l])) : {}
+    res.json({ quadro: q, canvas, liste })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
