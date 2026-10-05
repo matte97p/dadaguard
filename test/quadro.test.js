@@ -190,11 +190,12 @@ test('un servizio giù vince su tutto; un cron in rosso invece non è un deploy 
   assert.equal(q.app[0].stato, 'giu')
   const v = voce(q.app[0], { ora: ORA })
   assert.equal(`${v.emoji} ${v.stato}`, '🚨 giù: 0/2 task attivi')
-  assert.deepEqual(q.immagini[0].cron, ['pulizia', 'report'])
-  assert.deepEqual(q.immagini[0].giu, [], 'il cron fallito lo racconta il canale dei cron')
+  const cron = q.app.filter((r) => r.cron)
+  assert.deepEqual(cron.map((r) => r.servizio), ['pulizia', 'report'], 'ogni cron ECS ha la sua riga')
+  assert.deepEqual(cron.map((r) => r.stato), ['ok', 'ok'], 'il cron fallito lo racconta il canale dei cron')
 })
 
-test('immagini condivise senza build: una riga sola, e chi è rimasto indietro sale in «Adesso»', () => {
+test('immagini condivise senza build: una riga per risorsa, e chi è rimasto indietro sale in «Adesso»', () => {
   const q = quadroAmbiente('produzione', {
     deploys: LETTE_PROD,
     servizi: [
@@ -204,26 +205,30 @@ test('immagini condivise senza build: una riga sola, e chi è rimasto indietro s
       svc('api', 'production', { tag: 'aaaaaaa', repo: 'api' }),
     ],
   })
-  assert.deepEqual(q.app.map((r) => r.servizio), ['api'], 'chi sta in un’immagine condivisa non ha la sua riga')
-  const [g] = q.immagini
-  assert.deepEqual(g.servizi, ['enrich', 'tenders'])
-  assert.deepEqual(g.indietro, [{ nome: 'shadow', tag: '3e2f937' }])
-  assert.equal(g.chi, 'refresh', 'organizzazione e ambiente si tolgono dal nome dell’automatismo')
-  const v = voce(g, { ora: ORA })
+  assert.deepEqual(q.app.map((r) => r.servizio).sort(), ['api', 'enrich', 'shadow', 'tenders'], 'l’immagine condivisa non fa una riga sua: ogni risorsa ha la sua')
+  const per = Object.fromEntries(righeTabella(q, { ora: ORA }).map((r) => [r.nome, r]))
+  assert.equal(per.tenders.stato, 'deploy_ok')
+  assert.match(per.tenders.dettagli, /stessa immagine di 3$/, 'il raggruppamento sta nei Dettagli')
+  assert.equal(per.shadow.stato, 'indietro')
+  assert.equal(per.shadow.celle[2], '`3e2f937` · la più recente è `e4ce302` · stessa immagine di 3')
+  assert.doesNotMatch(per.api.dettagli, /stessa immagine/, 'un’immagine sola non si dice')
+  const v = voce(q.app.find((r) => r.servizio === 'shadow'), { ora: ORA })
   assert.equal(v.livello, 'adesso')
-  assert.equal(`${v.emoji} ${v.stato}`, '⚠️ 1 di 3 su un’immagine più vecchia')
+  assert.equal(`${v.emoji} ${v.stato}`, '⚠️ su un’immagine più vecchia')
+  assert.match(canvasQuadro(q, { ora: ORA }).sintesi, /⚠️ 1 da guardare/)
 })
 
-test('un repo condiviso da un servizio con una build sua NON è un’immagine condivisa', () => {
+test('un repo condiviso da un servizio con una build sua: nessuno è «indietro», ha un’altra strada di rilascio', () => {
   const q = quadroAmbiente('produzione', {
     deploys: { production: { builds: [b('backend', 'aaaaaaa', '2026-10-02T10:00:00Z')] } },
-    servizi: [svc('backend', 'production', { tag: 'aaaaaaa', repo: 'backend' }), svc('garanzia', 'production', { tag: 'aaaaaaa', repo: 'backend' })],
+    servizi: [svc('backend', 'production', { tag: 'aaaaaaa', repo: 'backend' }), svc('acme-production-cron-pulizia', 'production', { type: 'ecs-scheduled', tag: 'latest', repo: 'backend' })],
   })
-  assert.equal(q.immagini.length, 0)
-  assert.deepEqual(q.app.map((r) => r.servizio).sort(), ['backend', 'garanzia'])
+  assert.deepEqual(q.app.map((r) => r.servizio), ['backend', 'pulizia'], 'anche il cron ECS senza build ha la sua riga')
+  assert.deepEqual(q.app.map((r) => r.condivisa), [{ n: 2, tag: 'aaaaaaa', indietro: false }, { n: 2, tag: 'aaaaaaa', indietro: false }])
+  assert.equal(q.esterni.length, 0, '`latest` non è un commit, ma nemmeno una versione: non è un componente esterno')
 })
 
-test('i componenti esterni (tag di versione) stanno a parte, sia da soli sia condivisi', () => {
+test('i componenti esterni (tag di versione) hanno una riga per risorsa, condivisi o no', () => {
   const q = quadroAmbiente('produzione', {
     deploys: LETTE_PROD,
     servizi: [
@@ -234,8 +239,10 @@ test('i componenti esterni (tag di versione) stanno a parte, sia da soli sia con
     ],
   })
   assert.deepEqual(q.app.map((r) => r.servizio), ['api'])
-  assert.deepEqual(q.esterni.map((e) => e.nome).sort(), ['db-ui', 'orch'])
-  assert.equal(voce(q.esterni.find((e) => e.nome === 'orch'), { ora: ORA }).livello, 'adesso', 'un rollout in corso si vede')
+  assert.deepEqual(q.esterni.map((e) => e.nome).sort(), ['db-ui', 'orchestratore', 'orchestratore-worker'])
+  assert.equal(voce(q.esterni.find((e) => e.nome === 'orchestratore'), { ora: ORA }).livello, 'adesso', 'un rollout in corso si vede')
+  const worker = righeTabella(q, { ora: ORA }).find((r) => r.nome === 'orchestratore-worker')
+  assert.equal(worker.celle[2], '`3.6.26-python3.12` · esterno · stessa immagine di 2')
 })
 
 test('le Lambda aggiornate insieme dalla stessa persona sono un giro solo', () => {
@@ -296,8 +303,9 @@ test('build non lette: il quadro lo dice e non inventa niente che ne dipenda', (
     ],
   })
   assert.equal(q.buildIgnote, true)
-  assert.equal(q.immagini.length, 0, 'senza build non si sa chi ne ha una propria: niente gruppi')
-  assert.deepEqual(q.app.map((r) => r.servizio), ['backend'])
+  assert.deepEqual(q.app.map((r) => r.servizio), ['backend', 'pulizia'], 'le righe sono le stesse di quando le build si leggono')
+  assert.equal(q.app[1].condivisa.indietro, false, 'senza build non si sa chi ne ha una propria: nessuno è «indietro»')
+  assert.equal(q.incompleto, true)
   assert.equal(q.app[0].come, null, '«nessuna build» sarebbe inventato')
   const c = canvasQuadro(q, { ora: ORA })
   assert.match(c.sintesi, /⚠️ build non lette/)
@@ -319,7 +327,7 @@ test('i link a Dadaguard sono già filtrati sulla risorsa della riga', () => {
   assert.equal(linkRisorsa({ tipo: 'app', servizio: 'api', chiave: 'production' }, URL), `${URL}/deploy?service=api&account=production`)
   assert.equal(linkRisorsa({ tipo: 'iac', chiave: 'staging' }, URL), `${URL}/deploy?service=IaC&account=staging`)
   assert.equal(linkRisorsa({ tipo: 'lambda', nomi: ['a', 'b'], chiave: 'production' }, URL), `${URL}/servizi?account=production&q=a%2Cb`)
-  assert.equal(linkRisorsa({ tipo: 'immagine', servizi: ['x'], cron: ['y'], chiave: 'production' }, URL), `${URL}/servizi?account=production&q=x%2Cy`)
+  assert.equal(linkRisorsa({ tipo: 'esterno', nomi: ['x'], chiave: 'production' }, URL), `${URL}/servizi?account=production&q=x`)
   const tanti = Array.from({ length: 200 }, (_, i) => `funzione-dal-nome-lungo-${i}`)
   assert.equal(linkRisorsa({ tipo: 'lambda', nomi: tanti, chiave: 'production' }, URL), `${URL}/servizi?account=production`, 'troppo lungo: la pagina intera, non un filtro tagliato')
   assert.equal(linkRisorsa({ tipo: 'app', servizio: 'api', chiave: 'production' }, null), null)
@@ -622,10 +630,9 @@ test('le schede: la squadra vince, poi i cron, il resto è della principale', ()
     ],
   })
   const d = dividi(qa, { squadre: { data: ['scraper', 'scraper-image'] } })
-  assert.deepEqual(d.squadre.data.app.map((r) => r.servizio), ['scraper-dashboard'], 'dal sorgente della build, senza badare alle maiuscole')
-  assert.deepEqual(d.squadre.data.immagini.map((g) => g.nome), ['scraper-image'], 'dal repo dell’immagine, cron compresi: la squadra vince')
+  assert.deepEqual(d.squadre.data.app.map((r) => r.servizio).sort(), ['scraper-dashboard', 'shadow', 'tenders'], 'dal sorgente della build o dal repo dell’immagine, cron compresi: la squadra vince')
   assert.deepEqual(d.principale.app.map((r) => r.servizio), ['api'])
-  assert.deepEqual(d.cron.immagini.map((g) => g.nome), ['backup'], 'un’immagine fatta di soli cron è dei cron')
+  assert.deepEqual(d.cron.app.map((r) => r.servizio), ['backup-a', 'backup-b'], 'i cron ECS sono dei cron')
   assert.deepEqual(d.cron.lambda.flatMap((l) => l.nomi), ['report'])
   assert.deepEqual(d.principale.lambda.flatMap((l) => l.nomi), ['deploy-notifier'], 'le Lambda dell’infrastruttura restano nella principale')
   assert.equal(dividi(undefined), null)
@@ -1222,7 +1229,7 @@ test('la List nuova: Versione è un testo col link dentro, vuoto senza commit, e
   assert.equal(c.dettagli.firma, 'rev 9 · 2/2 task', 'le due cose che contano, uguali al canvas')
   assert.equal(api.celle[2], '[aaaaaaa](https://github.com/acme/api/commit/aaaaaaa) · rev 9 · 2/2 task', 'anche nel canvas: versione e due voci corte')
   assert.deepEqual(celleLista(chat).versione, { firma: '', valore: { rich_text: [] } }, 'un tag che non è un commit: niente link')
-  assert.equal(chat.celle[2], '`latest` · esterno', 'e nel canvas resta testo: /commit/latest porterebbe a un 404')
+  assert.equal(chat.celle[2], '`latest` · 1/1 task', 'e nel canvas resta testo: /commit/latest porterebbe a un 404')
 })
 
 test('il canvas porta in fondo il link alla List del suo ambiente', async () => {
@@ -1233,3 +1240,161 @@ test('il canvas porta in fondo il link alla List del suo ambiente', async () => 
   const lista = [...s.liste.keys()][0]
   assert.match(md, new RegExp(`<lnk href="https://x\\.slack\\.com/lists/T1/${lista}">Lista PROD</lnk>  \\|  Dadaguard:`), 'nel canvas principale e in quelli trasversali')
 })
+
+// ── Le righe sono le risorse ──────────────────────────────────────────────────────────────────────
+//
+// Una riga in più o in meno vuol dire riscrivere il canvas intero, cioè lo sdoppio nel client aperto.
+// Il 05/10/2026 è successo senza che nascesse o sparisse niente: un riavvio a mano di un orchestratore
+// con sei servizi sulla stessa immagine esterna ha separato la riga sola dell'immagine in sei righe.
+// Qui una serie di istantanee in cui cambia SOLO lo stato (riavvii, deploy in corso, immagini che si
+// separano e si riuniscono, Lambda aggiornate insieme, build e risorse non lette): nessuna deve
+// cambiare la forma, né del canvas né della List.
+const RIGHE_ORA = ORA
+const minFa = (m) => new Date(RIGHE_ORA - m * 60_000).toISOString()
+const riavvio = (service, startedAt) => ({ service, kind: 'restart', status: 'SUCCEEDED', startedAt, forcedBy: 'dev' })
+function istantanea({
+  riavvii = [],
+  inCorso = false,
+  rollout = [],
+  tagShadow = 'e4ce302',
+  tagTunnel = '2026.8.1',
+  lambdaInsieme = false,
+  buildLette = true,
+  buildEnrich = false,
+  senzaLambda = false,
+  fantasma = false,
+} = {}) {
+  const P = 'production'
+  const builds = [
+    b('api', 'aaaaaaa', minFa(600), 'SUCCEEDED', { repo: 'https://github.com/acme/api', number: 10 }),
+    ...(inCorso ? [b('api', 'bbbbbbb', minFa(3), 'IN_PROGRESS', { repo: 'https://github.com/acme/api', number: 11, phase: 'BUILD' })] : []),
+    b('sito', 'ccccccc', minFa(900), 'SUCCEEDED', { repo: 'https://github.com/acme/sito', number: 4 }),
+    b('IaC', 'ddddddd', minFa(800), 'SUCCEEDED', { iac: true, repo: 'https://github.com/acme/infra', number: 90 }),
+    ...(buildEnrich ? [b('enrich', 'e4ce302', minFa(20), 'SUCCEEDED', { repo: 'https://github.com/acme/scraper', number: 2 })] : []),
+    ...riavvii.map((n) => riavvio(n, minFa(2))),
+    ...(fantasma ? [riavvio('fantasma', minFa(1))] : []),
+  ]
+  const orch = (n) => svc(`acme-production-${n}`, P, { tag: '3.6.26-python3.12', repo: 'orch', da: '2026-09-20T10:00:00Z', deploying: rollout.includes(n) })
+  const servizi = [
+    svc('acme-production-api', P, { tag: 'aaaaaaa', repo: 'api', da: minFa(590), deploying: inCorso }),
+    orch('orch-server'),
+    orch('orch-worker'),
+    orch('orch-worker-doc'),
+    svc('acme-production-tenders', P, { tag: 'e4ce302', repo: 'scraper-image', da: minFa(120) }),
+    svc('acme-production-enrich', P, { tag: 'e4ce302', repo: 'scraper-image', da: minFa(120) }),
+    svc('acme-production-cron-shadow', P, { type: 'ecs-scheduled', tag: tagShadow, repo: 'scraper-image', da: tagShadow === 'e4ce302' ? minFa(120) : '2026-09-01T00:00:00Z' }),
+    svc('acme-production-cron-backup-a', P, { type: 'ecs-scheduled', tag: 'fffffff', repo: 'backup', da: '2026-09-02T00:00:00Z' }),
+    svc('acme-production-cron-backup-b', P, { type: 'ecs-scheduled', tag: 'fffffff', repo: 'backup', da: '2026-09-02T00:00:00Z' }),
+    svc('acme-production-tunnel', P, { tag: '2026.8.1', repo: 'tunnel', da: '2026-09-03T00:00:00Z' }),
+    svc('acme-production-tunnel-b', P, { tag: tagTunnel, repo: 'tunnel', da: '2026-09-03T00:00:00Z' }),
+    ...(senzaLambda
+      ? []
+      : [
+          lam('acme-production-cron-report', P, lambdaInsieme ? minFa(10) : '2026-09-10T00:00:00Z', 'dev'),
+          lam('acme-production-cron-pulizia', P, lambdaInsieme ? minFa(8) : '2026-09-11T00:00:00Z', 'dev'),
+          lam('acme-production-notifier-a', P, lambdaInsieme ? minFa(9) : '2026-09-12T00:00:00Z', lambdaInsieme ? 'dev' : 'codebuild-iac-80'),
+          lam('acme-production-notifier-b', P, lambdaInsieme ? minFa(7) : '2026-09-13T00:00:00Z', 'dev'),
+        ]),
+  ]
+  // La discovery che non legge le Lambda le fa sparire, e lo dice come fa quella vera.
+  servizi.problemi = senzaLambda ? [{ account: P, region: 'eu-central-1', problems: [{ what: 'lambda', err: 'ThrottlingException' }] }] : []
+  return { deploys: { production: buildLette ? { builds } : { error: 'Could not connect to the endpoint URL' } }, servizi }
+}
+const CFG_RIGHE = { DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_SQUADRE: 'data=scraper-image', DADAGUARD_PUBLIC_URL: URL }
+const nomiTabella = (s, id) =>
+  leggiCanvasHtml(s.html(s.canvas.get(id).blocchi))
+    .filter((x) => x.tipo === 'table')
+    .map((t) => t.righe.slice(1).map((r) => r[0].testo))
+
+test('righe = risorse: un riavvio, un deploy in corso, un’immagine che si separa o si unisce non cambiano le righe', () => {
+  const cfg = quadroConfig(CFG_RIGHE)
+  const modelli = (dati) => Object.fromEntries(canvasDaScrivere(quadro(dati, cfg.ambienti), cfg, { ora: RIGHE_ORA }).map((c) => [c.chiave, c]))
+  const s = slackFinto()
+  const prima = modelli(istantanea())
+  // Il canvas com'è dopo la prima istantanea, per ogni scheda: lo si scrive nello Slack finto e lo si rilegge.
+  const blocchi = Object.fromEntries(
+    Object.values(prima).map((c) => {
+      const id = `F-${c.chiave}`
+      s.api('conversations.canvases.create', { channel_id: 'CP', title: c.titolo, document_content: { markdown: c.markdown } })
+      const creato = [...s.canvas.values()].at(-1)
+      s.canvas.set(id, { ...creato, id })
+      return [c.chiave, leggiCanvasHtml(s.html(creato.blocchi))]
+    }),
+  )
+  assert.deepEqual(prima.produzione.modello.sezioni[0].righe.map((r) => testoPiatto(r[0])), ['api', 'IaC', 'notifier-a', 'notifier-b', 'orch-server', 'orch-worker', 'orch-worker-doc', 'sito', 'tunnel', 'tunnel-b'])
+  assert.deepEqual(prima.cron.modello.sezioni[0].righe.map((r) => testoPiatto(r[0])), ['backup-a', 'backup-b', 'pulizia', 'report'])
+  assert.deepEqual(prima.data.modello.sezioni[0].righe.map((r) => testoPiatto(r[0])), ['enrich', 'shadow', 'tenders'])
+  const casi = {
+    'riavvio a mano di tutti i servizi sulla stessa immagine esterna': { riavvii: ['orch-server', 'orch-worker', 'orch-worker-doc'] },
+    'riavvio di uno solo, con un rollout in corso': { riavvii: ['orch-worker'], rollout: ['orch-worker'] },
+    'deploy in corso': { inCorso: true },
+    'un cron rimasto su un’immagine più vecchia (l’immagine si separa)': { tagShadow: '1111111' },
+    'un componente esterno su una versione diversa dall’altro': { tagTunnel: '2026.9.0' },
+    'una build propria per uno dei servizi con l’immagine condivisa': { buildEnrich: true },
+    'Lambda aggiornate insieme dalla stessa persona': { lambdaInsieme: true },
+    'il riavvio di un servizio che la discovery non vede': { fantasma: true },
+  }
+  for (const [caso, stato] of Object.entries(casi)) {
+    const dopo = modelli(istantanea(stato))
+    for (const chiave of Object.keys(prima)) assert.notEqual(pianoCelle(dopo[chiave].modello, blocchi[chiave]), null, `${caso}: la scheda ${chiave} si aggiorna cella per cella`)
+  }
+  const cambi = pianoCelle(modelli(istantanea({ tagShadow: '1111111' })).data.modello, blocchi.data)
+  assert.ok(cambi.some((m) => /⚠️ indietro/.test(m.markdown)), 'chi è rimasto indietro lo dice il suo stato, non una riga in più')
+})
+
+test('righe = risorse: build o Lambda non lette lasciano le righe dove sono, nel canvas e nella List', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig(CFG_RIGHE)
+  const liste = nuovaMemoriaListe()
+  const ultimi = new Map()
+  const giro = (stato) => aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: async () => istantanea(stato), ora: RIGHE_ORA, ultimi, liste })
+  const primo = await giro({})
+  assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.azione}`), ['produzione:creato', 'cron:creato', 'data:creato', 'lista-produzione:creata'])
+  const prod = primo[0].canvas
+  const righePrima = nomiTabella(s, prod)
+  const lista = [...s.liste.values()][0]
+  const righeLista = () => [...lista.righe.keys()].sort()
+  const listaPrima = righeLista()
+  assert.equal(listaPrima.length, 17, 'una riga per risorsa: 10 della principale, 4 cron e 3 della squadra')
+
+  for (const stato of [
+    { riavvii: ['orch-server', 'orch-worker', 'orch-worker-doc'] },
+    { inCorso: true, lambdaInsieme: true },
+    { tagShadow: '1111111', tagTunnel: '2026.9.0' },
+    { buildLette: false },
+    {},
+    { senzaLambda: true },
+    { buildLette: false, senzaLambda: true },
+    {},
+  ]) {
+    const esiti = await giro(stato)
+    const riscritti = esiti.filter((e) => e.azione === 'riscritto' || e.azione === 'creato' || e.azione === 'creata' || e.azione === 'errore')
+    assert.deepEqual(riscritti, [], `${JSON.stringify(stato)}: niente riscritture intere`)
+    assert.deepEqual(nomiTabella(s, prod), righePrima, `${JSON.stringify(stato)}: le righe del canvas restano quelle`)
+    assert.deepEqual(righeLista(), listaPrima, `${JSON.stringify(stato)}: e quelle della List`)
+  }
+  const ignote = leggiCanvasHtml(s.html(s.canvas.get(prod).blocchi))
+  assert.ok(ignote.some((x) => x.tipo === 'p' && /niente di rotto/.test(x.testo)), 'tornate le letture, la sintesi torna quella vera')
+
+  // Una risorsa nuova invece cambia le righe, ed è l'unico caso in cui il canvas si riscrive intero.
+  const conNuova = async () => {
+    const d = istantanea()
+    d.servizi.push(svc('acme-production-nuovo', 'production', { tag: '9999999', repo: 'nuovo', da: minFa(5) }))
+    return d
+  }
+  const ultimo = await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: conNuova, ora: RIGHE_ORA, ultimi, liste })
+  assert.equal(ultimo[0].azione, 'riscritto')
+})
+
+test('build non lette: la riga che il canvas ha e il modello no resta, ma una risorsa nuova riscrive lo stesso', () => {
+  const modello = (righe, tollera) => ({ sezioni: [{ titolo: 'Produzione', sintesi: '**x**', righe: righe.map((n) => [`**${n}**`, '🚀 OK', 'n/d']), fondo: null, tollera }] })
+  const html = `<h2 id="h">Produzione</h2><p id="s" class="line"><b>x</b></p><table><tr>${INTESTAZIONE_HTML}</tr>${['api', 'IaC', 'sito', 'web']
+    .map((n, i) => `<tr><td><p id="n${i}" class="line"><b>${n}</b></p></td><td><p id="t${i}" class="line">🚀 OK</p></td><td><p id="d${i}" class="line">n/d</p></td></tr>`)
+    .join('')}</table>`
+  const blocchi = leggiCanvasHtml(html)
+  assert.deepEqual(pianoCelle(modello(['api', 'web'], true), blocchi), [], 'IaC e sito non letti: restano com’erano')
+  assert.equal(pianoCelle(modello(['api', 'web'], false), blocchi), null, 'letti e spariti: sono un’altra forma')
+  assert.equal(pianoCelle(modello(['api', 'nuovo', 'web'], true), blocchi), null, 'una risorsa nuova vuole la riscrittura anche così')
+  assert.equal(pianoCelle(modello([], true), blocchi).length, 0, 'anche senza nessuna riga letta')
+})
+const INTESTAZIONE_HTML = ['Risorsa', 'Stato', 'Dettagli'].map((h, i) => `<td><p id="i${i}" class="line">${h}</p></td>`).join('')

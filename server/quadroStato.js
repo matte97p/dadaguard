@@ -26,7 +26,7 @@ const CONCORRENZA = 8
 
 // `controlli` per le prove: i due `run` veri leggono AWS.
 export async function statoLeggero({ resolve = resolveServices, lang = 'it', controlli = { version: version.run, runtime: runtime.run } } = {}) {
-  const { accounts, services, people, soglie } = await resolve()
+  const { accounts, services, people, soglie, discoveryProblems } = await resolve()
   const t = makeT(lang)
   const scelti = services.filter((s) => TIPI.has(s.aws?.type))
   const voci = await mapLimit(scelti, CONCORRENZA, async (s) => {
@@ -45,5 +45,10 @@ export async function statoLeggero({ resolve = resolveServices, lang = 'it', con
       checks: { ...(v ? { version: v } : {}), ...(r ? { runtime: r } : {}) },
     }
   })
-  return voci.filter(Boolean)
+  // Le letture della discovery non riuscite viaggiano con la lista, come fa la discovery stessa: una
+  // risorsa che manca perché non si è letta non è una risorsa sparita, e il quadro deve saperlo per
+  // non togliere la sua riga (vedi `pianoCelle` in server/notify/quadro.js).
+  const out = voci.filter(Boolean)
+  out.problemi = discoveryProblems ?? []
+  return out
 }

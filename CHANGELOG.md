@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Le righe del quadro sono le risorse, e non cambiano con lo stato** (05/10/2026). Un servizio ECS,
+  un cron ECS, una Lambda e un componente esterno hanno sempre una riga loro. Le risorse con la stessa
+  immagine e senza build proprie diventavano una riga sola col nome del repo, e un riavvio a mano di
+  una di loro le separava di nuovo per sette giorni: righe diverse, cioè il canvas riscritto intero,
+  che a canvas aperto si vede doppio (successo quel giorno su un orchestratore con sei servizi). Ora
+  il raggruppamento sta nei Dettagli («stessa immagine di 6») e chi è rimasto su un'immagine più
+  vecchia lo dice il suo stato (⚠️ indietro). Un riavvio senza un servizio dietro non fa una riga, e
+  con le build o la discovery non lette una riga che manca resta dov'è, nel canvas e nella List,
+  invece di sparire e tornare. I cron ECS ora compaiono tutti nella scheda CRON (o in quella della
+  squadra). Il cambio di forma riscrive i canvas interi una volta.
 - **Il canvas del quadro sta nella sua larghezza** (05/10/2026). La tabella ha tre colonne (Risorsa,
   Stato, Dettagli) e la versione apre i Dettagli, che sono al massimo due voci corte, le stesse della
   List: «rev 80 · 2/2 task» per un servizio, «build #68 · 4 min» per un sito statico, la build e il
