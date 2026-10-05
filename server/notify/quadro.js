@@ -16,14 +16,22 @@ import { postSlack } from './slack.js'
 // canvas ha le tabelle, che un messaggio non ha. Un canale per ambiente, perché un canale ha un canvas
 // solo: l'ambiente lo dice il canale.
 //
-// ⚠️ La flotta è grande (decine di servizi, cron e Lambda per ambiente), quindi il quadro NON è un
-// inventario: un elenco di tutto sarebbe illeggibile quanto il canale che sostituisce. Ha tre piani,
-// e solo i primi due hanno righe, ognuno col suo tetto:
-//   Adesso        quello che è rotto, giù, rimasto indietro o in corso
-//   Ultime N ore  i rilasci recenti, dal più nuovo; quelli fatti insieme sono UNA riga (le Lambda di
-//                 un giro dei cron, i servizi che girano la stessa immagine)
-//   Il resto      un conteggio, senza nomi: per vederli c'è il link a Dadaguard
-// Così la lunghezza del quadro dipende da quanto succede, non da quante risorse esistono.
+// ⚠️ La tabella ha TUTTE le risorse che si rilasciano, in ordine alfabetico, sempre le stesse righe
+// nello stesso ordine: è la forma che permette di aggiornare il canvas cella per cella. Fino al
+// 05/10/2026 il quadro mostrava solo le novità (prima i problemi, poi i rilasci delle ultime 24 ore,
+// il resto contato) e si riscriveva intero a ogni cambio; l'app di Slack, ricevendo un `replace` del
+// documento intero a canvas APERTO, lo mostrava DOPPIO, il vecchio sopra e il nuovo sotto, finché non
+// lo si riapriva (provato quel giorno in un canale di prova). Riscrivendo una cella per volta, per id,
+// il canvas aperto resta pulito. Ma una cella si riscrive solo se la riga è ancora quella: con righe
+// che entrano ed escono a ogni rilascio gli id non servirebbero a niente. Quindi:
+//   la riga di una risorsa non si sposta mai, e cambiano solo le sue celle
+//   la prima colonna (il nome) non si riscrive MAI: un `replace` su quella cella attacca il testo in
+//   fondo al canvas invece di sostituirlo (provato il 05/10/2026, «frontend» finito sotto la tabella)
+//   il canvas intero si riscrive solo quando cambiano le righe (una risorsa nuova o sparita) o quando
+//   quello che si legge non torna con quello che ci si aspetta: è raro, e lì lo sdoppio si accetta
+// Accanto al canvas c'è una Slack LIST per ambiente con le stesse righe (vedi `sincronizzaLista`): si
+// filtra e si ordina, e chi la preferisce la usa. Le due viste dicono la stessa cosa, con gli stessi
+// stati (`STATI`).
 //
 // La verità su COSA GIRA la dice ECS, non CodeBuild: è l'unica fonte che vede tutte le strade per cui
 // un servizio cambia (la build della CI, una revisione promossa a mano, un riavvio, le variabili
@@ -34,9 +42,12 @@ import { postSlack } from './slack.js'
 //   ⏳ 🚀 🔴 deploy da CodeBuild                  righe delle applicazioni
 //   ⏳ revisione promossa a mano, riavvii, SSM    revisione o rollout nuovo, visto da ECS
 //   🔄 revisione nuova da un automatismo          una riga per IMMAGINE condivisa
-//   ⏳ 🚀 deploy dei cron Lambda                  una riga per giro, dedotta da ora e autore
+//   ⏳ 🚀 deploy dei cron Lambda                  una riga per Lambda; la sintesi conta i giri, dedotti
+//                                                 da ora e autore
 //   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
-//   🧪 test avviati, deploy saltato o non avviato  NO: vivono in GitHub Actions, che Dadaguard non legge
+//   🧪 test avviati, 🔴 check rossi               🧪 test avviati, ❌ test falliti: li scrive GitHub
+//                                                 Actions nel canale dei rilasci, e il quadro li legge
+//                                                 da lì (`DADAGUARD_QUADRO_CANALE_CI`, vedi `statiTest`)
 //
 // ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Per
 // questo quando qualcosa si ROMPE (build o apply fallito, servizio giù) il bot scrive anche un
@@ -44,18 +55,24 @@ import { postSlack } from './slack.js'
 // il canale resta muto, se qualcosa si rompe chi segue il canale lo sa.
 //
 // Zero storage, come il resto: il canvas da riscrivere non si ricorda, si cerca fra le schede del
-// canale (vedi `canvasDelCanale`). Se il canale non ne ha uno, si crea.
+// canale (vedi `canvasDelCanale`), e le sue celle si leggono dal canvas stesso (vedi `pianoCelle`). La
+// List si ritrova dal titolo fra i file del bot (vedi `ritrovaLista`). Se non c'è, si crea.
 //
 // Configurazione (tutta opzionale: senza token o canali il quadro non parte e non chiama niente):
-//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con `canvases:write`, `chat:write`,
-//                               `channels:read` e `groups:read` (per i canali privati), invitata nei
-//                               canali (deploy/slack-app-manifest.yml). Un webhook NON basta: non
-//                               scrive canvas e non modifica i messaggi che ha mandato
+//   DADAGUARD_SLACK_BOT_TOKEN   token `xoxb-` di un'app Slack con i permessi elencati in
+//                               deploy/slack-app-manifest.yml (uno per chiamata), invitata nei
+//                               canali. Un webhook NON basta: non scrive canvas e non modifica i
+//                               messaggi che ha mandato
+//   DADAGUARD_QUADRO_LISTE      `0` per non tenere la Slack List accanto al canvas (default: accesa)
+//   DADAGUARD_QUADRO_CANALE_CI  il canale dove la CI scrive 🧪 test avviati e 🔴 check rossi, da cui
+//                               il quadro prende lo stato dei test (scope `channels:history`). Senza,
+//                               le righe non hanno mai uno stato di test
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
 //                               `produzione=C0123,staging=C0456`. Gli id, non i nomi
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 15, minimo 10). Slack regge ~50 modifiche
-//                               di canvas al minuto, e il giro scrive solo i canvas che cambiano
-//   DADAGUARD_QUADRO_ORE        quanto indietro guarda «Ultime N ore» (default 24)
+//                               di canvas al minuto: il giro scrive solo le celle che cambiano, e al
+//                               massimo `MAX_MODIFICHE_GIRO` per giro
+//   DADAGUARD_QUADRO_ORE        per quante ore un rilascio resta 🚀 prima di diventare ➖ (default 24)
 //   DADAGUARD_QUADRO_SQUADRE    le squadre con una scheda loro, e i repository che possiedono:
 //                               `data=Scraper,scraper-image;altra=repo`. Chi possiede cosa AWS non lo
 //                               sa, quindi questa è la sola riga scritta a mano, ed è per REPOSITORY
@@ -68,9 +85,13 @@ import { postSlack } from './slack.js'
 // (server/quadroStato.js) e il canvas si riscrive solo quando cambia.
 const DEFAULT_INTERVAL_S = 15
 const DEFAULT_ORE = 24
-// I tetti delle righe. Oltre, una riga dice quante ne mancano e porta a Dadaguard.
-const MAX_ADESSO = 10
-const MAX_RECENTI = 12
+// Le celle riscritte in un giro, in tutti i canvas insieme: `canvases.edit` accetta una modifica per
+// chiamata, e un giro di venti Lambda rilasciate insieme sono quaranta celle. Con 10 ogni 15 secondi
+// si sta sotto le ~50 modifiche al minuto che Slack regge; quello che avanza va al giro dopo.
+export const MAX_MODIFICHE_GIRO = 10
+// Le righe nuove della List create in un giro: `slackLists.items.create` ne crea una per chiamata, e
+// la prima volta sono tutte nuove.
+export const MAX_RIGHE_NUOVE_GIRO = 20
 // Le Lambda aggiornate dalla stessa persona a meno di questo l'una dall'altra sono un giro solo: un
 // workflow dei cron ne rilascia una ventina in un paio di minuti.
 const FINESTRA_LOTTO_MS = 15 * 60_000
@@ -117,6 +138,8 @@ export function quadroConfig(env = process.env) {
     intervalMs: Math.max(10, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     ore: Number.isFinite(ore) && ore > 0 ? ore : DEFAULT_ORE,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
+    liste: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_LISTE ?? '').trim()),
+    canaleCi: String(env.DADAGUARD_QUADRO_CANALE_CI ?? '').trim() || null,
   }
 }
 
@@ -322,6 +345,9 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     }))
   const lambda = tutteLambda.filter((l) => !l.cron)
   const lambdaCron = tutteLambda.filter((l) => l.cron)
+  // Una per una, per la tabella: lì ogni Lambda ha la SUA riga, perché un giro (`lottiLambda`) dipende
+  // da chi ha rilasciato quando, e una riga che nasce e muore con i giri non avrebbe una cella fissa.
+  const una = (l) => ({ tipo: 'lambda', chiave, nomi: [l.nome], n: 1, da: l.da, quando: l.da, chi: chiLeggibile(l.chi) })
 
   // Le immagini condivise: stesso repo su due o più servizi o cron, e NESSUNO di loro ha una build
   // propria. Dedotto dal dato, senza elenchi: un repo nuovo condiviso entra da sé.
@@ -395,6 +421,8 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     lambdaSenzaData: lambda.filter((l) => !l.da).length,
     lambdaCron: lottiLambda(lambdaCron).map((l) => ({ ...l, tipo: 'lambda', chiave, chi: chiLeggibile(l.chi) })),
     lambdaCronSenzaData: lambdaCron.filter((l) => !l.da).length,
+    lambdaTutte: lambda.map(una),
+    lambdaCronTutte: lambdaCron.map(una),
     infra,
     buildIgnote,
     erroreBuild,
@@ -402,8 +430,15 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
 }
 
 // Tutti gli ambienti chiesti, più il confronto con staging sulle righe di produzione. Puro/testabile.
-export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambienti = ['produzione', 'staging']) {
+// `test`: per ambiente, servizio → stato dei test della CI (vedi `statiTest`), che finisce sulla riga
+// dell'applicazione con lo stesso nome.
+export function quadro({ deploys = {}, servizi = [], persone = null, test = null } = {}, ambienti = ['produzione', 'staging']) {
   const out = Object.fromEntries(ambienti.map((a) => [a, quadroAmbiente(a, { deploys, servizi, persone })]))
+  for (const [a, qa] of Object.entries(out))
+    for (const r of qa.app) {
+      const t = test?.[a]?.get(String(r.servizio).toLowerCase())
+      if (t) r.test = t
+    }
   if (out.produzione) {
     const staging = out.staging ?? quadroAmbiente('staging', { deploys, servizi, persone })
     const inStaging = new Map(staging.app.map((r) => [r.servizio, r.commit]))
@@ -428,9 +463,16 @@ const repoNome = (url) => (url ? String(url).replace(/\.git$/, '').split('/').po
 // Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse funzioni.
 export function dividi(qa, { squadre = {} } = {}) {
   if (!qa) return null
-  const vuoto = () => ({ ...qa, app: [], immagini: [], esterni: [], lambda: [], lambdaSenzaData: 0, infra: null })
-  const principale = { ...vuoto(), esterni: qa.esterni ?? [], lambda: qa.lambda ?? [], lambdaSenzaData: qa.lambdaSenzaData ?? 0, infra: qa.infra ?? null }
-  const cron = { ...vuoto(), lambda: qa.lambdaCron ?? [], lambdaSenzaData: qa.lambdaCronSenzaData ?? 0 }
+  const vuoto = () => ({ ...qa, app: [], immagini: [], esterni: [], lambda: [], lambdaSenzaData: 0, lambdaTutte: [], infra: null })
+  const principale = {
+    ...vuoto(),
+    esterni: qa.esterni ?? [],
+    lambda: qa.lambda ?? [],
+    lambdaSenzaData: qa.lambdaSenzaData ?? 0,
+    lambdaTutte: qa.lambdaTutte ?? [],
+    infra: qa.infra ?? null,
+  }
+  const cron = { ...vuoto(), lambda: qa.lambdaCron ?? [], lambdaSenzaData: qa.lambdaCronSenzaData ?? 0, lambdaTutte: qa.lambdaCronTutte ?? [] }
   const perSquadra = Object.fromEntries(Object.keys(squadre).map((nome) => [nome, vuoto()]))
   const squadraDi = (...nomi) => Object.keys(squadre).find((nome) => nomi.some((n) => n && squadre[nome].includes(String(n).toLowerCase())))
   for (const r of qa.app ?? []) {
@@ -523,8 +565,9 @@ function comeTesto(c) {
   return `revisione registrata${chi}${c.build ? `, immagine della build #${c.build}` : ', nessuna build'}`
 }
 
-// Una «voce» del quadro: dove va (`adesso` o `recente`), quanto pesa, e le celle della sua riga
-// (emoji e nome, stato, dettagli). Puro/testabile.
+// Una «voce» del quadro: dove va (`adesso` o `recente`), quanto pesa, e cosa dire (emoji e nome,
+// stato, dettagli). È la forma degli allarmi nel canale; la tabella ha la sua, `rigaRisorsa`.
+// Puro/testabile.
 export function voce(v, { ora = Date.now() } = {}) {
   if (v.tipo === 'app') return voceApp(v, ora)
   if (v.tipo === 'immagine') return voceImmagine(v, ora)
@@ -650,7 +693,8 @@ function voceIac(i, ora) {
 }
 
 // Ogni risorsa diventa una voce, e la voce finisce in uno dei tre piani: «adesso», recente, o il
-// conteggio del resto. Più la sintesi, che è la riga che si legge per prima. Puro/testabile.
+// conteggio del resto. La tabella non li usa più (ha tutte le righe, vedi `righeTabella`): servono
+// alla sintesi, la riga che si legge per prima, e agli allarmi nel canale. Puro/testabile.
 export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   const { app = [], immagini = [], esterni = [], lambda = [], lambdaSenzaData = 0, infra = null, buildIgnote = false } = q
   const soglia = ora - ore * 3_600_000
@@ -694,46 +738,205 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
   return { adesso, recenti, resto, sintesi, diversi }
 }
 
-// Le sezioni di un ambiente: la tabella, il resto contato e i link. La sintesi la restituisce a parte,
-// perché il canvas di un ambiente la mette in testa e uno trasversale sotto il titolo della sezione.
-// Puro.
+// ── La tabella stabile ───────────────────────────────────────────────────────────────────────────
 //
-// Le scelte di leggibilità, per chi lo apre dal telefono in mezzo ad altro: prima i problemi, poi i
-// rilasci dal più nuovo, in fondo il resto contato. Tre colonne e non cinque: l'emoji sta accanto al
-// nome, e il nome È il link a Dadaguard, già filtrato sulla risorsa.
+// Gli stati di una riga, gli stessi nel canvas e nella List (dove sono le scelte della colonna Stato,
+// con questi `value`: cambiarne uno vuol dire una List nuova, perché le scelte si fissano alla
+// creazione). I primi sei sono quelli del canale dei rilasci; `giu` e `indietro` sono i due «da
+// guardare» che il quadro diceva già prima, e toglierli avrebbe nascosto un servizio giù dietro un 🚀.
+export const STATI = {
+  test_avviati: { emoji: '🧪', etichetta: 'test avviati', colore: 'blue' },
+  test_falliti: { emoji: '❌', etichetta: 'test falliti', colore: 'red' },
+  deploy_avviato: { emoji: '⏳', etichetta: 'deploy avviato', colore: 'yellow' },
+  deploy_ok: { emoji: '🚀', etichetta: 'deploy OK', colore: 'green' },
+  deploy_fallito: { emoji: '❌', etichetta: 'deploy fallito', colore: 'red' },
+  giu: { emoji: '🚨', etichetta: 'giù', colore: 'red' },
+  indietro: { emoji: '⚠️', etichetta: 'immagine indietro', colore: 'yellow' },
+  invariato: { emoji: '➖', etichetta: 'invariato', colore: 'gray' },
+}
+// L'IaC non fa deploy, fa apply: nel canvas lo si dice con la sua parola (nella List la scelta resta
+// quella comune, perché una colonna select ha un'etichetta sola per valore).
+const ETICHETTE_IAC = { deploy_avviato: 'apply avviato', deploy_ok: 'apply OK', deploy_fallito: 'apply fallito' }
+export const INTESTAZIONE = ['Risorsa', 'Stato', 'Versione', 'Dettagli']
+// Una cella vuota non si scrive: la List rifiuta un testo di zero caratteri, e un `replace` vuoto nel
+// canvas lascerebbe una cella che non si distingue da una non letta. Dove non c'è niente da dire, questo.
+const VUOTO = 'n/d'
+
+// Quando, corto e fisso: «oggi 10:40», «ieri 22:05», «03/10 19:05». Come `alle`, cambia solo a
+// mezzanotte e non ogni minuto, quindi non riscrive celle per niente; più corto, perché sta nella
+// cella dello Stato accanto all'etichetta. Puro.
+export function quandoBreve(iso, ora = Date.now()) {
+  if (!iso) return null
+  const fmt = (d, o) => new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', ...o }).format(d)
+  const giorno = (d) => fmt(d, { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const d = new Date(iso)
+  const ore = fmt(d, { hour: '2-digit', minute: '2-digit' })
+  if (giorno(d) === giorno(new Date(ora))) return `oggi ${ore}`
+  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `ieri ${ore}`
+  return `${fmt(d, { day: '2-digit', month: '2-digit' })} ${ore}`
+}
+
+// I test di GitHub Actions su una riga: `test: { stato: 'in_corso' | 'fallito', da, url }`, dedotto
+// dai messaggi che la CI scrive nel canale dei rilasci (vedi `statiTest`).
+// I test contano solo se sono PIÙ RECENTI dell'ultimo cambio e la riga è ferma (🚀 o ➖): un deploy in
+// corso o fallito dice di più, e un test di ieri non racconta il rilascio di oggi. Puro/testabile.
+export function conTest(riga, test, { ora = Date.now() } = {}) {
+  if (!test?.da || !['deploy_ok', 'invariato'].includes(riga.stato) || tempo(test.da) <= tempo(riga.quando)) return riga
+  const stato = test.stato === 'fallito' ? 'test_falliti' : 'test_avviati'
+  const run = test.url ? `[run dei test](${test.url})` : null
+  return { ...riga, stato, etichetta: null, quando: test.da, quandoTesto: quandoBreve(test.da, ora), suffisso: null, dettagli: [run, ...riga.dettagli] }
+}
+
+// Una risorsa diventa una RIGA della tabella: stato (una chiave di `STATI`), versione, dettagli, e
+// le quattro celle già pronte per il canvas. La List usa gli stessi campi. Puro/testabile.
+export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+  // Un rilascio resta 🚀 per `ore` ore, poi la riga diventa ➖: è l'unico cambio che l'orologio fa.
+  const fermo = (quando) => (quando && tempo(quando) >= ora - ore * 3_600_000 ? 'deploy_ok' : 'invariato')
+  let r
+  if (v.tipo === 'app') r = rigaDiApp(v, fermo, ora)
+  else if (v.tipo === 'immagine') {
+    const quanti = [v.servizi.length && plurale(v.servizi.length, 'servizio', 'servizi'), v.cron.length && `${v.cron.length} cron`].filter(Boolean).join(' e ')
+    const tutti = [...v.servizi, ...v.cron]
+    const stato = v.giu.length ? 'giu' : v.indietro.length ? 'indietro' : v.inRollout ? 'deploy_avviato' : fermo(v.quando)
+    r = {
+      nome: v.nome,
+      stato,
+      quando: v.quando,
+      suffisso: stato === 'giu' ? elenco(v.giu, 4) : stato === 'indietro' ? `${v.indietro.length} di ${tutti.length}` : null,
+      versione: `\`${v.tag ?? '?'}\``,
+      dettagli: [
+        `immagine su ${quanti}`,
+        v.indietro.length && v.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '),
+        v.chi && `registrata ${daChi(v.chi)}`,
+        elenco(tutti),
+      ],
+    }
+  } else if (v.tipo === 'esterno')
+    r = {
+      nome: v.nome,
+      stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando),
+      quando: v.quando,
+      versione: `\`${v.tag ?? '?'}\``,
+      // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
+      dettagli: ['componente esterno, versione fissata dall’IaC', v.nomi.length > 1 && `su ${elenco(v.nomi)}`, !daIac(v.chi) && daChi(v.chi)],
+    }
+  else if (v.tipo === 'lambda')
+    // Una Lambda dice di sé solo quando è stata aggiornata e da chi: niente versione, niente «in corso».
+    r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'data di rilascio non letta'] }
+  else if (v.tipo === 'iac') {
+    const stato = v.stato === 'in_corso' ? 'deploy_avviato' : v.stato === 'fallito' ? 'deploy_fallito' : fermo(v.quando)
+    r = {
+      nome: 'IaC',
+      stato,
+      etichetta: ETICHETTE_IAC[stato] ?? null,
+      quando: v.quando,
+      versione: v.commit ? sha(v.commit, v.repo) : VUOTO,
+      versioneLink: v.commit && v.repo ? { url: `${v.repo}/commit/${v.commit}`, nome: v.commit } : null,
+      dettagli: [
+        v.numero && `build #${v.numero}${v.stato === 'ok' && durata(v.durataMs) ? ` in ${durata(v.durataMs)}` : ''}`,
+        v.fase && `fase ${v.fase}`,
+        v.stato === 'in_corso' && durata(v.durataTipica) && `di solito ${durata(v.durataTipica)}`,
+        v.chi && `di ${v.chi}`,
+        v.motivo && `motivo: ${tronca(v.motivo, 140)}`,
+        v.log && `[log della build](${v.log})`,
+      ],
+    }
+  } else return null
+  r = conTest({ suffisso: null, versioneLink: null, etichetta: null, ...r, quandoTesto: quandoBreve(r.quando, ora) }, v.test, { ora })
+  const s = STATI[r.stato]
+  const link = linkRisorsa(v, url)
+  const dettagli = r.dettagli.filter(Boolean).join(SEP) || VUOTO
+  return {
+    ...r,
+    link,
+    dettagli,
+    celle: [
+      cella(link ? `[**${r.nome}**](${link})` : `**${r.nome}**`),
+      cella([`${s.emoji} ${r.etichetta ?? s.etichetta}`, r.quandoTesto, r.suffisso].filter(Boolean).join(SEP)),
+      cella(r.versione || VUOTO),
+      cella(dettagli),
+    ],
+  }
+}
+
+// La riga di un'applicazione: la parte più ricca, perché ECS e CodeBuild insieme sanno cosa gira, cosa
+// sta partendo e cosa è fallito. La Versione è sempre quello che GIRA: un tentativo in corso o fallito
+// sta nei Dettagli, con «verso» o «tentava». Puro.
+function rigaDiApp(a, fermo, ora) {
+  const c = sha(a.commit, a.repo)
+  const rev = a.revisione ? `rev ${a.revisione}` : null
+  const salute = [a.task && `${a.task} task`, a.target && `${a.target} target sani`].filter(Boolean).join(', ') || null
+  const t = a.tentativo
+  const base = { nome: a.servizio, versione: a.commit ? c : VUOTO, versioneLink: a.commit && a.repo ? { url: `${a.repo}/commit/${a.commit}`, nome: a.commit } : null }
+  if (a.stato === 'giu')
+    return { ...base, stato: 'giu', quando: null, suffisso: `${a.task ?? '?'} task attivi`, dettagli: [rev, a.target && `${a.target} target sani`, a.quando && `ultimo cambio ${quandoBreve(a.quando, ora)}`] }
+  if (a.stato === 'fallito') {
+    const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
+    if (t.riavvio) return { ...base, stato: 'deploy_fallito', etichetta: 'riavvio a mano fallito', quando: t.da, dettagli: [daChi(t.chi), motivo, rev] }
+    return {
+      ...base,
+      stato: 'deploy_fallito',
+      quando: t.da,
+      dettagli: [
+        `build${t.numero ? ` #${t.numero}` : ''}${t.fase ? ` fallita al ${t.fase}` : ' fallita'}`,
+        t.commit && !stessoCommit(t.commit, a.commit) && `tentava ${sha(t.commit, a.repo)}`,
+        t.chi && `di ${t.chi}`,
+        motivo,
+        t.log && `[log della build](${t.log})`,
+        a.commit ? `gira ancora ${c}` : 'nessun rilascio riuscito visto',
+      ],
+    }
+  }
+  if (a.stato === 'in_corso') {
+    if (t)
+      return {
+        ...base,
+        stato: 'deploy_avviato',
+        quando: t.da,
+        dettagli: [
+          `build${t.numero ? ` #${t.numero}` : ''}${t.fase ? `, fase ${t.fase}` : ''}`,
+          t.commit && !stessoCommit(t.commit, a.commit) && `verso ${sha(t.commit, a.repo)}`,
+          t.chi && `di ${t.chi}`,
+          durata(a.durataTipica) && `di solito ${durata(a.durataTipica)}`,
+          salute,
+        ],
+      }
+    return { ...base, stato: 'deploy_avviato', etichetta: 'rollout avviato', quando: a.quando, dettagli: [rev, salute, comeTesto(a.come)] }
+  }
+  return {
+    ...base,
+    stato: fermo(a.quando),
+    quando: a.quando,
+    dettagli: [rev, salute, comeTesto(a.come), a.autore && `commit di ${a.autore}`, a.staging && `staging su \`${a.staging}\``],
+  }
+}
+
+// L'ordine delle righe: alfabetico, senza badare alle maiuscole (`IaC` fra `frontend` e `tenders`), e
+// a parità il confronto esatto, perché due giri devono dare lo stesso ordine sempre.
+const perNome = (a, b) => a.nome.localeCompare(b.nome, 'it', { sensitivity: 'base', numeric: true }) || (a.nome < b.nome ? -1 : a.nome > b.nome ? 1 : 0)
+
+// Tutte le righe di una parte del quadro, in ordine alfabetico per nome: l'ordine non dipende da cosa
+// succede, quindi una riga resta dov'era e cambiano solo le sue celle. Puro/testabile.
+export function righeTabella(q, opts = {}) {
+  const voci = [...(q.app ?? []), ...(q.immagini ?? []), ...(q.esterni ?? []), ...(q.lambdaTutte ?? []), ...(q.infra ? [q.infra] : [])]
+  return voci
+    .map((v) => rigaRisorsa(v, opts))
+    .filter(Boolean)
+    .sort(perNome)
+}
+
+// Le sezioni di un ambiente: sintesi, tabella e una riga in fondo. Puro.
+//
+// La forma è FISSA, perché è quella che `pianoCelle` si aspetta di rileggere nel canvas: un titolo, un
+// paragrafo di sintesi, la tabella con tutte le righe, il fondo. Quello che va e viene (le build non
+// lette, i servizi diversi da staging) cambia il TESTO di un paragrafo che c'è sempre, non aggiunge
+// paragrafi: un paragrafo in più è una struttura diversa, e una struttura diversa vuol dire riscrivere
+// il canvas intero, cioè lo sdoppio.
 function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
-  const { adesso, recenti, resto, sintesi, diversi } = smista(q, { ora, url, ore })
+  const { sintesi, diversi } = smista(q, { ora, url, ore })
   const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
   const tuttiServizi = url && q.chiave ? `${url}/servizi?account=${encodeURIComponent(q.chiave)}` : null
-
-  const riga = (x) => {
-    const nome = x.link ? `[**${x.nome}**](${x.link})` : `**${x.nome}**`
-    return `| ${x.emoji} ${cella(nome)} | ${cella(x.stato)} | ${cella(x.dettagli.filter(Boolean).join(SEP))} |`
-  }
-  const tabella = (voci) => ['| Risorsa | Stato | Dettagli |', '|---|---|---|', ...voci.map(riga)].join('\n')
-  const oltre = (n, link) => `E ${n === 1 ? 'un altro' : `altri ${n}`}${link ? `: [tutti su Dadaguard](${link})` : ''}.`
-
-  // UNA tabella per ambiente: prima quello da guardare (rotto, giù, indietro, in corso), poi i rilasci
-  // dal più nuovo. Due tabelle, «Adesso» e «Ultime N ore», Slack le dimensionava ognuna sul suo
-  // contenuto, con larghezze e rientri diversi, e i due sottotitoli in più facevano sembrare il canvas
-  // disordinato (visto il 05/10/2026). L'ordine e l'emoji in testa alla riga dicono già quale è quale.
-  const parti = []
-  if (q.buildIgnote)
-    parti.push(`⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`)
-  const righe = [...adesso.slice(0, MAX_ADESSO), ...recenti.slice(0, MAX_RECENTI)]
-  // Senza righe niente tabella: la sintesi dice già «niente in corso» e «0 rilasci».
-  if (righe.length) parti.push(tabella(righe))
-  const mancano = Math.max(0, adesso.length - MAX_ADESSO) + Math.max(0, recenti.length - MAX_RECENTI)
-  if (mancano) parti.push(oltre(mancano, tuttiDeploy))
-
-  const fermi = [
-    resto.app && plurale(resto.app, 'applicazione', 'applicazioni'),
-    resto.lambda && `${resto.lambda} Lambda`,
-    resto.immagini && plurale(resto.immagini, 'immagine condivisa', 'immagini condivise'),
-    resto.esterni && plurale(resto.esterni, 'componente esterno', 'componenti esterni'),
-    resto.iac && `IaC, ultimo apply ${alle(resto.iac, ora)}`,
-  ].filter(Boolean)
 
   // I filtri: link alla pagina di Dadaguard già filtrata. Quello sui servizi diversi da staging apre i
   // deploy di quei servizi nei due ambienti insieme, cioè il confronto che serve.
@@ -742,27 +945,35 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } 
     tuttiServizi && `[Servizi ${meta.tag}](${tuttiServizi})`,
     url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
-  // Una riga sola in fondo, uguale in ogni scheda: il resto contato e i link. Due paragrafi separati
-  // allungavano ogni sezione di una riga, e nelle schede a due ambienti si leggevano come un elenco.
-  const fondo = [fermi.length && `**Senza novità** (${ore} h): ${fermi.join(SEP)}`, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean)
-  if (fondo.length) parti.push(fondo.join('  |  '))
-  return { meta, sintesi, parti }
+  const ignote =
+    q.buildIgnote &&
+    `⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`
+  const fondo = [ignote, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean).join('  |  ') || null
+  return { meta, sintesi, righe: righeTabella(q, { ora, url, ore }), fondo }
 }
 
 // Ogni scheda ha la STESSA forma, che contenga un ambiente (🟥 PROD, 🟨 STAGING) o tutti e due (⏰ CRON,
 // una squadra): per ogni ambiente il suo titolo, la sintesi, la tabella e una riga in fondo. Due forme
 // diverse per le schede a uno e a due ambienti obbligavano a reimparare il canvas a ogni scheda.
-// Niente «aggiornato alle»: cambierebbe ogni minuto e riscriverebbe il canvas per niente (vedi
-// `alle`); che il quadro sia vivo lo garantisce la guardia dei 10 minuti. Puro/testabile.
+// Niente «aggiornato alle»: cambierebbe ogni minuto e riscriverebbe una cella per niente (vedi
+// `alle`); che il quadro sia vivo lo garantisce la guardia dei 10 minuti.
+// Oltre al markdown (per crearlo o riscriverlo intero) restituisce il MODELLO, lo stesso contenuto
+// blocco per blocco, che `pianoCelle` confronta con quello che legge nel canvas. Puro/testabile.
 export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   const parti = []
   const sintesi = []
+  const sezioni = []
   for (const q of perAmbiente) {
     const s = sezioniAmbiente(q, { ora, url, ore })
-    parti.push(`## ${s.meta.sezione}`, `**${s.sintesi.join(SEP)}**`, ...s.parti)
+    const sezione = { titolo: s.meta.sezione, sintesi: `**${s.sintesi.join(SEP)}**`, righe: s.righe.map((r) => r.celle), fondo: s.fondo }
+    sezioni.push(sezione)
+    parti.push(`## ${sezione.titolo}`, sezione.sintesi)
+    // Senza righe niente tabella: un'intestazione senza righe non dice niente.
+    if (sezione.righe.length) parti.push([`| ${INTESTAZIONE.join(' | ')} |`, `|${INTESTAZIONE.map(() => '---').join('|')}|`, ...sezione.righe.map((c) => `| ${c.join(' | ')} |`)].join('\n'))
+    if (sezione.fondo) parti.push(sezione.fondo)
     sintesi.push(perAmbiente.length > 1 ? `${s.meta.tag}: ${s.sintesi.join(SEP)}` : s.sintesi.join(SEP))
   }
-  return { titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(' | ') }
+  return { titolo, markdown: parti.join('\n\n'), sintesi: sintesi.join(' | '), modello: { sezioni } }
 }
 
 // La scheda di un ambiente. Puro/testabile.
@@ -789,10 +1000,28 @@ export function canvasDaScrivere(q, cfg, { ora = Date.now() } = {}) {
   return out
 }
 
+// Il titolo della List di un ambiente: quello del canvas, con «Lista» al posto di «Quadro».
+export const titoloLista = (ambiente) => (AMBIENTI[ambiente]?.titolo ?? `Quadro deploy ${String(ambiente).toUpperCase()}`).replace('Quadro deploy', 'Lista deploy')
+
+// Le righe della List di ogni ambiente: TUTTE le risorse dell'ambiente, di tutte le schede (principale,
+// ⏰ CRON, squadre), perché una List si filtra e si ordina da sé e una per scheda sarebbe solo più
+// liste da cercare. Va nel canale dell'ambiente. Puro/testabile.
+export function listeDaScrivere(q, cfg, { ora = Date.now() } = {}) {
+  const opts = { ora, url: cfg.publicUrl ?? null, ore: cfg.ore ?? DEFAULT_ORE }
+  return cfg.ambienti
+    .filter((a) => q[a] && AMBIENTI[a])
+    .map((a) => {
+      const p = dividi(q[a], { squadre: cfg.squadre ?? {} })
+      const righe = [p.principale, p.cron, ...Object.values(p.squadre)].flatMap((x) => righeTabella(x, opts)).sort(perNome)
+      return { chiave: a, canale: cfg.canali?.[a] ?? null, titolo: titoloLista(a), righe }
+    })
+}
+
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
 
 // I metodi di sola lettura vogliono i parametri nell'indirizzo, gli altri accettano JSON.
-const GET = new Set(['auth.test', 'conversations.info'])
+// ⚠️ `files.info` in POST JSON risponde `invalid_arguments`: vuole la query string.
+const GET = new Set(['auth.test', 'conversations.info', 'conversations.history', 'files.info', 'files.list'])
 
 // Una chiamata alla Web API, senza SDK (come `postSlack`). Slack risponde 200 anche sugli errori, col
 // motivo in `error`: si controlla `ok`, non lo status HTTP.
@@ -816,42 +1045,166 @@ export async function chiamaSlack(metodo, corpo, token, { timeoutMs = 5000 } = {
   }
 }
 
+// Il contenuto di un file di Slack (il canvas, in HTML), con lo stesso token: `url_private_download`
+// non è pubblico.
+export async function scaricaSlack(url, token, { timeoutMs = 10_000 } = {}) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal })
+    if (!res.ok) throw new Error(`slack file: HTTP ${res.status}`)
+    return await res.text()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Lo stesso titolo, con o senza l'emoji davanti: Slack la ricopia come codice nell'etichetta di una
+// scheda (`:large_red_square: Quadro deploy PRODUZIONE`) e com'è nel titolo di un file. Puro.
+export function stessoTitolo(etichetta, titolo) {
+  const testo = String(titolo ?? '').replace(/^\S+\s+/u, '')
+  const esatto = new RegExp(`^(?::[a-z0-9_+-]+:|\\p{Extended_Pictographic}\\uFE0F?)?\\s*${testo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'u')
+  return esatto.test(String(etichetta ?? '').trim())
+}
+
 // Il NOSTRO canvas fra quelli del canale. Puro/testabile.
 //
 // ⚠️ Non sta in `properties.canvas`, che resta vuoto: i canvas di un canale sono SCHEDE
 // (`properties.tabs`, tipo `canvas`), un canale ne può avere più d'una, e crearne un'altra non dà errore.
 // Cercandolo in `properties.canvas`, il 04/10/2026 il primo giro di prova ne ha creato uno e il secondo
 // un altro, accanto: senza fermarlo sarebbe stato un canvas nuovo al minuto.
-// Il nostro si riconosce dal titolo, che Slack ricopia nell'etichetta della scheda con l'emoji scritta
-// come codice (`:large_red_square: Quadro deploy PRODUZIONE`): si confronta il testo, con o senza
-// l'emoji davanti. Se ce n'è più d'uno vince il più recente, e gli altri si dicono, non si cancellano.
+// Il nostro si riconosce dal titolo (`stessoTitolo`). Se ce n'è più d'uno vince il più recente, e gli
+// altri si dicono, non si cancellano.
 export function canvasDelCanale(info, titolo) {
-  const testo = String(titolo ?? '').replace(/^\S+\s+/u, '')
-  const esatto = new RegExp(`^(?::[a-z0-9_+-]+:|\\p{Extended_Pictographic}\\uFE0F?)?\\s*${testo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'u')
   const nostri = (info?.channel?.properties?.tabs ?? [])
-    .filter((t) => t?.type === 'canvas' && t.data?.file_id && esatto.test(String(t.label ?? '').trim()))
+    .filter((t) => t?.type === 'canvas' && t.data?.file_id && stessoTitolo(t.label, titolo))
     .sort((a, b) => Number(b.data.shared_ts ?? 0) - Number(a.data.shared_ts ?? 0))
   return { id: nostri[0]?.data.file_id ?? null, doppioni: nostri.slice(1).map((t) => t.data.file_id) }
 }
 
-// Un giro: per ogni ambiente col suo canale, riscrive il canvas del canale, o lo crea se non c'è.
-// `deps` per le prove: `leggiDati` ({ deploys, servizi }) e `api` (la Web API).
-// Un ambiente che fallisce non ferma l'altro: sono due canali, e il guasto di uno non è una ragione
+// ── Le celle del canvas ──────────────────────────────────────────────────────────────────────────
+//
+// Il canvas si legge com'è ADESSO, dall'HTML che Slack restituisce per il file (`files.info`, poi
+// `url_private_download`), e non da una copia in memoria: è l'unico modo di avere gli id dei blocchi,
+// che Slack assegna lui e cambia a ogni riscrittura completa, e di sapere cosa c'è scritto davvero
+// dopo un riavvio di Dadaguard. La forma, vista il 05/10/2026:
+//   <div class="quip-canvas-content"><h1 id="temp:C:…">titolo</h1><h2 id=…>🟥 Produzione</h2>
+//   <p id=… class="line"><b>sintesi</b></p><table><tr><td><p id=… class="line">cella</p></td>…</tr>…
+//   </table><p id=… class="line">fondo</p>…</div>
+// Ogni cella ha il suo paragrafo con un id, e quello si riscrive con `canvases.edit` + `section_id`.
+// La `<table>` invece NON ha id: non si può né cancellare né rifare a pezzi, per questo la sua forma
+// (righe e colonne) non cambia mai se non riscrivendo tutto.
+
+const ENTITA = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+const decodifica = (s) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) =>
+    e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITA[e.toLowerCase()] ?? m),
+  )
+// Il testo di un pezzo di HTML del canvas, senza tag. Puro.
+export const testoHtml = (html) => decodifica(String(html ?? '').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
+// Il testo che il markdown di una cella mostra: i link diventano il loro testo, via grassetto, codice e
+// l'escape di `|`. È anche il testo delle celle della List. Puro.
+export const testoPiatto = (md) =>
+  String(md ?? '')
+    .replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+    .replace(/\*\*/g, '')
+    .replace(/`/g, '')
+    .replace(/\\\|/g, '|')
+    .replace(/\s+/g, ' ')
+    .trim()
+// Per il confronto si tolgono anche `_` e `*`: un `_x_` arrivato da fuori (il motivo di un fallimento)
+// diventa corsivo nel canvas e sparisce dal testo, e senza questo la cella sembrerebbe cambiata a
+// ogni giro.
+const confrontabile = (t) => String(t).replace(/[_*`]/g, '').replace(/\s+/g, ' ').trim()
+
+// I blocchi del canvas, nell'ordine: titoli, paragrafi e tabelle (con le celle). Puro/testabile.
+export function leggiCanvasHtml(html) {
+  const blocchi = []
+  const re = /<(h[1-6]|p)\b([^>]*)>([\s\S]*?)<\/\1>|<table\b[^>]*>([\s\S]*?)<\/table>/g
+  const idDi = (attr) => /\bid="([^"]*)"/.exec(attr ?? '')?.[1] ?? null
+  for (const m of String(html ?? '').matchAll(re)) {
+    if (m[1]) {
+      blocchi.push({ tipo: m[1], id: idDi(m[2]), testo: testoHtml(m[3]) })
+      continue
+    }
+    const righe = [...m[4].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)].map((tr) =>
+      [...tr[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/g)].map((td) => ({ id: idDi(/<p\b([^>]*)>/.exec(td[1])?.[1]), testo: testoHtml(td[1]) })),
+    )
+    blocchi.push({ tipo: 'table', righe })
+  }
+  return blocchi
+}
+
+// Cosa riscrivere di un canvas, confrontando il MODELLO (`canvasSezioni`) con i blocchi letti. Esce
+// l'elenco delle celle e dei paragrafi da riscrivere, uno per id; o `null` quando la forma non torna
+// (sezioni, righe, colonne o nomi diversi, cioè una risorsa nuova o sparita), e lì l'unica strada è
+// riscrivere tutto. I nomi della prima colonna si confrontano e non si riscrivono mai (vedi in testa).
+// Il titolo del canvas (`h1`) e i paragrafi vuoti non contano. Puro/testabile.
+export function pianoCelle(modello, blocchi) {
+  const b = blocchi.filter((x) => x.tipo !== 'h1' && !(x.tipo === 'p' && !x.testo))
+  const uguale = (md, testo) => confrontabile(testoPiatto(md)) === confrontabile(testo)
+  const modifiche = []
+  const cambia = (blocco, markdown) => {
+    if (!blocco.id) return false
+    if (!uguale(markdown, blocco.testo)) modifiche.push({ id: blocco.id, markdown })
+    return true
+  }
+  let i = 0
+  for (const s of modello?.sezioni ?? []) {
+    const h = b[i++]
+    if (h?.tipo !== 'h2' || !uguale(s.titolo, h.testo)) return null
+    const p = b[i++]
+    if (p?.tipo !== 'p' || !cambia(p, s.sintesi)) return null
+    if (s.righe.length) {
+      const t = b[i++]
+      if (t?.tipo !== 'table' || t.righe.length !== s.righe.length + 1) return null
+      if (t.righe[0].length !== INTESTAZIONE.length || t.righe[0].some((c, k) => !uguale(INTESTAZIONE[k], c.testo))) return null
+      for (const [j, celle] of s.righe.entries()) {
+        const viste = t.righe[j + 1]
+        if (viste.length !== celle.length || !uguale(celle[0], viste[0].testo)) return null
+        for (let k = 1; k < celle.length; k++) if (!cambia(viste[k], celle[k])) return null
+      }
+    }
+    if (s.fondo) {
+      const f = b[i++]
+      if (f?.tipo !== 'p' || !cambia(f, s.fondo)) return null
+    }
+  }
+  return i === b.length ? modifiche : null
+}
+
+// Un giro: per ogni canvas col suo canale, lo aggiorna (cella per cella, o intero se la forma è
+// cambiata) o lo crea se non c'è; poi la List di ogni ambiente.
+// `deps` per le prove: `leggiDati` ({ deploys, servizi }), `api` (la Web API), `scarica` (il contenuto
+// di un file), `ultimi` e `liste` (la memoria fra un giro e l'altro), `maxModifiche`.
+// Un canvas che fallisce non ferma gli altri: sono canali diversi, e il guasto di uno non è una ragione
 // per lasciare vecchio il quadro dell'altro.
 export async function aggiornaQuadri(cfg, deps = {}) {
   const api = deps.api ?? ((m, c) => chiamaSlack(m, c, cfg.token))
+  const scarica = deps.scarica ?? ((url) => scaricaSlack(url, cfg.token))
   const dati = await deps.leggiDati()
-  const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
   const ora = deps.ora ?? Date.now()
+  // Lo stato dei test non ferma mai il giro: senza (scope mancante, canale non letto) il quadro dice
+  // tutto il resto, come prima che ci fosse.
+  const test = cfg.canaleCi ? await aggiornaCi(api, cfg.canaleCi, deps.ci ?? nuovaMemoriaCi(), { ora }) : null
+  const q = quadro({ ...dati, persone: deps.persone ?? null, test }, cfg.ambienti)
   // Le schede di un canale si chiedono una volta per giro: i canvas sono più d'uno nello stesso canale.
   const infoDi = new Map()
   const info = async (canale) => {
     if (!infoDi.has(canale)) infoDi.set(canale, await api('conversations.info', { channel: canale }))
     return infoDi.get(canale)
   }
-  // L'ultimo markdown scritto per ogni canvas: uguale vuol dire niente da riscrivere. Con un giro ogni
-  // 15 secondi riscrivere sempre sarebbero 16 modifiche al minuto per niente, e Slack ne regge ~50.
+  const leggiHtml = async (id) => {
+    const f = await api('files.info', { file: id })
+    const url = f?.file?.url_private_download ?? f?.file?.url_private
+    if (!url) throw new Error('files.info senza indirizzo del contenuto')
+    return scarica(url)
+  }
+  // L'ultimo markdown con cui il canvas è stato allineato: uguale vuol dire niente da fare, senza
+  // nemmeno rileggerlo. Con un giro ogni 15 secondi rileggere sempre sarebbero due chiamate a canvas
+  // per niente.
   const ultimi = deps.ultimi ?? new Map()
+  let budget = deps.maxModifiche ?? MAX_MODIFICHE_GIRO
   const esiti = []
   for (const c of canvasDaScrivere(q, cfg, { ora })) {
     if (!c.canale) continue
@@ -861,15 +1214,12 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     try {
       const document_content = { type: 'markdown', markdown: c.markdown }
       const { id, doppioni } = canvasDelCanale(await info(c.canale), c.titolo)
-      if (doppioni.length) log.warn('quadro: il canale ha più canvas con lo stesso titolo, riscrivo il più recente', { canvas: c.chiave, doppioni })
+      if (doppioni.length) log.warn('quadro: il canale ha più canvas con lo stesso titolo, aggiorno il più recente', { canvas: c.chiave, doppioni })
       if (id && ultimi.get(id) === c.markdown) {
         esiti.push({ ambiente: c.chiave, azione: 'invariato', canvas: id, ...allarmi })
-      } else if (id) {
-        // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
-        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
-        ultimi.set(id, c.markdown)
-        esiti.push({ ambiente: c.chiave, azione: 'riscritto', canvas: id, ...allarmi })
-      } else {
+        continue
+      }
+      if (!id) {
         const r = await api('conversations.canvases.create', { channel_id: c.canale, title: c.titolo, document_content })
         // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
         // l'ha fatta. Se non riesce il quadro funziona lo stesso, quindi lo si dice e si va avanti.
@@ -878,12 +1228,354 @@ export async function aggiornaQuadri(cfg, deps = {}) {
         )
         ultimi.set(r.canvas_id, c.markdown)
         esiti.push({ ambiente: c.chiave, azione: 'creato', canvas: r.canvas_id, ...allarmi })
+        continue
       }
+      // Un canvas che non si riesce a leggere si riscrive intero, come prima di questa lettura: meglio
+      // lo sdoppio nel client aperto che un quadro fermo.
+      const piano = await leggiHtml(id)
+        .then((html) => pianoCelle(c.modello, leggiCanvasHtml(html)))
+        .catch((err) => {
+          log.warn('quadro: canvas non letto, lo riscrivo intero', { canvas: c.chiave, err: err.message })
+          return null
+        })
+      if (!piano) {
+        // `replace` senza sezione riscrive il canvas intero: la forma è cambiata, e la tabella non ha
+        // un id con cui rifarla da sola.
+        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
+        ultimi.set(id, c.markdown)
+        esiti.push({ ambiente: c.chiave, azione: 'riscritto', canvas: id, ...allarmi })
+        continue
+      }
+      const adesso = piano.slice(0, Math.max(0, budget))
+      for (const m of adesso) {
+        // Una modifica per chiamata: `canvases.edit` ne accetta una sola.
+        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', section_id: m.id, document_content: { type: 'markdown', markdown: m.markdown } }] })
+        budget--
+      }
+      const restano = piano.length - adesso.length
+      // Allineato solo se è stato scritto tutto: quello che avanza, il giro dopo lo ritrova rileggendo.
+      if (!restano) ultimi.set(id, c.markdown)
+      esiti.push({ ambiente: c.chiave, azione: piano.length ? 'celle' : 'invariato', canvas: id, celle: adesso.length, restano, ...allarmi })
     } catch (err) {
       esiti.push({ ambiente: c.chiave, azione: 'errore', errore: err.message, ...allarmi })
     }
   }
+  if (cfg.liste) {
+    const memoria = deps.liste ?? nuovaMemoriaListe()
+    for (const l of listeDaScrivere(q, cfg, { ora })) {
+      if (!l.canale) continue
+      try {
+        memoria.bot ??= (await api('auth.test', {})).user_id
+        esiti.push({ ambiente: `lista-${l.chiave}`, ...(await sincronizzaLista(api, l, memoria.ambienti, { bot: memoria.bot })) })
+      } catch (err) {
+        // Al giro dopo si riparte dal ritrovarla: una List cancellata a mano, o righe tolte da qualcuno,
+        // non si aggiustano insistendo con gli id che si avevano.
+        memoria.ambienti.delete(l.chiave)
+        esiti.push({ ambiente: `lista-${l.chiave}`, azione: 'errore', errore: err.message })
+      }
+    }
+  }
   return esiti
+}
+
+// ── La Slack List ────────────────────────────────────────────────────────────────────────────────
+//
+// Le stesse righe del canvas, una List per ambiente nel suo canale, in sola lettura per il canale e
+// con un segnalibro in cima. A differenza del canvas una List si aggiorna per CELLA con una chiamata
+// sola (`slackLists.items.update`, fino a 100 celle), si filtra e si ordina: c'è chi la preferisce,
+// e i dev scelgono. Provato in un canale di prova il 05/10/2026: creazione, righe, celle, accesso, segnalibro.
+//
+// Dopo un riavvio di Dadaguard la List NON si ricrea: sarebbe lo stesso guaio già pagato coi canvas
+// (`canvasDelCanale`), una List nuova a ogni rilascio di Dadaguard. Si ritrova fra i file del bot
+// (`files.list` con `types=lists`, scope `files:read`) dal titolo e dal canale; colonne e righe si
+// rileggono da lì (`files.info` per lo schema, `slackLists.items.list` per le righe, per nome nella
+// colonna Risorsa). `bookmarks.list` sarebbe la strada diretta, ma vuole `bookmarks:read`, che
+// l'app non ha.
+
+export const SCHEMA_LISTA = [
+  { key: 'risorsa', name: 'Risorsa', type: 'text', is_primary_column: true },
+  {
+    key: 'stato',
+    name: 'Stato',
+    type: 'select',
+    options: { format: 'single_select', choices: Object.entries(STATI).map(([value, s]) => ({ value, label: `${s.emoji} ${s.etichetta}`, color: s.colore })) },
+  },
+  { key: 'quando', name: 'Quando', type: 'text' },
+  { key: 'versione', name: 'Versione', type: 'link' },
+  { key: 'dettagli', name: 'Dettagli', type: 'text' },
+  { key: 'dadaguard', name: 'Dadaguard', type: 'link' },
+]
+const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
+
+export const nuovaMemoriaListe = () => ({ bot: null, ambienti: new Map() })
+
+// ⚠️ Un testo vuoto la List lo rifiuta (`must be more than 0 characters`): per svuotare una cella si
+// manda l'elenco vuoto, sia per il testo sia per il link (provato il 05/10/2026).
+const testoLista = (t) => ({ rich_text: t ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: t }] }] }] : [] })
+const linkLista = (url, nome) => ({ link: url ? [{ original_url: url, display_as_url: false, display_name: nome }] : [] })
+
+// Le celle di una riga per la List: per ogni colonna la FIRMA (una stringa da confrontare con quella
+// riletta, vedi `firmeDaItem`) e il valore da mandare. Puro/testabile.
+export function celleLista(r) {
+  const dettagli = testoPiatto(r.dettagli)
+  return {
+    risorsa: { firma: r.nome, valore: testoLista(r.nome) },
+    stato: { firma: r.stato, valore: { select: [r.stato] } },
+    quando: { firma: r.quandoTesto ?? '', valore: testoLista(r.quandoTesto) },
+    versione: { firma: r.versioneLink ? `${r.versioneLink.url}|${r.versioneLink.nome}` : '', valore: linkLista(r.versioneLink?.url, r.versioneLink?.nome) },
+    dettagli: { firma: dettagli, valore: testoLista(dettagli) },
+    dadaguard: { firma: r.link ? `${r.link}|apri` : '', valore: linkLista(r.link, 'apri') },
+  }
+}
+
+// Le firme di una riga com'è nella List (`slackLists.items.list`), nella stessa forma di `celleLista`.
+// Il link torna in camelCase (`originalUrl`, `displayName`) anche se si scrive in snake_case. Puro.
+export function firmeDaItem(item, colonne) {
+  const perColonna = new Map((item?.fields ?? []).map((f) => [f.column_id, f]))
+  return Object.fromEntries(
+    Object.entries(colonne).map(([key, col]) => {
+      const f = perColonna.get(col)
+      if (!f) return [key, '']
+      if (TIPO_COLONNA[key] === 'select') return [key, f.select?.[0] ?? '']
+      if (TIPO_COLONNA[key] === 'link') {
+        const l = f.link?.[0]
+        return [key, l ? `${l.originalUrl ?? l.original_url ?? ''}|${l.displayName ?? l.display_name ?? ''}` : '']
+      }
+      return [key, f.text ?? '']
+    }),
+  )
+}
+
+const colonneDa = (schema) => Object.fromEntries((schema ?? []).filter((c) => c?.key && c?.id).map((c) => [c.key, c.id]))
+
+// La List di un ambiente com'è nella memoria: id, colonne (chiave → id) e righe (nome → id e firme).
+// `null` se il bot non ne ha una con quel titolo in quel canale. Una List col titolo giusto ma mai
+// condivisa con nessun canale vale come ripiego: è quella di un giro morto prima di condividerla.
+export async function ritrovaLista(api, l, { bot }) {
+  const r = await api('files.list', { user: bot, types: 'lists', count: 100 })
+  const conTitolo = (r.files ?? []).filter((f) => stessoTitolo(f.title ?? f.name, l.titolo)).sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+  const nelCanale = (f) => [...(f.channels ?? []), ...(f.groups ?? [])].includes(l.canale)
+  const f = conTitolo.find(nelCanale) ?? conTitolo.find((x) => !x.channels?.length && !x.groups?.length)
+  if (!f) return null
+  const colonne = colonneDa((await api('files.info', { file: f.id })).file?.list_metadata?.schema)
+  // Una List col titolo giusto ma senza le nostre colonne non è nostra, o è di una versione vecchia:
+  // scriverci darebbe `invalid_arguments` a ogni giro.
+  const mancano = SCHEMA_LISTA.filter((c) => !colonne[c.key]).map((c) => c.key)
+  if (mancano.length) {
+    log.warn('quadro: la List trovata non ha le colonne attese, ne creo una nuova', { lista: f.id, mancano })
+    return null
+  }
+  const righe = new Map()
+  const doppie = []
+  let cursor = null
+  for (let pagina = 0; pagina < 50; pagina++) {
+    const it = await api('slackLists.items.list', { list_id: f.id, limit: 100, ...(cursor ? { cursor } : {}) })
+    for (const item of it.items ?? []) {
+      const firme = firmeDaItem(item, colonne)
+      // Due righe con lo stesso nome (un giro morto fra la creazione e la memoria): una si tiene, l'altra
+      // si toglie, o la List mostrerebbe la stessa risorsa due volte con due stati.
+      if (!firme.risorsa || righe.has(firme.risorsa)) doppie.push(item.id)
+      else righe.set(firme.risorsa, { id: item.id, firme })
+    }
+    cursor = it.response_metadata?.next_cursor || null
+    if (!cursor) break
+  }
+  return { id: f.id, colonne, righe, doppie }
+}
+
+// Una List nuova: creata, messa in sola lettura per il canale (come il canvas: una modifica a mano
+// sparirebbe al giro dopo), e appuntata in cima al canale con un segnalibro. Accesso e segnalibro, se
+// non riescono, si dicono e basta: la List funziona lo stesso.
+export async function creaLista(api, l) {
+  const r = await api('slackLists.create', { name: l.titolo, schema: SCHEMA_LISTA })
+  await api('slackLists.access.set', { list_id: r.list_id, access_level: 'read', channel_ids: [l.canale] }).catch((err) =>
+    log.warn('quadro: List non messa in sola lettura', { lista: l.chiave, err: err.message }),
+  )
+  const info = await api('files.info', { file: r.list_id }).catch(() => null)
+  let colonne = colonneDa(r.list_metadata?.schema)
+  if (SCHEMA_LISTA.some((c) => !colonne[c.key])) colonne = colonneDa(info?.file?.list_metadata?.schema)
+  if (info?.file?.permalink)
+    await api('bookmarks.add', { channel_id: l.canale, title: l.titolo, type: 'link', link: info.file.permalink, emoji: ':clipboard:' }).catch((err) =>
+      log.warn('quadro: segnalibro della List non aggiunto', { lista: l.chiave, err: err.message }),
+    )
+  return { id: r.list_id, colonne, righe: new Map(), doppie: [] }
+}
+
+// Allinea la List di un ambiente alle sue righe: la ritrova o la crea, poi toglie le righe sparite (e
+// le doppie), crea le nuove (al massimo `maxNuove` per giro) e riscrive le sole celle cambiate, cento
+// per chiamata. Il confronto è con le firme in memoria, rilette dalla List dopo un riavvio: un giro
+// in cui non cambia niente non chiama niente.
+export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RIGHE_NUOVE_GIRO } = {}) {
+  // Senza righe non si tocca niente: un ambiente vuoto è quasi sempre una lettura andata male, e
+  // allinearsi vorrebbe dire cancellare tutte le righe per ricrearle al giro dopo.
+  if (!l.righe.length) return { azione: 'invariato' }
+  let st = memoria.get(l.chiave)
+  let creata = false
+  if (!st) {
+    st = await ritrovaLista(api, l, { bot })
+    if (!st) {
+      st = await creaLista(api, l)
+      creata = true
+    }
+    memoria.set(l.chiave, st)
+  }
+  const voluti = new Map()
+  for (const r of l.righe) if (!voluti.has(r.nome)) voluti.set(r.nome, celleLista(r))
+  let tolte = 0
+  for (const id of st.doppie ?? []) {
+    await api('slackLists.items.delete', { list_id: st.id, id })
+    tolte++
+  }
+  st.doppie = []
+  for (const [nome, riga] of st.righe) {
+    if (voluti.has(nome)) continue
+    await api('slackLists.items.delete', { list_id: st.id, id: riga.id })
+    st.righe.delete(nome)
+    tolte++
+  }
+  let nuove = 0
+  let restano = 0
+  for (const [nome, celle] of voluti) {
+    if (st.righe.has(nome)) continue
+    if (nuove >= maxNuove) {
+      restano++
+      continue
+    }
+    const initial_fields = Object.entries(celle)
+      .filter(([, c]) => c.firma)
+      .map(([key, c]) => ({ column_id: st.colonne[key], ...c.valore }))
+    const r = await api('slackLists.items.create', { list_id: st.id, initial_fields })
+    st.righe.set(nome, { id: r.item.id, firme: Object.fromEntries(Object.entries(celle).map(([key, c]) => [key, c.firma])) })
+    nuove++
+  }
+  const cambiate = []
+  for (const [nome, celle] of voluti) {
+    const riga = st.righe.get(nome)
+    if (riga) for (const [key, c] of Object.entries(celle)) if (riga.firme[key] !== c.firma) cambiate.push({ riga, key, c })
+  }
+  for (let i = 0; i < cambiate.length; i += 100) {
+    const blocco = cambiate.slice(i, i + 100)
+    await api('slackLists.items.update', { list_id: st.id, cells: blocco.map(({ riga, key, c }) => ({ row_id: riga.id, column_id: st.colonne[key], ...c.valore })) })
+    for (const { riga, key, c } of blocco) riga.firme[key] = c.firma
+  }
+  const azione = creata ? 'creata' : nuove || tolte || cambiate.length ? 'aggiornata' : 'invariato'
+  return { azione, lista: st.id, nuove, celle: cambiate.length, tolte, restano }
+}
+
+// ── Lo stato dei test, dal canale della CI ───────────────────────────────────────────────────────
+//
+// I test non li vede né ECS né CodeBuild: girano in GitHub Actions prima che la build esista, e
+// GitHub Actions li racconta nel canale dei rilasci con due righe sue, `🧪 test avviati` al push e
+// `🔴 deploy NON avviato` quando i check sono rossi. Il quadro legge quelle righe, invece di chiedere
+// a GitHub: lì servirebbe un token nuovo e la mappa repository → servizio, mentre la riga del canale
+// nomina già il servizio, l'ambiente e il commit. La grammatica è quella dello standard dei messaggi
+// del canale:
+//   <emoji> `nome` [PROD|STAGING] <fatto>[ · <stato>] <trattino lungo> <sha come link> · <run come link> · …
+// (il trattino lungo, U+2014, qui si scrive solo come escape: è il separatore della riga del canale)
+// letta con un po' di tolleranza (backtick o no, `PRODUZIONE` per `PROD`, `·` al posto del trattino),
+// perché è scritta a mano in ogni produttore e una riga che non si riconosce si salta, non rompe.
+//
+// ⚠️ Un 🧪 non ha una chiusura sua: lo chiude la riga che viene dopo sullo stesso servizio e lo stesso
+// commit, il ⏳ della build se i test passano o il 🔴 dei check se no. Se non arriva niente (un deploy
+// saltato, un canale che ha perso una riga) dopo `TTL_TEST_MS` il 🧪 si lascia cadere: i test durano
+// minuti, e un 🧪 di ieri sarebbe una bugia sulla riga.
+
+const TTL_TEST_MS = 3 * 3_600_000
+// Quanto indietro si legge al primo giro (dopo un avvio, la memoria è vuota): quanto dura un ❌.
+const FINESTRA_CI_MS = 24 * 3_600_000
+// Un giro della history ogni tanti giri del quadro, non ogni 15 secondi: `conversations.history` ha un
+// limite stretto (per le app fuori dal Marketplace anche una chiamata al minuto), e i test durano
+// minuti. Con 15 secondi fra i giri, 4 vuol dire una lettura al minuto.
+export const GIRI_PER_CI = 4
+// Dopo un errore (scope mancante, bot fuori dal canale) si riprova di rado, senza riscriverlo nel log.
+const GIRI_DOPO_ERRORE_CI = 40
+// Le pagine lette in un giro: il resto, se c'è, al giro dopo dallo stesso cursore.
+const PAGINE_CI = 2
+
+// Una riga del canale, o `null` se non è una riga di rilascio. Puro/testabile.
+//   test_avviati  🧪 … test avviati
+//   test_falliti  🔴 … deploy NON avviato (i check di CI sono rossi)
+//   chiude        ⏳ 🚀 ➖ 🔴 ⏹️ su un deploy, un apply o un rollout: i test di quel commit sono finiti
+export function eventoCi(m) {
+  const testo = decodifica(String(m?.text ?? '')).trim()
+  const r = /^(\S+)\s+`?([^`\s[\]]+)`?\s+\[([A-Za-z]+)\]\s*(.*)$/su.exec(testo)
+  if (!r) return null
+  const [, emoji, nome, tag, resto] = r
+  const ambiente = /^(PROD|PRODUZIONE|PRODUCTION)$/i.test(tag) ? 'produzione' : /^STAGING$/i.test(tag) ? 'staging' : null
+  if (!ambiente) return null
+  const fatto = resto.split(/\s+[\u2014·]\s+|,/u)[0].trim()
+  let tipo = null
+  if (emoji.startsWith('🧪') && /^test avviati/i.test(fatto)) tipo = 'test_avviati'
+  else if (emoji.startsWith('🔴') && /^deploy NON avviato/i.test(fatto)) tipo = 'test_falliti'
+  else if (/^(⏳|🚀|➖|🔴|⏹)/u.test(emoji) && /^(deploy|apply|rollout|riavvio)\b/i.test(fatto)) tipo = 'chiude'
+  if (!tipo) return null
+  const sha = /\/commit\/([0-9a-f]{7,40})\b/i.exec(resto)?.[1] ?? /(?:^|[\s<|`])([0-9a-f]{7,40})(?=[>`\s]|$)/i.exec(resto)?.[1] ?? null
+  const url = /<([^|>\s]+)\|run[^>]*>/i.exec(resto)?.[1] ?? null
+  return { ts: String(m.ts), tipo, servizio: nome.toLowerCase(), ambiente, sha: sha && sha.toLowerCase(), url, da: new Date(Number(m.ts) * 1000).toISOString() }
+}
+
+// Lo stato dei test di ogni servizio, dagli eventi letti: per ambiente, servizio → `{ stato, da, url,
+// sha }`. Un 🧪 resta finché per lo stesso commit non arriva una chiusura (una chiusura senza commit
+// chiude i test partiti prima di lei) o finché non scade; un ❌ resta finché non arriva un altro
+// evento su quel servizio. Puro/testabile.
+export function statiTest(eventi = [], { ora = Date.now() } = {}) {
+  const out = { produzione: new Map(), staging: new Map() }
+  for (const e of [...eventi].sort((a, b) => Number(a.ts) - Number(b.ts))) {
+    const qui = out[e.ambiente]
+    if (!qui) continue
+    const prima = qui.get(e.servizio)
+    if (e.tipo === 'test_avviati') qui.set(e.servizio, { stato: 'in_corso', da: e.da, url: e.url, sha: e.sha })
+    else if (e.tipo === 'test_falliti') qui.set(e.servizio, { stato: 'fallito', da: e.da, url: e.url, sha: e.sha })
+    else if (prima && (e.sha ? stessoCommit(e.sha, prima.sha ?? '') : true)) qui.delete(e.servizio)
+  }
+  for (const qui of Object.values(out))
+    for (const [nome, t] of qui) {
+      const eta = ora - tempo(t.da)
+      if ((t.stato === 'in_corso' && eta > TTL_TEST_MS) || eta > FINESTRA_CI_MS) qui.delete(nome)
+    }
+  return out
+}
+
+export const nuovaMemoriaCi = () => ({ giro: 0, prossimo: 0, ultimoTs: null, pagina: null, eventi: new Map(), errore: null })
+
+// Legge i messaggi nuovi del canale della CI (quando tocca) e restituisce lo stato dei test. Non
+// lancia mai: un canale che non si legge vuol dire niente stati di test, non un quadro fermo.
+// La lettura è incrementale: `oldest` dall'ultimo messaggio visto (24 ore al primo giro). La history
+// torna dal più nuovo al più vecchio, quindi con più pagine l'ultimo ts visto avanza solo quando le
+// pagine sono finite, o un buco in mezzo resterebbe non letto.
+export async function aggiornaCi(api, canale, mem, { ora = Date.now(), ogni = GIRI_PER_CI } = {}) {
+  mem.giro++
+  if (mem.giro >= mem.prossimo) {
+    try {
+      const pag = mem.pagina ?? { oldest: mem.ultimoTs ?? String((ora - FINESTRA_CI_MS) / 1000), cursor: null, massimo: mem.ultimoTs }
+      for (let i = 0; i < PAGINE_CI; i++) {
+        const r = await api('conversations.history', { channel: canale, oldest: pag.oldest, limit: 200, ...(pag.cursor ? { cursor: pag.cursor } : {}) })
+        for (const m of r.messages ?? []) {
+          if (!pag.massimo || Number(m.ts) > Number(pag.massimo)) pag.massimo = String(m.ts)
+          const e = eventoCi(m)
+          if (e) mem.eventi.set(e.ts, e)
+        }
+        pag.cursor = (r.has_more && r.response_metadata?.next_cursor) || null
+        if (!pag.cursor) break
+      }
+      if (pag.cursor) mem.pagina = pag
+      else {
+        mem.pagina = null
+        mem.ultimoTs = pag.massimo ?? pag.oldest
+      }
+      if (mem.errore) log.info('quadro: canale della CI di nuovo leggibile, tornano gli stati dei test', { canale })
+      mem.errore = null
+      mem.prossimo = mem.giro + (mem.pagina ? 1 : ogni)
+    } catch (err) {
+      // Una volta sola nel log, finché l'errore resta lo stesso: `missing_scope` finché l'app non ha
+      // `channels:history`, e scriverlo ogni minuto sarebbero 1.440 righe al giorno per una cosa nota.
+      if (mem.errore !== err.message) log.warn('quadro: canale della CI non letto, righe senza stato dei test', { canale, err: err.message })
+      mem.errore = err.message
+      mem.prossimo = mem.giro + GIRI_DOPO_ERRORE_CI
+    }
+  }
+  for (const [ts, e] of mem.eventi) if (ora - tempo(e.da) > FINESTRA_CI_MS) mem.eventi.delete(ts)
+  return statiTest([...mem.eventi.values()], { ora })
 }
 
 // ── Gli allarmi nel canale ───────────────────────────────────────────────────────────────────────
@@ -1012,11 +1704,14 @@ export function guardiaQuadro(stato = {}, esiti = [], { ora = Date.now(), avvio 
 
 // La riga per il canale degli allarmi, con la grammatica del canale: emoji, nome fra backtick,
 // ambiente fra quadre, esito in maiuscolo. Puro/testabile.
+// La List di un ambiente ha la sua guardia (`lista-produzione`): si dice «la List», non «il canvas».
 export function testoAvviso(a, { ora = Date.now(), url = null } = {}) {
-  const tag = AMBIENTI[a.ambiente]?.tag ?? String(a.ambiente).toUpperCase()
+  const lista = String(a.ambiente).startsWith('lista-')
+  const amb = lista ? String(a.ambiente).slice('lista-'.length) : a.ambiente
+  const tag = `${lista ? 'LISTA ' : ''}${AMBIENTI[amb]?.tag ?? String(amb).toUpperCase()}`
   if (a.tipo === 'rientrato') return `✅ \`quadro deploy\` [${tag}] rientrato · di nuovo aggiornato dopo ${eta(a.fermoDa, ora)} fermo`
   const link = url ? `${SEP}<${url}/deploy|deploy su Dadaguard>` : ''
-  return `⚠️ \`quadro deploy\` [${tag}] FERMO · il canvas non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
+  return `⚠️ \`quadro deploy\` [${tag}] FERMO · ${lista ? 'la List' : 'il canvas'} non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
 }
 
 export function startQuadro(leggiDati, env = process.env) {
@@ -1032,14 +1727,16 @@ export function startQuadro(leggiDati, env = process.env) {
   const allarmi = {} // ambiente → allarmi aperti
   const visti = new Set() // ambienti che hanno già avuto un giro con i dati: il primo prende nota e basta
   const api = (m, c) => chiamaSlack(m, c, cfg.token)
-  const ultimi = new Map() // canvas → ultimo markdown scritto
+  const ultimi = new Map() // canvas → ultimo markdown con cui è allineato
+  const liste = nuovaMemoriaListe() // ambiente → List, colonne e righe: si riempie al primo giro
+  const ci = nuovaMemoriaCi() // i messaggi della CI letti finora, e da dove riprendere
   // Un giro alla volta. Il primo, a cache fredde, dura più dell'intervallo (26 secondi misurati contro
   // 15): due giri insieme cercherebbero lo stesso canvas, non lo troverebbero tutti e due e ne
   // creerebbero due, cioè il doppione che il giro di prova del 04/10/2026 ha già fatto una volta.
   let inCorso = false
   const giro = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
-    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi })
+    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi, liste, ci })
       // Un giro che muore prima dei canali (AWS che non si legge) è un errore per OGNI ambiente: per
       // la guardia conta quanto è vecchio il canvas, non dove si è rotto il giro.
       .catch((err) => {
