@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Spin, Alert, Empty, Typography, Tag, Badge, Space, Segmented, Select } from 'antd'
-import { PageIntro, PANEL_GRID, EmptyState } from './pageKit.jsx'
+import { Verdetto, Tabs, Lista, Sezione, Card, Pill } from '../ui/index.js'
 import Loading from '../components/Loading.jsx'
-
-const { Text } = Typography
-
-const CARD = { border: '1px solid var(--dg-line)', borderRadius: 10, padding: 16 }
+import './ops.css'
 
 // Raggruppa le azioni per servizio (prefisso prima dei ':'): "s3:GetObject" → { s3: [GetObject] }.
 function actionsByService(actions) {
@@ -19,86 +15,82 @@ function actionsByService(actions) {
   return [...m.entries()]
 }
 
+// Le azioni come etichette, una per servizio: «s3: GetObject, PutObject». Sono le chip neutre della
+// nuova interfaccia: qui non c'e' uno stato da colorare, c'e' un elenco da leggere.
 function ActionTags({ actions }) {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+    <span className="ui-who">
       {actionsByService(actions).map(([svc, acts]) => (
-        <Tag key={svc} color="geekblue" style={{ marginInlineEnd: 0 }}>
+        <b key={svc} className="ui-mono" style={{ marginInlineEnd: 4, marginBottom: 4 }}>
           {svc}: {acts.join(', ')}
-        </Tag>
+        </b>
       ))}
-    </div>
+    </span>
   )
 }
 
-function EntityRow({ label, items, color, empty }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-      <Text type="secondary" style={{ fontSize: 12, width: 62, flexShrink: 0 }}>
-        {label}
-      </Text>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {items.length ? (
-          items.map((n) => (
-            <Tag key={n} color={color}>
-              {n}
-            </Tag>
-          ))
-        ) : (
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {empty}
-          </Text>
-        )}
-      </div>
-    </div>
-  )
-}
-
+// Ruoli, utenti e gruppi in tre righe di una lista: l'etichetta a sinistra, i nomi a destra.
 function Entities({ entities, t }) {
+  const righe = [
+    [t('iam.roles'), entities.roles],
+    [t('iam.users'), entities.users],
+    [t('iam.groups'), entities.groups],
+  ]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <EntityRow label={t('iam.roles')} items={entities.roles} color="purple" empty={t('iam.noneEntity')} />
-      <EntityRow label={t('iam.users')} items={entities.users} color="blue" empty={t('iam.noneEntity')} />
-      <EntityRow label={t('iam.groups')} items={entities.groups} color="cyan" empty={t('iam.noneEntity')} />
-    </div>
-  )
-}
-
-// Assegnazioni SSO: ogni riga è una persona (blu) o un gruppo (viola); per i gruppi elenca i membri,
-// così "chi c'è dentro" non resta opaco.
-function Assignments({ items, t }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {items.map((a, i) => (
-        <div key={i}>
-          <Tag color={a.type === 'group' ? 'purple' : 'blue'} style={{ marginInlineEnd: 0 }}>
-            {a.type === 'group' ? `${t('iam.group')}: ` : ''}
-            {a.name} <span style={{ opacity: 0.65 }}>· {a.account}</span>
-          </Tag>
-          {a.type === 'group' && (
-            <div style={{ marginTop: 6, marginInlineStart: 14 }}>
-              {a.members === undefined ? (
-                <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>
-                  {t('iam.membersUnreadable')}
-                </Text>
-              ) : a.members.length === 0 ? (
-                <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>
-                  {t('iam.emptyGroup')}
-                </Text>
-              ) : (
-                <Space size={[4, 4]} wrap>
-                  {a.members.map((m) => (
-                    <Tag key={m} style={{ marginInlineEnd: 0, fontSize: 12 }}>
-                      {m}
-                    </Tag>
-                  ))}
-                </Space>
-              )}
-            </div>
-          )}
+    <Lista>
+      {righe.map(([label, items]) => (
+        <div key={label} className="ui-row" style={{ gridTemplateColumns: '90px minmax(0, 1fr)' }}>
+          <span className="ui-mute">{label}</span>
+          <span className="ui-who">
+            {items.length ? (
+              items.map((n) => (
+                <b key={n} style={{ marginInlineEnd: 4 }}>
+                  {n}
+                </b>
+              ))
+            ) : (
+              <span className="ui-faint">{t('iam.noneEntity')}</span>
+            )}
+          </span>
         </div>
       ))}
-    </div>
+    </Lista>
+  )
+}
+
+// Assegnazioni SSO: ogni riga è una persona o un gruppo; per i gruppi elenca i membri, così "chi c'è
+// dentro" non resta opaco. Il gruppo prende la pillola viola del marchio, la persona quella neutra:
+// non sono stati, sono due tipi diversi di chi.
+function Assignments({ items, t }) {
+  return (
+    <Lista>
+      {items.map((a, i) => (
+        <div key={i} className="ui-row" style={{ gridTemplateColumns: '96px minmax(0, 1fr)' }}>
+          <Pill livello={a.type === 'group' ? 'info' : 'off'}>{a.type === 'group' ? t('iam.group') : t('iam.persona')}</Pill>
+          <span className="ui-name">
+            {a.name}
+            <small>{a.account}</small>
+            {a.type === 'group' && (
+              <span className="ui-hint">
+                {a.members === undefined ? (
+                  t('iam.membersUnreadable')
+                ) : a.members.length === 0 ? (
+                  t('iam.emptyGroup')
+                ) : (
+                  <span className="ui-who">
+                    {a.members.map((m) => (
+                      <b key={m} style={{ marginInlineEnd: 4 }}>
+                        {m}
+                      </b>
+                    ))}
+                  </span>
+                )}
+              </span>
+            )}
+          </span>
+        </div>
+      ))}
+    </Lista>
   )
 }
 
@@ -124,108 +116,71 @@ function PolicyView({ t, initialSel, data, error }) {
   const accounts = data?.accounts ?? []
   const hasAny = accounts.some((a) => (a.policies ?? []).length || a.error)
 
-  if (error) return <Alert type="error" showIcon message={error} />
-  if (data && !hasAny) return <EmptyState description={t('iam.none')} />
+  if (error) return <div className="ui-readwarn">{error}</div>
+  if (data && !hasAny) return <Lista vuoto={t('iam.none')}>{[]}</Lista>
 
   return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-      <div style={{ width: 320, flexShrink: 0, maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }}>
+    <div className="ui-hero" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.6fr)', alignItems: 'start' }}>
+      <div>
         {accounts.map((a) => (
-          <div key={a.account} style={{ marginBottom: 12 }}>
-            <Space size={6} style={{ marginBottom: 6 }}>
-              {a.color && <Badge color={a.color} />}
-              <Text strong>{a.label}</Text>
-            </Space>
+          <Sezione key={a.account} titolo={a.label}>
             {a.error ? (
-              <Alert type="warning" showIcon message={a.error} />
+              <div className="ui-readwarn">{a.error}</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {(a.policies ?? []).map((p) => {
-                  const active = sel?.arn === p.arn
-                  return (
-                    <button
-                      key={p.arn}
-                      onClick={() => setSel({ account: a.account, arn: p.arn })}
-                      style={{
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        border: `1px solid ${active ? '#7c3aed' : 'var(--dg-line-strong)'}`,
-                        background: active ? 'rgba(124,58,237,0.08)' : 'transparent',
-                        borderRadius: 8,
-                        padding: '6px 10px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        color: 'inherit',
-                        font: 'inherit',
-                      }}
-                    >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                      <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
-                        {t('iam.attachments', { n: p.attachments })}
-                      </Text>
-                    </button>
-                  )
-                })}
-              </div>
+              <Lista>
+                {(a.policies ?? []).map((p) => (
+                  <button
+                    key={p.arn}
+                    type="button"
+                    className="ui-row ui-row-btn"
+                    aria-pressed={sel?.arn === p.arn}
+                    style={{
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      background: sel?.arn === p.arn ? 'var(--brand-soft)' : undefined,
+                    }}
+                    onClick={() => setSel({ account: a.account, arn: p.arn })}
+                  >
+                    <span className="ui-name">{p.name}</span>
+                    <span className="ui-when">{t('iam.attachments', { n: p.attachments })}</span>
+                  </button>
+                ))}
+              </Lista>
             )}
-          </div>
+          </Sezione>
         ))}
       </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div>
         {!sel ? (
-          <div style={CARD}>
-            <Text type="secondary">{t('iam.pick')}</Text>
-          </div>
+          <Lista vuoto={t('iam.pick')}>{[]}</Lista>
         ) : detailLoading ? (
-          <div style={{ textAlign: 'center', padding: 32 }}>
-            <Spin />
-          </div>
+          <Loading text={t('iam.loading')} />
         ) : detailError ? (
-          <Alert type="error" showIcon message={detailError} />
+          <div className="ui-readwarn">{detailError}</div>
         ) : detail ? (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <div style={CARD}>
-              <Text strong style={{ fontSize: 16 }}>
-                {detail.name}
-              </Text>
-              {detail.description && (
-                <div>
-                  <Text type="secondary">{detail.description}</Text>
-                </div>
-              )}
-            </div>
-            <div style={CARD}>
-              <Text strong>{t('iam.whoHasIt')}</Text>
-              <div style={{ marginTop: 8 }}>
-                <Entities entities={detail.entities} t={t} />
-              </div>
-            </div>
-            <div style={CARD}>
-              <Text strong>{t('iam.grants')}</Text>
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {detail.statements.length === 0 ? (
-                  <Text type="secondary">{t('iam.noGrants')}</Text>
-                ) : (
-                  detail.statements.map((st, i) => (
-                    <div key={i} style={{ borderLeft: '2px solid rgba(124,58,237,0.4)', paddingLeft: 10 }}>
-                      <ActionTags actions={st.actions} />
-                      <div style={{ marginTop: 4 }}>
-                        {st.resources.map((r, j) => (
-                          <div key={j}>
-                            <Text type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                              {r}
-                            </Text>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </Space>
+          <>
+            <Card titolo={t('iam.policy')}>
+              <b style={{ fontSize: 16 }}>{detail.name}</b>
+              {detail.description && <span className="ui-mute">{detail.description}</span>}
+            </Card>
+            <Sezione titolo={t('iam.whoHasIt')}>
+              <Entities entities={detail.entities} t={t} />
+            </Sezione>
+            <Sezione titolo={t('iam.grants')}>
+              <Lista vuoto={t('iam.noGrants')}>
+                {detail.statements.map((st, i) => (
+                  <div key={i} className="ui-row" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+                    <ActionTags actions={st.actions} />
+                    {st.resources.map((r, j) => (
+                      <span key={j} className="ui-hint ui-mono" style={{ wordBreak: 'break-all' }}>
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </Lista>
+            </Sezione>
+          </>
         ) : null}
       </div>
     </div>
@@ -286,7 +241,7 @@ function ResourceView({ services, t, initialResource }) {
   }, [data])
 
   // Un accesso "coinvolge" il principal se lo nomina tra ruoli/utenti/gruppi (policy) o tra le
-  // assegnazioni SSO — incluso il caso in cui la persona è MEMBRO di un gruppo assegnato.
+  // assegnazioni SSO, incluso il caso in cui la persona è MEMBRO di un gruppo assegnato.
   const matches = principal
     ? rawMatches.filter((m) => [m.entities.roles, m.entities.users, m.entities.groups].some((a) => a.includes(principal)))
     : rawMatches
@@ -294,131 +249,89 @@ function ResourceView({ services, t, initialResource }) {
     ? rawSso.filter((m) => m.assignments.some((a) => a.name === principal || (a.members ?? []).includes(principal)))
     : rawSso
 
+  // Una card per accesso trovato: il nome della policy o del permission set, la pillola «ampio» quando
+  // concede `*`, chi la usa e cosa concede. Le due provenienze hanno la stessa forma apposta, cosi'
+  // la differenza che si legge e' quella che conta (policy o SSO) e non il disegno.
+  const accesso = (titolo, broad, chi, actions, key) => (
+    <Card key={key} titolo={titolo} nota={broad ? <Pill livello="warn">{t('iam.broadGrant')}</Pill> : null}>
+      {chi}
+      <ActionTags actions={actions} />
+    </Card>
+  )
+
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Space wrap size={12}>
-        <Select
-          showSearch
-          allowClear
-          placeholder={t('iam.pickResource')}
-          options={options}
-          value={resource}
-          onChange={setResource}
-          style={{ minWidth: 320, maxWidth: 480 }}
-          optionFilterProp="label"
-        />
+    <>
+      {/* Due campi scritti a mano invece di due select: l'elenco dei servizi e' lungo, e il datalist
+          del browser filtra mentre si scrive, che era la sola ragione per cui serviva un componente. */}
+      <div className="ui-row" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', padding: 0, border: 0 }}>
+        <select className="ui-campo" value={resource ?? ''} onChange={(e) => setResource(e.target.value || null)} aria-label={t('iam.pickResource')}>
+          <option value="">{t('iam.pickResource')}</option>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         {principals.length > 0 && (
-          <Select
-            showSearch
-            allowClear
-            placeholder={t('iam.pickPrincipal')}
-            options={principals.map((p) => ({ value: p, label: p }))}
-            value={principal}
-            onChange={setPrincipal}
-            style={{ minWidth: 240, maxWidth: 360 }}
-            optionFilterProp="label"
-          />
+          <select className="ui-campo" value={principal ?? ''} onChange={(e) => setPrincipal(e.target.value || null)} aria-label={t('iam.pickPrincipal')}>
+            <option value="">{t('iam.pickPrincipal')}</option>
+            {principals.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
         )}
-      </Space>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {t('iam.resourceHeuristic')}
-      </Text>
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <Spin />
-        </div>
-      )}
-      {error && <Alert type="error" showIcon message={error} />}
+      </div>
+      <p className="ui-note">{t('iam.resourceHeuristic')}</p>
+      {loading && <Loading text={t('iam.loading')} />}
+      {error && <div className="ui-readwarn">{error}</div>}
       {data && matches.length === 0 && ssoMatches.length === 0 && (
-        <Empty
-          description={principal ? t('iam.noAccessFor', { p: principal }) : t('iam.noAccess')}
-          style={{ marginTop: 8 }}
-        />
+        <Lista vuoto={principal ? t('iam.noAccessFor', { p: principal }) : t('iam.noAccess')}>{[]}</Lista>
       )}
 
       {matches.length > 0 && (
-        <>
-          <Text type="secondary" style={{ display: 'block' }}>
-            {t('iam.viaPolicy')}
-          </Text>
-          {matches.map((m) => (
-            <div key={m.arn} style={CARD}>
-              <Space size={8}>
-                <Text strong>{m.policy}</Text>
-                {m.broad && (
-                  <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
-                    {t('iam.broadGrant')}
-                  </Tag>
-                )}
-              </Space>
-              <div style={{ marginTop: 8 }}>
-                <Entities entities={m.entities} t={t} />
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <ActionTags actions={m.actions} />
-              </div>
-            </div>
-          ))}
-        </>
+        <Sezione titolo={t('iam.viaPolicy')}>
+          <div className="ui-envgrid" style={{ alignItems: 'start' }}>
+            {matches.map((m) => accesso(m.policy, m.broad, <Entities entities={m.entities} t={t} />, m.actions, m.arn))}
+          </div>
+        </Sezione>
       )}
 
       {ssoMatches.length > 0 && (
-        <>
-          <Text type="secondary" style={{ display: 'block' }}>
-            {t('iam.viaSso')}
-          </Text>
-          {ssoMatches.map((m, i) => (
-            <div key={i} style={CARD}>
-              <Space size={8}>
-                <Text strong>{m.permissionSet}</Text>
-                {m.broad && (
-                  <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
-                    {t('iam.broadGrant')}
-                  </Tag>
-                )}
-              </Space>
-              <div style={{ marginTop: 8 }}>
-                <Assignments items={m.assignments} t={t} />
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <ActionTags actions={m.actions} />
-              </div>
-            </div>
-          ))}
-        </>
+        <Sezione titolo={t('iam.viaSso')}>
+          <div className="ui-envgrid" style={{ alignItems: 'start' }}>
+            {ssoMatches.map((m, i) => accesso(m.permissionSet, m.broad, <Assignments items={m.assignments} t={t} />, m.actions, i))}
+          </div>
+        </Sezione>
       )}
-    </Space>
+    </>
   )
 }
 
 // --- Vista "Accesso SSO": Identity Center → permission set → utenti/gruppi assegnati, per account.
 // È il modo reale in cui gli umani hanno accesso (non IAM user/group). ---
 function SsoView({ t, data, error }) {
-  if (error) return <Alert type="error" showIcon message={error} />
-  if (data && !data.available) return <EmptyState description={t('iam.ssoNone')} />
+  if (error) return <div className="ui-readwarn">{error}</div>
+  if (data && !data.available) return <Lista vuoto={t('iam.ssoNone')}>{[]}</Lista>
   const ps = data?.permissionSets ?? []
-  if (ps.length === 0) return <EmptyState description={t('iam.ssoEmpty')} />
+  if (ps.length === 0) return <Lista vuoto={t('iam.ssoEmpty')}>{[]}</Lista>
 
   return (
     <>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        {t('iam.ssoDesc')}
-      </Text>
-      <div style={PANEL_GRID}>
+      <p className="ui-note">{t('iam.ssoDesc')}</p>
+      <div className="ui-envgrid" style={{ alignItems: 'start' }}>
         {ps.map((p) => (
-          <div key={p.name} style={CARD}>
-            <Text strong>{p.name}</Text>
-            <div style={{ marginTop: 8 }}>
-              <Assignments items={p.assignments} t={t} />
-            </div>
-          </div>
+          <Card key={p.name} titolo={p.name} nota={t('iam.assegnazioni', { n: p.assignments.length })}>
+            <Assignments items={p.assignments} t={t} />
+          </Card>
         ))}
       </div>
     </>
   )
 }
 
-// Pagina IAM: fino a tre lenti, ma mostriamo solo quelle che hanno senso per QUESTO account AWS.
+// Pagina Permessi (IAM): fino a tre lenti, ma mostriamo solo quelle che hanno senso per QUESTO account AWS.
 // "Accesso SSO" = come gli umani hanno accesso davvero (Identity Center); appare solo se c'è un'istanza
 // Identity Center. "Per risorsa" = da una risorsa a chi ci accede; appare se ci sono servizi/risorse.
 // "Per policy" = da una customer-managed policy a chi la usa e cosa concede; appare solo se l'account ha
@@ -468,31 +381,28 @@ export default function IamPage({ services = [], t = (k) => k, lang }) {
   const initialResource =
     paramView === 'resource' && params.get('needle') ? `${params.get('account')}|${params.get('needle')}` : null
 
+  const intro = <Verdetto resto={t('iam.title')} dettaglio={t('iam.desc')} />
+
   if (!settled || !view)
     return (
-      <>
-        <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <Loading text={t('iam.loading')} />
-        </div>
-      </>
+      <div className="ui-pagina">
+        {intro}
+        <Loading text={t('iam.loading')} />
+      </div>
     )
 
   if (view === 'none')
     return (
-      <>
-        <PageIntro title={t('iam.title')} desc={t('iam.desc')} />
-        <EmptyState description={t('iam.nothing')} />
-      </>
+      <div className="ui-pagina">
+        {intro}
+        <Lista vuoto={t('iam.nothing')}>{[]}</Lista>
+      </div>
     )
 
   return (
-    <>
-      <PageIntro
-        title={t('iam.title')}
-        desc={t('iam.desc')}
-        extra={lenses.length > 1 ? <Segmented options={lenses} value={view} onChange={setView} /> : null}
-      />
+    <div className="ui-pagina">
+      {intro}
+      {lenses.length > 1 && <Tabs voci={lenses.map((l) => ({ key: l.value, label: l.label }))} attiva={view} onCambia={setView} />}
       {view === 'policy' ? (
         <PolicyView t={t} initialSel={initialSel} data={policies.data} error={policies.error} />
       ) : view === 'resource' ? (
@@ -500,6 +410,6 @@ export default function IamPage({ services = [], t = (k) => k, lang }) {
       ) : (
         <SsoView t={t} data={sso.data} error={sso.error} />
       )}
-    </>
+    </div>
   )
 }

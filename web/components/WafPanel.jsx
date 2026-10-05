@@ -1,38 +1,29 @@
 import { useEffect, useState } from 'react'
-import { Typography, Tag, Tooltip, Alert } from 'antd'
-import { PANEL_CARD, PANEL_GRID } from '../pages/pageKit.jsx'
-import { LEVEL, MONO } from '../theme.js'
-
-const { Text } = Typography
+import { Card, Lista, Meter, Pill, Sezione } from '../ui/index.js'
 
 // Riga di una regola, su due livelli: azione + dove si aggiusta + quante richieste ha preso, e sotto
-// i percorsi colpiti — che sono la cosa che dice se il blocco è sbagliato (`/api/v1/tenders` non è
+// i percorsi colpiti, che sono la cosa che dice se il blocco è sbagliato (`/api/v1/tenders` non è
 // traffico da bot). I percorsi vanno a capo perché sono lunghi: comprimerli in coda alla prima riga
-// li troncava proprio nel punto che distingue una rotta dall'altra.
-function RuleRow({ r, t }) {
+// li troncava proprio nel punto che distingue una rotta dall'altra. La barra e' relativa alla regola
+// che ferma di piu' nella zona: dice a colpo d'occhio quale guardare, il numero vero sta accanto.
+function RuleRow({ r, max, t }) {
   return (
-    <div style={{ padding: '5px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <Tag color={r.blocking ? 'error' : 'default'} bordered={false} style={{ marginInlineEnd: 0, fontSize: 11 }}>
-          {r.action}
-        </Tag>
-        <Text style={{ fontSize: 13, flex: 1, minWidth: 0 }}>{t(`waf.source.${r.sourceKind}`)}</Text>
+    <div className="ui-row" style={{ gridTemplateColumns: '96px minmax(0, 1.6fr) minmax(0, 1fr) 72px' }}>
+      <Pill livello={r.blocking ? 'crit' : 'off'}>{r.action}</Pill>
+      <span className="ui-what">
+        {t(`waf.source.${r.sourceKind}`)}
         {r.ruleId && (
-          <Tooltip title={r.ruleId}>
-            <Text type="secondary" style={{ fontSize: 11, fontFamily: MONO }}>
-              {r.ruleId.length > 12 ? `${r.ruleId.slice(0, 12)}…` : r.ruleId}
-            </Text>
-          </Tooltip>
+          <small className="ui-mono ui-faint" title={r.ruleId}>
+            {' '}
+            {r.ruleId.length > 12 ? `${r.ruleId.slice(0, 12)}…` : r.ruleId}
+          </small>
         )}
-        <Text strong style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-          {r.count.toLocaleString()}
-        </Text>
-      </div>
-      {r.paths?.length > 0 && (
-        <Text type="secondary" style={{ display: 'block', fontSize: 12, fontFamily: MONO, wordBreak: 'break-all' }}>
-          {r.paths.join(' · ')}
-        </Text>
-      )}
+        {r.paths?.length > 0 && <span className="ui-hint ui-mono" style={{ wordBreak: 'break-all' }}>{r.paths.join(' · ')}</span>}
+      </span>
+      <Meter valore={max ? (r.count / max) * 100 : 0} livello={r.blocking ? 'brand' : 'off'} />
+      <b className="ui-mono" style={{ textAlign: 'right' }}>
+        {r.count.toLocaleString()}
+      </b>
     </div>
   )
 }
@@ -40,48 +31,38 @@ function RuleRow({ r, t }) {
 function ZoneCard({ z, t }) {
   if (z.error) {
     return (
-      <div style={PANEL_CARD}>
-        <Text strong>{z.zone}</Text>
-        <Alert type="warning" showIcon style={{ marginTop: 8 }} message={z.error} />
-      </div>
+      <Card titolo={z.zone}>
+        <div className="ui-readwarn">{z.error}</div>
+      </Card>
     )
   }
+  const max = Math.max(0, ...(z.rules ?? []).map((r) => r.count))
   return (
     // data-view: ancora per il video demo, vedi pageKit.jsx.
-    <div data-view="waf" style={PANEL_CARD}>
-      <Text strong style={{ fontSize: 15 }}>
-        {z.zone}
-      </Text>
+    <Card data-view="waf" titolo={z.zone}>
       {/* Le due cifre stanno vicine e NON si sommano, ed è il punto: mettere una regola in `log` non
-          impedisce a un'altra di bloccare. Il tooltip lo dice per intero. */}
-      <div style={{ display: 'flex', gap: 20, alignItems: 'baseline', marginTop: 2 }}>
-        <span>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {t('waf.blocked')}{' '}
-          </Text>
-          <Text strong style={{ fontSize: 16, color: z.blocked ? LEVEL.bad.color : undefined, fontVariantNumeric: 'tabular-nums' }}>
-            {z.blocked.toLocaleString()}
-          </Text>
-        </span>
-        <Tooltip title={t('waf.loggedHint')}>
-          <span>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('waf.logged')}{' '}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>
-              {z.logged.toLocaleString()}
-            </Text>
-          </span>
-        </Tooltip>
-      </div>
-      {z.rules?.length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          {z.rules.map((r, i) => (
-            <RuleRow key={`${r.ruleId}:${r.action}:${i}`} r={r} t={t} />
-          ))}
+          impedisce a un'altra di bloccare. La nota sotto lo dice per intero. */}
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <b className={z.blocked ? 'ui-t-crit' : undefined}>{z.blocked.toLocaleString()}</b>
+          <span>{t('waf.blocked')}</span>
         </div>
+        <div className="ui-stat" title={t('waf.loggedHint')}>
+          <b className="ui-mute">{z.logged.toLocaleString()}</b>
+          <span>{t('waf.logged')}</span>
+        </div>
+      </div>
+      <span className="ui-faint" style={{ fontSize: 12.5 }}>
+        {t('waf.nonSiSommano')}
+      </span>
+      {z.rules?.length > 0 && (
+        <Lista>
+          {z.rules.map((r, i) => (
+            <RuleRow key={`${r.ruleId}:${r.action}:${i}`} r={r} max={max} t={t} />
+          ))}
+        </Lista>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -89,15 +70,15 @@ function ZoneCard({ z, t }) {
 // Sta nella pagina Sicurezza perché è l'unico posto dove un blocco sbagliato si vede: quel traffico
 // non raggiunge i servizi, quindi non esiste in nessun log applicativo né in nessuna metrica ECS.
 //
-// Card nella griglia del resto delle viste per-account, non a piena larghezza: su uno schermo grande
-// il nome della zona e il suo conteggio finivano ai due estremi della riga, cioè a un metro l'uno
-// dall'altro, e due numeri che vanno letti INSIEME non si possono mettere così lontani.
+// Una card per zona, affiancate: su uno schermo grande il nome della zona e il suo conteggio a piena
+// larghezza finivano ai due estremi della riga, e due numeri che vanno letti INSIEME non si possono
+// mettere così lontani.
 export default function WafPanel({ t = (k) => k }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
 
   // `alive`: le schede di «Spesa»/«Sicurezza» distruggono il pane inattivo, quindi questo pannello
-  // può smontarsi mentre la richiesta è in volo — e allora la risposta non deve toccare più niente.
+  // può smontarsi mentre la richiesta è in volo, e allora la risposta non deve toccare più niente.
   useEffect(() => {
     let alive = true
     fetch('/api/waf')
@@ -110,7 +91,7 @@ export default function WafPanel({ t = (k) => k }) {
   }, [])
 
   // Integrazione spenta (nessun token Cloudflare): nessuna sezione, nessun rumore.
-  if (!data || data.disabled) return error ? <Alert type="warning" showIcon message={error} style={{ marginBottom: 16 }} /> : null
+  if (!data || data.disabled) return error ? <div className="ui-readwarn">{error}</div> : null
 
   const zones = data.zones ?? []
   // Le zone senza dataset (domini parcheggiati su piano Free) NON sono un guasto e non diventano card:
@@ -122,37 +103,25 @@ export default function WafPanel({ t = (k) => k }) {
   const clean = queryable.length - hit.length
 
   return (
-    <div style={{ marginBottom: 24 }}>
-      <div style={{ marginBottom: 8 }}>
-        <Text strong style={{ fontSize: 14 }}>
-          {t('waf.title', { h: data.hours })}
-        </Text>
-        <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-          {t('waf.desc')}
-        </Text>
-      </div>
-      {data.error && <Alert type="warning" showIcon message={data.error} />}
-      {hit.length === 0 && !data.error && <Text type="secondary">{t('waf.noBlocks')}</Text>}
+    <Sezione titolo={t('waf.title', { h: data.hours })} sotto={t('waf.desc')}>
+      {data.error && <div className="ui-readwarn">{data.error}</div>}
+      {hit.length === 0 && !data.error && (
+        <Lista vuoto={t('waf.noBlocks')}>{[]}</Lista>
+      )}
       {hit.length > 0 && (
-        <div style={PANEL_GRID}>
+        <div className="ui-hero">
           {hit.map((z) => (
             <ZoneCard key={z.zoneId ?? z.zone} z={z} t={t} />
           ))}
         </div>
       )}
-      {clean > 0 && hit.length > 0 && (
-        <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-          {t('waf.zonesClean', { n: clean })}
-        </Text>
-      )}
+      {clean > 0 && hit.length > 0 && <p className="ui-note">{t('waf.zonesClean', { n: clean })}</p>}
       {noDataset.length > 0 && (
-        <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+        <p className="ui-note">
           {t('waf.zonesNoDataset', { n: noDataset.length })}{' '}
-          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
-            {noDataset.map((z) => z.zone).join(' · ')}
-          </Text>
-        </Text>
+          <span className="ui-mono">{noDataset.map((z) => z.zone).join(' · ')}</span>
+        </p>
       )}
-    </div>
+    </Sezione>
   )
 }

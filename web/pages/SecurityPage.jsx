@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Typography, Tag, Segmented, Space } from 'antd'
-import { PageIntro, EmptyState, Verdetto } from './pageKit.jsx'
+import { Verdetto, Tabs, Lista, Sezione, RigaProblema } from '../ui/index.js'
 import WafPanel from '../components/WafPanel.jsx'
 import Loading from '../components/Loading.jsx'
+import './ops.css'
 
-const { Text } = Typography
+// La severita' del server tradotta nei livelli della nuova interfaccia: rosso solo per quello che va
+// fatto oggi, arancio per il resto da sistemare, blu per l'igiene che si guarda quando c'e' tempo.
+const LIVELLO = { high: 'crit', medium: 'warn', low: 'info', info: 'info' }
+const RANGO = { crit: 0, warn: 1, info: 2 }
 
-const SEV_COLOR = { high: 'red', medium: 'orange', low: 'gold', info: 'blue' }
+// La casellina accanto al nome: dice DA DOVE arriva la riga prima di leggerla, come nella home.
+const SIGLA = { public: 'NET', expiring: 'TLS', secret: 'KEY', iam: 'IAM', database: 'DB', compute: 'CPU', deploy: 'CI', llms: 'AI' }
 
 // Pagina Sicurezza: findings di sicurezza/governance aggregati (superficie pubblica, scadenze,
-// secret stantii, igiene IAM…), filtrabili per categoria e ordinati per severità. Sola lettura.
+// secret stantii, igiene IAM…), filtrabili per categoria e ordinati per severità, e sopra il
+// traffico fermato dal WAF. Sola lettura.
 export default function SecurityPage({ t = (k) => k, lang }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -18,7 +23,7 @@ export default function SecurityPage({ t = (k) => k, lang }) {
   const [cat, setCat] = useState('all')
   const navigate = useNavigate()
 
-  // Alcuni finding rimandano alla pagina IAM: una policy troppo larga alla sua vista "per policy",
+  // Alcuni finding rimandano alla pagina Permessi: una policy troppo larga alla sua vista "per policy",
   // una risorsa esposta / un secret alla vista "per risorsa" (chi ci accede).
   const openLink = (link) => {
     const p = new URLSearchParams({ view: link.view, account: link.account ?? '' })
@@ -28,7 +33,7 @@ export default function SecurityPage({ t = (k) => k, lang }) {
   }
 
   // `lang` nella query e nelle dipendenze: i `detail` dei finding sono frasi costruite dal server,
-  // quindi cambiando lingua vanno richiesti di nuovo — non si traducono nel browser.
+  // quindi cambiando lingua vanno richiesti di nuovo, non si traducono nel browser.
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -39,77 +44,64 @@ export default function SecurityPage({ t = (k) => k, lang }) {
       .finally(() => setLoading(false))
   }, [lang])
 
-  const findings = data?.findings ?? []
+  // Ordinati dal piu' grave: in un elenco lungo si guarda la prima riga, non la settima. `sort` e'
+  // stabile, quindi a parita' di livello resta l'ordine del server.
+  const findings = useMemo(
+    () => [...(data?.findings ?? [])].sort((a, b) => (RANGO[LIVELLO[a.severity]] ?? 3) - (RANGO[LIVELLO[b.severity]] ?? 3)),
+    [data],
+  )
   const categories = useMemo(() => [...new Set(findings.map((f) => f.category))], [findings])
   const shown = cat === 'all' ? findings : findings.filter((f) => f.category === cat)
-  const options = [{ label: t('sec.all'), value: 'all' }, ...categories.map((c) => ({ label: t(`sec.cat.${c}`), value: c }))]
+  const gravi = findings.filter((f) => LIVELLO[f.severity] === 'crit').length
+  const voci = [
+    { key: 'all', label: t('sec.all'), n: findings.length },
+    ...categories.map((c) => ({ key: c, label: t(`sec.cat.${c}`), n: findings.filter((f) => f.category === c).length })),
+  ]
+
+  // Il verdetto: «quante cose di sicurezza sono aperte». Zero e' una risposta e va detta come tale,
+  // non come uno stato vuoto: la pagina che non dice niente si legge come «non lo so».
+  const verdetto = !data ? (
+    <Verdetto resto={t('sec.title')} dettaglio={t('sec.desc')} />
+  ) : findings.length === 0 ? (
+    <Verdetto livello="ok" forte={t('sec.v.okTitolo')} dettaglio={t('sec.none')} />
+  ) : (
+    <Verdetto
+      livello={gravi ? 'crit' : 'warn'}
+      forte={gravi ? t('sec.v.graviN', { n: gravi }) : t('sec.v.titolo', { n: findings.length })}
+      resto={gravi ? ` ${t('sec.v.suTotale', { n: findings.length })}` : null}
+      dettaglio={t('sec.v.dettaglio', { n: categories.length })}
+    />
+  )
 
   return (
-    <>
-      <PageIntro
-        title={t('sec.title')}
-        desc={t('sec.desc')}
-        extra={categories.length > 1 ? <Segmented options={options} value={cat} onChange={setCat} /> : null}
-      />
+    <div className="ui-pagina">
+      {verdetto}
       {/* Il WAF sta in cima e non fra i finding: non è un'igiene da sistemare quando c'è tempo, è
           traffico che in questo momento non arriva ai servizi. */}
       <WafPanel t={t} />
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <Loading text={t('sec.loading')} />
-        </div>
-      )}
-      {error && <Alert type="error" showIcon message={error} />}
-      {/* Il verdetto: «quante cose di sicurezza sono aperte». Zero e' una risposta e va detta come
-          tale, non come uno stato vuoto: la pagina che non dice niente si legge come «non lo so». */}
-      {data && findings.length === 0 && <Verdetto livello="ok" titolo={t('sec.v.okTitolo')} dettaglio={t('sec.none')} />}
+      {loading && <Loading text={t('sec.loading')} />}
+      {error && <div className="ui-readwarn">{error}</div>}
       {data && findings.length > 0 && (
-        <Verdetto
-          livello="warn"
-          titolo={t('sec.v.titolo', { n: findings.length })}
-          dettaglio={t('sec.v.dettaglio', { n: categories.length })}
-        />
+        <Sezione titolo={t('sec.daSistemare')} sotto={t('sec.dalPiuGrave')}>
+          {categories.length > 1 && <Tabs voci={voci} attiva={cat} onCambia={setCat} />}
+          <Lista vuoto={t('sec.none')}>
+            {shown.map((f, i) => (
+              <RigaProblema
+                key={`${f.category}:${f.resource}:${i}`}
+                livello={LIVELLO[f.severity] ?? 'info'}
+                etichetta={t(`sec.sev.${f.severity}`)}
+                icona={SIGLA[f.category] ?? '!'}
+                nome={f.resource}
+                sotto={[t(`sec.cat.${f.category}`), f.accountLabel].filter(Boolean).join(' · ')}
+                cosa={f.detail}
+                azione={f.link ? t('sec.openIam') : null}
+                onApri={f.link ? () => openLink(f.link) : undefined}
+              />
+            ))}
+          </Lista>
+        </Sezione>
       )}
-
-      {shown.length > 0 && (
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          {shown.map((f, i) => (
-            <div
-              key={i}
-              // data-finding: ancora per il video demo, vedi pageKit.jsx.
-              data-finding={f.category}
-              onClick={f.link ? () => openLink(f.link) : undefined}
-              style={{
-                border: '1px solid var(--dg-line)',
-                borderRadius: 10,
-                padding: '10px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                flexWrap: 'wrap',
-                cursor: f.link ? 'pointer' : 'default',
-              }}
-            >
-              <Tag color={SEV_COLOR[f.severity] ?? 'default'} style={{ marginInlineEnd: 0, fontSize: 11 }}>
-                {t(`sec.sev.${f.severity}`)}
-              </Tag>
-              <Tag style={{ marginInlineEnd: 0 }}>{t(`sec.cat.${f.category}`)}</Tag>
-              <Text strong>{f.resource}</Text>
-              {f.accountLabel && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {f.accountLabel}
-                </Text>
-              )}
-              <Text type="secondary" style={{ fontSize: 13, flex: 1, minWidth: 180 }}>
-                · {f.detail}
-              </Text>
-              {f.link && (
-                <Text style={{ fontSize: 12, color: '#7c3aed', flexShrink: 0 }}>{t('sec.openIam')}</Text>
-              )}
-            </div>
-          ))}
-        </Space>
-      )}
-    </>
+      <p className="ui-note">{t('sec.nota')}</p>
+    </div>
   )
 }
