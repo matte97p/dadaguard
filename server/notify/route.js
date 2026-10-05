@@ -16,9 +16,13 @@ const TIPI_CRON = ['lambda', 'ecs-scheduled']
 // 'main'  → destinazione di tutto il resto (ECS, endpoint, secret, drift, backup, certificati,
 //           sicurezza, Bedrock, Cloudflare) — oggi senza voce da nessuna parte
 // null    → NON si manda: lo dice già qualcun altro
-export function routeOf(transition, { notifyCronFailed = false } = {}) {
+// 'data'  → il canale degli allarmi della squadra data, per le risorse il cui repository d'immagine è
+//           suo (`DADAGUARD_QUADRO_SQUADRE`, la stessa riga del quadro dei deploy): un guasto di uno
+//           scraper lo deve vedere chi lo possiede, non il canale di tutti
+export function routeOf(transition, { notifyCronFailed = false, repoData = [] } = {}) {
   const isCron = TIPI_CRON.includes(transition.type) && transition.outcome != null
   if (isCron && transition.outcome === 'failed' && !notifyCronFailed) return null
+  if (transition.repo && repoData.includes(String(transition.repo).toLowerCase())) return 'data'
   if (isCron && transition.kind === 'alert' && transition.outcome === 'missed') return 'cron'
   return 'main'
 }
@@ -27,10 +31,11 @@ export function routeOf(transition, { notifyCronFailed = false } = {}) {
 // ricordato nello stato): un rosso che nessuno chiude lascia un canale pieno di allarmi di cui
 // non sai quali sono ancora aperti. Vale anche per gli alleggerimenti (`improvement`), che sono
 // aggiornamenti sullo stesso allarme: seguirlo altrove spezzerebbe il filo in due canali.
-export function splitByRoute(transitions, { routeMemory = {}, notifyCronFailed = false } = {}) {
-  const out = { main: [], cron: [], skipped: [] }
+export function splitByRoute(transitions, { routeMemory = {}, notifyCronFailed = false, repoData = [] } = {}) {
+  const out = { main: [], cron: [], data: [], skipped: [] }
   for (const tr of transitions) {
-    const dest = tr.kind === 'alert' ? routeOf(tr, { notifyCronFailed }) : (routeMemory[tr.key] ?? routeOf(tr, { notifyCronFailed }))
+    const opts = { notifyCronFailed, repoData }
+    const dest = tr.kind === 'alert' ? routeOf(tr, opts) : (routeMemory[tr.key] ?? routeOf(tr, opts))
     if (!dest) {
       out.skipped.push(tr)
       continue

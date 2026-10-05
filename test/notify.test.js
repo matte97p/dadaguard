@@ -1056,3 +1056,45 @@ test('il sorgente non dichiara emoji fuori dal set di #tech-devops-alert', () =>
     assert.ok(ammesse.some((e) => s.includes(e)), `${s} non è una delle emoji del canale`)
   }
 })
+
+test('le risorse della squadra data vanno nel canale data, il resto dove andava', () => {
+  const repoData = ['nesso-scraper', 'scraping-dashboard-backend']
+  const tr = (extra) => ({ kind: 'alert', key: 'k', type: 'ecs', outcome: null, ...extra })
+  assert.equal(routeOf(tr({ repo: 'nesso-scraper' }), { repoData }), 'data')
+  assert.equal(routeOf(tr({ repo: 'Scraping-Dashboard-Backend' }), { repoData }), 'data', 'senza badare alle maiuscole')
+  assert.equal(routeOf(tr({ type: 'ecs-scheduled', outcome: 'missed', repo: 'nesso-scraper' }), { repoData }), 'data', 'anche un cron della squadra mai partito')
+  assert.equal(routeOf(tr({ type: 'ecs-scheduled', outcome: 'failed', repo: 'nesso-scraper' }), { repoData }), null, 'un cron caduto lo dice già il cron')
+  assert.equal(routeOf(tr({ repo: 'backend' }), { repoData }), 'main')
+  assert.equal(routeOf(tr({ repo: 'nesso-scraper' })), 'main', 'senza squadra configurata, come prima')
+  const g = splitByRoute([tr({ key: 'a', repo: 'nesso-scraper' }), tr({ key: 'b', repo: 'backend' })], { repoData })
+  assert.deepEqual([g.data.map((x) => x.key), g.main.map((x) => x.key)], [['a'], ['b']])
+})
+
+test('il canale data lo scrive il bot, e senza bot gli allarmi data restano nel principale', async () => {
+  const { runOnce } = await import('../server/notify/watch.js')
+  const servizio = (overall) => ({ name: 'tenders', type: 'ecs', overall, cause: overall === 'down' ? 'runtime' : null, account: { key: 'production', label: 'Production' }, checks: { version: { build: { repo: 'nesso-scraper' } }, runtime: { status: overall, summary: '0/1' } } })
+  const prova = async (cfgExtra) => {
+    let stato = null
+    const bot = []
+    const hook = []
+    const deps = {
+      getStatus: async () => ({ services: [servizio(stato ? 'down' : 'up')] }),
+      publishStatus: () => {},
+      loadState: async () => stato,
+      saveState: async (_f, s) => (stato = s),
+      postSlack: async (h) => (hook.push(h), true),
+      postBot: async (c) => (bot.push(c), true),
+      loadConfig: () => ({}),
+    }
+    const cfg = { webhook: 'https://hooks/principale', webhookCron: null, confirmations: 1, stateFile: 'x', publicUrl: null, lang: 'it', repoData: ['nesso-scraper'], ...cfgExtra }
+    await runOnce(cfg, deps) // primo giro: prende nota
+    await runOnce(cfg, deps) // giù
+    return { bot, hook }
+  }
+  const conBot = await prova({ canaleData: 'CDATA', botToken: 'xoxb' })
+  assert.deepEqual(conBot.bot, ['CDATA'])
+  assert.deepEqual(conBot.hook, [])
+  const senzaBot = await prova({ canaleData: 'CDATA', botToken: null })
+  assert.deepEqual(senzaBot.bot, [])
+  assert.deepEqual(senzaBot.hook, ['https://hooks/principale'])
+})

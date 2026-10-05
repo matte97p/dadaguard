@@ -68,6 +68,9 @@ export function snapshot(services = []) {
       // campo), la legge solo la migrazione dentro `diffStates`.
       legacy: legacyKey(s),
       type: s.type ?? null,
+      // Il repository dell'immagine (servizi e cron ECS): dice di quale SQUADRA è la risorsa, e quindi
+      // in quale canale va l'allarme (vedi route.js).
+      repo: s.checks?.version?.build?.repo ?? null,
       // esito strutturato del dead-man: 'missed' (mai partita) | 'failed' (partita e caduta) | 'ok'
       outcome: s.checks?.runtime?.outcome ?? null,
       // Il check dichiara il proprio sforamento PROVVISORIO: l'ha visto solo la finestra corta, e
@@ -166,6 +169,7 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
         type: obs.type,
         causeType: obs.causeType,
         outcome: obs.outcome,
+        repo: obs.repo ?? null,
         provisional: obs.provisional === true,
       })
     }

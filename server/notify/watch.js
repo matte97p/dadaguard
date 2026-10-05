@@ -9,6 +9,7 @@ import { slackMessage, postSlack, messaggioAccessi } from './slack.js'
 import { loadConfig } from '../config.js'
 import { statoAccessi, segnali, daAnnunciare, CALMA_MS } from '../accessi.js'
 import { splitByRoute } from './route.js'
+import { chiamaSlack, quadroConfig } from './quadro.js'
 
 // Il watchdog vero e proprio: guarda la flotta a intervalli, e quando qualcosa ATTRAVERSA il confine
 // problema/non-problema lo dice su Slack. Finché questo non esisteva, Dadaguard era una dashboard —
@@ -24,6 +25,10 @@ import { splitByRoute } from './route.js'
 //   DADAGUARD_SLACK_WEBHOOK_CRON   opzionale: destinazione del solo «cron mai partito» — il buco del
 //                                  canale dei cron, dove la squadra guarda già. Assente → va nel
 //                                  webhook principale
+//   DADAGUARD_ALLARMI_DATA_CANALE  opzionale: id del canale (`C0…`) degli allarmi della squadra data.
+//                                  Ci scrive il bot del quadro (DADAGUARD_SLACK_BOT_TOKEN, invitato nel
+//                                  canale), quindi niente webhook in più; quali risorse sono della
+//                                  squadra lo dice DADAGUARD_QUADRO_SQUADRE. Assente → nel principale
 //   DADAGUARD_NOTIFY_CRON_FAILED   1 per riattivare anche i cron CADUTI (di norma taciuti: li scrive
 //                                  già il job stesso, con più dettaglio)
 //   DADAGUARD_WATCH_INTERVAL  secondi tra i giri (default 300: per i cron 5 minuti sono abbondanti,
@@ -38,6 +43,9 @@ export function watchConfig(env = process.env) {
   return {
     webhook: env.DADAGUARD_SLACK_WEBHOOK || null,
     webhookCron: env.DADAGUARD_SLACK_WEBHOOK_CRON || null,
+    canaleData: env.DADAGUARD_ALLARMI_DATA_CANALE || null,
+    botToken: env.DADAGUARD_SLACK_BOT_TOKEN || null,
+    repoData: quadroConfig(env).squadre.data ?? [],
     notifyCronFailed: env.DADAGUARD_NOTIFY_CRON_FAILED === '1',
     intervalMs: Math.max(30, Number(env.DADAGUARD_WATCH_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     confirmations: Math.max(1, Number(env.DADAGUARD_WATCH_CONFIRM) || DEFAULT_CONFIRMATIONS),
@@ -79,6 +87,13 @@ export async function runOnce(cfg, deps = {}) {
   // un dato fresco senza che nessuno abbia aspettato. Iniettabile perché `runOnce` è la cosa provata.
   const pubblica = deps.publishStatus ?? publishStatus
   const send = deps.postSlack ?? postSlack
+  const sendBot =
+    deps.postBot ??
+    ((canale, payload) =>
+      chiamaSlack('chat.postMessage', { channel: canale, ...payload, unfurl_links: false }, cfg.botToken).then(
+        () => true,
+        (err) => (log.error('slack: invio col bot fallito', { canale, err: err.message }), false),
+      ))
   const readState = deps.loadState ?? loadState
   const writeState = deps.saveState ?? saveState
   const t = makeT(cfg.lang)
@@ -95,19 +110,21 @@ export async function runOnce(cfg, deps = {}) {
       .filter(([, v]) => v?.route)
       .map(([k, v]) => [k, v.route]),
   )
-  const gruppi = splitByRoute(transitions, { routeMemory, notifyCronFailed: cfg.notifyCronFailed })
+  const gruppi = splitByRoute(transitions, { routeMemory, notifyCronFailed: cfg.notifyCronFailed, repoData: cfg.repoData })
   const destinazioni = [
     ['main', gruppi.main, cfg.webhook],
     // senza un webhook dedicato ai cron, «mai partito» va nel principale: meglio nel posto sbagliato
     // che in nessun posto
     ['cron', gruppi.cron, cfg.webhookCron || cfg.webhook],
+    // Il canale data lo scrive il bot; senza canale o senza token, nel principale.
+    ['data', gruppi.data, cfg.canaleData && cfg.botToken ? { canale: cfg.canaleData } : cfg.webhook],
   ]
 
   let ok = true
   for (const [nome, lista, hook] of destinazioni) {
     if (!lista.length) continue
     const payload = slackMessage(lista, { url: cfg.publicUrl, t })
-    const inviato = hook ? await send(hook, payload) : true
+    const inviato = !hook ? true : typeof hook === 'object' ? await sendBot(hook.canale, payload) : await send(hook, payload)
     ok = ok && inviato
     log.info('watch: transizioni', {
       dove: nome,
