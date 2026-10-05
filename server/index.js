@@ -43,6 +43,7 @@ import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { quadro, canvasDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
+import { statoLeggero } from './quadroStato.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -382,11 +383,13 @@ app.get('/api/rilasci', async (req, res) => {
   }
 })
 
-// Le due letture che il quadro unisce, dalle stesse cache delle pagine: i deploy (CodeBuild) e lo
-// stato dei servizi (ECS dice cosa gira davvero). Nessun giro AWS che le pagine non facciano già.
+// Le due letture che il quadro unisce: i deploy (CodeBuild, dalla stessa cache della pagina) e cosa
+// gira davvero, letto col lettore leggero (server/quadroStato.js) e NON con lo stato completo della
+// dashboard, che legge metriche CloudWatch a pagamento e rifatto ogni 15 secondi costerebbe migliaia
+// di dollari al mese. Sono tutte API gratuite.
 async function datiQuadro() {
-  const [deploys, stato] = await Promise.all([deploysCached('it').then((r) => r.value), statusFor('it').then((r) => r.value)])
-  return { deploys, servizi: stato?.services ?? [] }
+  const [deploys, servizi] = await Promise.all([deploysCached('it').then((r) => r.value), statoLeggero()])
+  return { deploys, servizi }
 }
 
 // Il quadro dei deploy per Slack (vedi notify/quadro.js), SENZA mandarlo: lo stesso canvas che il giro

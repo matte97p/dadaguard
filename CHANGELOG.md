@@ -24,6 +24,12 @@ All notable changes to Dadaguard are documented here. Format based on
   virgola): è così che il quadro apre le risorse di una sua riga.
 
 ### Changed
+- **Il quadro dei deploy si aggiorna ogni 15 secondi e legge solo API gratuite** (05/10/2026). Usava
+  lo stato completo della dashboard, che legge metriche CloudWatch a pagamento: rifatto ogni 2 minuti
+  costava circa 100 $ al mese (misurato in Cost Explorer, ~470 metriche a giro). Ora ha un lettore suo
+  (`server/quadroStato.js`) che riusa la discovery e i soli controlli di versione e di runtime ECS:
+  2,6 secondi a giro a cache calde. Il canvas si riscrive solo quando cambia, e un giro non parte se
+  il precedente è ancora in corso.
 - **La pagina Deploy mostra anche gli apply dell'infrastruttura** (progetti `*-iac-apply`, come
   servizio `IaC`), e il check di versione espone revisione ECS e dati delle Lambda come dati, non
   solo nel testo.

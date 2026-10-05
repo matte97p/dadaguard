@@ -53,8 +53,8 @@ import { postSlack } from './slack.js'
 //                               scrive canvas e non modifica i messaggi che ha mandato
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
 //                               `produzione=C0123,staging=C0456`. Gli id, non i nomi
-//   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 60: un deploy dura ~4 minuti, e a 300 un
-//                               rilascio intero passerebbe senza che il quadro lo veda in corso)
+//   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 15, minimo 10). Slack regge ~50 modifiche
+//                               di canvas al minuto, e il giro scrive solo i canvas che cambiano
 //   DADAGUARD_QUADRO_ORE        quanto indietro guarda «Ultime N ore» (default 24)
 //   DADAGUARD_QUADRO_SQUADRE    le squadre con una scheda loro, e i repository che possiedono:
 //                               `data=Scraper,scraper-image;altra=repo`. Chi possiede cosa AWS non lo
@@ -64,7 +64,9 @@ import { postSlack } from './slack.js'
 //   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
 //                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
-const DEFAULT_INTERVAL_S = 60
+// 15 secondi: un deploy si vede partire quasi subito. Si può perché ogni lettura del giro è gratuita
+// (server/quadroStato.js) e il canvas si riscrive solo quando cambia.
+const DEFAULT_INTERVAL_S = 15
 const DEFAULT_ORE = 24
 // I tetti delle righe. Oltre, una riga dice quante ne mancano e porta a Dadaguard.
 const MAX_ADESSO = 10
@@ -112,7 +114,7 @@ export function quadroConfig(env = process.env) {
     squadre,
     // Senza canali si calcolano comunque tutti e due: servono all'anteprima di `/api/quadro`.
     ambienti: Object.keys(canali).length ? Object.keys(canali) : Object.keys(AMBIENTI),
-    intervalMs: Math.max(30, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
+    intervalMs: Math.max(10, Number(env.DADAGUARD_QUADRO_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
     ore: Number.isFinite(ore) && ore > 0 ? ore : DEFAULT_ORE,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
   }
@@ -820,6 +822,9 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     if (!infoDi.has(canale)) infoDi.set(canale, await api('conversations.info', { channel: canale }))
     return infoDi.get(canale)
   }
+  // L'ultimo markdown scritto per ogni canvas: uguale vuol dire niente da riscrivere. Con un giro ogni
+  // 15 secondi riscrivere sempre sarebbero 16 modifiche al minuto per niente, e Slack ne regge ~50.
+  const ultimi = deps.ultimi ?? new Map()
   const esiti = []
   for (const c of canvasDaScrivere(q, cfg, { ora })) {
     if (!c.canale) continue
@@ -830,9 +835,12 @@ export async function aggiornaQuadri(cfg, deps = {}) {
       const document_content = { type: 'markdown', markdown: c.markdown }
       const { id, doppioni } = canvasDelCanale(await info(c.canale), c.titolo)
       if (doppioni.length) log.warn('quadro: il canale ha più canvas con lo stesso titolo, riscrivo il più recente', { canvas: c.chiave, doppioni })
-      if (id) {
+      if (id && ultimi.get(id) === c.markdown) {
+        esiti.push({ ambiente: c.chiave, azione: 'invariato', canvas: id, ...allarmi })
+      } else if (id) {
         // `replace` senza sezione riscrive il canvas intero: è un quadro, non un documento da integrare.
         await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
+        ultimi.set(id, c.markdown)
         esiti.push({ ambiente: c.chiave, azione: 'riscritto', canvas: id, ...allarmi })
       } else {
         const r = await api('conversations.canvases.create', { channel_id: c.canale, title: c.titolo, document_content })
@@ -841,6 +849,7 @@ export async function aggiornaQuadri(cfg, deps = {}) {
         await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [c.canale] }).catch((err) =>
           log.warn('quadro: canvas non messo in sola lettura', { canvas: c.chiave, err: err.message }),
         )
+        ultimi.set(r.canvas_id, c.markdown)
         esiti.push({ ambiente: c.chiave, azione: 'creato', canvas: r.canvas_id, ...allarmi })
       }
     } catch (err) {
@@ -993,9 +1002,14 @@ export function startQuadro(leggiDati, env = process.env) {
   const allarmi = {} // ambiente → allarmi aperti
   const visti = new Set() // ambienti che hanno già avuto un giro con i dati: il primo prende nota e basta
   const api = (m, c) => chiamaSlack(m, c, cfg.token)
-  const tick = () =>
+  const ultimi = new Map() // canvas → ultimo markdown scritto
+  // Un giro alla volta. Il primo, a cache fredde, dura più dell'intervallo (26 secondi misurati contro
+  // 15): due giri insieme cercherebbero lo stesso canvas, non lo troverebbero tutti e due e ne
+  // creerebbero due, cioè il doppione che il giro di prova del 04/10/2026 ha già fatto una volta.
+  let inCorso = false
+  const giro = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
-    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null })
+    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi })
       // Un giro che muore prima dei canali (AWS che non si legge) è un errore per OGNI ambiente: per
       // la guardia conta quanto è vecchio il canvas, non dove si è rotto il giro.
       .catch((err) => {
@@ -1005,7 +1019,8 @@ export function startQuadro(leggiDati, env = process.env) {
       .then(async (esiti) => {
         const errori = esiti.filter((e) => e.azione === 'errore')
         if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
-        log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
+        // Ogni 15 secondi un log per giro sarebbero 5.760 righe al giorno: si scrive solo se qualcosa è cambiato.
+        if (esiti.some((e) => e.azione !== 'invariato')) log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
         const g = guardiaQuadro(guardia, esiti, { avvio })
         guardia = g.stato
         for (const a of g.avvisi) {
@@ -1024,6 +1039,13 @@ export function startQuadro(leggiDati, env = process.env) {
         }
       })
       .catch((err) => log.error('quadro: guardia fallita', { err: err.message }))
+  const tick = () => {
+    if (inCorso) return
+    inCorso = true
+    giro().finally(() => {
+      inCorso = false
+    })
+  }
   tick()
   const timer = setInterval(tick, cfg.intervalMs)
   timer.unref?.()
