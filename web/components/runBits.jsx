@@ -1,42 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Tag } from 'antd'
-import { LEVEL } from '../theme.js'
+import { Pill } from '../ui/index.js'
+import { livelloCorsa, durataCorsa } from '../rilasci.js'
 
-// Vocabolario visivo delle esecuzioni, in un posto solo: la pagina, il pannello dei log e (domani)
-// qualunque altra vista devono colorare 'failed' allo stesso modo, o il colore smette di essere un
-// segnale: è la ragione per cui esiste web/theme.js.
-export const OUTCOME_LEVEL = {
-  running: 'info',
-  ok: 'ok',
-  failed: 'bad',
-  cancelled: 'muted',
-  unknown: 'warn',
-  scheduled: 'muted',
-}
-
-export const outcomeColor = (outcome) => LEVEL[OUTCOME_LEVEL[outcome] ?? 'muted'].color
-
+// Vocabolario visivo delle esecuzioni, in un posto solo: la pagina, il pannello dei log e la striscia
+// delle corse devono colorare 'failed' allo stesso modo, o il colore smette di essere un segnale. Le
+// regole (esito → livello) stanno in web/rilasci.js, dove i test le vedono.
 export function OUTCOME_TAG(outcome, t = (k) => k) {
   if (!outcome) return null
-  return (
-    <Tag bordered={false} color={LEVEL[OUTCOME_LEVEL[outcome] ?? 'muted'].tag} style={{ marginInlineEnd: 0 }}>
-      {t(`runs.outcome.${outcome}`)}
-    </Tag>
-  )
+  return <Pill livello={livelloCorsa({ outcome })}>{t(`runs.outcome.${outcome}`)}</Pill>
 }
 
-// Durata di una run: quella vera se è finita, quella maturata FINORA se sta girando. Gemella di
-// `runDuration` in server/runs.js (client e server sono bundle separati). Pura/testabile.
-export function runElapsed(run, now = Date.now()) {
-  if (!run?.startedAt) return null
-  const end = run.running ? now : run.endedAt
-  if (!end) return null
-  return Math.max(0, end - run.startedAt)
-}
+// Durata di una run: quella vera se e' finita, quella maturata FINORA se sta girando. Gemella di
+// `runDuration` in server/runs.js (client e server sono bundle separati).
+export const runElapsed = (run, now = Date.now()) => durataCorsa(run, now)
 
-// Un orologio che batte SOLO se c'è qualcosa che sta girando. Su una pagina di run tutte finite non
-// serve ridisegnare nulla ogni secondo: i numeri sono fermi, e un re-render al secondo su una tabella
-// lunga si sente.
+// Un orologio che batte SOLO se c'e' qualcosa che sta girando. Su una pagina di run tutte finite non
+// serve ridisegnare nulla ogni secondo: i numeri sono fermi.
 export function useTick(active, ms = 1000) {
   const [, setN] = useState(0)
   useEffect(() => {

@@ -1,46 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Typography, Space, Badge, Tag, Segmented, Select, Button, Skeleton, Tooltip, Drawer } from 'antd'
-import { ClockCircleOutlined } from '@ant-design/icons'
-import { PageIntro, PANEL_CARD, HeroStat, HeroRow, EmptyState, Verdetto } from './pageKit.jsx'
-import { shortActor, fmtAgo, fmtMs, awsErrorText, accountShort } from '../format.js'
+import { Verdetto, Card, Lista, Pill, Dot, Tabs, Drawer, Rimedio, ListaLink, Sezione } from '../ui/index.js'
+import { shortActor, fmtAgo, fmtMs, awsErrorText } from '../format.js'
 import { groupByService, isServiceRow } from '../deployRows.js'
 import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
-import { FONT } from '../theme.js'
 import { matchesAny, isFiltering, asList, listaDaUrl } from '../filters.js'
-import PollStatus from '../components/PollStatus.jsx'
+import { esitoBuild, rangoLivello } from '../adattatori.js'
+import { fasceDeploy, ultimiDeploy, contaDeploy, asseDeploy, linkBuild } from '../rilasci.js'
+import './rilasci.css'
 
-const { Text } = Typography
-const MONO = 'ui-monospace, SFMono-Regular, monospace'
+// Pagina DEPLOY: cosa sta uscendo adesso e com'e' andata, servizio per servizio. Le build di deploy di
+// CodeBuild, i rollout di Cloudflare e le azioni fatte A MANO (riavvii forzati, hotfix fuori dalla CI,
+// porte aperte in break-glass, shell nei container), che sono la cosa che una pagina di soli rilasci
+// automatici non avrebbe mai mostrato. Read-only, tutto gia' nei dati di /api/deploys.
 
-// Stato build CodeBuild → colore (stripe + tag + tick del trend) + etichetta i18n.
-const STATUS = {
-  IN_PROGRESS: { color: '#1677ff', tag: 'processing', key: 'deploys.running' },
-  SUCCEEDED: { color: '#52c41a', tag: 'success', key: 'deploys.ok' },
-  FAILED: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
-  FAULT: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
-  TIMED_OUT: { color: '#cf1322', tag: 'error', key: 'deploys.failed' },
-  STOPPED: { color: '#8c8c8c', tag: 'default', key: 'deploys.stopped' },
-}
-const FALLBACK = { color: '#8c8c8c', tag: 'default', key: null }
-// Colore dell'etichetta di avvio. `hotfix` è rosso perché è l'unico valore che significa "in
-// produzione gira codice che nessun test ha visto": se si legge come gli altri, non serve a niente.
-const TRIGGER_TAG = { hotfix: 'error', restart: 'blue' }
 const PERIOD_MS = { '24h': 864e5, '7d': 6048e5, '30d': 2592e6 }
 // Le stesse finestre in ORE, che e' l'unita' con cui il server le dichiara in `finestre.conf`.
 const PERIOD_ORE = { '24h': 24, '7d': 168, '30d': 720 }
-const TREND_MAX = 10 // build mostrate nel mini-trend a pallini
-
-// Durata di una build: `fmtMs` più la regola di questa pagina, dove «non lo so» si scrive vuoto e non
-// «—» (finisce dentro righe che si compongono con `filter(Boolean)`). Qui c'era una terza copia della
-// scala delle durate, ferma ai minuti: una build da quattro ore si leggeva "234m 56s".
-const fmtDur = (ms) => (ms == null ? '' : fmtMs(ms))
+const COLONNE_SERVIZI = 'minmax(0,1.1fr) 96px minmax(0,1.4fr) 76px 110px'
+const COLONNE_BUILD = 'minmax(0,1.1fr) 96px minmax(0,1.4fr) 110px'
 
 // Nome fase leggibile: DOWNLOAD_SOURCE → "Download source".
 function phaseLabel(type = '') {
   return type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, ' ')
 }
-const phaseColor = (status) => (status ? (STATUS[status] ?? FALLBACK).color : '#8c8c8c')
 
 function matchStatus(b, f) {
   if (f === 'running') return b.inProgress
@@ -51,504 +34,221 @@ function matchStatus(b, f) {
 }
 
 function matchPeriod(b, f) {
-  if (f === 'all' || !PERIOD_MS[f] || !b.startedAt) return true
+  if (!PERIOD_MS[f] || !b.startedAt) return true
   return Date.now() - new Date(b.startedAt).getTime() <= PERIOD_MS[f]
 }
 
-// Mini-trend: pallini colorati per stato, dal più vecchio (sx) al più recente (dx), ultime N.
-// Ogni pallino è CLICCABILE → apre QUELLA build (stopPropagation, così il resto della riga apre l'ultima).
-function DeployTrend({ builds, onOpen, t }) {
-  const recent = builds.slice(0, TREND_MAX).reverse()
-  if (recent.length < 2) return null
+// L'etichetta della pillola. Lo stato della BUILD non si mostra sulle azioni a mano riuscite: non c'era
+// nessuna build, e un «riuscito» accanto a «porta aperta a mano, e' drift» dice la cosa sbagliata (la
+// chiamata e' andata a buon fine, la situazione no). Sui tentativi RESPINTI invece si': e' la notizia.
+function etichettaEsito(b, t) {
+  const l = esitoBuild(b)
+  if (isByHand(b) && l === 'ok') return t('rilasci.dep.esito.mano')
+  return t(`rilasci.dep.esito.${l}`)
+}
+// Il colore della pillola: un'apertura di porta a mano o un hotfix riusciti sono arancio, non verdi.
+// Non sono guasti, ma sono la cosa da notare, e il verde insegnerebbe a non guardarli.
+function livelloPillola(b) {
+  const l = esitoBuild(b)
+  return l === 'ok' && (b.kind === 'sg-open' || b.trigger === 'hotfix' || b.kind === 'exec') ? 'warn' : l
+}
+
+// Il nome della riga: un'azione su un security group si chiamava con l'id del gruppo, e in testa va la
+// PORTA, che e' la cosa di cui si parla; l'id scende nella riga sotto, perche' serve per richiudere.
+function titoloBuild(b, t) {
+  const sg = b.kind === 'sg-open' || b.kind === 'sg-close'
+  return sg ? t('deploys.sgPort', { porte: (b.porte ?? []).join(', ') || '?' }) : b.service
+}
+
+// Chi l'ha avviata, in parole. «Forzato da» solo se dietro c'e' una PERSONA: su una pipeline e' la
+// definizione del contrario, e chi legge si mette a cercare un collega che non esiste.
+function chiBuild(b, t) {
+  if (b.forcedBy) return t(humanActor(b) ? 'deploys.forcedBy' : 'deploys.byActor', { who: shortActor(b.forcedBy) })
+  if (b.trigger && b.trigger !== 'auto') return t(`deploys.trigger.${b.trigger}`)
+  return t('rilasci.dep.dallaCi')
+}
+
+// «Cosa e' successo»: la frase e il suggerimento sotto. Su un fallimento la fase e il motivo tradotto
+// da AWS (`ClusterNotFoundException` sull'account payer vuol dire «chiamata nell'account sbagliato»);
+// su un'azione a mano la frase che dice cosa ha fatto, perche' non ha commit ne' durata.
+function cosaBuild(b, t) {
+  const l = esitoBuild(b)
+  if (isManualRestart(b)) {
+    const frase =
+      b.kind === 'restart' && !humanActor(b) ? (b.actorKind === 'ci' ? 'deploys.restartOfDeploy' : 'deploys.restartAuto') : AZIONI_A_MANO[b.kind]?.frase
+    const sg = b.kind === 'sg-open' || b.kind === 'sg-close'
+    return {
+      cosa: t(frase, { porte: (b.porte ?? []).join(', ') || '?' }),
+      hint: l === 'crit' && b.failReason ? awsErrorText(b.failReason, t) : sg ? b.service : null,
+    }
+  }
+  if (l === 'crit')
+    return {
+      cosa: b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('rilasci.dep.cosa.fallito'),
+      hint: b.failReason ? awsErrorText(b.failReason, t) : null,
+    }
+  if (l === 'info') return { cosa: t('rilasci.dep.cosa.inCorso', { fase: b.phase ? phaseLabel(b.phase) : '?' }), hint: b.commit ? t('rilasci.dep.commit', { c: b.commit }) : null }
+  if (l === 'off') return { cosa: t('rilasci.dep.cosa.fermato'), hint: null }
+  const cf = b.provider === 'cloudflare'
+  return {
+    cosa: cf || b.durationMs == null ? t('rilasci.dep.cosa.okSenzaDurata') : t('rilasci.dep.cosa.ok', { d: fmtMs(b.durationMs) }),
+    hint: [b.author ? t('deploys.by', { who: shortActor(b.author) }) : null, b.kind === 'pages' && b.branch ? b.branch : null].filter(Boolean).join(' · ') || null,
+  }
+}
+
+const quandoBuild = (b, t) => fmtAgo(b.inProgress ? b.startedAt : b.endedAt ?? b.startedAt, t)
+
+// I quadratini degli ultimi deploy: verde riuscito, rosso fallito, blu in corso, contorno arancio = a
+// mano. La legenda sta nel titolo, perche' nella riga non c'e' posto per scriverla.
+function Ultimi({ builds, t }) {
+  const q = ultimiDeploy(builds, 5)
+  if (!q.length) return <span />
   return (
-    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-      {recent.map((b, i) => {
-        const st = STATUS[b.status] ?? FALLBACK
-        return (
-          <Tooltip key={i} title={`#${b.number} · ${t(st.key ?? 'deploys.stopped')}`}>
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation()
-                onOpen?.(b)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onOpen?.(b)
-                }
-              }}
-              style={{ width: 9, height: 9, borderRadius: 2, background: st.color, opacity: b.inProgress ? 0.55 : 1, cursor: onOpen ? 'pointer' : 'default' }}
-            />
-          </Tooltip>
-        )
-      })}
+    <span className="rl-hist" title={t('rilasci.dep.ultimiLegenda')}>
+      {q.map(({ build, livello, aMano }, i) => (
+        <i key={build.id ?? i} className={`ui-${livello}${aMano ? ' rl-mano' : ''}`} />
+      ))}
     </span>
   )
 }
 
-// Blocco sinistro condiviso da riga-servizio e riga-build: stato + nome + #num + trigger, sotto
-// commit·durata (o fase, se in corso), e — se fallita — la riga rossa "Fallita in FASE: motivo".
-function BuildInfo({ b, name, t }) {
-  const isCf = b.provider === 'cloudflare'
-  const restart = isManualRestart(b)
-  // Un'azione su un security group si chiamava con l'id del gruppo (`sg-0046fdc5fa3522a28`): quattro
-  // righe così, una sotto l'altra, sono quattro stringhe illeggibili dove dovrebbe stare la notizia.
-  // In testa va la PORTA, che è la cosa di cui si parla; l'id scende nella riga sotto, perché serve per
-  // richiudere e quindi non si nasconde.
-  const sg = b.kind === 'sg-open' || b.kind === 'sg-close'
-  const titolo = sg ? t('deploys.sgPort', { porte: (b.porte ?? []).join(', ') || '?' }) : name
-  // CF: niente durata (non c'è) → al suo posto il branch (solo Pages). L'AUTORE no: sta già
-  // nell'intestazione come "da <nome>", e ripeterlo qui per email lo scriveva due volte per riga.
-  // Riavvio: al posto di commit e durata (non ne ha) il fatto che conta — non ha rilasciato codice.
-  // Un riavvio della CI non è «stessa immagine, nessuna build»: la build c'è, è il deploy che sta
-  // uscendo. E uno di un servizio (la lambda che sincronizza i segreti) è manutenzione automatica.
-  const fraseRestart =
-    b.kind === 'restart' && !humanActor(b)
-      ? b.actorKind === 'ci'
-        ? 'deploys.restartOfDeploy'
-        : 'deploys.restartAuto'
-      : AZIONI_A_MANO[b.kind]?.frase
-  const sub = restart
-    ? [t(fraseRestart, { porte: (b.porte ?? []).join(', ') || '?' }), sg ? b.service : null]
-        .filter(Boolean)
-        .join(' · ')
-    : [
-        b.commit,
-        b.inProgress ? (b.phase ? b.phase.toLowerCase() : null) : isCf ? null : fmtDur(b.durationMs),
-        isCf && b.kind === 'pages' && b.branch ? b.branch : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-  const st = STATUS[b.status] ?? FALLBACK
-  const failed = FAILED_STATUSES.includes(b.status)
+// L'istogramma per fascia di tempo. Ogni colonna e' una pila di quadratini, uno per deploy: con i
+// numeri piccoli che abbiamo (qualche rilascio all'ora) contarli a occhio funziona meglio di un'asse.
+function Istogramma({ builds, ore, t, lang }) {
+  const now = Date.now()
+  const fasce = useMemo(() => fasceDeploy(builds, { now, ore, n: 24 }), [builds, ore])
+  const max = Math.max(1, ...fasce.map((f) => f.ok + f.crit + f.info + f.off))
+  const alt = (n) => `${Math.max(0, (n / max) * 100)}%`
   return (
-    <div style={{ minWidth: 0, flex: 1 }}>
-      <Space size={8} wrap style={{ rowGap: 2 }}>
-        {b.inProgress && <Badge status="processing" />}
-        <Text strong style={{ whiteSpace: 'nowrap' }}>
-          {titolo}
-        </Text>
-        {/* Lo stato della BUILD non si mostra sulle azioni a mano riuscite: non c'era nessuna build, e
-            un «ok» accanto a «porta aperta a mano, è drift» dice la cosa sbagliata (la chiamata è
-            andata a buon fine, la situazione no). Sui tentativi RESPINTI invece si mostra: è la notizia. */}
-        {st.key && (!restart || failed) && (
-          <Tag color={st.tag} bordered={false} style={{ marginInlineEnd: 0 }}>
-            {t(st.key)}
-          </Tag>
-        )}
-        {b.number != null && (
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            #{b.number}
-          </Text>
-        )}
-        {b.trigger && (
-          <Tag
-            color={AZIONI_A_MANO[b.kind]?.tag ?? TRIGGER_TAG[b.trigger]}
-            bordered={false}
-            style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '17px', padding: '0 6px', opacity: TRIGGER_TAG[b.trigger] ? 1 : 0.85 }}
-          >
-            {t(`deploys.trigger.${b.trigger}`)}
-          </Tag>
-        )}
-        {/* Chi ha PREMUTO. Su un hotfix o un riavvio è l'informazione principale della riga — e non
-            coincide con l'autore del commit, che è quello che la riga mostrava prima. */}
-        {b.forcedBy && (
-          <Tooltip title={b.viaTeleport ? `${b.forcedBy} · ${t('deploys.viaTeleport')}` : b.forcedBy}>
-            {/* «Forzato da» solo se dietro c'è una PERSONA. Su una pipeline era la definizione del
-                contrario: «forzato da GitHub Actions» descrive esattamente un rilascio automatico, e chi
-                legge si mette a cercare un collega che non esiste. Per la CI e per i servizi si dice «da»,
-                e il peso del testo scende: non è un fatto da notare, è il contesto. */}
-            <Text
-              type={humanActor(b) ? undefined : 'secondary'}
-              style={{ fontSize: 11, fontWeight: humanActor(b) ? 600 : 400 }}
-            >
-              {t(humanActor(b) ? 'deploys.forcedBy' : 'deploys.byActor', { who: shortActor(b.forcedBy) })}
-            </Text>
-          </Tooltip>
-        )}
-        {b.author && !restart && (
-          <Tooltip title={b.author}>
-            <Text type="secondary" style={{ fontSize: 11, opacity: 0.85 }}>
-              {t('deploys.by', { who: shortActor(b.author) })}
-            </Text>
-          </Tooltip>
-        )}
-      </Space>
-      {sub && (
-        <div>
-          <Text type="secondary" style={{ fontSize: 12, fontFamily: MONO }}>
-            {sub}
-          </Text>
-        </div>
-      )}
-      {failed && (b.failPhase || b.failReason) && (
-        <div style={{ marginTop: 2, minWidth: 0 }}>
-          <Tooltip title={b.failReason || undefined}>
-            <Text style={{ fontSize: 12, color: '#ff7875', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
-              {/* Il messaggio di AWS tradotto in «cosa è andato storto»: `ClusterNotFoundException` su
-                  una riga dell'account payer vuol dire che la chiamata è finita nell'account sbagliato,
-                  ed è quello che va scritto. L'originale sta nel tooltip. */}
-              {b.failReason ? `: ${awsErrorText(b.failReason, t)}` : ''}
-            </Text>
-          </Tooltip>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Wrapper cliccabile per riga-servizio/riga-build → apre il drawer di dettaglio.
-function ClickableRow({ b, onOpen, t, children }) {
-  const st = STATUS[b.status] ?? FALLBACK
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      title={t('deploys.openDetail')}
-      // data-build: ancora per il video demo, vedi pageKit.jsx.
-      data-build={b.service}
-      onClick={() => onOpen(b)}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(b))}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 14,
-        padding: '8px 12px',
-        borderRadius: 8,
-        borderLeft: `3px solid ${st.color}`,
-        background: b.inProgress ? 'rgba(22,119,255,0.10)' : 'var(--dg-row)',
-        cursor: 'pointer',
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-// Riga per-servizio (default): ultima build a sinistra (con eventuale motivo del fallimento),
-// a destra mini-trend + tasso di successo (ok/decisi) + "quanto fa". Click → dettaglio.
-function ServiceRow({ g, onOpen, t }) {
-  const b = g.latest
-  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
-  const decided = g.ok + g.failed
-  const rateColor = g.failed ? (g.ok ? '#faad14' : '#ff4d4f') : '#52c41a'
-  // Cloudflare registra solo i rollout RIUSCITI → trend/tasso di successo non hanno senso: li nascondo.
-  const isCf = b.provider === 'cloudflare'
-  return (
-    <ClickableRow b={b} onOpen={onOpen} t={t}>
-      <BuildInfo b={b} name={g.sgGroup ? t('deploys.sgGroup', { n: g.builds.length }) : g.service} t={t} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-        {!isCf && <DeployTrend builds={g.trend ?? g.builds} onOpen={onOpen} t={t} />}
-        {!isCf && decided > 0 && (
-          <Tooltip title={t('deploys.rateTip', { ok: g.ok, total: decided })}>
-            <Text style={{ fontSize: 13, fontWeight: 600, color: rateColor, fontVariantNumeric: 'tabular-nums' }}>
-              {g.ok}/{decided}
-            </Text>
-          </Tooltip>
-        )}
-        <Text type="secondary" style={{ fontSize: 11, minWidth: 62, textAlign: 'right' }}>
-          <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
-          {when}
-        </Text>
+    <Card titolo={t('rilasci.dep.isto.titolo', { finestra: t(`deploys.period.${ore === 24 ? '24h' : ore === 168 ? '7d' : '30d'}`) })} nota={t('rilasci.dep.isto.legenda')}>
+      <div className="rl-bars" role="img" aria-label={t('rilasci.dep.isto.titolo', { finestra: '' })}>
+        {fasce.map((f) => {
+          const tot = f.ok + f.crit + f.info + f.off
+          return (
+            <div key={f.da} title={t('rilasci.dep.isto.fascia', { ora: new Date(f.da).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }), ok: f.ok, ko: f.crit, mano: f.aMano })}>
+              {tot > 0 && (
+                <>
+                  {f.ok > 0 && <i className="ui-bg-ok" style={{ height: alt(f.ok - Math.min(f.ok, f.aMano)) }} />}
+                  {f.aMano > 0 && <i className="ui-bg-warn" style={{ height: alt(Math.min(f.ok, f.aMano)) }} />}
+                  {f.info > 0 && <i className="ui-bg-info" style={{ height: alt(f.info) }} />}
+                  {f.crit > 0 && <i className="ui-bg-crit" style={{ height: alt(f.crit) }} />}
+                  {f.off > 0 && <i className="ui-bg-off" style={{ height: alt(f.off) }} />}
+                </>
+              )}
+            </div>
+          )
+        })}
       </div>
-    </ClickableRow>
+      <div className="ui-axis">
+        {asseDeploy({ now, ore, adesso: t('rilasci.adesso'), locale: lang }).map((e, i) => (
+          <span key={i}>{e}</span>
+        ))}
+      </div>
+    </Card>
   )
 }
 
-// Riga della singola build (vista "storico completo"): info a sinistra, "quanto fa" a destra. Click → dettaglio.
-function BuildRow({ b, onOpen, t }) {
-  const when = b.inProgress ? fmtAgo(b.startedAt, t) : fmtAgo(b.endedAt, t)
+// Le fasi CodeBuild nel pannello: pallino, nome, durata; per le fasi fallite il messaggio sotto.
+function Fasi({ phases = [] }) {
+  const livello = (s) => (s === 'SUCCEEDED' ? 'ok' : s === 'IN_PROGRESS' ? 'info' : FAILED_STATUSES.includes(s) ? 'crit' : 'off')
   return (
-    <ClickableRow b={b} onOpen={onOpen} t={t}>
-      <BuildInfo b={b} name={b.service} t={t} />
-      <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-        <ClockCircleOutlined style={{ marginInlineEnd: 3 }} />
-        {when}
-      </Text>
-    </ClickableRow>
-  )
-}
-
-// Timeline delle fasi CodeBuild nel drawer: pallino stato + nome fase + durata; per le fasi fallite,
-// il messaggio d'errore sotto (monospace).
-function PhaseTimeline({ phases = [] }) {
-  if (!phases.length) return null
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div className="rl-fasi">
       {phases.map((p, i) => (
         <div key={i}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: phaseColor(p.status), flex: 'none' }} />
-            <Text style={{ flex: 1 }}>{phaseLabel(p.type || '')}</Text>
-            <Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-              {fmtDur(p.durationMs)}
-            </Text>
-          </div>
-          {p.message && (
-            <Text style={{ display: 'block', marginInlineStart: 16, fontSize: 12, fontFamily: MONO, color: '#ff7875', whiteSpace: 'pre-wrap' }}>
-              {p.message}
-            </Text>
-          )}
+          <Dot livello={livello(p.status)} />
+          <span>{phaseLabel(p.type || '')}</span>
+          <span className="ui-mono ui-mute">{p.durationMs != null ? fmtMs(p.durationMs) : ''}</span>
+          {p.message && <pre>{p.message}</pre>}
         </div>
       ))}
     </div>
   )
 }
 
-function MetaLine({ label, children }) {
-  return (
-    <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-      <Text type="secondary" style={{ minWidth: 78 }}>
-        {label}
-      </Text>
-      <span style={{ minWidth: 0 }}>{children}</span>
-    </div>
-  )
-}
-
-// Drawer di dettaglio di UNA build: stato, meta (account/commit/trigger/durata/quando), motivo del
-// fallimento, timeline delle fasi e link diretto ai log su CloudWatch. Tutto già nei dati, zero fetch.
-function DeployBuildDrawer({ build, accountLabel, onClose, t }) {
-  const b = build ?? {}
-  const st = STATUS[b.status] ?? FALLBACK
-  const failed = FAILED_STATUSES.includes(b.status)
+// Il pannello di UNA build: cosa e' successo e cosa fare, i fatti (commit, chi, quando, durata), gli
+// ultimi deploy dello stesso servizio, le fasi e i link alle console che ne sanno di piu'.
+function PannelloBuild({ sel, onClose, t }) {
+  const b = sel?.build ?? {}
+  const l = esitoBuild(b)
+  const { cosa, hint } = sel ? cosaBuild(b, t) : {}
+  const link = sel ? linkBuild(b, t) : []
+  const kv = sel
+    ? [
+        [t('deploys.account'), sel.accountLabel],
+        ['commit', b.commit, true],
+        [t('deploys.branchLabel'), b.kind === 'pages' && b.branch ? `${b.branch}${b.env ? ` · ${b.env}` : ''}` : null],
+        [t('deploys.triggerLabel'), b.trigger ? t(`deploys.trigger.${b.trigger}`) : null],
+        [t('deploys.forcedByLabel'), b.forcedBy ? `${b.forcedBy}${b.viaTeleport ? ` · ${t('deploys.viaTeleport')}` : ''}` : null],
+        [t('deploys.authorLabel'), !isManualRestart(b) ? b.author : null],
+        [t('deploys.clusterLabel'), b.cluster],
+        [t('deploys.durationLabel'), b.provider !== 'cloudflare' && !isManualRestart(b) && !b.inProgress && b.durationMs != null ? fmtMs(b.durationMs) : null],
+        [t('deploys.whenLabel'), b.startedAt ? new Date(b.inProgress ? b.startedAt : b.endedAt ?? b.startedAt).toLocaleString() : null],
+        [t('deploys.rollout'), b.versions?.length > 1 ? b.versions.map((v) => `${String(v.id).slice(0, 8)}${v.percentage != null ? ` ${v.percentage}%` : ''}`).join(' · ') : null, true],
+        ['build', b.number != null ? `#${b.number}` : null, true],
+      ].filter(([, v]) => v)
+    : []
   return (
     <Drawer
-      open={!!build}
-      onClose={onClose}
-      width={520}
-      title={
-        <Space size={8} wrap>
-          <Text strong>{b.service}</Text>
-          {b.number != null && <Text type="secondary">#{b.number}</Text>}
-          {st.key && (
-            <Tag color={st.tag} bordered={false}>
-              {t(st.key)}
-            </Tag>
-          )}
-        </Space>
-      }
+      aperto={Boolean(sel)}
+      onChiudi={onClose}
+      etichettaChiudi={t('ui.chiudi')}
+      sopra={sel ? <Pill livello={livelloPillola(b)}>{etichettaEsito(b, t)}</Pill> : null}
+      titolo={sel ? titoloBuild(b, t) : ''}
+      sotto={sel ? [sel.accountLabel, chiBuild(b, t), quandoBuild(b, t)].filter(Boolean).join(' · ') : null}
     >
-      {build && (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Space direction="vertical" size={6} style={{ width: '100%' }}>
-            {accountLabel && <MetaLine label={t('deploys.account')}>{accountLabel}</MetaLine>}
-            {b.commit && (
-              <MetaLine label="commit">
-                <Text style={{ fontFamily: MONO }}>{b.commit}</Text>
-              </MetaLine>
+      {sel && (
+        <>
+          <Rimedio livello={l === 'crit' ? 'crit' : livelloPillola(b) === 'warn' ? 'warn' : null} titolo={cosa} testo={l === 'crit' && b.failReason ? b.failReason : hint} comando={b.comando ?? null} t={t} />
+          {/* L'hotfix salta il gate della CI: il pannello e' il posto dove dirlo per intero, perche'
+              nella riga ci sta solo la pillola arancio. */}
+          {b.trigger === 'hotfix' && <Rimedio livello="warn" testo={t('deploys.hotfixWarn')} t={t} />}
+          <dl className="rl-kv">
+            {kv.map(([k, v, mono]) => (
+              <div key={k} style={{ display: 'contents' }}>
+                <dt>{k}</dt>
+                <dd className={mono ? 'ui-mono' : undefined}>{v}</dd>
+              </div>
+            ))}
+            {sel.recenti?.length > 1 && (
+              <>
+                <dt>{t('rilasci.dep.ultimi5')}</dt>
+                <dd>
+                  <Ultimi builds={sel.recenti} t={t} />
+                </dd>
+              </>
             )}
-            {b.trigger && <MetaLine label={t('deploys.triggerLabel')}>{t(`deploys.trigger.${b.trigger}`)}</MetaLine>}
-            {b.forcedBy && (
-              <MetaLine label={t('deploys.forcedByLabel')}>
-                {b.forcedBy}
-                {b.viaTeleport ? ` · ${t('deploys.viaTeleport')}` : ''}
-              </MetaLine>
-            )}
-            {b.author && !isManualRestart(b) && <MetaLine label={t('deploys.authorLabel')}>{b.author}</MetaLine>}
-            {b.cluster && <MetaLine label={t('deploys.clusterLabel')}>{b.cluster}</MetaLine>}
-            {!(b.provider === 'cloudflare') && !isManualRestart(b) && (
-              <MetaLine label={t('deploys.durationLabel')}>{b.inProgress ? '—' : fmtDur(b.durationMs) || '—'}</MetaLine>
-            )}
-            <MetaLine label={t('deploys.whenLabel')}>{fmtAgo(b.inProgress ? b.startedAt : b.endedAt, t) || '—'}</MetaLine>
-            {b.kind === 'pages' && b.branch && (
-              <MetaLine label={t('deploys.branchLabel')}>
-                {b.branch}
-                {b.env ? ` · ${b.env}` : ''}
-              </MetaLine>
-            )}
-            {b.versions?.length > 1 && (
-              <MetaLine label={t('deploys.rollout')}>
-                {b.versions.map((v) => `${String(v.id).slice(0, 8)}${v.percentage != null ? ` ${v.percentage}%` : ''}`).join(' · ')}
-              </MetaLine>
-            )}
-          </Space>
-
-          {/* L'hotfix salta il gate della CI: il dettaglio è il posto dove dirlo per intero, perché
-              nella riga ci sta solo l'etichetta rossa. */}
-          {b.trigger === 'hotfix' && <Alert type="warning" showIcon message={t('deploys.hotfixWarn')} />}
-
-          {failed && b.failReason && (
-            <Alert
-              type="error"
-              showIcon
-              message={b.failPhase ? t('deploys.failedIn', { phase: phaseLabel(b.failPhase) }) : t('deploys.failed')}
-              description={<span style={{ fontFamily: MONO, fontSize: 12 }}>{b.failReason}</span>}
-            />
-          )}
-
+          </dl>
           {b.phases?.length > 0 && (
-            <div>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                {t('deploys.phases')}
-              </Text>
-              <PhaseTimeline phases={b.phases} />
-            </div>
+            <Sezione titolo={t('deploys.phases')}>
+              <Fasi phases={b.phases} />
+            </Sezione>
           )}
-
-          {b.logsUrl ? (
-            <Button type="primary" href={b.logsUrl} target="_blank" rel="noreferrer" block>
-              {t('deploys.openLogs')}
-            </Button>
-          ) : b.deployUrl ? (
-            <Button type="primary" href={b.deployUrl} target="_blank" rel="noreferrer" block>
-              {t('deploys.openCf')}
-            </Button>
-          ) : null}
-        </Space>
+          {link.length > 0 && (
+            <Sezione titolo={t('rilasci.altrove')}>
+              <ListaLink link={link} />
+            </Sezione>
+          )}
+        </>
       )}
     </Drawer>
   )
 }
 
-// Pillole conteggio stato nell'header dell'account (solo quelle > 0).
-function CountPills({ builds }) {
-  const running = builds.filter((b) => b.inProgress).length
-  const ok = builds.filter((b) => b.status === 'SUCCEEDED').length
-  const failed = builds.filter((b) => FAILED_STATUSES.includes(b.status)).length
-  return (
-    <Space size={4}>
-      {running > 0 && <Badge count={running} color="#1677ff" />}
-      {ok > 0 && <Badge count={ok} color="#52c41a" />}
-      {failed > 0 && <Badge count={failed} color="#cf1322" />}
-    </Space>
-  )
-}
-
-// Griglia responsiva: 1 colonna su schermo stretto, 2+ su schermo largo (riempie la larghezza, niente
-// buco al centro delle righe). `auto-fit` → un solo elemento occupa comunque tutta la riga.
-// `min(100%, 560px)` invece di `560px` secco → niente overflow orizzontale sotto i 560px (schermi stretti).
-const ROW_GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 560px), 1fr))', gap: 6, marginTop: 12 }
-
-// Sezione a tutta larghezza per un account. Default: una riga per servizio (riepilogo affidabilità);
-// toggle "storico completo" → tutte le build. Account senza progetti di deploy → riga compatta.
-function AccountSection({ acc, all, filtered, anyFilter, expanded, onToggle, onOpen, t }) {
-  if (acc.error) {
-    return (
-      <div style={PANEL_CARD}>
-        <Space>
-          {acc.color && <Badge color={acc.color} />}
-          <Text strong>{acc.label}</Text>
-        </Space>
-        <Alert type="warning" showIcon style={{ marginTop: 8 }} message={acc.error} />
-      </div>
-    )
-  }
-
-  const noProjects = acc.noProjects && all.length === 0
-  const groups = filtered.length ? groupByService(filtered) : []
-
-  return (
-    <div style={PANEL_CARD}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <Space>
-          {acc.color && <Badge color={acc.color} />}
-          <Text strong style={{ fontSize: 15 }}>
-            {acc.label}
-          </Text>
-          {!noProjects && groups.length > 0 && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('deploys.serviceCount', { n: groups.length })}
-            </Text>
-          )}
-        </Space>
-        <Space size={12}>
-          {/* Conteggi delle build VISIBILI (come l'hero): con i totali fissi il filtro sembrava inerte. */}
-          <CountPills builds={filtered} />
-          {filtered.length > 0 && (
-            <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onToggle}>
-              {expanded ? t('deploys.summary') : t('deploys.history', { n: filtered.length })}
-            </Button>
-          )}
-        </Space>
-      </div>
-
-      {noProjects ? (
-        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          {t('deploys.noProjects')}
-        </Text>
-      ) : filtered.length === 0 ? (
-        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          {anyFilter ? t('deploys.noneFiltered') : t('deploys.none')}
-        </Text>
-      ) : expanded ? (
-        <div style={ROW_GRID}>
-          {filtered.map((b) => (
-            <BuildRow key={b.id || `${b.project}:${b.number}`} b={b} onOpen={onOpen} t={t} />
-          ))}
-        </div>
-      ) : (
-        <div style={ROW_GRID}>
-          {groups.map((g) => (
-            <ServiceRow key={g.service} g={g} onOpen={onOpen} t={t} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DeploysSkeleton() {
-  return (
-    <>
-      <HeroRow>
-        {[70, 60, 70].map((w, i) => (
-          <Skeleton.Button key={i} active size="large" style={{ width: w, height: 40 }} />
-        ))}
-      </HeroRow>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {[3, 1].map((rows, i) => (
-          <div key={i} style={PANEL_CARD}>
-            <Skeleton active title={{ width: 170 }} paragraph={{ rows, width: '100%' }} />
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
-
-// Pagina Deploy: build CodeBuild di deploy (`acme-*-*-deploy`) per account — cosa sta uscendo ora e
-// com'è andata (per servizio: ultima build, tasso di successo, trend). Click su una build → dettaglio
-// (fasi + motivo del fallimento + log CloudWatch). Read-only, on-demand. Mostra TUTTI gli account risolti.
 export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
-  // Auto-refresh ogni 15s (pausa a tab nascosto, fresco al rientro): una build dura ~1 min, così la
-  // vista non resta più ferma a uno snapshot vecchio mentre il deploy è già finito.
-  // ⚠️ La finestra la porta anche il SERVER, non solo il filtro qui. Prima `/api/deploys` tornava
-  // sempre le ultime 15 build per progetto qualunque fosse la loro eta', e il filtro tagliava quelle:
-  // scegliere «30g» non mostrava niente di piu', perche' le build vecchie non erano mai state chieste.
-  // Adesso il periodo scelto viaggia in `?ore=` e il server taglia alla fonte.
+  // ⚠️ La finestra la porta anche il SERVER, non solo il filtro qui: il periodo scelto viaggia in
+  // `?ore=` e il server taglia alla fonte. Prima tornavano sempre le ultime 15 build per progetto, e
+  // scegliere «30g» non mostrava niente di piu'. Auto-refresh ogni 15s: una build dura un minuto.
   const [periodFilter, setPeriodFilter] = useState('24h')
-  const { data, loading, refreshing, error, lastUpdated, refresh } = usePoll(
-    `/api/deploys?lang=${lang}&ore=${PERIOD_ORE[periodFilter] ?? 24}`,
-    { intervalMs: 15000 },
-  )
+  const { data, loading, error, refresh } = usePoll(`/api/deploys?lang=${lang}&ore=${PERIOD_ORE[periodFilter] ?? 24}`, { intervalMs: 15000 })
   const [statusFilter, setStatusFilter] = useState('all')
-  // NB: il default e' sceso a 24h, e la nota qui sotto spiega perche' prima non poteva esserlo.
-  // 7 giorni, non «sempre» e non 24h. «Sempre» prometteva tutto lo storico e ne consegnava due
-  // orizzonti diversi nella stessa lista: le build sono le ultime 15 per progetto (che su un servizio
-  // che rilascia spesso sono tre giorni, su uno fermo sono mesi) mentre le azioni a mano arrivano da
-  // CloudTrail con una finestra di 7 giorni. Effetto: nella parte vecchia della lista non può comparire
-  // nessun riavvio né break-glass, e chi guarda conclude «a marzo nessuno ha aperto porte»: che non è
-  // un fatto, è il fatto che non abbiamo guardato. 24h invece taglia troppo: si rilascia qualche volta
-  // a settimana, e la pagina sarebbe vuota il lunedì mattina.
-  // Filtro iniziale da `?service=`: il pannello di un servizio linka qui GIÀ filtrato, altrimenti
-  // arriveresti sui deploy di tutta la flotta da cercare a mano.
-  // Deep-link `?service=`: arriva dalla pagina dei servizi, e ora accetta anche più nomi separati da
-  // virgola (`?service=backend,frontend`), che è la forma naturale ora che il filtro è multiplo.
-  // La guardia su `window` serve alla prova di rendering senza browser (l'unico controllo automatico che
-  // questa UI puo' avere in questo repo).
-  const [serviceFilter, setServiceFilter] = useState(() =>
-    typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service'),
-  )
-  const [expanded, setExpanded] = useState(() => new Set())
-  const [selected, setSelected] = useState(null) // { build, accountLabel } aperto nel drawer
+  // Deep-link `?service=a,b`: il pannello di un servizio linka qui GIA' filtrato. La guardia su
+  // `window` serve al rendering senza browser.
+  const [serviceFilter, setServiceFilter] = useState(() => (typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service')))
+  const [query, setQuery] = useState('')
+  const [vista, setVista] = useState('servizi')
+  const [selected, setSelected] = useState(null) // { build, accountLabel, recenti }
 
-  // Il bottone "Aggiorna" globale nell'header fa +1 su refreshKey → forza un refresh anche di questa
-  // pagina (che ha un fetch proprio, `/api/deploys`, separato da quello della dashboard).
+  // Il bottone "Aggiorna" globale fa +1 su refreshKey: questa pagina ha un fetch proprio.
   const seenRk = useRef(refreshKey)
   useEffect(() => {
     if (refreshKey !== seenRk.current) {
@@ -557,214 +257,247 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
     }
   }, [refreshKey, refresh])
 
-  // Tutti gli account risolti, ordinati: quelli con build (o in errore) prima, i "senza deploy" in coda;
-  // a parità, per label. Il filtro Account della barra in alto vale ANCHE qui: la chiave di
-  // `/api/deploys` è la stessa dell'account (production/staging/…/cloudflare). Prima la pagina lo
-  // ignorava del tutto → selezionavi un account e non cambiava niente: il filtro sembrava rotto.
-  const accounts = useMemo(() => {
-    const all = data ? Object.entries(data) : []
-    const list = all.filter(([key]) => matchesAny(key, accountFilter))
-    return list.sort(([, a], [, b]) => {
-      const av = a.error || (a.builds?.length ?? 0) > 0 ? 0 : 1
-      const bv = b.error || (b.builds?.length ?? 0) > 0 ? 0 : 1
-      if (av !== bv) return av - bv
-      return String(a.label ?? '').localeCompare(String(b.label ?? ''))
-    })
-  }, [data, accountFilter])
+  // Il filtro Account della barra in alto vale anche qui: la chiave di `/api/deploys` e' la stessa
+  // dell'account. Prima la pagina lo ignorava, e il filtro sembrava rotto.
+  const accounts = useMemo(() => (data ? Object.entries(data).filter(([key]) => matchesAny(key, accountFilter)) : []), [data, accountFilter])
 
-  const statusOptions = useMemo(
-    () => [
-      { value: 'all', label: t('deploys.filter.all') },
-      { value: 'running', label: t('deploys.filter.running') },
-      { value: 'failed', label: t('deploys.filter.failed') },
-      { value: 'ok', label: t('deploys.filter.ok') },
-      { value: 'byhand', label: t('deploys.filter.byhand') },
-    ],
-    [t],
+  const cercato = useCallback(
+    (b) => {
+      const q = query.trim().toLowerCase()
+      return !q || [b.service, b.commit, b.author, b.forcedBy].some((x) => String(x ?? '').toLowerCase().includes(q))
+    },
+    [query],
   )
-  // Niente «sempre» e niente 30 giorni: oltre i 7 le due sorgenti non sono più allineate (vedi il
-  // commento sul default). Per andare più indietro davvero servirebbe allargare la finestra CloudTrail
-  // lato server, non un'opzione in più che mostra metà dei fatti.
-  const periodOptions = useMemo(
-    () => [
-      { value: '24h', label: t('deploys.period.24h') },
-      { value: '7d', label: t('deploys.period.7d') },
-      { value: '30d', label: t('deploys.period.30d') },
-    ],
-    [t],
+  // Le build della finestra con filtro di servizio e ricerca, ma SENZA il filtro di stato: servono ai
+  // conteggi sulle schede, che devono dire quanti ce ne sono dietro ognuna prima di sceglierla.
+  const nellaFinestra = useMemo(
+    () =>
+      accounts.flatMap(([key, acc]) =>
+        (acc.builds ?? [])
+          .filter((b) => matchPeriod(b, periodFilter) && matchesAny(b.service, serviceFilter) && cercato(b))
+          .map((b) => ({ ...b, accountKey: key, accountLabel: acc.label })),
+      ),
+    [accounts, periodFilter, serviceFilter, cercato],
   )
-  // Servizi selezionabili = quelli degli account VISIBILI (se filtri per account, non ti offro
-  // servizi di un altro account: sceglierli svuotava la pagina senza motivo apparente).
-  // La tendina dice anche DOVE vive il servizio. `kong`, `supabase`, `backend` esistono in più account,
-  // e il nome da solo non identifica niente (è la stessa ragione per cui l'identità di un servizio, in
-  // questa app, è account + nome): letta così, la voce `kong` non diceva se stavi guardando staging o
-  // produzione. Il filtro resta CROSS-ACCOUNT di proposito: serve a confrontare lo stesso servizio nei
-  // due ambienti, ed è dove atterra il deep-link `?service=` dalla pagina Servizi, quindi l'account non
-  // è una scelta da fare qui: è un'informazione da leggere. Per restringere a un ambiente c'è il filtro
-  // Account della barra in alto, che vale su tutta la pagina.
-  const serviceOptions = useMemo(() => {
-    const dove = new Map() // servizio → etichette degli account in cui compare
-    for (const [, acc] of accounts) {
-      for (const b of acc.builds ?? []) {
-        // Un id di security group non è un servizio: filtrarci sopra non ha senso, e in mezzo ai nomi
-        // veri sono sette righe di rumore in una tendina che si legge a colpo d'occhio.
-        if (!b.service || !isServiceRow(b)) continue
-        // Solo chi ha righe nella finestra e nello stato scelti: offrire un servizio che poi svuota la
-        // pagina fa sembrare rotto il filtro (ed è il difetto che questa app evita altrove, vedi la
-        // barra dei filtri che nasconde i campi inerti).
-        if (!matchPeriod(b, periodFilter) || !matchStatus(b, statusFilter)) continue
-        if (!dove.has(b.service)) dove.set(b.service, new Set())
-        dove.get(b.service).add(acc.label ?? '—')
+  const visibili = useMemo(() => nellaFinestra.filter((b) => matchStatus(b, statusFilter)), [nellaFinestra, statusFilter])
+  const conta = useMemo(() => contaDeploy(nellaFinestra), [nellaFinestra])
+
+  // Una riga per servizio, con identita' account + nome: `backend` esiste in piu' ambienti, e il nome
+  // da solo non dice quale stai guardando. Dal piu' grave: chi e' fallito, poi chi sta uscendo adesso.
+  const gruppi = useMemo(() => {
+    const out = []
+    for (const [key, acc] of accounts) {
+      const proprie = visibili.filter((b) => b.accountKey === key)
+      for (const g of groupByService(proprie)) {
+        // Gli ultimi 5 vengono da TUTTE le build del servizio nella finestra, non da quelle filtrate:
+        // filtrando «falliti» la striscia tutta rossa direbbe il falso sull'andamento.
+        const tutte = nellaFinestra.filter((b) => b.accountKey === key && (g.sgGroup ? !isServiceRow(b) : b.service === g.service && isServiceRow(b)))
+        out.push({ ...g, accountKey: key, accountLabel: acc.label, recenti: tutte.filter((b) => !isManualRestart(b) || isByHand(b)) })
       }
     }
-    for (const scelto of asList(serviceFilter)) if (!dove.has(scelto)) dove.set(scelto, new Set()) // le scelte attive non spariscono mai
-    return [
-      ...[...dove.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([service, conti]) => ({
-          value: service,
-          // Due pezzi con due pesi: il nome del servizio è quello che si cerca, gli account sono il
-          // contesto. Come testo di seguito («backend · Management (payer), Production, Staging»)
-          // diventava una riga da 48 caratteri che la tendina tagliava a metà.
-          label: (
-            <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
-              <span>{service}</span>
-              {conti.size > 0 && (
-                <span style={{ fontSize: FONT.micro, opacity: 0.55 }}>{[...conti].map(accountShort).sort().join(' · ')}</span>
-              )}
-            </span>
-          ),
-          // Nella casella CHIUSA basta il nome: un filtro attivo che non si legge è peggio di uno che
-          // dice meno. Gli account si leggono aprendo l'elenco, che è quando servono.
-          nomeCorto: service,
-        })),
-    ]
-  }, [accounts, periodFilter, statusFilter, serviceFilter, t])
-
-  const anyFilter = statusFilter !== 'all' || periodFilter !== '24h' || isFiltering(serviceFilter)
-  const toggleExpand = (key) =>
-    setExpanded((prev) => {
-      const n = new Set(prev)
-      n.has(key) ? n.delete(key) : n.add(key)
-      return n
+    return out.sort((a, b) => {
+      if (a.sgGroup !== b.sgGroup) return a.sgGroup ? 1 : -1
+      return rangoLivello(esitoBuild(a.latest)) - rangoLivello(esitoBuild(b.latest)) || String(a.service).localeCompare(String(b.service))
     })
+  }, [accounts, visibili, nellaFinestra])
 
-  const filterBuilds = useCallback(
-    (list) =>
-      list
-        .filter((b) => matchStatus(b, statusFilter))
-        .filter((b) => matchPeriod(b, periodFilter))
-        .filter((b) => matchesAny(b.service, serviceFilter)),
-    [statusFilter, periodFilter, serviceFilter],
-  )
+  // Le scelte di servizio che arrivano dal link restano visibili e si tolgono una per una: un filtro
+  // attivo che non si vede e' la ragione numero uno per cui «la pagina e' vuota».
+  const togliServizio = (s) => setServiceFilter((prev) => asList(prev).filter((x) => x !== s))
+  const apri = (build, accountLabel, recenti) => setSelected({ build, accountLabel, recenti })
 
-  // I numeroni in cima contano le build VISIBILI, filtri applicati. Prima erano sempre i totali della
-  // flotta: filtravi "Falliti" e restava "ok 109" → sembrava che i filtri non facessero nulla.
-  const hero = useMemo(() => {
-    const all = accounts.flatMap(([, acc]) => filterBuilds(acc.builds ?? []))
-    const builds = all.filter((b) => !isManualRestart(b))
-    return {
-      running: all.filter((b) => b.inProgress || b.status === 'IN_PROGRESS').length,
-      ok: builds.filter((b) => b.status === 'SUCCEEDED').length,
-      failed: all.filter((b) => FAILED_STATUSES.includes(b.status)).length,
-      // Quante azioni sono passate fuori dalla CI. È il numero che prima non esisteva da nessuna
-      // parte: chi guardava la pagina vedeva solo i rilasci automatici e concludeva che nessuno
-      // avesse toccato la produzione a mano.
-      byHand: all.filter(isByHand).length,
-    }
-  }, [accounts, filterBuilds])
+  const erroriConti = accounts.filter(([, acc]) => acc.error)
+  const senzaProgetti = accounts.filter(([, acc]) => acc.noProjects && !(acc.builds ?? []).length)
+  const ore = PERIOD_ORE[periodFilter] ?? 24
+  const finestra = t(`deploys.period.${periodFilter}`)
+
+  // Il verdetto: «i rilasci stanno passando?». Le azioni a mano restano un numero e non entrano nel
+  // giudizio: un hotfix a mano non e' un guasto, e' una scelta, e marcarlo rosso insegnerebbe a
+  // ignorare il rosso.
+  const verdetto = conta.crit
+    ? { livello: 'crit', forte: t('rilasci.dep.v.falliti', { n: conta.crit }), resto: conta.info ? t('rilasci.dep.v.eInCorso', { n: conta.info }) : '' }
+    : conta.info
+      ? { livello: 'info', forte: t('rilasci.dep.v.inCorso', { n: conta.info }), resto: t('rilasci.dep.v.nessunFallito') }
+      : nellaFinestra.length
+        ? { livello: 'ok', forte: t('rilasci.dep.v.ok', { n: conta.ok }), resto: '' }
+        : { livello: null, forte: null, resto: t('rilasci.dep.v.nessuno') }
+
+  const schede = [
+    { key: 'all', label: t('deploys.filter.all'), n: nellaFinestra.length },
+    { key: 'failed', label: t('deploys.filter.failed'), n: conta.crit },
+    { key: 'running', label: t('deploys.filter.running'), n: conta.info },
+    { key: 'ok', label: t('deploys.filter.ok'), n: conta.ok },
+    { key: 'byhand', label: t('deploys.filter.byhand'), n: conta.aMano },
+  ]
 
   return (
-    <>
-      <PageIntro
-        title={t('deploys.title')}
-        desc={t('deploys.desc')}
-        extra={
-          <Space wrap size={8}>
-            <PollStatus lastUpdated={lastUpdated} refreshing={refreshing} t={t} />
-            <Segmented size="small" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
-            <Segmented size="small" value={periodFilter} onChange={setPeriodFilter} options={periodOptions} />
-            <Select
-              size="small"
-              mode="multiple"
-              allowClear
-              maxTagCount="responsive"
-              placeholder={t('deploys.allServices')}
-              value={serviceFilter}
-              onChange={setServiceFilter}
-              options={serviceOptions}
-              optionLabelProp="nomeCorto"
-              // La tendina si allarga sul CONTENUTO, non sul controllo: legata alla larghezza del
-              // controllo (160px) tagliava ogni voce a «agentic-chat · Prod…», cioè nascondeva proprio
-              // l'informazione appena aggiunta.
-              popupMatchSelectWidth={false}
-              style={{ minWidth: 150 }}
-            />
-          </Space>
-        }
+    <div className="rl-pagina">
+      <Verdetto
+        livello={loading && !data ? null : verdetto.livello}
+        forte={loading && !data ? null : verdetto.forte}
+        resto={loading && !data ? t('rilasci.dep.v.attesa') : verdetto.resto}
+        dettaglio={t('rilasci.dep.v.dettaglio', { finestra })}
       />
 
-      {loading && !data && <DeploysSkeleton />}
-      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
-      {data && accounts.length === 0 && <EmptyState description={t('deploys.noAccounts')} />}
+      {error && <div className="ui-readwarn">{error}</div>}
+      {erroriConti.map(([key, acc]) => (
+        <div key={key} className="ui-readwarn">
+          {t('rilasci.nonLeggibile', { conto: acc.label ?? key, errore: acc.error })}
+        </div>
+      ))}
 
-      {accounts.length > 0 && (
+      {data && (
         <>
-          {/* Il verdetto: «i rilasci stanno passando?». `byHand` resta un numero e non entra nel
-              giudizio: un hotfix a mano non e' un guasto, e' una scelta, e marcarlo rosso
-              insegnerebbe a ignorare il rosso. */}
-          <Verdetto
-            livello={hero.failed ? 'bad' : hero.running ? 'info' : 'ok'}
-            titolo={
-              hero.failed
-                ? t('deploys.v.falliteTitolo', { n: hero.failed })
-                : hero.running
-                  ? t('deploys.v.inCorsoTitolo', { n: hero.running })
-                  : t('deploys.v.okTitolo', { n: hero.ok })
-            }
-            dettaglio={
-              hero.failed ? t('deploys.v.fallite') : hero.running ? t('deploys.v.inCorso') : t('deploys.v.ok')
-            }
-          />
-          <HeroRow>
-            {hero.running > 0 && <HeroStat label={t('deploys.running')} value={hero.running} color="#1677ff" size={18} />}
-            <HeroStat label={t('deploys.ok')} value={hero.ok} color={hero.ok ? '#52c41a' : undefined} size={18} />
-            <HeroStat label={t('deploys.failed')} value={hero.failed} color={hero.failed ? '#ff4d4f' : undefined} size={18} />
-            {hero.byHand > 0 && (
-              <Tooltip title={t('deploys.manualTip')}>
-                <span>
-                  <HeroStat label={t('deploys.manual')} value={hero.byHand} color="#faad14" size={18} />
-                </span>
-              </Tooltip>
-            )}
-          </HeroRow>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {accounts.map(([key, acc]) => {
-              const all = acc.builds ?? []
-              const filtered = filterBuilds(all)
-              // Con un filtro attivo, nascondi gli account che non matchano (declutter);
-              // in vista piena (nessun filtro) restano tutti, anche quelli senza deploy.
-              if (anyFilter && filtered.length === 0 && !acc.error) return null
-              return (
-                <AccountSection
-                  key={key}
-                  acc={acc}
-                  all={all}
-                  filtered={filtered}
-                  anyFilter={anyFilter}
-                  expanded={expanded.has(key)}
-                  onToggle={() => toggleExpand(key)}
-                  onOpen={(b) => setSelected({ build: b, accountLabel: acc.label })}
-                  t={t}
-                />
-              )
-            })}
+          <Istogramma builds={nellaFinestra} ore={ore} t={t} lang={lang} />
+          <div className="ui-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
+            <div className="ui-stat">
+              <b className={conta.ok ? 'ui-t-ok' : undefined}>{conta.ok}</b>
+              <span>{t('rilasci.dep.stat.ok')}</span>
+            </div>
+            <div className="ui-stat">
+              <b className={conta.crit ? 'ui-t-crit' : undefined}>{conta.crit}</b>
+              <span>{t('rilasci.dep.stat.ko')}</span>
+            </div>
+            <div className="ui-stat">
+              <b className={conta.info ? 'ui-t-info' : undefined}>{conta.info}</b>
+              <span>{t('rilasci.dep.stat.inCorso')}</span>
+            </div>
+            <div className="ui-stat" title={t('deploys.manualTip')}>
+              <b className={conta.aMano ? 'ui-t-warn' : undefined}>{conta.aMano}</b>
+              <span>{t('rilasci.dep.stat.mano')}</span>
+            </div>
           </div>
         </>
       )}
 
-      <DeployBuildDrawer build={selected?.build} accountLabel={selected?.accountLabel} onClose={() => setSelected(null)} t={t} />
-    </>
+      <div className="rl-tools">
+        <input className="rl-cerca" type="search" placeholder={t('rilasci.dep.cerca')} aria-label={t('rilasci.dep.cerca')} value={query} onChange={(e) => setQuery(e.target.value)} />
+        {/* Niente «sempre»: oltre i 7 giorni le azioni a mano (da CloudTrail) non ci sono piu', e una
+            lista che mescola due orizzonti fa concludere «a marzo nessuno ha aperto porte». */}
+        <div className="ui-seg" role="group" aria-label={t('rilasci.finestra')}>
+          {Object.keys(PERIOD_ORE).map((p) => (
+            <button key={p} type="button" aria-pressed={periodFilter === p} onClick={() => setPeriodFilter(p)}>
+              {t(`deploys.period.${p}`)}
+            </button>
+          ))}
+        </div>
+        {asList(serviceFilter).map((s) => (
+          <button key={s} type="button" className="rl-chip" aria-pressed="true" onClick={() => togliServizio(s)} title={t('rilasci.togliFiltro')}>
+            {s} ✕
+          </button>
+        ))}
+      </div>
+
+      <Tabs voci={schede} attiva={statusFilter} onCambia={setStatusFilter} />
+
+      <div className="rl-tools">
+        <Tabs
+          voci={[
+            { key: 'servizi', label: t('rilasci.dep.vistaServizi'), n: gruppi.length },
+            { key: 'build', label: t('rilasci.dep.vistaBuild'), n: visibili.length },
+          ]}
+          attiva={vista}
+          onCambia={setVista}
+        />
+      </div>
+
+      {loading && !data ? (
+        <p className="ui-mute">{t('rilasci.dep.v.attesa')}</p>
+      ) : vista === 'servizi' ? (
+        <Lista
+          colonne={[t('rilasci.dep.col.servizio'), t('rilasci.dep.col.esito'), t('rilasci.dep.col.cosa'), t('rilasci.dep.col.ultimi'), t('rilasci.dep.col.quando')]}
+          griglia={COLONNE_SERVIZI}
+          vuoto={isFiltering(serviceFilter) || statusFilter !== 'all' || query ? t('deploys.noneFiltered') : data && !accounts.length ? t('deploys.noAccounts') : t('deploys.none')}
+        >
+          {gruppi.map((g) => {
+            const b = g.latest
+            const { cosa, hint } = cosaBuild(b, t)
+            return (
+              <button
+                key={`${g.accountKey}/${g.service}`}
+                type="button"
+                className="ui-row ui-row-btn"
+                style={{ gridTemplateColumns: COLONNE_SERVIZI }}
+                // data-build: ancora per il video demo, vedi pageKit.jsx.
+                data-build={b.service}
+                title={t('deploys.openDetail')}
+                onClick={() => apri(b, g.accountLabel, g.recenti)}
+              >
+                <span className="ui-name">
+                  {g.sgGroup ? t('deploys.sgGroup', { n: g.builds.length }) : g.service}
+                  <small>{[g.accountLabel, chiBuild(b, t)].filter(Boolean).join(' · ')}</small>
+                </span>
+                <Pill livello={livelloPillola(b)}>{etichettaEsito(b, t)}</Pill>
+                <span className="ui-what">
+                  {cosa}
+                  {hint && <span className="ui-hint">{hint}</span>}
+                </span>
+                {b.provider === 'cloudflare' ? <span /> : <Ultimi builds={g.recenti} t={t} />}
+                <span className="ui-when">
+                  {quandoBuild(b, t)}
+                  {b.commit && (
+                    <>
+                      <br />
+                      <span className="ui-mono">{String(b.commit).slice(0, 8)}</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            )
+          })}
+        </Lista>
+      ) : (
+        <Lista
+          colonne={[t('rilasci.dep.col.servizio'), t('rilasci.dep.col.esito'), t('rilasci.dep.col.cosa'), t('rilasci.dep.col.quando')]}
+          griglia={COLONNE_BUILD}
+          vuoto={t('deploys.noneFiltered')}
+        >
+          {[...visibili]
+            .sort((a, b) => new Date(b.startedAt ?? 0) - new Date(a.startedAt ?? 0))
+            .map((b) => {
+              const { cosa, hint } = cosaBuild(b, t)
+              const recenti = nellaFinestra.filter((x) => x.accountKey === b.accountKey && x.service === b.service)
+              return (
+                <button
+                  key={b.id || `${b.project}:${b.number}`}
+                  type="button"
+                  className="ui-row ui-row-btn"
+                  style={{ gridTemplateColumns: COLONNE_BUILD }}
+                  data-build={b.service}
+                  onClick={() => apri(b, b.accountLabel, recenti)}
+                >
+                  <span className="ui-name">
+                    {titoloBuild(b, t)}
+                    {b.number != null && <span className="ui-faint"> #{b.number}</span>}
+                    <small>{[b.accountLabel, chiBuild(b, t)].filter(Boolean).join(' · ')}</small>
+                  </span>
+                  <Pill livello={livelloPillola(b)}>{etichettaEsito(b, t)}</Pill>
+                  <span className="ui-what">
+                    {cosa}
+                    {hint && <span className="ui-hint">{hint}</span>}
+                  </span>
+                  <span className="ui-when">
+                    {quandoBuild(b, t)}
+                    {b.commit && (
+                      <>
+                        <br />
+                        <span className="ui-mono">{String(b.commit).slice(0, 8)}</span>
+                      </>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+        </Lista>
+      )}
+
+      {senzaProgetti.length > 0 && (
+        <p className="ui-note">
+          {t('rilasci.dep.senzaProgetti', { conti: senzaProgetti.map(([k, a]) => a.label ?? k).join(', ') })}
+        </p>
+      )}
+
+      <PannelloBuild sel={selected} onClose={() => setSelected(null)} t={t} />
+    </div>
   )
 }
