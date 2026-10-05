@@ -753,12 +753,15 @@ export const STATI = {
 // Le etichette sono CORTE apposta: nella List la colonna Stato è stretta e Slack non la allarga, e
 // «⏳ deploy avviato» usciva come «⏳ deploy a…» (05/10/2026). Cosa è partito o fallito (build,
 // apply, riavvio) lo dicono i Dettagli; l'etichetta dice solo a che punto è.
-export const INTESTAZIONE = ['Risorsa', 'Stato', 'Versione', 'Dettagli']
+// Tre colonne e non quattro: la Versione sta in testa ai Dettagli. Con quattro la tabella era più
+// larga del canvas e Slack, che non manda a capo abbastanza, tagliava i Dettagli a destra
+// (05/10/2026).
+export const INTESTAZIONE = ['Risorsa', 'Stato', 'Dettagli']
 // Una cella vuota non si scrive: la List rifiuta un testo di zero caratteri, e un `replace` vuoto nel
 // canvas lascerebbe una cella che non si distingue da una non letta. Dove non c'è niente da dire, questo.
 const VUOTO = 'n/d'
-// Il motivo di un fallimento nella List: tagliato corto, il resto è nel canvas e nel log.
-const MOTIVO_BREVE = 60
+// Il motivo di un fallimento: tagliato corto, il resto è nel log della build.
+const MOTIVO_BREVE = 40
 
 // Quando, corto e fisso: «oggi 10:40», «ieri 22:05», «03/10 19:05». Come `alle`, cambia solo a
 // mezzanotte e non ogni minuto, quindi non riscrive celle per niente; più corto, perché sta nella
@@ -781,8 +784,8 @@ export function quandoBreve(iso, ora = Date.now()) {
 export function conTest(riga, test, { ora = Date.now() } = {}) {
   if (!test?.da || !['deploy_ok', 'invariato'].includes(riga.stato) || tempo(test.da) <= tempo(riga.quando)) return riga
   const stato = test.stato === 'fallito' ? 'test_falliti' : 'test_avviati'
-  const run = test.url ? `[run dei test](${test.url})` : null
-  return { ...riga, stato, quando: test.da, quandoTesto: quandoBreve(test.da, ora), suffisso: null, dettagli: [run, ...riga.dettagli], breve: [run, ...(riga.breve ?? riga.dettagli)] }
+  const run = test.url ? `[run](${test.url})` : null
+  return { ...riga, stato, quando: test.da, quandoTesto: quandoBreve(test.da, ora), suffisso: null, dettagli: [run ?? 'run', riga.dettagli.find(Boolean)] }
 }
 
 // Una risorsa diventa una RIGA della tabella: stato (una chiave di `STATI`), versione, dettagli, e
@@ -791,7 +794,7 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
   // Un rilascio resta 🚀 per `ore` ore, poi la riga diventa ➖: è l'unico cambio che l'orologio fa.
   const fermo = (quando) => (quando && tempo(quando) >= ora - ore * 3_600_000 ? 'deploy_ok' : 'invariato')
   let r
-  if (v.tipo === 'app') r = rigaDiApp(v, fermo, ora)
+  if (v.tipo === 'app') r = rigaDiApp(v, fermo)
   else if (v.tipo === 'immagine') {
     const quanti = [v.servizi.length && plurale(v.servizi.length, 'servizio', 'servizi'), v.cron.length && `${v.cron.length} cron`].filter(Boolean).join(' e ')
     const tutti = [...v.servizi, ...v.cron]
@@ -800,29 +803,16 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
       nome: v.nome,
       stato,
       quando: v.quando,
-      suffisso: stato === 'giu' ? elenco(v.giu, 4) : stato === 'indietro' ? `${v.indietro.length} di ${tutti.length}` : null,
+      suffisso: stato === 'giu' ? elenco(v.giu, 2) : stato === 'indietro' ? `${v.indietro.length} di ${tutti.length}` : null,
       versione: `\`${v.tag ?? '?'}\``,
-      dettagli: [
-        `immagine su ${quanti}`,
-        v.indietro.length && v.indietro.map((x) => `${x.nome} su \`${x.tag ?? '?'}\``).join(', '),
-        v.chi && `registrata ${daChi(v.chi)}`,
-        elenco(tutti),
-      ],
-      breve: [`immagine su ${quanti}`, v.indietro.length && v.indietro.map((x) => x.nome).join(', ')],
+      dettagli: [`su ${quanti}`, v.indietro.length && elenco(v.indietro.map((x) => x.nome), 2)],
     }
   } else if (v.tipo === 'esterno')
-    r = {
-      nome: v.nome,
-      stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando),
-      quando: v.quando,
-      versione: `\`${v.tag ?? '?'}\``,
-      // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
-      dettagli: ['componente esterno, versione fissata dall’IaC', v.nomi.length > 1 && `su ${elenco(v.nomi)}`, !daIac(v.chi) && daChi(v.chi)],
-      breve: ['componente esterno'],
-    }
+    // La versione la fissa l'IaC: chi l'ha cambiata non serve, e «componente esterno» dice già perché.
+    r = { nome: v.nome, stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando), quando: v.quando, versione: `\`${v.tag ?? '?'}\``, dettagli: ['esterno'] }
   else if (v.tipo === 'lambda')
     // Una Lambda dice di sé solo quando è stata aggiornata e da chi: niente versione, niente «in corso».
-    r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'data di rilascio non letta'] }
+    r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'data non letta'] }
   else if (v.tipo === 'iac') {
     const stato = v.stato === 'in_corso' ? 'deploy_avviato' : v.stato === 'fallito' ? 'deploy_fallito' : fermo(v.quando)
     r = {
@@ -832,73 +822,46 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
       versione: v.commit ? sha(v.commit, v.repo) : VUOTO,
       versioneLink: linkCommit(v.commit, v.repo),
       dettagli: [
-        v.numero && `build #${v.numero}${v.stato === 'ok' && durata(v.durataMs) ? ` in ${durata(v.durataMs)}` : ''}`,
-        v.fase && `fase ${v.fase}`,
-        v.stato === 'in_corso' && durata(v.durataTipica) && `di solito ${durata(v.durataTipica)}`,
-        v.chi && `di ${v.chi}`,
-        v.motivo && `motivo: ${tronca(v.motivo, 140)}`,
-        v.log && `[log della build](${v.log})`,
+        v.numero && (v.log ? `[build #${v.numero}](${v.log})` : `build #${v.numero}`),
+        v.stato === 'fallito' ? v.motivo && tronca(v.motivo, MOTIVO_BREVE) : v.stato === 'in_corso' ? v.fase : durata(v.durataMs),
       ],
-      breve: [v.numero && `build #${v.numero}`, v.motivo ? tronca(v.motivo, MOTIVO_BREVE) : v.chi && `di ${v.chi}`],
     }
   } else return null
   r = conTest({ suffisso: null, versioneLink: null, ...r, quandoTesto: quandoBreve(r.quando, ora) }, v.test, { ora })
   const s = STATI[r.stato]
   const link = linkRisorsa(v, url)
   const dettagli = r.dettagli.filter(Boolean).join(SEP) || VUOTO
+  // Nel canvas la versione apre i Dettagli: una colonna in meno, e la tabella sta nella larghezza del
+  // canvas (vedi `INTESTAZIONE`). Nella List resta una colonna sua.
+  const dettagliCanvas = [r.versione !== VUOTO && r.versione, dettagli !== VUOTO && dettagli].filter(Boolean).join(SEP) || VUOTO
   return {
     ...r,
     link,
     dettagli,
-    // I dettagli della List: le due cose che contano, perché lì la colonna è stretta e il resto si
-    // perdeva fuori dallo schermo. Il canvas ha tutto.
-    breve: (r.breve ?? r.dettagli).filter(Boolean).join(SEP) || VUOTO,
     celle: [
       cella(link ? `[**${r.nome}**](${link})` : `**${r.nome}**`),
       cella([`${s.emoji} ${s.etichetta}`, r.quandoTesto, r.suffisso].filter(Boolean).join(SEP)),
-      cella(r.versione || VUOTO),
-      cella(dettagli),
+      cella(dettagliCanvas),
     ],
   }
 }
 
-// La riga di un'applicazione: la parte più ricca, perché ECS e CodeBuild insieme sanno cosa gira, cosa
-// sta partendo e cosa è fallito. La Versione è sempre quello che GIRA: un tentativo in corso o fallito
-// sta nei Dettagli, con «verso» o «tentava». Puro.
-function rigaDiApp(a, fermo, ora) {
+// La riga di un'applicazione. La Versione è sempre quello che GIRA; i Dettagli sono al massimo DUE
+// voci corte, scelte per stato, perché la tabella deve stare nella larghezza del canvas: con tutto
+// (revisione, task, target sani, come è arrivato, autore, commit di staging) una cella arrivava a
+// quasi 200 caratteri e usciva a destra (05/10/2026). Il resto è a un clic, su Dadaguard. Puro.
+function rigaDiApp(a, fermo) {
   const c = sha(a.commit, a.repo)
   const rev = a.revisione ? `rev ${a.revisione}` : null
-  const salute = [a.task && `${a.task} task`, a.target && `${a.target} target sani`].filter(Boolean).join(', ') || null
+  const task = a.task ? `${a.task} task` : null
   const t = a.tentativo
+  const build = (n, log) => (n ? (log ? `[build #${n}](${log})` : `build #${n}`) : 'build')
   const base = { nome: a.servizio, versione: a.commit ? c : VUOTO, versioneLink: linkCommit(a.commit, a.repo) }
-  if (a.stato === 'giu')
-    return {
-      ...base,
-      stato: 'giu',
-      quando: null,
-      suffisso: `${a.task ?? '?'} task attivi`,
-      dettagli: [rev, a.target && `${a.target} target sani`, a.quando && `ultimo cambio ${quandoBreve(a.quando, ora)}`],
-      breve: [`${a.task ?? '?'} task attivi`, a.target && `${a.target} target sani`],
-    }
+  if (a.stato === 'giu') return { ...base, stato: 'giu', quando: null, suffisso: `${a.task ?? '?'} task attivi`, dettagli: [rev, a.target && `${a.target} target`] }
   if (a.stato === 'fallito') {
-    const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
-    const motivoBreve = t.motivo && tronca(t.motivo, MOTIVO_BREVE)
-    const riavvio = `riavvio a mano${t.chi ? ` ${daChi(t.chi)}` : ''}`
-    if (t.riavvio) return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: [riavvio, motivo, rev], breve: [riavvio, motivoBreve] }
-    return {
-      ...base,
-      stato: 'deploy_fallito',
-      quando: t.da,
-      breve: [`build${t.numero ? ` #${t.numero}` : ''}${t.fase ? `, fase ${t.fase}` : ''}`, motivoBreve ?? (t.chi && `di ${t.chi}`)],
-      dettagli: [
-        `build${t.numero ? ` #${t.numero}` : ''}${t.fase ? ` fallita al ${t.fase}` : ' fallita'}`,
-        t.commit && !stessoCommit(t.commit, a.commit) && `tentava ${sha(t.commit, a.repo)}`,
-        t.chi && `di ${t.chi}`,
-        motivo,
-        t.log && `[log della build](${t.log})`,
-        a.commit ? `gira ancora ${c}` : 'nessun rilascio riuscito visto',
-      ],
-    }
+    const motivo = t.motivo && tronca(t.motivo, MOTIVO_BREVE)
+    if (t.riavvio) return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: ['riavvio', motivo ?? (t.chi && daChi(t.chi))] }
+    return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: [build(t.numero, t.log), motivo ?? (t.fase && `al ${t.fase}`)] }
   }
   if (a.stato === 'in_corso') {
     if (t)
@@ -906,30 +869,21 @@ function rigaDiApp(a, fermo, ora) {
         ...base,
         stato: 'deploy_avviato',
         quando: t.da,
-        breve: [`build${t.numero ? ` #${t.numero}` : ''}${t.fase ? `, fase ${t.fase}` : ''}`, t.chi && `di ${t.chi}`],
-        dettagli: [
-          `build${t.numero ? ` #${t.numero}` : ''}${t.fase ? `, fase ${t.fase}` : ''}`,
-          t.commit && !stessoCommit(t.commit, a.commit) && `verso ${sha(t.commit, a.repo)}`,
-          t.chi && `di ${t.chi}`,
-          durata(a.durataTipica) && `di solito ${durata(a.durataTipica)}`,
-          salute,
-        ],
+        dettagli: [build(t.numero), t.commit && !stessoCommit(t.commit, a.commit) ? `verso ${sha(t.commit, a.repo)}` : t.fase],
       }
-    return { ...base, stato: 'deploy_avviato', quando: a.quando, dettagli: ['rollout ECS', rev, salute, comeTesto(a.come)], breve: ['rollout ECS', salute] }
+    return { ...base, stato: 'deploy_avviato', quando: a.quando, dettagli: ['rollout', task] }
   }
-  return {
-    ...base,
-    stato: fermo(a.quando),
-    quando: a.quando,
-    dettagli: [rev, salute, comeTesto(a.come), a.autore && `commit di ${a.autore}`, a.staging && `staging su \`${a.staging}\``],
-    breve: [comeBreve(a.come), a.autore && `di ${a.autore}`],
-  }
+  // Ferma: con un servizio ECS la revisione e i task; senza (un sito statico) la build e quanto è durata.
+  const come = a.come
+  const dettagli =
+    come?.tipo === 'riavvio' ? ['riavvio', task] : rev || task ? [rev, task] : come?.build ? [`build #${come.build}`, durata(come.durataMs)] : [comeBreve(come)]
+  return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli }
 }
 
-// Come è arrivato, in due parole, per la List: «build #661», «riavvio», «hotfix #12». Puro.
+// Come è arrivato, in due parole: «build #661», «riavvio», «hotfix #12». Puro.
 function comeBreve(c) {
   if (!c) return null
-  if (c.tipo === 'riavvio') return `riavvio${c.chi ? ` ${daChi(c.chi)}` : ''}`
+  if (c.tipo === 'riavvio') return 'riavvio'
   if (c.tipo === 'revisione') return c.build ? `revisione, build #${c.build}` : 'revisione a mano'
   return `${c.tipo === 'hotfix' ? 'hotfix' : 'build'} #${c.build ?? '?'}`
 }
@@ -1373,7 +1327,7 @@ const linkLista = (url, nome) => ({ link: url ? [{ original_url: url, display_as
 // riletta, vedi `firmeDaItem`) e il valore da mandare. `tipi` sono quelli della List com'è: una List
 // nata prima del 05/10/2026 ha Versione di tipo link, e lì si scrive un link. Puro/testabile.
 export function celleLista(r, tipi = TIPO_COLONNA) {
-  const dettagli = testoPiatto(r.breve ?? r.dettagli)
+  const dettagli = testoPiatto(r.dettagli)
   const v = r.versioneLink
   return {
     risorsa: { firma: r.nome, valore: testoLista(r.nome) },

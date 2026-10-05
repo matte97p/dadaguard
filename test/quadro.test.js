@@ -343,21 +343,21 @@ function ambienteGrande() {
   return quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi })
 }
 
-test('tabella stabile: TUTTE le risorse, in ordine alfabetico, quattro colonne, e il nome senza emoji', () => {
+test('tabella stabile: TUTTE le risorse, in ordine alfabetico, tre colonne, e il nome senza emoji', () => {
   const qa = ambienteGrande()
   const c = canvasQuadro(dividi(qa).principale, { ora: ORA, url: URL })
   const md = c.markdown
   assert.equal(c.titolo, 'Quadro deploy PRODUZIONE')
   assert.doesNotMatch(md, /## Adesso|## Ultime/, 'niente sottotitoli: una tabella sola')
-  assert.equal(md.split('\n').filter((l) => l.startsWith('| Risorsa | Stato | Versione | Dettagli |')).length, 1, 'una tabella, quattro colonne')
+  assert.equal(md.split('\n').filter((l) => l.startsWith('| Risorsa | Stato | Dettagli |')).length, 1, 'una tabella, tre colonne: la versione apre i Dettagli')
   const righe = md.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Risorsa'))
   assert.equal(righe.length, 27, '12 ferme, 14 nuove e quella giù: anche le ferme hanno la loro riga')
   const nomi = righe.map((l) => /\*\*([^*]+)\*\*/.exec(l)[1])
   assert.deepEqual(nomi, [...nomi].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })), 'in ordine alfabetico, non per gravità né per data')
   assert.ok(righe.every((l) => l.startsWith('| [**')), 'la prima cella è il nome e basta: niente emoji, che starebbe nella cella che non si riscrive mai')
-  assert.ok(righe.includes('| [**rotta**](https://dg.example.com/deploy?service=rotta&account=production) | 🚨 giù · 0/2 task attivi | `ccccccc` | n/d |'))
-  assert.match(md, /\| \[\*\*app-ferma-3\*\*\]\([^)]+\) \| ➖ fermo · 01\/09 02:00 \| `aaaaaa3` \|/, 'una risorsa ferma è ➖, con la data del suo ultimo cambio')
-  assert.match(md, /\| \[\*\*app-nuova-9\*\*\]\([^)]+\) \| 🚀 OK · oggi 11:30 \| `bbbbbb9` \|/)
+  assert.ok(righe.includes('| [**rotta**](https://dg.example.com/deploy?service=rotta&account=production) | 🚨 giù · 0/2 task attivi | `ccccccc` |'))
+  assert.match(md, /\| \[\*\*app-ferma-3\*\*\]\([^)]+\) \| ➖ fermo · 01\/09 02:00 \| `aaaaaa3` · 1\/1 task \|/, 'una risorsa ferma è ➖, con la data del suo ultimo cambio')
+  assert.match(md, /\| \[\*\*app-nuova-9\*\*\]\([^)]+\) \| 🚀 OK · oggi 11:30 \| `bbbbbb9` · 1\/1 task \|/)
   assert.doesNotMatch(md, /E altri|Senza novità/, 'niente resto contato: le righe ci sono tutte')
   assert.match(md, /\n\nDadaguard: \[Deploy PROD\]\(https:\/\/dg\.example\.com\/deploy\?account=production\)/)
   assert.doesNotMatch(md, /Lambda/, 'i cron Lambda stanno nella loro scheda')
@@ -371,7 +371,7 @@ test('tabella stabile: TUTTE le risorse, in ordine alfabetico, quattro colonne, 
   assert.doesNotMatch(cron.markdown, /aggiornato alle/, 'un orologio riscriverebbe una cella ogni minuto')
   assert.match(cron.markdown, /## Produzione\n\n\*\*✅ niente di rotto, niente in corso · 🚀 1 rilascio nelle ultime 24 h\*\*/)
   assert.equal(cron.markdown.split('\n').filter((l) => l.startsWith('| [**')).length, 60, 'una riga per Lambda: un giro non ha una riga fissa')
-  assert.match(cron.markdown, /\| \[\*\*nuovo-0\*\*\]\([^)]+\) \| 🚀 OK · oggi 11:00 \| n\/d \| da dev \|/)
+  assert.match(cron.markdown, /\| \[\*\*nuovo-0\*\*\]\([^)]+\) \| 🚀 OK · oggi 11:00 \| da dev \|/, 'una Lambda non ha versione: i Dettagli partono da chi')
   assert.match(cron.markdown, /\| \[\*\*vecchio-12\*\*\]\([^)]+\) \| ➖ fermo · 01\/09 02:00 \|/)
 })
 
@@ -380,7 +380,7 @@ test('tutto tranquillo: la sintesi lo dice per prima, e la riga c’è lo stesso
   const c = canvasQuadro(q, { ora: ORA })
   assert.equal(c.titolo, 'Quadro deploy STAGING')
   assert.match(c.sintesi, /^✅ niente di rotto, niente in corso · 🚀 0 rilasci/)
-  assert.match(c.markdown, /\| \*\*api\*\* \| ➖ fermo · 01\/09 02:00 \| `aaaaaaa` \| 1\/1 task · revisione registrata, nessuna build \|/)
+  assert.match(c.markdown, /\| \*\*api\*\* \| ➖ fermo · 01\/09 02:00 \| `aaaaaaa` · 1\/1 task \|/)
   const vuoto = canvasQuadro(quadroAmbiente('staging', { deploys: LETTE_STG, servizi: [] }), { ora: ORA })
   assert.doesNotMatch(vuoto.markdown, /\| Risorsa/, 'senza risorse niente tabella vuota')
 })
@@ -405,7 +405,7 @@ test('una cella non rompe la tabella: niente `|` né a capo che arrivino da fuor
     servizi: [svc('api', 'production', { tag: 'aaaaaaa' })],
   })
   const riga = canvasQuadro(q, { ora: ORA }).markdown.split('\n').find((l) => l.includes('**api**'))
-  assert.equal(riga.split(/(?<!\\)\|/).length, 6, 'quattro celle, quindi cinque separatori')
+  assert.equal(riga.split(/(?<!\\)\|/).length, 5, 'tre celle, quindi quattro separatori')
 })
 
 test('il nostro canvas si trova fra le SCHEDE del canale, dal titolo', () => {
@@ -847,15 +847,15 @@ function slackFinto({ bot = 'UBOT', pagina = 100 } = {}) {
 
 // L'HTML vero di un canvas del quadro, preso da un canale di prova il 05/10/2026 e accorciato a due righe.
 const HTML_VERO =
-  '<div class="quip-canvas-content"><h1 id="temp:C:UAf7c">Prova quadro tutti</h1><h2 id="temp:C:UAfc9">Produzione</h2><p id="temp:C:UAfd7" class="line"><b>❌ 2 rotti · 🚀 10 rilasciati</b></p><table><tr><td><p id="temp:C:h1" class="line">Risorsa</p></td><td><p id="temp:C:h2" class="line">Stato</p></td><td><p id="temp:C:h3" class="line">Versione</p></td><td><p id="temp:C:h4" class="line">Dettagli</p></td></tr><tr><td><p id="temp:C:a1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=agentic-chat"><b>agentic-chat</b></lnk></p></td><td><p id="temp:C:a2" class="line">🚀 OK · oggi 10:40</p></td><td><p id="temp:C:a3" class="line"><lnk href="https://github.com/x/agentic-chat/commit/15ee8d1">15ee8d1</lnk></p></td><td><p id="temp:C:a4" class="line">rev 80 · staging su <code>941ad11</code></p></td></tr><tr><td><p id="temp:C:b1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=IaC"><b>IaC</b></lnk></p></td><td><p id="temp:C:b2" class="line">🚀 OK · oggi 13:49</p></td><td><p id="temp:C:b3" class="line"><lnk href="https://github.com/x/aws-management/commit/3ec82ac">3ec82ac</lnk></p></td><td><p id="temp:C:b4" class="line">motivo: a | b &amp; c</p></td></tr></table><p id="temp:C:f1" class="line">Dadaguard: <lnk href="https://dg.example.com/deploy?account=production">Deploy PROD</lnk></p></div>'
+  '<div class="quip-canvas-content"><h1 id="temp:C:UAf7c">Prova quadro tutti</h1><h2 id="temp:C:UAfc9">Produzione</h2><p id="temp:C:UAfd7" class="line"><b>❌ 2 rotti · 🚀 10 rilasciati</b></p><table><tr><td><p id="temp:C:h1" class="line">Risorsa</p></td><td><p id="temp:C:h2" class="line">Stato</p></td><td><p id="temp:C:h4" class="line">Dettagli</p></td></tr><tr><td><p id="temp:C:a1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=agentic-chat"><b>agentic-chat</b></lnk></p></td><td><p id="temp:C:a2" class="line">🚀 OK · oggi 10:40</p></td><td><p id="temp:C:a4" class="line"><lnk href="https://github.com/x/agentic-chat/commit/15ee8d1">15ee8d1</lnk> · rev 80 · <code>2/2</code> task</p></td></tr><tr><td><p id="temp:C:b1" class="line"><lnk href="https://dg.example.com/deploy?account=production&amp;service=IaC"><b>IaC</b></lnk></p></td><td><p id="temp:C:b2" class="line">🚀 OK · oggi 13:49</p></td><td><p id="temp:C:b4" class="line"><lnk href="https://github.com/x/aws-management/commit/3ec82ac">3ec82ac</lnk> · a | b &amp; c</p></td></tr></table><p id="temp:C:f1" class="line">Dadaguard: <lnk href="https://dg.example.com/deploy?account=production">Deploy PROD</lnk></p></div>'
 
 test('l’HTML del canvas: titoli, paragrafi e tabelle, con l’id di ogni cella e il testo senza tag', () => {
   const b = leggiCanvasHtml(HTML_VERO)
   assert.deepEqual(b.map((x) => x.tipo), ['h1', 'h2', 'p', 'table', 'p'])
   assert.deepEqual(b[2], { tipo: 'p', id: 'temp:C:UAfd7', testo: '❌ 2 rotti · 🚀 10 rilasciati' })
-  assert.deepEqual(b[3].righe[1].map((c) => c.id), ['temp:C:a1', 'temp:C:a2', 'temp:C:a3', 'temp:C:a4'])
-  assert.deepEqual(b[3].righe[1].map((c) => c.testo), ['agentic-chat', '🚀 OK · oggi 10:40', '15ee8d1', 'rev 80 · staging su 941ad11'])
-  assert.equal(b[3].righe[2][3].testo, 'motivo: a | b & c', 'le entità tornano caratteri')
+  assert.deepEqual(b[3].righe[1].map((c) => c.id), ['temp:C:a1', 'temp:C:a2', 'temp:C:a4'])
+  assert.deepEqual(b[3].righe[1].map((c) => c.testo), ['agentic-chat', '🚀 OK · oggi 10:40', '15ee8d1 · rev 80 · 2/2 task'])
+  assert.equal(b[3].righe[2][2].testo, '3ec82ac · a | b & c', 'le entità tornano caratteri')
   assert.equal(testoPiatto('[**IaC**](https://x?a=1&b=2) · `abc` · a \\| b'), 'IaC · abc · a | b')
 })
 
@@ -866,8 +866,8 @@ test('il piano delle celle: solo quelle cambiate, mai la prima colonna; forma di
         titolo: 'Produzione',
         sintesi: '**❌ 2 rotti · 🚀 10 rilasciati**',
         righe: [
-          ['[**agentic-chat**](https://dg.example.com/x)', '🚀 OK · oggi 10:40', '[15ee8d1](https://github.com/x/agentic-chat/commit/15ee8d1)', 'rev 80 · staging su `941ad11`'],
-          ['[**IaC**](https://dg.example.com/y)', '⏳ in corso · oggi 14:02', '[3ec82ac](https://github.com/x/aws-management/commit/3ec82ac)', 'motivo: a \\| b & c'],
+          ['[**agentic-chat**](https://dg.example.com/x)', '🚀 OK · oggi 10:40', '[15ee8d1](https://github.com/x/agentic-chat/commit/15ee8d1) · rev 80 · `2/2` task'],
+          ['[**IaC**](https://dg.example.com/y)', '⏳ in corso · oggi 14:02', '[3ec82ac](https://github.com/x/aws-management/commit/3ec82ac) · a \\| b & c'],
         ],
         fondo: 'Dadaguard: [Deploy PROD](https://dg.example.com/deploy?account=production)',
       },
@@ -892,7 +892,7 @@ test('il piano delle celle: solo quelle cambiate, mai la prima colonna; forma di
   senzaFondo.sezioni[0].fondo = null
   assert.equal(pianoCelle(senzaFondo, blocchi), null, 'un paragrafo in più o in meno è un’altra forma')
   const tre = structuredClone(giaUguale)
-  tre.sezioni[0].righe = tre.sezioni[0].righe.map((r) => r.slice(0, 3))
+  tre.sezioni[0].righe = tre.sezioni[0].righe.map((r) => r.slice(0, 2))
   assert.equal(pianoCelle(tre, blocchi), null, 'colonne diverse: altra forma')
 })
 
@@ -920,7 +920,7 @@ test('il giro: un cambio riscrive le sole celle cambiate, per id; una risorsa nu
   const tabella = leggiCanvasHtml(s.html(s.canvas.get(fp).blocchi)).find((x) => x.tipo === 'table')
   assert.deepEqual(tabella.righe.map((r) => r[0].testo), ['Risorsa', 'api', 'web'], 'le righe restano dov’erano')
   assert.deepEqual(tabella.righe.flat().map((c) => c.id), idPrima.find((x) => x.tipo === 'table').righe.flat().map((c) => c.id), 'e con gli stessi id')
-  assert.match(tabella.righe[1][3].testo, /build #11, fase BUILD · verso bbbbbbb/)
+  assert.equal(tabella.righe[1][2].testo, 'aaaaaaa · build #11 · verso bbbbbbb', 'quello che gira, poi la build e dove va')
 
   s.chiamate.length = 0
   const terzo = await giro(dati(conBuild))
@@ -972,10 +972,10 @@ test('gli stati delle righe: deploy avviato, fallito, OK, invariato; l’IaC dic
   const righe = righeTabella(q, { ora: ORA })
   assert.deepEqual(righe.map((r) => `${r.nome}:${r.stato}`), ['api:deploy_fallito', 'IaC:deploy_ok', 'web:deploy_avviato'], 'IaC fra api e web: l’ordine non bada alle maiuscole')
   assert.equal(righe[0].celle[1], '❌ fallito · oggi 13:30')
-  assert.match(righe[0].celle[3], /build #12 fallita al BUILD · tentava `bbbbbbb` · gira ancora `aaaaaaa`/)
+  assert.equal(righe[0].celle[2], '`aaaaaaa` · build #12 · al BUILD', 'quello che gira ancora, poi la build fallita')
   assert.equal(righe[1].celle[1], '🚀 OK · oggi 11:00')
   assert.equal(righe[2].celle[1], '⏳ in corso · oggi 13:40')
-  assert.equal(righe[2].celle[2], '`eeeeeee`', 'la Versione è quello che gira, non quello che sta partendo')
+  assert.equal(righe[2].celle[2], '`eeeeeee` · build #7 · verso `ccccccc`', 'la versione è quello che gira, non quello che sta partendo')
   assert.equal(quandoBreve('2026-10-02T20:05:00Z', ORA), 'ieri 22:05')
   assert.equal(quandoBreve('2026-09-30T20:05:00Z', ORA), '30/09 22:05')
   assert.equal(quandoBreve(null, ORA), null)
@@ -987,7 +987,7 @@ test('lo stato dei test è predisposto: vale solo se più recente dell’ultimo 
   const avviati = conTest(ok, { stato: 'in_corso', da: '2026-10-03T11:00:00Z', url: 'https://github.com/x/api/actions/runs/1' }, { ora: ORA })
   assert.equal(avviati.stato, 'test_avviati')
   assert.equal(avviati.quandoTesto, 'oggi 13:00')
-  assert.equal(avviati.dettagli[0], '[run dei test](https://github.com/x/api/actions/runs/1)')
+  assert.equal(avviati.dettagli[0], '[run](https://github.com/x/api/actions/runs/1)')
   assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T11:00:00Z' }, { ora: ORA }).stato, 'test_falliti')
   assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T09:00:00Z' }, { ora: ORA }), ok, 'un test più vecchio del rilascio non lo racconta')
   const inCorso = { ...ok, stato: 'deploy_avviato' }
@@ -1135,7 +1135,7 @@ test('lo stato dei test da GitHub sulle righe: 🧪 sul repository della build, 
   assert.deepEqual(chiesti, [['acme/api', 'acme/web']], 'i repository vengono dalle build delle righe')
   const righe = leggiCanvasHtml(s.html([...s.canvas.values()].find((c) => c.titolo === 'Quadro deploy PRODUZIONE').blocchi)).find((x) => x.tipo === 'table').righe
   assert.equal(righe[1][1].testo, '🧪 test · oggi 13:50')
-  assert.match(righe[1][3].testo, /^run dei test · /)
+  assert.equal(righe[1][2].testo, 'aaaaaaa · run · 1/1 task')
   assert.equal(righe[2][1].testo, '🚀 OK · oggi 13:50', 'i test falliti sono delle 13:40, il rilascio delle 13:50: vince il più recente')
 })
 
@@ -1219,10 +1219,10 @@ test('la List nuova: Versione è un testo col link dentro, vuoto senza commit, e
   const c = celleLista(api)
   assert.deepEqual(c.versione.valore.rich_text[0].elements[0].elements, [{ type: 'link', url: 'https://github.com/acme/api/commit/aaaaaaa', text: 'aaaaaaa' }])
   assert.equal(c.versione.firma, 'aaaaaaa', 'la firma è il testo del link, com’è riletto')
-  assert.equal(c.dettagli.firma, 'build #661 · di dev', 'le due cose che contano; task, target e revisione restano nel canvas')
-  assert.match(api.celle[3], /rev 9 · 2\/2 task, 4\/4 target sani · build #661/)
+  assert.equal(c.dettagli.firma, 'rev 9 · 2/2 task', 'le due cose che contano, uguali al canvas')
+  assert.equal(api.celle[2], '[aaaaaaa](https://github.com/acme/api/commit/aaaaaaa) · rev 9 · 2/2 task', 'anche nel canvas: versione e due voci corte')
   assert.deepEqual(celleLista(chat).versione, { firma: '', valore: { rich_text: [] } }, 'un tag che non è un commit: niente link')
-  assert.equal(chat.celle[2], '`latest`', 'e nel canvas resta testo: /commit/latest porterebbe a un 404')
+  assert.equal(chat.celle[2], '`latest` · esterno', 'e nel canvas resta testo: /commit/latest porterebbe a un 404')
 })
 
 test('il canvas porta in fondo il link alla List del suo ambiente', async () => {
