@@ -49,6 +49,8 @@ import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
+import { storicoFlotta } from './storicoAws.js'
+import { demoHistory } from './demo.js'
 
 const PORT = process.env.PORT ?? 3001
 const app = express()
@@ -714,6 +716,29 @@ app.get('/api/quotas', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ── Storico (/api/history) ────────────────────────────────────────────────────────────────────────
+// Le ultime ore a semaforo per ambiente, i KPI oggi contro ieri e la cronologia di oggi, ricostruiti
+// da cio' che AWS conserva gia' (storia allarmi, eventi ECS, deploy gia' letti): nessuno stato nostro.
+// I deploy arrivano dalla stessa cache di /api/deploys, allargata a 48 ore perche' il confronto con
+// ieri ne ha bisogno. Cinque minuti di cache: lo storico non cambia a ogni refresh, e GetMetricData si
+// paga a metrica.
+const HISTORY_TTL = Number(process.env.DADAGUARD_HISTORY_TTL_MS) || 5 * 60_000
+app.get('/api/history', async (req, res) => {
+  try {
+    const ore = entroLimiti('history', req.query.ore)
+    if (isDemo) return res.json(demoHistory(ore))
+    const value = await cached(`history:${ore}`, HISTORY_TTL, async () => {
+      const [{ accounts, services }, deploys] = await Promise.all([resolveServices(), deploysCached(req.query.lang, 48).then((r) => r.value)])
+      const queryable = Object.fromEntries(Object.entries(accounts).filter(([, a]) => isQueryable(a)))
+      return storicoFlotta({ accounts: queryable, services, deploys, ore })
+    })
+    res.json(value)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+// ── fine Storico ─────────────────────────────────────────────────────────────────────────────────
 
 // Eventi recenti di un servizio (on-demand, read-only): ECS/RDS/ASG — il "perché" testuale.
 app.get('/api/events', async (req, res) => {
