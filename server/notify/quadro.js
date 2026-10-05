@@ -4,6 +4,7 @@ import { canonicalActor } from '../util/principal.js'
 import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 import { postSlack } from './slack.js'
+import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.js'
 
 // Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
 // posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla fine), ogni
@@ -45,9 +46,8 @@ import { postSlack } from './slack.js'
 //   ⏳ 🚀 deploy dei cron Lambda                  una riga per Lambda; la sintesi conta i giri, dedotti
 //                                                 da ora e autore
 //   ⏳ 🚀 ➖ apply dell'infrastruttura             riga IaC
-//   🧪 test avviati, 🔴 check rossi               🧪 test avviati, ❌ test falliti: li scrive GitHub
-//                                                 Actions nel canale dei rilasci, e il quadro li legge
-//                                                 da lì (`DADAGUARD_QUADRO_CANALE_CI`, vedi `statiTest`)
+//   🧪 test avviati, 🔴 check rossi               🧪 test avviati, ❌ test falliti: i run di GitHub
+//                                                 Actions, letti con una GitHub App (server/notify/github.js)
 //
 // ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Per
 // questo quando qualcosa si ROMPE (build o apply fallito, servizio giù) il bot scrive anche un
@@ -64,9 +64,8 @@ import { postSlack } from './slack.js'
 //                               canali. Un webhook NON basta: non scrive canvas e non modifica i
 //                               messaggi che ha mandato
 //   DADAGUARD_QUADRO_LISTE      `0` per non tenere la Slack List accanto al canvas (default: accesa)
-//   DADAGUARD_QUADRO_CANALE_CI  il canale dove la CI scrive 🧪 test avviati e 🔴 check rossi, da cui
-//                               il quadro prende lo stato dei test (scope `channels:history`). Senza,
-//                               le righe non hanno mai uno stato di test
+//   DADAGUARD_GITHUB_*          la GitHub App da cui viene lo stato dei test (vedi server/notify/github.js).
+//                               Senza, le righe non hanno mai uno stato di test
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
 //                               `produzione=C0123,staging=C0456`. Gli id, non i nomi
 //   DADAGUARD_QUADRO_INTERVAL   secondi fra i giri (default 15, minimo 10). Slack regge ~50 modifiche
@@ -139,7 +138,6 @@ export function quadroConfig(env = process.env) {
     ore: Number.isFinite(ore) && ore > 0 ? ore : DEFAULT_ORE,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
     liste: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_LISTE ?? '').trim()),
-    canaleCi: String(env.DADAGUARD_QUADRO_CANALE_CI ?? '').trim() || null,
   }
 }
 
@@ -430,15 +428,8 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
 }
 
 // Tutti gli ambienti chiesti, più il confronto con staging sulle righe di produzione. Puro/testabile.
-// `test`: per ambiente, servizio → stato dei test della CI (vedi `statiTest`), che finisce sulla riga
-// dell'applicazione con lo stesso nome.
-export function quadro({ deploys = {}, servizi = [], persone = null, test = null } = {}, ambienti = ['produzione', 'staging']) {
+export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambienti = ['produzione', 'staging']) {
   const out = Object.fromEntries(ambienti.map((a) => [a, quadroAmbiente(a, { deploys, servizi, persone })]))
-  for (const [a, qa] of Object.entries(out))
-    for (const r of qa.app) {
-      const t = test?.[a]?.get(String(r.servizio).toLowerCase())
-      if (t) r.test = t
-    }
   if (out.produzione) {
     const staging = out.staging ?? quadroAmbiente('staging', { deploys, servizi, persone })
     const inStaging = new Map(staging.app.map((r) => [r.servizio, r.commit]))
@@ -776,8 +767,8 @@ export function quandoBreve(iso, ora = Date.now()) {
   return `${fmt(d, { day: '2-digit', month: '2-digit' })} ${ore}`
 }
 
-// I test di GitHub Actions su una riga: `test: { stato: 'in_corso' | 'fallito', da, url }`, dedotto
-// dai messaggi che la CI scrive nel canale dei rilasci (vedi `statiTest`).
+// I test di GitHub Actions su una riga: `test: { stato: 'in_corso' | 'fallito', da, url }`, dai run
+// del repository della riga (vedi `applicaTest` in server/notify/github.js).
 // I test contano solo se sono PIÙ RECENTI dell'ultimo cambio e la riga è ferma (🚀 o ➖): un deploy in
 // corso o fallito dice di più, e un test di ieri non racconta il rilascio di oggi. Puro/testabile.
 export function conTest(riga, test, { ora = Date.now() } = {}) {
@@ -1021,7 +1012,7 @@ export function listeDaScrivere(q, cfg, { ora = Date.now() } = {}) {
 
 // I metodi di sola lettura vogliono i parametri nell'indirizzo, gli altri accettano JSON.
 // ⚠️ `files.info` in POST JSON risponde `invalid_arguments`: vuole la query string.
-const GET = new Set(['auth.test', 'conversations.info', 'conversations.history', 'files.info', 'files.list'])
+const GET = new Set(['auth.test', 'conversations.info', 'files.info', 'files.list'])
 
 // Una chiamata alla Web API, senza SDK (come `postSlack`). Slack risponde 200 anche sugli errori, col
 // motivo in `error`: si controlla `ok`, non lo status HTTP.
@@ -1184,10 +1175,10 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   const scarica = deps.scarica ?? ((url) => scaricaSlack(url, cfg.token))
   const dati = await deps.leggiDati()
   const ora = deps.ora ?? Date.now()
-  // Lo stato dei test non ferma mai il giro: senza (scope mancante, canale non letto) il quadro dice
-  // tutto il resto, come prima che ci fosse.
-  const test = cfg.canaleCi ? await aggiornaCi(api, cfg.canaleCi, deps.ci ?? nuovaMemoriaCi(), { ora }) : null
-  const q = quadro({ ...dati, persone: deps.persone ?? null, test }, cfg.ambienti)
+  const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
+  // Lo stato dei test non ferma mai il giro (`leggi` non lancia): senza GitHub il quadro dice tutto
+  // il resto, come prima che ci fosse.
+  if (deps.github) applicaTest(q, await deps.github.leggi(repoDelQuadro(q, { org: deps.github.org ?? null }), { ora }))
   // Le schede di un canale si chiedono una volta per giro: i canvas sono più d'uno nello stesso canale.
   const infoDi = new Map()
   const info = async (canale) => {
@@ -1462,122 +1453,6 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
   return { azione, lista: st.id, nuove, celle: cambiate.length, tolte, restano }
 }
 
-// ── Lo stato dei test, dal canale della CI ───────────────────────────────────────────────────────
-//
-// I test non li vede né ECS né CodeBuild: girano in GitHub Actions prima che la build esista, e
-// GitHub Actions li racconta nel canale dei rilasci con due righe sue, `🧪 test avviati` al push e
-// `🔴 deploy NON avviato` quando i check sono rossi. Il quadro legge quelle righe, invece di chiedere
-// a GitHub: lì servirebbe un token nuovo e la mappa repository → servizio, mentre la riga del canale
-// nomina già il servizio, l'ambiente e il commit. La grammatica è quella dello standard dei messaggi
-// del canale:
-//   <emoji> `nome` [PROD|STAGING] <fatto>[ · <stato>] <trattino lungo> <sha come link> · <run come link> · …
-// (il trattino lungo, U+2014, qui si scrive solo come escape: è il separatore della riga del canale)
-// letta con un po' di tolleranza (backtick o no, `PRODUZIONE` per `PROD`, `·` al posto del trattino),
-// perché è scritta a mano in ogni produttore e una riga che non si riconosce si salta, non rompe.
-//
-// ⚠️ Un 🧪 non ha una chiusura sua: lo chiude la riga che viene dopo sullo stesso servizio e lo stesso
-// commit, il ⏳ della build se i test passano o il 🔴 dei check se no. Se non arriva niente (un deploy
-// saltato, un canale che ha perso una riga) dopo `TTL_TEST_MS` il 🧪 si lascia cadere: i test durano
-// minuti, e un 🧪 di ieri sarebbe una bugia sulla riga.
-
-const TTL_TEST_MS = 3 * 3_600_000
-// Quanto indietro si legge al primo giro (dopo un avvio, la memoria è vuota): quanto dura un ❌.
-const FINESTRA_CI_MS = 24 * 3_600_000
-// Un giro della history ogni tanti giri del quadro, non ogni 15 secondi: `conversations.history` ha un
-// limite stretto (per le app fuori dal Marketplace anche una chiamata al minuto), e i test durano
-// minuti. Con 15 secondi fra i giri, 4 vuol dire una lettura al minuto.
-export const GIRI_PER_CI = 4
-// Dopo un errore (scope mancante, bot fuori dal canale) si riprova di rado, senza riscriverlo nel log.
-const GIRI_DOPO_ERRORE_CI = 40
-// Le pagine lette in un giro: il resto, se c'è, al giro dopo dallo stesso cursore.
-const PAGINE_CI = 2
-
-// Una riga del canale, o `null` se non è una riga di rilascio. Puro/testabile.
-//   test_avviati  🧪 … test avviati
-//   test_falliti  🔴 … deploy NON avviato (i check di CI sono rossi)
-//   chiude        ⏳ 🚀 ➖ 🔴 ⏹️ su un deploy, un apply o un rollout: i test di quel commit sono finiti
-export function eventoCi(m) {
-  const testo = decodifica(String(m?.text ?? '')).trim()
-  const r = /^(\S+)\s+`?([^`\s[\]]+)`?\s+\[([A-Za-z]+)\]\s*(.*)$/su.exec(testo)
-  if (!r) return null
-  const [, emoji, nome, tag, resto] = r
-  const ambiente = /^(PROD|PRODUZIONE|PRODUCTION)$/i.test(tag) ? 'produzione' : /^STAGING$/i.test(tag) ? 'staging' : null
-  if (!ambiente) return null
-  const fatto = resto.split(/\s+[\u2014·]\s+|,/u)[0].trim()
-  let tipo = null
-  if (emoji.startsWith('🧪') && /^test avviati/i.test(fatto)) tipo = 'test_avviati'
-  else if (emoji.startsWith('🔴') && /^deploy NON avviato/i.test(fatto)) tipo = 'test_falliti'
-  else if (/^(⏳|🚀|➖|🔴|⏹)/u.test(emoji) && /^(deploy|apply|rollout|riavvio)\b/i.test(fatto)) tipo = 'chiude'
-  if (!tipo) return null
-  const sha = /\/commit\/([0-9a-f]{7,40})\b/i.exec(resto)?.[1] ?? /(?:^|[\s<|`])([0-9a-f]{7,40})(?=[>`\s]|$)/i.exec(resto)?.[1] ?? null
-  const url = /<([^|>\s]+)\|run[^>]*>/i.exec(resto)?.[1] ?? null
-  return { ts: String(m.ts), tipo, servizio: nome.toLowerCase(), ambiente, sha: sha && sha.toLowerCase(), url, da: new Date(Number(m.ts) * 1000).toISOString() }
-}
-
-// Lo stato dei test di ogni servizio, dagli eventi letti: per ambiente, servizio → `{ stato, da, url,
-// sha }`. Un 🧪 resta finché per lo stesso commit non arriva una chiusura (una chiusura senza commit
-// chiude i test partiti prima di lei) o finché non scade; un ❌ resta finché non arriva un altro
-// evento su quel servizio. Puro/testabile.
-export function statiTest(eventi = [], { ora = Date.now() } = {}) {
-  const out = { produzione: new Map(), staging: new Map() }
-  for (const e of [...eventi].sort((a, b) => Number(a.ts) - Number(b.ts))) {
-    const qui = out[e.ambiente]
-    if (!qui) continue
-    const prima = qui.get(e.servizio)
-    if (e.tipo === 'test_avviati') qui.set(e.servizio, { stato: 'in_corso', da: e.da, url: e.url, sha: e.sha })
-    else if (e.tipo === 'test_falliti') qui.set(e.servizio, { stato: 'fallito', da: e.da, url: e.url, sha: e.sha })
-    else if (prima && (e.sha ? stessoCommit(e.sha, prima.sha ?? '') : true)) qui.delete(e.servizio)
-  }
-  for (const qui of Object.values(out))
-    for (const [nome, t] of qui) {
-      const eta = ora - tempo(t.da)
-      if ((t.stato === 'in_corso' && eta > TTL_TEST_MS) || eta > FINESTRA_CI_MS) qui.delete(nome)
-    }
-  return out
-}
-
-export const nuovaMemoriaCi = () => ({ giro: 0, prossimo: 0, ultimoTs: null, pagina: null, eventi: new Map(), errore: null })
-
-// Legge i messaggi nuovi del canale della CI (quando tocca) e restituisce lo stato dei test. Non
-// lancia mai: un canale che non si legge vuol dire niente stati di test, non un quadro fermo.
-// La lettura è incrementale: `oldest` dall'ultimo messaggio visto (24 ore al primo giro). La history
-// torna dal più nuovo al più vecchio, quindi con più pagine l'ultimo ts visto avanza solo quando le
-// pagine sono finite, o un buco in mezzo resterebbe non letto.
-export async function aggiornaCi(api, canale, mem, { ora = Date.now(), ogni = GIRI_PER_CI } = {}) {
-  mem.giro++
-  if (mem.giro >= mem.prossimo) {
-    try {
-      const pag = mem.pagina ?? { oldest: mem.ultimoTs ?? String((ora - FINESTRA_CI_MS) / 1000), cursor: null, massimo: mem.ultimoTs }
-      for (let i = 0; i < PAGINE_CI; i++) {
-        const r = await api('conversations.history', { channel: canale, oldest: pag.oldest, limit: 200, ...(pag.cursor ? { cursor: pag.cursor } : {}) })
-        for (const m of r.messages ?? []) {
-          if (!pag.massimo || Number(m.ts) > Number(pag.massimo)) pag.massimo = String(m.ts)
-          const e = eventoCi(m)
-          if (e) mem.eventi.set(e.ts, e)
-        }
-        pag.cursor = (r.has_more && r.response_metadata?.next_cursor) || null
-        if (!pag.cursor) break
-      }
-      if (pag.cursor) mem.pagina = pag
-      else {
-        mem.pagina = null
-        mem.ultimoTs = pag.massimo ?? pag.oldest
-      }
-      if (mem.errore) log.info('quadro: canale della CI di nuovo leggibile, tornano gli stati dei test', { canale })
-      mem.errore = null
-      mem.prossimo = mem.giro + (mem.pagina ? 1 : ogni)
-    } catch (err) {
-      // Una volta sola nel log, finché l'errore resta lo stesso: `missing_scope` finché l'app non ha
-      // `channels:history`, e scriverlo ogni minuto sarebbero 1.440 righe al giorno per una cosa nota.
-      if (mem.errore !== err.message) log.warn('quadro: canale della CI non letto, righe senza stato dei test', { canale, err: err.message })
-      mem.errore = err.message
-      mem.prossimo = mem.giro + GIRI_DOPO_ERRORE_CI
-    }
-  }
-  for (const [ts, e] of mem.eventi) if (ora - tempo(e.da) > FINESTRA_CI_MS) mem.eventi.delete(ts)
-  return statiTest([...mem.eventi.values()], { ora })
-}
-
 // ── Gli allarmi nel canale ───────────────────────────────────────────────────────────────────────
 //
 // Il canvas è muto; un fallimento no. Quando una risorsa si ROMPE (gravità 0 o 1: giù, build o apply
@@ -1729,14 +1604,17 @@ export function startQuadro(leggiDati, env = process.env) {
   const api = (m, c) => chiamaSlack(m, c, cfg.token)
   const ultimi = new Map() // canvas → ultimo markdown con cui è allineato
   const liste = nuovaMemoriaListe() // ambiente → List, colonne e righe: si riempie al primo giro
-  const ci = nuovaMemoriaCi() // i messaggi della CI letti finora, e da dove riprendere
+  // Lo stato dei test da GitHub Actions: senza le credenziali dell'App le righe non ne hanno, e lo si
+  // dice qui, una volta, invece che a ogni giro.
+  const github = nuovoGithub(githubConfig(env))
+  if (!github) log.warn('quadro: nessuna GitHub App (DADAGUARD_GITHUB_APP_ID e DADAGUARD_GITHUB_APP_KEY), righe senza stato dei test')
   // Un giro alla volta. Il primo, a cache fredde, dura più dell'intervallo (26 secondi misurati contro
   // 15): due giri insieme cercherebbero lo stesso canvas, non lo troverebbero tutti e due e ne
   // creerebbero due, cioè il doppione che il giro di prova del 04/10/2026 ha già fatto una volta.
   let inCorso = false
   const giro = () =>
     // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
-    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi, liste, ci })
+    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi, liste, github })
       // Un giro che muore prima dei canali (AWS che non si legge) è un errore per OGNI ambiente: per
       // la guardia conta quanto è vecchio il canvas, non dove si è rotto il giro.
       .catch((err) => {

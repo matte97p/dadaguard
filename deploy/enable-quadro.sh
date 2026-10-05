@@ -19,10 +19,10 @@
 #   DADAGUARD_PUBLIC_URL=https://dadaguard.example.com \
 #   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image' \
 #   DADAGUARD_ALLARMI_DATA_CANALE=C0456 \
-#   DADAGUARD_QUADRO_CANALE_CI=C0789 \
 #   bash deploy/enable-quadro.sh
 # Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron.
 # `FORCE=1` riscrive un token già presente in SSM e riavvia il servizio perché lo rilegga.
+# Lo stato dei test (GitHub Actions) si accende a parte, con deploy/enable-github-test.sh.
 set -euo pipefail
 
 REGION=eu-central-1
@@ -38,9 +38,6 @@ CANALI=${DADAGUARD_QUADRO_CANALI:?serve DADAGUARD_QUADRO_CANALI, es. produzione=
 PUBLIC_URL=${DADAGUARD_PUBLIC_URL:-}
 SQUADRE=${DADAGUARD_QUADRO_SQUADRE:-}
 CANALE_DATA=${DADAGUARD_ALLARMI_DATA_CANALE:-}
-# Il canale dove la CI scrive 🧪 test avviati e 🔴 check rossi: da lì il quadro prende lo stato dei
-# test (serve lo scope `channels:history`). Facoltativo come le squadre.
-CANALE_CI=${DADAGUARD_QUADRO_CANALE_CI:-}
 
 ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
 ARN_TOKEN="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_TOKEN"
@@ -91,7 +88,7 @@ fi
 step "task definition"
 TD=$(payer ecs describe-services --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
 payer ecs describe-task-definition --region "$REGION" --task-definition "$TD" --query taskDefinition >"$TMP/td.json"
-jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" --arg CI "$CANALE_CI" '
+jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" '
   def metti(lista; nome; campo; valore): [lista[]? | select(.name != nome)] + [{name: nome, (campo): valore}];
   .containerDefinitions |= map(
     if .name == $C then
@@ -100,7 +97,6 @@ jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$
       | (if $URL != "" then .environment = metti(.environment; "DADAGUARD_PUBLIC_URL"; "value"; $URL) else . end)
       | (if $SQ != "" then .environment = metti(.environment; "DADAGUARD_QUADRO_SQUADRE"; "value"; $SQ) else . end)
       | (if $CD != "" then .environment = metti(.environment; "DADAGUARD_ALLARMI_DATA_CANALE"; "value"; $CD) else . end)
-      | (if $CI != "" then .environment = metti(.environment; "DADAGUARD_QUADRO_CANALE_CI"; "value"; $CI) else . end)
     else . end)
   | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
      requiresCompatibilities, cpu, memory}

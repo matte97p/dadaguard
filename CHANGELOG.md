@@ -22,12 +22,18 @@ All notable changes to Dadaguard are documented here. Format based on
   (al massimo 10 per giro, il resto al giro dopo). Il canvas intero si riscrive solo quando cambiano le
   righe (una risorsa nuova o sparita). Accanto c'è una Slack List per ambiente con le stesse righe, in
   sola lettura e con un segnalibro nel canale, aggiornata con una chiamata per giro; dopo un riavvio
-  si ritrova dal titolo fra i file del bot, senza crearne una nuova. Gli stati dei test (🧪 test
-  avviati, ❌ test falliti) vengono dalle righe che GitHub Actions scrive nel canale dei rilasci
-  (`DADAGUARD_QUADRO_CANALE_CI`), lette una volta al minuto e da dove si era rimasti; senza lo scope
-  il quadro funziona lo stesso e lo dice una volta nel log. Permessi nuovi dell'app
-  (`canvases:read`, `files:read`, `lists:write`, `lists:read`, `bookmarks:write`,
-  `channels:history`): va reinstallata. `DADAGUARD_QUADRO_LISTE=0` per il solo canvas.
+  si ritrova dal titolo fra i file del bot, senza crearne una nuova. Permessi nuovi dell'app
+  (`canvases:read`, `files:read`, `lists:write`, `lists:read`, `bookmarks:write`): va reinstallata.
+  `DADAGUARD_QUADRO_LISTE=0` per il solo canvas.
+- **Lo stato dei test del quadro viene da GitHub Actions** (05/10/2026), non più dalle righe della CI
+  nel canale dei rilasci, che verrà spento. Una GitHub App dell'organizzazione (Actions e Metadata in
+  lettura; `DADAGUARD_GITHUB_APP_ID` e `DADAGUARD_GITHUB_APP_KEY`) legge una volta al minuto i run dei
+  repository delle righe: in coda o in corso è 🧪 test avviati, fallito, annullato o scaduto è ❌ test
+  falliti, verde non cambia la riga. Contano i `push` sui rami di rilascio (`DADAGUARD_GITHUB_RAMI`,
+  default `produzione=main,staging=staging`) e l'ultimo commit di ognuno. Richieste condizionali con
+  `ETag` (un 304 non consuma rate limit), token d'installazione tenuto e rinnovato, pausa fino al reset
+  se il rate limit finisce. Senza credenziali il quadro funziona come prima e lo dice una volta nel
+  log. Le credenziali si copiano con `deploy/enable-github-test.sh`. Tolto `channels:history`.
 - **«Cosa è cambiato oggi» si legge** (05/10/2026). Una riga per evento dalla più recente, con l'ora,
   un'etichetta a parole (Rilasciato, Deploy fallito, Riavvio a mano, Guasto, In rilascio) e il dettaglio
   utile, compreso «12 min dopo il deploy c1a2b3d». Ora entrano anche i guasti, presi da `/api/history`;
