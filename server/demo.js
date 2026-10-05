@@ -51,16 +51,17 @@ function svc(name, acc, type, region, checks, dependsOn = []) {
   return { name, links: {}, account: ACC[acc], region, type, dependsOn, ...computeOverall(checks), checks }
 }
 
-// I metadati della UI nuova sui servizi demo: tag `dadaguard:*` finti (team, canale, runbook, SLO),
+// I metadati della UI nuova sui servizi demo: tag `dadaguard:*` finti (team, canale, runbook, SLO e
+// nome nei log di PostHog, volutamente diverso dal nome della risorsa come succede davvero),
 // conteggi per il budget di errore e un progetto PostHog d'esempio, cosi' la demo mostra ogni campo.
 // In reale arrivano dai tag della risorsa e dai conteggi del check runtime, qui sono scritti a mano
 // perche' la demo non ha una risorsa da cui leggerli.
 const DEMO_TAGS = {
-  'checkout-api': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/checkout', slo: '99.9', conteggi: { totali: 184_000, errori: 35 } },
-  'payments-worker': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/payments', slo: '99.9', conteggi: { totali: 6_200, errori: 260 } },
+  'checkout-api': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/checkout', slo: '99.9', posthog: 'shop-checkout-api', conteggi: { totali: 184_000, errori: 35 } },
+  'payments-worker': { team: 'payments', slack: '#team-payments', runbook: 'https://wiki.example.com/runbook/payments', slo: '99.9', posthog: 'shop-payments-worker', conteggi: { totali: 6_200, errori: 260 } },
   'image-resizer': { team: 'media', slack: '#team-media', runbook: 'https://wiki.example.com/runbook/image-resizer', slo: '99.5', conteggi: { totali: 1_900, errori: 41 } },
   notifier: { team: 'growth', slack: '#team-growth', runbook: 'https://wiki.example.com/runbook/notifier', slo: '99', conteggi: { totali: 3_400, errori: 12 } },
-  web: { team: 'web', slack: '#team-web', slo: '99.9', conteggi: { totali: 92_000, errori: 6 } },
+  web: { team: 'web', slack: '#team-web', slo: '99.9', posthog: 'shop-web', conteggi: { totali: 92_000, errori: 6 } },
   'cdn-cert': { team: 'devops', slack: '#team-devops' },
   'user-db': { team: 'devops', slack: '#team-devops', runbook: 'https://wiki.example.com/runbook/database' },
 }
@@ -74,7 +75,9 @@ function demoAws(r) {
 }
 function demoMeta(r) {
   const d = DEMO_TAGS[r.name] ?? {}
-  const meta = metaDaTags(d.team || d.slo ? { [CHIAVI.team]: d.team, [CHIAVI.slack]: d.slack, [CHIAVI.runbook]: d.runbook, [CHIAVI.slo]: d.slo } : null)
+  const meta = metaDaTags(
+    d.team || d.slo ? { [CHIAVI.team]: d.team, [CHIAVI.slack]: d.slack, [CHIAVI.runbook]: d.runbook, [CHIAVI.slo]: d.slo, [CHIAVI.posthog]: d.posthog } : null,
+  )
   const conteggi = d.conteggi ? { ...d.conteggi, finestra: '1h' } : conteggiDaRuntime(r.checks?.runtime)
   const aws = demoAws(r)
   const cf = r.account?.key === 'cloudflare'
@@ -82,7 +85,7 @@ function demoMeta(r) {
     {
       ...meta,
       budgetErrore: meta.slo && conteggi ? budgetErrore({ slo: meta.slo, ...conteggi }) : null,
-      altrove: cf ? [] : linkServizio({ name: r.name, aws, region: r.region, posthog: DEMO_POSTHOG }),
+      altrove: cf ? [] : linkServizio({ aws, region: r.region, posthog: DEMO_POSTHOG, servizioPosthog: meta.posthog }),
       ...r,
     },
     { aws, profile: cf ? null : `demo-${r.account?.key ?? 'prod'}`, region: r.region, ssmPath: `/demo/${r.name}`, repoDir: '/path/to/terraform-repo' },

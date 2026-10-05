@@ -138,7 +138,7 @@ export function statoCron(cron) {
 // group, e il link alla console CloudWatch si compone dal nome e dalla regione senza indovinare niente.
 export function linkCron(cron, t = (k) => k) {
   const out = []
-  const etichetta = { 'cloudwatch-log': 'rilasci.link.cloudwatch', 'posthog-log': 'rilasci.link.posthogLog', 'posthog-errori': 'rilasci.link.posthogErrori' }
+  const etichetta = { 'cloudwatch-log': 'rilasci.link.cloudwatch', 'posthog-log': 'rilasci.link.posthogLog' }
   for (const a of Array.isArray(cron?.altrove) ? cron.altrove : []) {
     if (a?.url) out.push({ label: t(etichetta[a.chiave] ?? 'rilasci.link.altro'), href: a.url, nota: a.filtro ?? null })
   }

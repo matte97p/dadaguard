@@ -75,9 +75,10 @@ accounts:
 # freeTierAccount: management
 
 # --- Link "Apri altrove" verso PostHog (opzionale) ---
-# Con questa sezione ogni servizio mostra i link a errori e log di PostHog gia' filtrati sul suo nome
-# e sull'ultima ora. Senza, quei link non compaiono (gli altri, CloudWatch, GitHub, CodeBuild, si
-# deducono da soli). `projectId` e' il numero nell'URL del progetto (/project/<id>).
+# Con questa sezione i servizi che portano il tag `dadaguard:posthog` (sotto) mostrano il link ai log
+# di PostHog gia' filtrati su quel servizio e sull'ultima ora. Senza sezione o senza tag il link non
+# compare (gli altri, CloudWatch, GitHub, CodeBuild, si deducono da soli). Nessun link agli errori:
+# le eccezioni di PostHog non portano il servizio. `projectId` e' il numero nell'URL (/project/<id>).
 # posthog:
 #   host: https://eu.posthog.com
 #   projectId: 12345
@@ -88,6 +89,8 @@ accounts:
 #   dadaguard:slack    es. #team-payments
 #   dadaguard:runbook  es. https://wiki.example.com/runbook/payments
 #   dadaguard:slo      es. 99.9   (obiettivo di disponibilita': abilita il budget di errore)
+#   dadaguard:posthog  es. shop-checkout-api   (il `service.name` dei log in PostHog, che di rado e'
+#                      il nome della risorsa AWS: abilita il link «Log in PostHog»)
 # Tag assente = campo vuoto: nessun valore viene indovinato.
 
 # --- Endpoint pubblici per NOME servizio ---

@@ -113,3 +113,14 @@ test('demoTopology: ogni arco punta a un servizio reale o a un extraNode', () =>
     assert.ok(vias.has(v), `la topologia demo non copre la provenienza ${v}`)
   }
 })
+
+test('demoStatus: link ai log di PostHog solo sui servizi col tag, mai agli errori', () => {
+  const s = demoStatus('it')
+  const conTag = s.services.find((x) => x.name === 'checkout-api')
+  const log = conTag.altrove.find((a) => a.chiave === 'posthog-log')
+  assert.ok(log, 'checkout-api porta il tag e deve avere il link')
+  assert.deepEqual(JSON.parse(new URL(log.url).searchParams.get('serviceNames')), ['shop-checkout-api'])
+  const senzaTag = s.services.find((x) => x.name === 'image-resizer')
+  assert.ok(!senzaTag.altrove.some((a) => a.chiave.startsWith('posthog')))
+  for (const x of s.services) assert.ok(!(x.altrove ?? []).some((a) => a.chiave === 'posthog-errori' || /error_tracking/.test(a.url)))
+})

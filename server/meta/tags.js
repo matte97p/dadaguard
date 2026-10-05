@@ -1,5 +1,6 @@
-// Team, canale, runbook e obiettivo di disponibilita' di un servizio, letti dai TAG AWS della sua
-// risorsa: chiavi `dadaguard:team`, `dadaguard:slack`, `dadaguard:runbook`, `dadaguard:slo`. Il tag
+// Team, canale, runbook, obiettivo di disponibilita' e nome nei log di PostHog di un servizio, letti
+// dai TAG AWS della sua risorsa: chiavi `dadaguard:team`, `dadaguard:slack`, `dadaguard:runbook`,
+// `dadaguard:slo`, `dadaguard:posthog` (il `service.name` dei log, che di rado e' il nome AWS). Il tag
 // sta sulla risorsa, quindi lo scrive chi la crea (Terraform) e non c'e' una seconda lista da tenere
 // allineata qui dentro. Tag assente = campo vuoto: un team indovinato manda la persona sbagliata.
 //
@@ -9,7 +10,13 @@
 import { ResourceGroupsTaggingAPIClient, GetResourcesCommand } from '@aws-sdk/client-resource-groups-tagging-api'
 import { clientOpts } from '../runtime/awsClient.js'
 
-export const CHIAVI = { team: 'dadaguard:team', slack: 'dadaguard:slack', runbook: 'dadaguard:runbook', slo: 'dadaguard:slo' }
+export const CHIAVI = {
+  team: 'dadaguard:team',
+  slack: 'dadaguard:slack',
+  runbook: 'dadaguard:runbook',
+  slo: 'dadaguard:slo',
+  posthog: 'dadaguard:posthog',
+}
 
 // arn → { chiave: valore } per le sole risorse che portano almeno una delle chiavi. Paginato.
 export async function fetchMetaTags(aws) {
@@ -65,7 +72,7 @@ export function sloDa(v) {
   return Math.round(n * 10_000) / 1_000_000
 }
 
-// I quattro campi pronti per la UI. Sempre tutti presenti, vuoti quando il tag manca.
+// I cinque campi pronti per la UI. Sempre tutti presenti, vuoti quando il tag manca.
 export function metaDaTags(tags) {
   const t = tags ?? {}
   return {
@@ -73,5 +80,6 @@ export function metaDaTags(tags) {
     slack: t[CHIAVI.slack] ?? null,
     runbook: t[CHIAVI.runbook] ?? null,
     slo: sloDa(t[CHIAVI.slo]),
+    posthog: String(t[CHIAVI.posthog] ?? '').trim() || null,
   }
 }
