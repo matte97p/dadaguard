@@ -74,11 +74,17 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 //                               di canvas al minuto: il giro scrive solo le celle che cambiano, e al
 //                               massimo `MAX_MODIFICHE_GIRO` per giro
 //   DADAGUARD_QUADRO_ORE        per quante ore un rilascio resta 🚀 prima di diventare ➖ (default 24)
-//   DADAGUARD_QUADRO_SQUADRE    le squadre con una scheda loro, e i repository che possiedono:
-//                               `data=Scraper,scraper-image;altra=repo`. Chi possiede cosa AWS non lo
-//                               sa, quindi questa è la sola riga scritta a mano, ed è per REPOSITORY
-//                               (il sorgente della build o il repo dell'immagine): una risorsa nuova
-//                               di quei repo entra da sé
+//   DADAGUARD_QUADRO_SQUADRE    le squadre con una scheda loro, e cosa possiedono:
+//                               `data=Scraper,scraper-image,worker-*,sync-*;altra=repo`. Chi possiede
+//                               cosa AWS non lo sa, quindi questa è la sola riga scritta a mano. Un
+//                               elemento SENZA `*` è un REPOSITORY (il sorgente della build o il repo
+//                               dell'immagine): una risorsa nuova di quel repo entra da sé. Un elemento
+//                               CON `*` è un glob sul NOME breve della risorsa (quello della prima
+//                               colonna, senza `<org>-<env>-` né `cron-`), per quello che un repo nostro
+//                               non ce l'ha: i componenti esterni (immagine di altri, versione fissata
+//                               dall'IaC) e le Lambda fatte dall'IaC. Vale per servizi e cron ECS,
+//                               componenti esterni e Lambda, cron comprese. Il repository vince sul
+//                               glob, e fra due squadre dello stesso tipo vince la prima scritta
 //   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
 //                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
@@ -124,8 +130,9 @@ export function quadroConfig(env = process.env) {
       .filter(([amb, id]) => AMBIENTI[amb] && id),
   )
   const ore = Number(env.DADAGUARD_QUADRO_ORE)
-  // `data=Scraper,scraper-image;altra=repo`, in minuscolo: i nomi dei repository non distinguono le
-  // maiuscole quando li si confronta, e un `Scraper` contro `scraper` mancato sarebbe un buco muto.
+  // `data=Scraper,scraper-image,worker-*;altra=repo`, in minuscolo: i nomi dei repository e delle
+  // risorse non distinguono le maiuscole quando li si confronta, e un `Scraper` contro `scraper`
+  // mancato sarebbe un buco muto. Repository e glob restano nello stesso elenco: li separa `dividi`.
   const squadre = Object.fromEntries(
     String(env.DADAGUARD_QUADRO_SQUADRE ?? '')
       .split(';')
@@ -472,30 +479,76 @@ export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambi
 // Il nome del repository da un indirizzo (`https://github.com/org/Scraper.git` → `Scraper`). Puro.
 const repoNome = (url) => (url ? String(url).replace(/\.git$/, '').split('/').pop() : null)
 
+// Un elemento di `DADAGUARD_QUADRO_SQUADRE` con `*` è un glob sul nome breve: `*` vale qualsiasi
+// sequenza (anche vuota), tutto il resto vale se stesso, punti compresi. Puro.
+const globNome = (g) => new RegExp(`^${String(g).split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i')
+
+// Le regole di ogni squadra, dall'elenco della configurazione: i repository da una parte, i glob sui
+// nomi dall'altra. Puro/testabile.
+export function regoleSquadre(squadre = {}) {
+  return Object.entries(squadre).map(([nome, elementi]) => ({
+    nome,
+    repo: elementi.filter((x) => !x.includes('*')).map((x) => x.toLowerCase()),
+    glob: elementi.filter((x) => x.includes('*')).map(globNome),
+  }))
+}
+
 // Un ambiente diviso nelle schede: la PRINCIPALE, CRON e una per ogni squadra. Puro/testabile.
 //   squadra    una risorsa il cui repository (sorgente della build o repo dell'immagine) è di quella
-//              squadra: vince su tutto, perché è la domanda «di chi è»
+//              squadra, o il cui NOME risponde a un suo glob: vince su tutto, perché è la domanda
+//              «di chi è». Prima il repository, che è il fatto più preciso, poi il nome
 //   cron       le Lambda col nome da cron e i cron ECS
 //   principale tutto il resto, con l'IaC e le Lambda dell'infrastruttura
-// Dove va una riga lo decide la risorsa (il suo tipo, il suo repository), non il suo stato: una riga
-// che cambia scheda sparisce da un canvas e nasce in un altro, cioè due canvas riscritti interi.
-// Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse funzioni.
+// Dove va una riga lo decide la risorsa (il suo tipo, il suo repository, il suo nome), non il suo
+// stato: una riga che cambia scheda sparisce da un canvas e nasce in un altro, cioè due canvas
+// riscritti interi. Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse
+// funzioni, e ogni risorsa sta in UNA parte sola.
 export function dividi(qa, { squadre = {} } = {}) {
   if (!qa) return null
   const vuoto = () => ({ ...qa, app: [], esterni: [], lambda: [], lambdaSenzaData: 0, lambdaTutte: [], infra: null })
-  const principale = {
-    ...vuoto(),
-    lambda: qa.lambda ?? [],
-    lambdaSenzaData: qa.lambdaSenzaData ?? 0,
-    lambdaTutte: qa.lambdaTutte ?? [],
-    infra: qa.infra ?? null,
+  const regole = regoleSquadre(squadre)
+  // Il primo repository che una squadra possiede, poi il primo nome che un suo glob prende.
+  const squadraDi = (repo = [], nomi = []) => {
+    const r = repo.filter(Boolean).map((x) => String(x).toLowerCase())
+    const n = nomi.filter(Boolean).map(String)
+    return (regole.find((s) => r.some((x) => s.repo.includes(x))) ?? regole.find((s) => n.some((x) => s.glob.some((g) => g.test(x)))))?.nome
   }
-  const cron = { ...vuoto(), lambda: qa.lambdaCron ?? [], lambdaSenzaData: qa.lambdaCronSenzaData ?? 0, lambdaTutte: qa.lambdaCronTutte ?? [] }
-  const perSquadra = Object.fromEntries(Object.keys(squadre).map((nome) => [nome, vuoto()]))
-  const squadraDi = (...nomi) => Object.keys(squadre).find((nome) => nomi.some((n) => n && squadre[nome].includes(String(n).toLowerCase())))
+  // Le Lambda si dividono una per una (`lambdaTutte`, le righe della tabella), e i giri della sintesi
+  // (`lambda`, vedi `lottiLambda`) si rifanno su quelle rimaste: un giro di venti Lambda di cui tre
+  // sono di una squadra diventa due giri, uno per scheda. Se nessuna se ne va, i giri restano quelli
+  // calcolati sull'ambiente intero.
+  const lambdaDi = (tutte = []) => {
+    const mie = Object.fromEntries(regole.map((s) => [s.nome, []]))
+    const resto = []
+    for (const l of tutte) {
+      const sq = squadraDi([], l.nomi)
+      if (sq) mie[sq].push(l)
+      else resto.push(l)
+    }
+    return { mie, resto }
+  }
+  const giri = (tutte) => lottiLambda(tutte.map((l) => ({ nome: l.nomi[0], da: l.da, chi: l.chi }))).map((l) => ({ ...l, tipo: 'lambda', chiave: qa.chiave }))
+  const conLambda = (base, tutte, giriInteri, senzaDataInteri, resto) => ({
+    ...base,
+    lambda: resto.length === tutte.length ? giriInteri : giri(resto),
+    lambdaSenzaData: resto.length === tutte.length ? senzaDataInteri : resto.filter((l) => !l.da).length,
+    lambdaTutte: resto,
+  })
+  const lp = lambdaDi(qa.lambdaTutte ?? [])
+  const lc = lambdaDi(qa.lambdaCronTutte ?? [])
+  const principale = conLambda({ ...vuoto(), infra: qa.infra ?? null }, qa.lambdaTutte ?? [], qa.lambda ?? [], qa.lambdaSenzaData ?? 0, lp.resto)
+  const cron = conLambda(vuoto(), qa.lambdaCronTutte ?? [], qa.lambdaCron ?? [], qa.lambdaCronSenzaData ?? 0, lc.resto)
+  // Nella scheda della squadra le Lambda sue, cron comprese: la squadra vince su CRON come per le app.
+  const perSquadra = Object.fromEntries(
+    regole.map(({ nome }) => {
+      const mie = [...lp.mie[nome], ...lc.mie[nome]]
+      return [nome, { ...vuoto(), lambda: giri(mie), lambdaSenzaData: mie.filter((l) => !l.da).length, lambdaTutte: mie }]
+    }),
+  )
   const parte = (sq, diCron) => (sq ? perSquadra[sq] : diCron ? cron : principale)
-  for (const r of qa.app ?? []) parte(squadraDi(repoNome(r.repo), r.immagine), r.cron).app.push(r)
-  for (const e of qa.esterni ?? []) parte(squadraDi(e.immagine), e.cron).esterni.push(e)
+  for (const r of qa.app ?? []) parte(squadraDi([repoNome(r.repo), r.immagine], [r.servizio]), r.cron).app.push(r)
+  // Un componente esterno risponde col nome della riga e, se ne raccoglie più d'uno, con ciascuno.
+  for (const e of qa.esterni ?? []) parte(squadraDi([e.immagine], [e.nome, ...(e.nomi ?? [])]), e.cron).esterni.push(e)
   return { principale, cron, squadre: perSquadra }
 }
 
