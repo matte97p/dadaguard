@@ -28,6 +28,8 @@ import {
   dividi,
   canvasTrasversale,
   canvasDaScrivere,
+  listeDaScrivere,
+  regoleSquadre,
   TITOLO_CRON,
   leggiCanvasHtml,
   pianoCelle,
@@ -642,6 +644,86 @@ test('configurazione delle squadre: nomi e repository in minuscolo, righe vuote 
   const cfg = quadroConfig({ DADAGUARD_QUADRO_SQUADRE: 'Data=Scraper, scraper-image;vuota=;=x' })
   assert.deepEqual(cfg.squadre, { data: ['scraper', 'scraper-image'] })
   assert.deepEqual(quadroConfig({}).squadre, {})
+})
+
+// Le squadre anche per NOME: quello che un repository nostro non ce l'ha (un componente esterno,
+// una Lambda fatta dall'IaC) entra nella scheda della squadra con un glob.
+function ambienteConSquadre() {
+  const P = 'production'
+  return quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-03T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/api' })] } },
+    servizi: [
+      svc('acme-production-api', P, { tag: 'aaaaaaa', repo: 'api', da: '2026-10-03T10:05:00Z' }),
+      svc('acme-production-worker-server', P, { tag: '3.6.26-python3.12', repo: 'orch', da: '2026-09-20T10:00:00Z' }),
+      svc('acme-production-worker-doc', P, { tag: '3.6.26-python3.12', repo: 'orch', da: '2026-09-20T10:00:00Z' }),
+      svc('acme-production-tunnel', P, { tag: '2026.8.1', repo: 'tunnel', da: '2026-09-03T00:00:00Z' }),
+      svc('acme-production-tenders', P, { tag: 'e4ce302', repo: 'scraper-image', da: '2026-10-03T09:00:00Z' }),
+      svc('acme-production-cron-shadow', P, { type: 'ecs-scheduled', tag: 'e4ce302', repo: 'scraper-image', da: '2026-10-03T09:00:00Z' }),
+      svc('acme-production-cron-sync-orari', P, { type: 'ecs-scheduled', tag: 'ccccccc', repo: 'backup', da: '2026-10-03T08:00:00Z' }),
+      svc('acme-production-cron-backup-a', P, { type: 'ecs-scheduled', tag: 'ccccccc', repo: 'backup', da: '2026-10-03T08:00:00Z' }),
+      // Due Lambda dell'IaC rilasciate insieme: un giro solo, finché una delle due non va a una squadra.
+      lam('acme-production-worker-notifier', P, '2026-10-03T07:00:00Z', 'codebuild-iac-12'),
+      lam('acme-production-deploy-notifier', P, '2026-10-03T07:01:00Z', 'codebuild-iac-12'),
+      lam('acme-production-cron-sync-report', P, '2026-10-03T06:00:00Z', 'dev'),
+      lam('acme-production-cron-report', P, '2026-10-03T06:00:00Z', 'dev'),
+      lam('acme-production-sync-senza-data', P, null, null),
+    ],
+  })
+}
+const nomiParte = (p) => [...p.app.map((r) => r.servizio), ...p.esterni.map((e) => e.nome), ...p.lambdaTutte.map((l) => l.nomi[0]), ...(p.infra ? ['IaC'] : [])].sort()
+
+test('le squadre per nome: un elemento con `*` è un glob sul nome breve, su app, esterni e Lambda, cron comprese', () => {
+  const qa = ambienteConSquadre()
+  const d = dividi(qa, { squadre: { data: ['scraper-image', 'worker-*', 'sync-*'] } })
+  const data = d.squadre.data
+  assert.deepEqual(data.app.map((r) => r.servizio).sort(), ['shadow', 'sync-orari', 'tenders'], 'il repository come prima, e il glob su un cron ECS: la squadra vince su CRON')
+  assert.deepEqual(data.esterni.map((e) => e.nome).sort(), ['worker-doc', 'worker-server'], 'i componenti esterni, che un repository nostro non ce l’hanno')
+  assert.deepEqual(data.lambdaTutte.map((l) => l.nomi[0]).sort(), ['sync-report', 'sync-senza-data', 'worker-notifier'], 'le Lambda dell’infrastruttura e quelle col nome da cron')
+  assert.equal(data.lambdaSenzaData, 1)
+  assert.deepEqual(data.lambda.map((l) => l.nomi), [['worker-notifier'], ['sync-report']], 'i giri si rifanno sulle Lambda della scheda')
+  assert.ok(data.lambda.every((l) => l.tipo === 'lambda' && l.chiave === qa.chiave))
+
+  assert.deepEqual(nomiParte(d.principale), ['api', 'deploy-notifier', 'tunnel'])
+  assert.deepEqual(d.principale.lambda.map((l) => l.nomi), [['deploy-notifier']], 'il giro dell’IaC perde la Lambda andata alla squadra')
+  assert.equal(d.principale.lambdaSenzaData, 0)
+  assert.deepEqual(nomiParte(d.cron), ['backup-a', 'report'])
+  assert.deepEqual(d.cron.lambda.map((l) => l.nomi), [['report']])
+
+  // Nessuna risorsa in due schede, e nessuna persa per strada.
+  const tutte = [d.principale, d.cron, ...Object.values(d.squadre)].flatMap(nomiParte).sort()
+  assert.deepEqual(tutte, nomiParte(dividi(qa).principale).concat(nomiParte(dividi(qa).cron)).sort())
+  assert.equal(new Set(tutte).size, tutte.length)
+})
+
+test('le squadre per nome: senza `*` è un repository, e il repository vince sul glob', () => {
+  const qa = ambienteConSquadre()
+  const senza = dividi(qa, { squadre: { x: ['deploy-notifier', 'worker-server', 'report'] } })
+  assert.deepEqual(nomiParte(senza.squadre.x), [], 'un nome senza `*` non prende per nome: è un repository, come prima')
+  assert.deepEqual(senza.principale.lambda, qa.lambda, 'se nessuna Lambda se ne va, i giri restano quelli dell’ambiente intero')
+  assert.deepEqual(senza.cron.lambda, qa.lambdaCron)
+  // `altra` viene prima, ma `tenders` è di `data` per repository: il fatto più preciso vince.
+  const d = dividi(qa, { squadre: { altra: ['tend*', 'worker-d*'], data: ['scraper-image', 'worker-*'] } })
+  assert.deepEqual(nomiParte(d.squadre.altra), ['worker-doc'], 'fra due glob vince la squadra scritta prima')
+  assert.deepEqual(nomiParte(d.squadre.data), ['shadow', 'tenders', 'worker-notifier', 'worker-server'])
+  assert.deepEqual(regoleSquadre({ a: ['repo', 'w.r-*'] }).map((r) => [r.repo, r.glob.map((g) => g.test('w.r-1')), r.glob.map((g) => g.test('wxr-1'))]), [[['repo'], [true], [false]]], 'il punto vale se stesso')
+  assert.deepEqual(quadroConfig({ DADAGUARD_QUADRO_SQUADRE: 'Data=Scraper, Worker-*' }).squadre, { data: ['scraper', 'worker-*'] })
+})
+
+test('le squadre per nome: le Lambda della squadra nella sua scheda, con le stesse colonne, e la List non cambia', () => {
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_SQUADRE: 'data=scraper-image,worker-*,sync-*' })
+  const q = { produzione: ambienteConSquadre() }
+  const c = Object.fromEntries(canvasDaScrivere(q, cfg, { ora: ORA }).map((x) => [x.chiave, x]))
+  const righe = (k) => c[k].modello.sezioni[0].righe.map((r) => testoPiatto(r[0]))
+  assert.deepEqual(righe('data'), ['shadow', 'sync-orari', 'sync-report', 'sync-senza-data', 'tenders', 'worker-doc', 'worker-notifier', 'worker-server'], 'una riga per risorsa, in ordine alfabetico')
+  assert.deepEqual(righe('produzione'), ['api', 'deploy-notifier', 'tunnel'])
+  assert.deepEqual(righe('cron'), ['backup-a', 'report'])
+  const riga = c.data.modello.sezioni[0].righe[righe('data').indexOf('worker-notifier')]
+  assert.equal(riga.length, 3)
+  assert.match(testoPiatto(riga[2]), /dall'IaC/, 'la Lambda dice chi l’ha aggiornata, come nella principale')
+  // La List dell'ambiente ha tutte le risorse di tutte le schede: dividerle diversamente non la cambia.
+  const lista = (sq) => listeDaScrivere(q, quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_SQUADRE: sq }), { ora: ORA })[0].righe.map((r) => r.nome)
+  assert.deepEqual(lista('data=scraper-image,worker-*,sync-*'), lista(''))
+  assert.equal(lista('').length, 13)
 })
 
 test('i canvas di un giro: uno per ambiente, poi ⏰ CRON e uno per squadra, nel canale del primo ambiente', () => {
@@ -1340,6 +1422,20 @@ test('righe = risorse: un riavvio, un deploy in corso, un’immagine che si sepa
   }
   const cambi = pianoCelle(modelli(istantanea({ tagShadow: '1111111' })).data.modello, blocchi.data)
   assert.ok(cambi.some((m) => /⚠️ indietro/.test(m.markdown)), 'chi è rimasto indietro lo dice il suo stato, non una riga in più')
+})
+
+test('righe = risorse anche con le squadre per nome: cambia lo stato, non la scheda né le righe', () => {
+  // Esterni, Lambda dell'infrastruttura e Lambda da cron presi per nome: la scheda la decide il nome,
+  // che un riavvio o un giro di Lambda non cambiano.
+  const cfg = quadroConfig({ ...CFG_RIGHE, DADAGUARD_QUADRO_SQUADRE: 'data=scraper-image,orch-*,notifier-*,pulizia*' })
+  const modelli = (dati) => Object.fromEntries(canvasDaScrivere(quadro(dati, cfg.ambienti), cfg, { ora: RIGHE_ORA }).map((c) => [c.chiave, c.modello]))
+  const righe = (m) => Object.fromEntries(Object.entries(m).map(([k, x]) => [k, x.sezioni[0].righe.map((r) => testoPiatto(r[0]))]))
+  const prima = righe(modelli(istantanea()))
+  assert.deepEqual(prima.data, ['enrich', 'notifier-a', 'notifier-b', 'orch-server', 'orch-worker', 'orch-worker-doc', 'pulizia', 'shadow', 'tenders'])
+  assert.deepEqual(prima.produzione, ['api', 'IaC', 'sito', 'tunnel', 'tunnel-b'])
+  assert.deepEqual(prima.cron, ['backup-a', 'backup-b', 'report'])
+  for (const stato of [{ riavvii: ['orch-server', 'orch-worker'] }, { rollout: ['orch-worker'] }, { inCorso: true }, { lambdaInsieme: true }, { tagShadow: '1111111' }])
+    assert.deepEqual(righe(modelli(istantanea(stato))), prima, JSON.stringify(stato))
 })
 
 test('righe = risorse: build o Lambda non lette lasciano le righe dove sono, nel canvas e nella List', async () => {

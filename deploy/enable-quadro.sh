@@ -17,10 +17,12 @@
 #   DADAGUARD_SLACK_BOT_TOKEN_FILE=<file col token xoxb-, permessi 600> \
 #   DADAGUARD_QUADRO_CANALI='produzione=C0123,staging=C0123' \
 #   DADAGUARD_PUBLIC_URL=https://dadaguard.example.com \
-#   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image' \
+#   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image,worker-*' \
 #   DADAGUARD_ALLARMI_DATA_CANALE=C0456 \
 #   bash deploy/enable-quadro.sh
-# Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron.
+# Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron. Un
+# elemento senza `*` è un repository, uno con `*` un glob sul nome breve della risorsa (per i
+# componenti esterni e le Lambda dell'IaC, che un repository nostro non ce l'hanno).
 # `FORCE=1` riscrive un token già presente in SSM e riavvia il servizio perché lo rilegga.
 # Lo stato dei test (GitHub Actions) si accende a parte, con deploy/enable-github-test.sh.
 set -euo pipefail

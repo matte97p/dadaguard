@@ -5,6 +5,17 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Le squadre del quadro anche per nome** (06/10/2026). In `DADAGUARD_QUADRO_SQUADRE` un elemento
+  con `*` è un glob sul nome breve della risorsa (`data=Scraper,worker-*,sync-*`), per quello che un
+  repository nostro non ce l'ha: componenti esterni con l'immagine di altri e Lambda fatte dall'IaC,
+  che restavano nella scheda principale. Vale per servizi e cron ECS, componenti esterni e Lambda,
+  cron comprese (la squadra vince su CRON). Gli elementi senza `*` restano repository, come prima, e
+  il repository vince sul glob. Le Lambda della squadra hanno la loro riga nella sua scheda, e i giri
+  della sintesi si rifanno per scheda. La List non cambia: ha già tutte le risorse dell'ambiente.
+  Senza glob nella variabile non cambia niente; con, le schede che perdono o guadagnano righe si
+  riscrivono intere una volta.
+
 ### Fixed
 - **Le righe del quadro sono le risorse, e non cambiano con lo stato** (05/10/2026). Un servizio ECS,
   un cron ECS, una Lambda e un componente esterno hanno sempre una riga loro. Le risorse con la stessa
