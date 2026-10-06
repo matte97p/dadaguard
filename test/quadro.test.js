@@ -120,6 +120,15 @@ test('la build che rilascia una Lambda non diventa una riga a sé: la Lambda res
   assert.deepEqual(d.cron.lambda.map((l) => l.nomi), [['report']], 'la Lambda resta in CRON, una volta sola')
 })
 
+test('una Lambda è un cron se lo dice il nome della funzione, anche quando la voce ha un nome scritto a mano', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: LETTE_PROD,
+    servizi: [{ ...lam('prod-report', 'production', '2026-10-03T10:05:00Z', 'dev'), funzione: 'acme-production-cron-report' }],
+  })
+  assert.deepEqual(dividi(q).cron.lambda.map((l) => l.nomi), [['report']])
+  assert.deepEqual(dividi(q).principale.lambdaTutte.length, 0)
+})
+
 test('una revisione nuova sulla stessa immagine, molto dopo la build, non è quella build', () => {
   const q = quadroAmbiente('produzione', {
     deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { endedAt: '2026-10-02T10:06:00Z', number: 661 })] } },

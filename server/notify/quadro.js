@@ -352,12 +352,14 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
   const delQui = servizi.filter((s) => ambienteDi(s.account?.key ?? '') === ambiente)
   const ecs = delQui.filter((s) => s.type === 'ecs' || s.type === 'ecs-scheduled').map(datiEcs)
   // Una Lambda è un cron se il suo nome lo dice (`<org>-<env>-cron-…`): si decide qui, prima che
-  // `nomeBreve` tolga quel `cron-` per la lettura.
+  // `nomeBreve` tolga quel `cron-` per la lettura. Conta il nome della FUNZIONE, se c'è: una voce
+  // scritta a mano nella configurazione può chiamarla `<env>-<job>`, e allora il `cron-` sparirebbe
+  // e il cron finirebbe nella scheda principale.
   const tutteLambda = delQui
     .filter((s) => s.type === 'lambda')
     .map((s) => ({
       nome: nomeBreve(s.name),
-      cron: /^cron-/.test(stripOrgEnv(String(s.name))),
+      cron: [s.funzione, s.name].some((n) => n && /^cron-/.test(stripOrgEnv(String(n)))),
       da: s.checks?.version?.build?.deployedAt ?? null,
       chi: s.checks?.version?.build?.by ?? null,
     }))
