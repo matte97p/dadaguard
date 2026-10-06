@@ -109,6 +109,17 @@ test('cosa gira lo dice ECS; autore, numero e durata vengono dalla build che l�
   assert.deepEqual(v.dettagli.filter(Boolean), ['rev 699', '3/3 task, 6/6 target sani', 'build #661 della CI in 6 min', 'commit di dev'])
 })
 
+test('la build che rilascia una Lambda non diventa una riga a sé: la Lambda resta la sua, in CRON se è un cron', () => {
+  const q = quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('report', 'aaaaaaa', '2026-10-03T10:00:00Z'), b('sito', 'bbbbbbb', '2026-10-03T10:00:00Z')] } },
+    servizi: [lam('acme-production-cron-report', 'production', '2026-10-03T10:05:00Z', 'dev')],
+  })
+  assert.deepEqual(q.app.map((r) => r.servizio), ['sito'], 'un sito statico si conosce solo dalle build e resta una riga')
+  const d = dividi(q)
+  assert.deepEqual(d.principale.app.map((r) => r.servizio), ['sito'])
+  assert.deepEqual(d.cron.lambda.map((l) => l.nomi), [['report']], 'la Lambda resta in CRON, una volta sola')
+})
+
 test('una revisione nuova sulla stessa immagine, molto dopo la build, non è quella build', () => {
   const q = quadroAmbiente('produzione', {
     deploys: { production: { builds: [b('api', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { endedAt: '2026-10-02T10:06:00Z', number: 661 })] } },
