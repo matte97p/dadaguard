@@ -400,7 +400,11 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
   }
   // Le risorse che si conoscono solo dalle build (un sito statico). Un riavvio da solo, senza un
   // servizio ECS dietro, non è una risorsa: sarebbe una riga che vive sette giorni e poi sparisce.
-  for (const [n, builds] of perServizio) if (!prese.has(n) && vere(n).length) tutte.push({ ...rigaApp(n, null, builds, { persone, chiave, buildIgnote }), cron: false, condivisa: null })
+  // Nemmeno la build che rilascia una Lambda lo è: la Lambda ha già la sua riga (in CRON, se è un
+  // cron), e una seconda riga omonima la spostava nella scheda principale come se fosse un sito.
+  const nomiLambda = new Set(tutteLambda.map((l) => l.nome))
+  for (const [n, builds] of perServizio)
+    if (!prese.has(n) && !nomiLambda.has(n) && vere(n).length) tutte.push({ ...rigaApp(n, null, builds, { persone, chiave, buildIgnote }), cron: false, condivisa: null })
 
   // I componenti esterni (proxy, agenti, orchestratori: versioni fissate dall'IaC) hanno la stessa riga
   // di prima, detta come componente esterno: non sono rilasci di nessuno.
