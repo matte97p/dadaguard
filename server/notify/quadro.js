@@ -504,7 +504,7 @@ export function regoleSquadre(squadre = {}) {
 //              squadra, o il cui NOME risponde a un suo glob: vince su tutto, perché è la domanda
 //              «di chi è». Prima il repository, che è il fatto più preciso, poi il nome
 //   cron       le Lambda col nome da cron e i cron ECS
-//   principale tutto il resto, con l'IaC e le Lambda dell'infrastruttura
+//   principale tutto il resto, con l'IaC (se nessuna squadra la prende) e le Lambda dell'infrastruttura
 // Dove va una riga lo decide la risorsa (il suo tipo, il suo repository, il suo nome), non il suo
 // stato: una riga che cambia scheda sparisce da un canvas e nasce in un altro, cioè due canvas
 // riscritti interi. Ogni parte ha la stessa forma dell'ambiente intero, quindi si rende con le stesse
@@ -542,13 +542,16 @@ export function dividi(qa, { squadre = {} } = {}) {
   })
   const lp = lambdaDi(qa.lambdaTutte ?? [])
   const lc = lambdaDi(qa.lambdaCronTutte ?? [])
-  const principale = conLambda({ ...vuoto(), infra: qa.infra ?? null }, qa.lambdaTutte ?? [], qa.lambda ?? [], qa.lambdaSenzaData ?? 0, lp.resto)
+  // La riga IaC si chiama `IaC` per tutti: va a una squadra se il suo repository è di quella squadra
+  // o se un suo glob prende quel nome (`iac*`), altrimenti resta nella principale come prima.
+  const sqIac = qa.infra ? squadraDi([repoNome(qa.infra.repo)], ['IaC']) : null
+  const principale = conLambda({ ...vuoto(), infra: sqIac ? null : (qa.infra ?? null) }, qa.lambdaTutte ?? [], qa.lambda ?? [], qa.lambdaSenzaData ?? 0, lp.resto)
   const cron = conLambda(vuoto(), qa.lambdaCronTutte ?? [], qa.lambdaCron ?? [], qa.lambdaCronSenzaData ?? 0, lc.resto)
   // Nella scheda della squadra le Lambda sue, cron comprese: la squadra vince su CRON come per le app.
   const perSquadra = Object.fromEntries(
     regole.map(({ nome }) => {
       const mie = [...lp.mie[nome], ...lc.mie[nome]]
-      return [nome, { ...vuoto(), lambda: giri(mie), lambdaSenzaData: mie.filter((l) => !l.da).length, lambdaTutte: mie }]
+      return [nome, { ...vuoto(), lambda: giri(mie), lambdaSenzaData: mie.filter((l) => !l.da).length, lambdaTutte: mie, infra: sqIac === nome ? qa.infra : null }]
     }),
   )
   const parte = (sq, diCron) => (sq ? perSquadra[sq] : diCron ? cron : principale)
