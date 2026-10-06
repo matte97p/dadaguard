@@ -39,7 +39,8 @@ export async function statoAccessi({ ore = 24 } = {}) {
   // due numeri scritti a mano in questo file e in `teleport.js`, e nessuno dei due lo sapeva
   // dell'altro. Il default e' sceso da 24 ore a 1: questa pagina si apre durante un guasto.
   const finestra = entroLimiti('teleport', ore)
-  const [audit, heartbeat] = await Promise.all([
+  const cfgSalute = configSalute(cfg)
+  const [audit, heartbeat, salute] = await Promise.all([
     conto(accounts, cfg.audit?.account)
       ? cached(`teleport:audit:${finestra}`, 120_000, () =>
           teleport.audit(conto(accounts, cfg.audit?.account), {
@@ -60,6 +61,15 @@ export async function statoAccessi({ ore = 24 } = {}) {
           }),
         ).catch((err) => ({ errore: cleanAwsReason(err) }))
       : mancante(cfg.heartbeat?.account ?? '?'),
+    // La salute delle macchine (memoria e OOM della VM, container non sani): 24 ore e non la finestra
+    // della pagina, perche' la domanda e' «oggi questa macchina ha finito la memoria?».
+    !cfgSalute
+      ? null
+      : conto(accounts, cfgSalute.account)
+        ? cached('teleport:salute', 120_000, () =>
+            teleport.salute(conto(accounts, cfgSalute.account), { logGroup: cfgSalute.logGroup, ore: 24 }),
+          ).catch((err) => ({ errore: cleanAwsReason(err) }))
+        : mancante(cfgSalute.account ?? '?'),
   ])
   return {
     configurato: true,
@@ -69,7 +79,21 @@ export async function statoAccessi({ ore = 24 } = {}) {
     auditNodeUrl: cfg.auditNodeUrl ?? null,
     audit,
     heartbeat,
+    salute,
   }
+}
+
+// Dove sta la salute delle macchine. `teleport.salute: { account, logGroup }` se la config la dice;
+// altrimenti si ricava dal heartbeat quando il suo log group finisce in `/heartbeat` (la convenzione
+// del dev-env: `…/dev-env/heartbeat` e `…/dev-env/salute`, stesso account). Senza nessuno dei
+// due la sezione non c'e', e la pagina non mostra un vuoto che sembri «tutto sano».
+export function configSalute(cfg = {}) {
+  if (cfg?.salute?.logGroup) return { account: cfg.salute.account ?? cfg.heartbeat?.account, logGroup: cfg.salute.logGroup }
+  const hb = cfg?.heartbeat
+  if (hb?.account && /\/heartbeat$/.test(hb.logGroup ?? '')) {
+    return { account: hb.account, logGroup: hb.logGroup.replace(/\/heartbeat$/, '/salute') }
+  }
+  return null
 }
 
 // Una versione VERA è un digest: la parola con cui l'avvio dichiara di non sapere non è una versione.
@@ -270,6 +294,42 @@ export function segnali(dati = {}) {
       // sola cosa su cui chi legge puo' agire.
       dettaglio: m.dettaglio ?? null,
       quando: m.quando ?? null,
+    })
+  }
+
+  // 6. La VM di Docker ha FINITO LA MEMORIA: il kernel ha ucciso dei processi. E' il guasto che si
+  //    vede come «il backend si e' spento da solo» e che nessun log dell'app racconta. Il `quando` e'
+  //    l'ultima riga in cui il contatore e' salito, quindi un OOM nuovo riparla e uno vecchio no.
+  const salute = dati.salute ?? {}
+  for (const m of salute.macchine ?? []) {
+    if (!(m.oomNuovi > 0)) continue
+    fuori.push({
+      chiave: `oom:${m.macchina}`,
+      tipo: 'oom',
+      livello: 'attenzione',
+      bersaglio: m.macchina,
+      chi: m.utente ? [m.utente] : [...(chiLaAvvia.get(m.macchina) ?? [])],
+      quante: m.oomNuovi,
+      vmMemGb: m.vmMemGb ?? null,
+      ramMacGb: m.ramMacGb ?? null,
+      uccisi: m.uccisiPerMemoria ?? [],
+      quando: m.oomQuando ?? m.quando ?? null,
+    })
+  }
+
+  // 7. Container del dev-env NON SANI per almeno due giri di fila (~15 minuti): uno solo e' un riavvio
+  //    in corso. Il `quando` e' l'inizio della serie, quindi la stessa serie si dice una volta sola.
+  for (const m of salute.macchine ?? []) {
+    if (!(m.nonSaniGiri >= 2)) continue
+    fuori.push({
+      chiave: `container:${m.macchina}`,
+      tipo: 'container',
+      livello: 'attenzione',
+      bersaglio: m.macchina,
+      chi: m.utente ? [m.utente] : [...(chiLaAvvia.get(m.macchina) ?? [])],
+      dettaglio: m.nonSani.join(', '),
+      giri: m.nonSaniGiri,
+      quando: m.nonSaniDa ?? null,
     })
   }
 

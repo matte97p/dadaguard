@@ -30,6 +30,9 @@ import {
   problemaPersona,
   problemaSsh,
   tuttiIndietro,
+  saluteDellaMacchina,
+  appPiuPesanti,
+  saluteDaGuardare,
 } from '../accessi.js'
 import './ops.css'
 
@@ -185,6 +188,7 @@ export default function AccessiPage({ t, lang }) {
 
   const audit = dati?.audit ?? {}
   const battito = dati?.heartbeat ?? {}
+  const salute = dati?.salute ?? null
 
   // L'immagine con cui si confrontano le altre, e da DOVE viene: la versione attesa dalla config se
   // c'è, altrimenti la più recente che qualcuno ha avviato. Sono due cose diverse e la pagina lo dice,
@@ -352,6 +356,31 @@ export default function AccessiPage({ t, lang }) {
     <span key="p">{elencoCorto(r.chi ?? [], <span className="ui-faint">-</span>, (nome) => (r.scriventi ?? []).includes(nome))}</span>,
   ]
 
+  const cellaSalute = (r) => {
+    if (r.lato === 'container') return <span key="s" className="ui-faint">-</span>
+    const sm = saluteDellaMacchina(salute, r)
+    if (!sm) return <span key="s" className="ui-faint" title={t('accessi.salute.nessunaTitolo')}>{t('accessi.salute.nessuna')}</span>
+    const app = appPiuPesanti(sm.appMb)
+    const swapGb = sm.swapMacMb != null ? Math.round(sm.swapMacMb / 102.4) / 10 : null
+    return (
+      <span key="s" className="ui-what">
+        {sm.vmMemGb != null && (
+          <span title={t('accessi.salute.vmTitolo', { disp: sm.memDisponibileGb ?? '?' })}>
+            {t('accessi.salute.vm', { gb: sm.vmMemGb, ram: sm.ramMacGb ?? '?' })}
+          </span>
+        )}{' '}
+        {sm.oomNuovi > 0 && <Pill livello="crit">{t('accessi.salute.oom', { n: sm.oomNuovi })}</Pill>}{' '}
+        {(sm.nonSani ?? []).length > 0 && (
+          <Pill livello="warn" title={sm.nonSani.join(', ')}>
+            {t('accessi.salute.nonSani', { n: sm.nonSani.length })}
+          </Pill>
+        )}
+        {app.length > 0 && sotto(app.map((a) => `${a.nome} ${a.gb} GB`).join(' · '))}
+        {swapGb != null && swapGb >= 8 && sotto(t('accessi.salute.swap', { gb: swapGb }))}
+      </span>
+    )
+  }
+
   const celleMacchina = (r) => {
     const { nome, altri } = personaMacchina(r, utentiNoti)
     return [
@@ -395,6 +424,9 @@ export default function AccessiPage({ t, lang }) {
       </span>,
       // Il numero e i NOMI dei tool mancanti, quando l'heartbeat li manda: «2» non dice cosa installare.
       <span key="t">{r.toolMancanti > 0 && (r.toolMancantiNomi ?? []).length ? elencoCorto(r.toolMancantiNomi) : <Conta n={r.toolMancanti} />}</span>,
+      // La salute delle ultime 24 ore: la memoria della VM, i processi uccisi per memoria finita e i
+      // container non sani. Solo sulla riga dell'host: VM e container sono del Mac.
+      cellaSalute(r),
       // Quando + quanto ci ha messo: «il dev-env qui parte in quattro minuti» è metà dei «a me non
       // funziona».
       <span key="q" className="ui-what">
@@ -555,11 +587,14 @@ export default function AccessiPage({ t, lang }) {
       t('accessi.col.persona'),
       riferimento.fonte === 'config' ? t('accessi.col.immagineAttesa') : t('accessi.col.immagine'),
       t('accessi.col.tool'),
+      t('accessi.col.salute'),
       t('accessi.col.ultimoAvvio'),
     ],
-    griglia: `${PILLOLA}minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 0.9fr)`,
+    griglia: `${PILLOLA}minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.2fr) minmax(0, 0.9fr)`,
     rowKey: (r) => `${r.macchina}/${r.lato}`,
-    problema: (m) => problemaMacchina(m, riferimento, dataRif),
+    // Una macchina con la VM che ha finito la memoria o un container non sano sale in cima come una
+    // indietro: e' la stessa domanda, «chi ha il dev-env che non va?».
+    problema: (m) => problemaMacchina(m, riferimento, dataRif) || saluteDaGuardare(saluteDellaMacchina(salute, m)),
     livello: 'warn',
     cerca: (m) => [m.macchina, m.utente, m.immagine],
     vuoto: t('accessi.nessunAvvio'),
