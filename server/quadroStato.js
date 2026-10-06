@@ -38,6 +38,9 @@ export async function statoLeggero({ resolve = resolveServices, lang = 'it', con
     ])
     return {
       name: s.name,
+      // Il nome della funzione AWS, quando c'è: il nome della voce può essere scritto a mano nella
+      // configurazione, e solo quello della funzione dice di sicuro se è un cron.
+      ...(s.aws?.function ? { funzione: s.aws.function } : {}),
       type: s.aws.type,
       account: acct ? { key: s.account } : null,
       // Per il quadro conta solo «giù o no», e lo dice il runtime dei servizi ECS.
