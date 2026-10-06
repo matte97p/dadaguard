@@ -715,6 +715,20 @@ test('le squadre per nome: un elemento con `*` è un glob sul nome breve, su app
   assert.equal(new Set(tutte).size, tutte.length)
 })
 
+test('la riga IaC va alla squadra il cui glob prende `IaC`, e solo a quella; senza, resta nella principale', () => {
+  const qa = quadroAmbiente('produzione', {
+    deploys: { production: { builds: [b('iac', 'ddddddd', '2026-10-03T10:00:00Z', 'SUCCEEDED', { iac: true, repo: 'https://github.com/acme/infra-repo' })] } },
+    servizi: [],
+  })
+  assert.ok(qa.infra, 'la fixture ha la riga IaC')
+  assert.ok(dividi(qa).principale.infra, 'senza squadre resta nella principale')
+  const d = dividi(qa, { squadre: { data: ['worker-*'], infra: ['iac*', 'tunnel*'] } })
+  assert.equal(d.principale.infra, null)
+  assert.equal(d.squadre.infra.infra, qa.infra)
+  assert.equal(d.squadre.data.infra, null)
+  assert.ok(dividi(qa, { squadre: { infra: ['infra-repo'] } }).squadre.infra.infra, 'anche per repository')
+})
+
 test('le squadre per nome: senza `*` è un repository, e il repository vince sul glob', () => {
   const qa = ambienteConSquadre()
   const senza = dividi(qa, { squadre: { x: ['deploy-notifier', 'worker-server', 'report'] } })
