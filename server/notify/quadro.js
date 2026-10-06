@@ -32,9 +32,10 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 //   quello che si legge non torna con quello che ci si aspetta: è raro, e lì lo sdoppio si accetta
 //   le righe le decidono le RISORSE che esistono, mai il loro stato: niente righe che si uniscono o si
 //   separano con un riavvio, un rilascio o una lettura andata male (vedi `quadroAmbiente`)
-// Accanto al canvas c'è una Slack LIST per ambiente con le stesse righe (vedi `sincronizzaLista`): si
-// filtra e si ordina, e chi la preferisce la usa. Le due viste dicono la stessa cosa, con gli stessi
-// stati (`STATI`).
+// Accanto ai canvas ci sono le Slack LIST, una per AREA (PRODOTTO, CRON e una per squadra, le stesse
+// schede dei canvas) con dentro tutti e due gli ambienti (vedi `sincronizzaLista`): si filtrano per
+// ambiente, tipo e stato, e chi le preferisce le usa. Le due viste dicono la stessa cosa, con gli
+// stessi stati (`STATI`).
 //
 // La verità su COSA GIRA la dice ECS, non CodeBuild: è l'unica fonte che vede tutte le strade per cui
 // un servizio cambia (la build della CI, una revisione promossa a mano, un riavvio, le variabili
@@ -65,7 +66,7 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 //                               deploy/slack-app-manifest.yml (uno per chiamata), invitata nei
 //                               canali. Un webhook NON basta: non scrive canvas e non modifica i
 //                               messaggi che ha mandato
-//   DADAGUARD_QUADRO_LISTE      `0` per non tenere la Slack List accanto al canvas (default: accesa)
+//   DADAGUARD_QUADRO_LISTE      `0` per non tenere le Slack List accanto ai canvas (default: accese)
 //   DADAGUARD_GITHUB_*          la GitHub App da cui viene lo stato dei test (vedi server/notify/github.js).
 //                               Senza, le righe non hanno mai uno stato di test
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
@@ -320,6 +321,8 @@ function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
     // di essere un componente esterno per sette giorni.
     esterno: !builds.some((x) => x.kind !== 'restart') && tagDiVersione(ecs?.tag),
     immagine: ecs?.repo ?? null,
+    // Senza ECS dietro è una risorsa che si conosce solo dalle build: un sito statico.
+    ecs: Boolean(ecs),
   }
 }
 
@@ -820,6 +823,28 @@ export const STATI = {
   indietro: { emoji: '⚠️', etichetta: 'indietro', colore: 'yellow' },
   invariato: { emoji: '➖', etichetta: 'fermo', colore: 'gray' },
 }
+// Il TIPO di una riga, cioè che risorsa è: la colonna Tipo della List, per filtrare. Lo decide la
+// risorsa e non il suo stato, come la scheda (vedi `dividi`), e i `value` si fissano alla creazione
+// della List come quelli di `STATI`:
+//   servizio   un servizio ECS
+//   cron_ecs   un cron ECS (task schedulato)
+//   lambda     una Lambda, cron o no (la scheda CRON le separa già)
+//   esterno    un componente esterno: versione fissata dall'IaC, immagine di altri
+//   statico    una risorsa che si conosce solo dalle build, senza ECS dietro: un sito statico
+//   iac        l'apply dell'infrastruttura
+export const TIPI = {
+  servizio: { etichetta: 'servizio', colore: 'blue' },
+  cron_ecs: { etichetta: 'cron ECS', colore: 'purple' },
+  lambda: { etichetta: 'Lambda', colore: 'orange' },
+  esterno: { etichetta: 'componente esterno', colore: 'gray' },
+  statico: { etichetta: 'sito/statico', colore: 'green' },
+  iac: { etichetta: 'IaC', colore: 'pink' },
+}
+// Il tipo di una voce del quadro (`quadroAmbiente`). Puro/testabile.
+export function tipoRisorsa(v) {
+  if (v.tipo === 'app') return v.cron ? 'cron_ecs' : v.ecs === false ? 'statico' : 'servizio'
+  return TIPI[v.tipo] ? v.tipo : null
+}
 // Le etichette sono CORTE apposta: nella List la colonna Stato è stretta e Slack non la allarga, e
 // «⏳ deploy avviato» usciva come «⏳ deploy a…» (05/10/2026). Cosa è partito o fallito (build,
 // apply, riavvio) lo dicono i Dettagli; l'etichetta dice solo a che punto è.
@@ -891,7 +916,7 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
       ],
     }
   } else return null
-  r = conTest({ suffisso: null, versioneLink: null, ...r, quandoTesto: quandoBreve(r.quando, ora) }, v.test, { ora })
+  r = conTest({ suffisso: null, versioneLink: null, ...r, tipo: tipoRisorsa(v), quandoTesto: quandoBreve(r.quando, ora) }, v.test, { ora })
   const s = STATI[r.stato]
   const link = linkRisorsa(v, url)
   const dettagli = r.dettagli.filter(Boolean).join(SEP) || VUOTO
@@ -978,7 +1003,7 @@ export function righeTabella(q, opts = {}) {
 // lette, i servizi diversi da staging) cambia il TESTO di un paragrafo che c'è sempre, non aggiunge
 // paragrafi: un paragrafo in più è una struttura diversa, e una struttura diversa vuol dire riscrivere
 // il canvas intero, cioè lo sdoppio.
-function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, liste = {} } = {}) {
+function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, lista = null } = {}) {
   const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
   const { sintesi, diversi } = smista(q, { ora, url, ore })
   const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
@@ -994,10 +1019,10 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, l
   const ignote =
     q.buildIgnote &&
     `⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`
-  // La List dell'ambiente, per prima: il segnalibro che la appunta al canale finisce in una cartella
-  // dove non la trova nessuno, e una scheda per una List l'API non la crea (vedi `creaLista`).
-  const lista = liste[q.ambiente] && `[Lista ${meta.tag}](${liste[q.ambiente]})`
-  const fondo = [ignote, lista, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean).join('  |  ') || null
+  // La List dell'area della scheda, per prima: una scheda per una List l'API non la crea (vedi
+  // `creaLista`), quindi da qui la si apre a un clic finché qualcuno non l'aggiunge a mano al canale.
+  const linkLista = lista?.url && `[Lista ${lista.nome}](${lista.url})`
+  const fondo = [ignote, linkLista, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean).join('  |  ') || null
   return { meta, sintesi, righe: righeTabella(q, { ora, url, ore }), fondo }
 }
 
@@ -1008,12 +1033,12 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, l
 // `alle`); che il quadro sia vivo lo garantisce la guardia dei 10 minuti.
 // Oltre al markdown (per crearlo o riscriverlo intero) restituisce il MODELLO, lo stesso contenuto
 // blocco per blocco, che `pianoCelle` confronta con quello che legge nel canvas. Puro/testabile.
-export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE, liste = {} } = {}) {
+export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url = null, ore = DEFAULT_ORE, lista = null } = {}) {
   const parti = []
   const sintesi = []
   const sezioni = []
   for (const q of perAmbiente) {
-    const s = sezioniAmbiente(q, { ora, url, ore, liste })
+    const s = sezioniAmbiente(q, { ora, url, ore, lista })
     // `tollera`: le righe di questo ambiente non si sono lette tutte (vedi `pianoCelle`).
     const sezione = { titolo: s.meta.sezione, sintesi: `**${s.sintesi.join(SEP)}**`, righe: s.righe.map((r) => r.celle), fondo: s.fondo, tollera: Boolean(q.incompleto) }
     sezioni.push(sezione)
@@ -1035,38 +1060,56 @@ export function canvasQuadro(q, opts = {}) {
 // La scheda che attraversa gli ambienti (CRON, una squadra). Puro/testabile.
 export const canvasTrasversale = (titolo, perAmbiente = [], opts = {}) => canvasSezioni(titolo, perAmbiente, opts)
 
+// Le schede trasversali e le List vanno nel canale del PRIMO ambiente che ne ha uno: sono una sola per
+// tutti e due, e quando i due ambienti hanno lo stesso canale stanno accanto alle loro.
+const canalePrimo = (cfg) => cfg.canali?.[cfg.ambienti.find((a) => cfg.canali?.[a])] ?? null
+
 // Tutti i canvas di un giro, ognuno col suo canale: uno per ambiente, poi CRON e uno per squadra.
-// Le schede trasversali vanno nel canale del PRIMO ambiente: sono una sola per tutti e due, e quando
-// i due ambienti hanno lo stesso canale stanno accanto alle loro. Puro/testabile.
-// `liste`: ambiente → indirizzo della sua List, per il link in fondo.
+// Puro/testabile.
+// `liste`: area (vedi `AREA_PRINCIPALE`) → indirizzo della sua List, per il link in fondo.
 export function canvasDaScrivere(q, cfg, { ora = Date.now(), liste = {} } = {}) {
-  const opts = { ora, url: cfg.publicUrl ?? null, ore: cfg.ore ?? DEFAULT_ORE, liste }
+  const opts = (area) => ({ ora, url: cfg.publicUrl ?? null, ore: cfg.ore ?? DEFAULT_ORE, lista: liste[area] ? { url: liste[area], nome: etichettaArea(area) } : null })
   const parti = Object.fromEntries(cfg.ambienti.map((a) => [a, dividi(q[a], { squadre: cfg.squadre ?? {} })]))
   const presenti = cfg.ambienti.filter((a) => parti[a])
-  const out = presenti.map((a) => ({ chiave: a, canale: cfg.canali?.[a] ?? null, ...canvasQuadro(parti[a].principale, opts) }))
-  const canaleTrasversale = cfg.canali?.[cfg.ambienti.find((a) => cfg.canali?.[a])] ?? null
-  const trasversale = (chiave, titolo, scegli) => ({ chiave, canale: canaleTrasversale, ...canvasTrasversale(titolo, presenti.map((a) => scegli(parti[a])), opts) })
+  const out = presenti.map((a) => ({ chiave: a, canale: cfg.canali?.[a] ?? null, ...canvasQuadro(parti[a].principale, opts(AREA_PRINCIPALE)) }))
+  const trasversale = (chiave, titolo, scegli) => ({ chiave, canale: canalePrimo(cfg), ...canvasTrasversale(titolo, presenti.map((a) => scegli(parti[a])), opts(chiave)) })
   out.push(trasversale('cron', TITOLO_CRON, (p) => p.cron))
   for (const sq of Object.keys(cfg.squadre ?? {})) out.push(trasversale(sq, titoloSquadra(sq), (p) => p.squadre[sq]))
   return out
 }
 
-// Il titolo della List di un ambiente: quello del canvas, con «Lista» al posto di «Quadro».
-export const titoloLista = (ambiente) => (AMBIENTI[ambiente]?.titolo ?? `Quadro deploy ${String(ambiente).toUpperCase()}`).replace('Quadro deploy', 'Lista deploy')
+// Le List sono una per AREA, cioè per scheda: la parte principale (PRODOTTO, che nei canvas è divisa
+// in PRODUZIONE e STAGING), CRON e una per squadra. Fino al 06/10/2026 erano una per AMBIENTE con
+// dentro tutte le schede, e chi cercava i cron o le risorse della sua squadra doveva filtrarle a mano
+// in mezzo alle altre: adesso l'area è la List, e ambiente e tipo sono colonne da filtrare.
+export const AREA_PRINCIPALE = 'prodotto'
+const etichettaArea = (area) => String(area).toUpperCase()
+export const titoloLista = (area) => `Lista deploy ${etichettaArea(area)}`
 
-// Le righe della List di ogni ambiente: TUTTE le risorse dell'ambiente, di tutte le schede (principale,
-// CRON, squadre), perché una List si filtra e si ordina da sé e una per scheda sarebbe solo più
-// liste da cercare. Va nel canale dell'ambiente. Puro/testabile.
+// La chiave di una riga della List: la stessa risorsa c'è una volta per ambiente.
+const chiaveRiga = (ambiente, nome) => `${ambiente}|${nome}`
+
+// Le List di un giro, una per area, ognuna con le righe di TUTTI gli ambienti (le stesse dei canvas,
+// con l'ambiente accanto). Ogni risorsa sta in una List sola, come sta in una scheda sola (`dividi`).
+// Vanno nel canale del primo ambiente, come le schede trasversali. Puro/testabile.
 export function listeDaScrivere(q, cfg, { ora = Date.now() } = {}) {
   const opts = { ora, url: cfg.publicUrl ?? null, ore: cfg.ore ?? DEFAULT_ORE }
-  return cfg.ambienti
-    .filter((a) => q[a] && AMBIENTI[a])
-    .map((a) => {
-      const p = dividi(q[a], { squadre: cfg.squadre ?? {} })
-      const righe = [p.principale, p.cron, ...Object.values(p.squadre)].flatMap((x) => righeTabella(x, opts)).sort(perNome)
-      // `tieni`: le righe non si sono lette tutte, e una che manca non si toglie (vedi `pianoCelle`).
-      return { chiave: a, canale: cfg.canali?.[a] ?? null, titolo: titoloLista(a), righe, tieni: Boolean(q[a].incompleto) }
-    })
+  const ambienti = cfg.ambienti.filter((a) => q[a] && AMBIENTI[a])
+  const parti = Object.fromEntries(ambienti.map((a) => [a, dividi(q[a], { squadre: cfg.squadre ?? {} })]))
+  const aree = [[AREA_PRINCIPALE, (p) => p.principale], ['cron', (p) => p.cron], ...Object.keys(cfg.squadre ?? {}).map((sq) => [sq, (p) => p.squadre[sq]])]
+  const ordine = (a, b) => perNome(a, b) || ambienti.indexOf(a.ambiente) - ambienti.indexOf(b.ambiente)
+  const perArea = aree.map(([area, scegli]) => ({
+    area,
+    righe: ambienti.flatMap((a) => righeTabella(scegli(parti[a]), opts).map((r) => ({ ...r, ambiente: a }))).sort(ordine),
+  }))
+  // `tieni`: gli ambienti le cui righe non si sono lette tutte, e lì una riga che manca non si toglie
+  // (vedi `pianoCelle`). Un ambiente senza nessuna riga in nessuna area è quasi sempre una lettura
+  // andata male: allinearsi vorrebbe dire cancellare tutte le sue righe per ricrearle al giro dopo.
+  const tieni = new Set(ambienti.filter((a) => q[a].incompleto || !perArea.some((x) => x.righe.some((r) => r.ambiente === a))))
+  const canale = canalePrimo(cfg)
+  // Condivise con tutti i canali degli ambienti, non solo con quello in cui stanno: le righe sono di tutti e due.
+  const canali = [...new Set(Object.values(cfg.canali ?? {}).filter(Boolean))]
+  return perArea.map(({ area, righe }) => ({ chiave: area, canale, canali, titolo: titoloLista(area), righe, tieni }))
 }
 
 // ── La parte che parla con Slack ──────────────────────────────────────────────────────────────────
@@ -1239,9 +1282,9 @@ export function pianoCelle(modello, blocchi) {
 }
 
 // Un giro: per ogni canvas col suo canale, lo aggiorna (cella per cella, o intero se la forma è
-// cambiata) o lo crea se non c'è; poi la List di ogni ambiente.
+// cambiata) o lo crea se non c'è; prima, la List di ogni area.
 // `deps` per le prove: `leggiDati` ({ deploys, servizi }), `api` (la Web API), `scarica` (il contenuto
-// di un file), `ultimi` e `liste` (la memoria fra un giro e l'altro), `maxModifiche`.
+// di un file), `ultimi` e `liste` (la memoria fra un giro e l'altro), `maxModifiche`, `maxRigheNuove`.
 // Un canvas che fallisce non ferma gli altri: sono canali diversi, e il guasto di uno non è una ragione
 // per lasciare vecchio il quadro dell'altro.
 export async function aggiornaQuadri(cfg, deps = {}) {
@@ -1265,23 +1308,28 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     if (!url) throw new Error('files.info senza indirizzo del contenuto')
     return scarica(url)
   }
-  // Prima le List e poi i canvas: il canvas di un ambiente porta in fondo il link alla sua List, e
+  // Prima le List e poi i canvas: ogni canvas porta in fondo il link alla List della sua area, e
   // l'indirizzo si sa solo dopo averla ritrovata o creata.
   const esitiListe = []
   const linkListe = {}
   if (cfg.liste) {
     const memoria = deps.liste ?? nuovaMemoriaListe()
+    // Le righe nuove sono un tetto per GIRO, in tutte le List insieme, come le celle dei canvas: al
+    // primo giro dopo il deploy sono tutte nuove, e quattro List da venti righe l'una sarebbero ottanta
+    // chiamate in un colpo. Quello che avanza va al giro dopo.
+    let budgetRighe = deps.maxRigheNuove ?? MAX_RIGHE_NUOVE_GIRO
     for (const l of listeDaScrivere(q, cfg, { ora })) {
       if (!l.canale) continue
       try {
         memoria.bot ??= (await api('auth.test', {})).user_id
-        const e = await sincronizzaLista(api, l, memoria.ambienti, { bot: memoria.bot })
+        const e = await sincronizzaLista(api, l, memoria.aree, { bot: memoria.bot, maxNuove: Math.max(0, budgetRighe) })
+        budgetRighe -= e.nuove ?? 0
         if (e.permalink) linkListe[l.chiave] = e.permalink
         esitiListe.push({ ambiente: `lista-${l.chiave}`, ...e })
       } catch (err) {
         // Al giro dopo si riparte dal ritrovarla: una List cancellata a mano, o righe tolte da qualcuno,
         // non si aggiustano insistendo con gli id che si avevano.
-        memoria.ambienti.delete(l.chiave)
+        memoria.aree.delete(l.chiave)
         esitiListe.push({ ambiente: `lista-${l.chiave}`, azione: 'errore', errore: err.message })
       }
     }
@@ -1363,31 +1411,35 @@ export async function aggiornaQuadri(cfg, deps = {}) {
 
 // ── La Slack List ────────────────────────────────────────────────────────────────────────────────
 //
-// Le stesse righe del canvas, una List per ambiente nel suo canale, in sola lettura per il canale e
-// con un segnalibro in cima. A differenza del canvas una List si aggiorna per CELLA con una chiamata
-// sola (`slackLists.items.update`, fino a 100 celle), si filtra e si ordina: c'è chi la preferisce,
-// e i dev scelgono. Provato in un canale di prova il 05/10/2026: creazione, righe, celle, accesso, segnalibro.
+// Le stesse righe dei canvas, una List per AREA (vedi `listeDaScrivere`) con dentro tutti e due gli
+// ambienti, in sola lettura per il canale. A differenza del canvas una List si aggiorna per CELLA con
+// una chiamata sola (`slackLists.items.update`, fino a 100 celle), si filtra e si ordina: c'è chi la
+// preferisce, e i dev scelgono. Provato in un canale di prova il 05/10/2026: creazione, righe, celle,
+// accesso. Una riga è una risorsa in un ambiente: la stessa risorsa in produzione e in staging sono
+// due righe, una accanto all'altra, distinte dalla colonna Ambiente.
 //
 // Dopo un riavvio di Dadaguard la List NON si ricrea: sarebbe lo stesso guaio già pagato coi canvas
 // (`canvasDelCanale`), una List nuova a ogni rilascio di Dadaguard. Si ritrova fra i file del bot
 // (`files.list` con `types=lists`, scope `files:read`) dal titolo e dal canale; colonne e righe si
-// rileggono da lì (`files.info` per lo schema, `slackLists.items.list` per le righe, per nome nella
-// colonna Risorsa). `bookmarks.list` sarebbe la strada diretta, ma vuole `bookmarks:read`, che
-// l'app non ha.
+// rileggono da lì (`files.info` per lo schema, `slackLists.items.list` per le righe, per ambiente e
+// nome). `bookmarks.list` sarebbe la strada diretta, ma vuole `bookmarks:read`, che l'app non ha.
 
 // L'ordine delle colonne è quello della creazione e l'API non lo cambia (né lo cambia la larghezza:
-// le viste di una List non hanno un metodo per scriverle, provato il 05/10/2026). Quindi Dettagli sta
-// PRIMA di Versione, dove la si legge senza scorrere, e Versione è un TESTO con dentro il link al
-// commit, non una colonna di tipo link: una cella link vuota (un'immagine, una Lambda, senza commit)
-// mostrava comunque l'icona del link, vuota.
+// le viste di una List non hanno un metodo per scriverle, provato il 05/10/2026). Quindi le colonne da
+// filtrare (Ambiente, Tipo, Stato) vengono subito dopo il nome, Dettagli PRIMA di Versione, dove la si
+// legge senza scorrere, e Versione è un TESTO con dentro il link al commit, non una colonna di tipo
+// link: una cella link vuota mostrava comunque l'icona del link, vuota.
+// ⚠️ Una cella di TESTO vuota Slack la disegna con un'icona segnaposto (06/10/2026): dove non c'è niente
+// da dire si scrive `n/d`, come nel canvas (`VUOTO`).
+const scelte = (voci) => ({ format: 'single_select', choices: Object.entries(voci).map(([value, s]) => ({ value, label: s.emoji ? `${s.emoji} ${s.etichetta}` : s.etichetta, color: s.colore })) })
+// L'ambiente col suo colore di sempre: rosso la produzione, giallo staging, come i quadrati che i
+// titoli avevano fino al 05/10/2026.
+const AMBIENTI_LISTA = { produzione: { etichetta: 'produzione', colore: 'red' }, staging: { etichetta: 'staging', colore: 'yellow' } }
 export const SCHEMA_LISTA = [
   { key: 'risorsa', name: 'Risorsa', type: 'text', is_primary_column: true },
-  {
-    key: 'stato',
-    name: 'Stato',
-    type: 'select',
-    options: { format: 'single_select', choices: Object.entries(STATI).map(([value, s]) => ({ value, label: `${s.emoji} ${s.etichetta}`, color: s.colore })) },
-  },
+  { key: 'ambiente', name: 'Ambiente', type: 'select', options: scelte(AMBIENTI_LISTA) },
+  { key: 'tipo', name: 'Tipo', type: 'select', options: scelte(TIPI) },
+  { key: 'stato', name: 'Stato', type: 'select', options: scelte(STATI) },
   { key: 'quando', name: 'Quando', type: 'text' },
   { key: 'dettagli', name: 'Dettagli', type: 'text' },
   { key: 'versione', name: 'Versione', type: 'text' },
@@ -1395,30 +1447,33 @@ export const SCHEMA_LISTA = [
 ]
 const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
 
-export const nuovaMemoriaListe = () => ({ bot: null, ambienti: new Map() })
+export const nuovaMemoriaListe = () => ({ bot: null, aree: new Map() })
 
 // ⚠️ Un testo vuoto la List lo rifiuta (`must be more than 0 characters`): per svuotare una cella si
-// manda l'elenco vuoto, sia per il testo sia per il link (provato il 05/10/2026).
+// manda l'elenco vuoto (provato il 05/10/2026). Le celle di testo non sono mai vuote (`n/d`); il link sì.
 const testoLista = (t) => ({ rich_text: t ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: t }] }] }] : [] })
 // Un testo che è un link (`text` torna il testo del link, provato il 05/10/2026).
-const testoConLink = (url, t) => ({ rich_text: url ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'link', url, text: t }] }] }] : [] })
+const testoConLink = (url, t) => ({ rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'link', url, text: t }] }] }] })
 const linkLista = (url, nome) => ({ link: url ? [{ original_url: url, display_as_url: false, display_name: nome }] : [] })
+const selectLista = (v) => ({ firma: v ?? '', valore: { select: v ? [v] : [] } })
 
 // Le celle di una riga per la List: per ogni colonna la FIRMA (una stringa da confrontare con quella
-// riletta, vedi `firmeDaItem`) e il valore da mandare. `tipi` sono quelli della List com'è: una List
-// nata prima del 05/10/2026 ha Versione di tipo link, e lì si scrive un link. Puro/testabile.
-export function celleLista(r, tipi = TIPO_COLONNA) {
-  const dettagli = testoPiatto(r.dettagli)
+// riletta, vedi `firmeDaItem`) e il valore da mandare. La Versione è il link al commit quando c'è,
+// altrimenti il suo testo (un tag che non è un commit, la versione di un componente esterno), e `n/d`
+// quando non c'è niente. Puro/testabile.
+export function celleLista(r) {
+  const dettagli = testoPiatto(r.dettagli) || VUOTO
+  const quando = r.quandoTesto || VUOTO
   const v = r.versioneLink
+  const versione = v?.nome || testoPiatto(r.versione) || VUOTO
   return {
     risorsa: { firma: r.nome, valore: testoLista(r.nome) },
-    stato: { firma: r.stato, valore: { select: [r.stato] } },
-    quando: { firma: r.quandoTesto ?? '', valore: testoLista(r.quandoTesto) },
+    ambiente: selectLista(r.ambiente),
+    tipo: selectLista(r.tipo),
+    stato: selectLista(r.stato),
+    quando: { firma: quando, valore: testoLista(quando) },
     dettagli: { firma: dettagli, valore: testoLista(dettagli) },
-    versione:
-      tipi.versione === 'link'
-        ? { firma: v ? `${v.url}|${v.nome}` : '', valore: linkLista(v?.url, v?.nome) }
-        : { firma: v?.nome ?? '', valore: testoConLink(v?.url, v?.nome) },
+    versione: { firma: versione, valore: v?.url ? testoConLink(v.url, versione) : testoLista(versione) },
     dadaguard: { firma: r.link ? `${r.link}|apri` : '', valore: linkLista(r.link, 'apri') },
   }
 }
@@ -1444,24 +1499,26 @@ export function firmeDaItem(item, colonne, tipi = TIPO_COLONNA) {
 const colonneDa = (schema) => Object.fromEntries((schema ?? []).filter((c) => c?.key && c?.id).map((c) => [c.key, c.id]))
 const tipiDa = (schema) => Object.fromEntries((schema ?? []).filter((c) => c?.key).map((c) => [c.key, c.type]))
 
-// Una List nata con lo schema di prima: etichette lunghe nella colonna Stato, Versione di tipo link,
-// colonne in un altro ordine. ⚠️ Lo schema di una List esistente l'API NON lo cambia: `slackLists.update`
-// con `schema` risponde ok e lascia tutto com'era (provato il 05/10/2026), e per colonne e viste non
-// c'è un metodo. Quindi una List vecchia si continua a usare (le scelte hanno gli stessi valori) e lo
-// si dice nel log: per averla nuova la si cancella a mano in Slack, e al giro dopo il quadro ne crea
-// una. Il quadro non la ricrea da sé: non può cancellare la vecchia (servirebbe `files:write`), e due
-// List con lo stesso titolo nel canale sarebbero peggio di una con le etichette lunghe. Puro.
+// Una List nata con uno schema di prima: scelte con altre etichette, colonne in un altro ordine. ⚠️ Lo
+// schema di una List esistente l'API NON lo cambia: `slackLists.update` con `schema` risponde ok e
+// lascia tutto com'era (provato il 05/10/2026), e per colonne e viste non c'è un metodo. Quindi una
+// List così si continua a usare (le scelte hanno gli stessi valori) e lo si dice nel log: per averla
+// nuova la si cancella a mano in Slack, e al giro dopo il quadro ne crea una. Il quadro non la ricrea
+// da sé: due List con lo stesso titolo nel canale sarebbero peggio di una con le etichette vecchie.
+// Puro.
 export function listaVecchia(schema) {
-  const stato = (schema ?? []).find((c) => c.key === 'stato')
-  const etichette = Object.fromEntries((stato?.options?.choices ?? []).map((c) => [c.value, c.label]))
-  const attese = SCHEMA_LISTA.find((c) => c.key === 'stato').options.choices
-  return attese.some((c) => etichette[c.value] !== c.label) || SCHEMA_LISTA.map((c) => c.key).join() !== (schema ?? []).map((c) => c.key).join() || tipiDa(schema).versione !== TIPO_COLONNA.versione
+  const etichette = (c) => (c?.options?.choices ?? []).map((x) => `${x.value}=${x.label}`).join()
+  const perChiave = new Map((schema ?? []).map((c) => [c.key, c]))
+  return (
+    SCHEMA_LISTA.map((c) => c.key).join() !== (schema ?? []).map((c) => c.key).join() ||
+    SCHEMA_LISTA.some((c) => c.type !== perChiave.get(c.key)?.type || (c.type === 'select' && etichette(c) !== etichette(perChiave.get(c.key))))
+  )
 }
 
-// La List di un ambiente com'è nella memoria: id, colonne (chiave → id), tipi, indirizzo e righe (nome
-// → id e firme). `null` se il bot non ne ha una con quel titolo in quel canale. Una List col titolo
-// giusto ma mai condivisa con nessun canale vale come ripiego: è quella di un giro morto prima di
-// condividerla. Un titolo di prima (con l'emoji davanti) si riconosce e si corregge sul posto.
+// La List di un'area com'è nella memoria: id, colonne (chiave → id), indirizzo e righe (ambiente e
+// nome → id e firme). `null` se il bot non ne ha una con quel titolo in quel canale. Una List col
+// titolo giusto ma mai condivisa con nessun canale vale come ripiego: è quella di un giro morto prima
+// di condividerla. Un titolo di prima (con l'emoji davanti) si riconosce e si corregge sul posto.
 export async function ritrovaLista(api, l, { bot }) {
   const r = await api('files.list', { user: bot, types: 'lists', count: 100 })
   const conTitolo = (r.files ?? []).filter((f) => stessoTitolo(f.title ?? f.name, l.titolo)).sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
@@ -1471,65 +1528,64 @@ export async function ritrovaLista(api, l, { bot }) {
   const info = (await api('files.info', { file: f.id })).file
   const schema = info?.list_metadata?.schema
   const colonne = colonneDa(schema)
-  // Una List col titolo giusto ma senza le nostre colonne non è nostra: scriverci darebbe
-  // `invalid_arguments` a ogni giro.
-  const mancano = SCHEMA_LISTA.filter((c) => !colonne[c.key]).map((c) => c.key)
+  // Una List col titolo giusto ma senza le nostre colonne non è nostra (o è di prima delle colonne
+  // Ambiente e Tipo): scriverci darebbe `invalid_arguments` a ogni giro.
+  const mancano = SCHEMA_LISTA.filter((c) => !colonne[c.key] || tipiDa(schema)[c.key] !== c.type).map((c) => c.key)
   if (mancano.length) {
     log.warn('quadro: la List trovata non ha le colonne attese, ne creo una nuova', { lista: f.id, mancano })
     return null
   }
   if (listaVecchia(schema))
-    log.warn('quadro: la List ha lo schema di prima (etichette lunghe, colonne in altro ordine); per averla nuova cancellala a mano, al giro dopo se ne crea una', { lista: f.id, titolo: l.titolo })
+    log.warn('quadro: la List ha uno schema di prima (etichette o ordine delle colonne); per averla nuova cancellala a mano, al giro dopo se ne crea una', { lista: f.id, titolo: l.titolo })
   if ((f.title ?? f.name) !== l.titolo)
     await api('slackLists.update', { id: f.id, name: l.titolo }).catch((err) => log.warn('quadro: List non rinominata', { lista: f.id, err: err.message }))
-  const tipi = tipiDa(schema)
   const righe = new Map()
   const doppie = []
   let cursor = null
   for (let pagina = 0; pagina < 50; pagina++) {
     const it = await api('slackLists.items.list', { list_id: f.id, limit: 100, ...(cursor ? { cursor } : {}) })
     for (const item of it.items ?? []) {
-      const firme = firmeDaItem(item, colonne, tipi)
-      // Due righe con lo stesso nome (un giro morto fra la creazione e la memoria): una si tiene, l'altra
-      // si toglie, o la List mostrerebbe la stessa risorsa due volte con due stati.
-      if (!firme.risorsa || righe.has(firme.risorsa)) doppie.push(item.id)
-      else righe.set(firme.risorsa, { id: item.id, firme })
+      const firme = firmeDaItem(item, colonne)
+      const chiave = chiaveRiga(firme.ambiente, firme.risorsa)
+      // Due righe con lo stesso nome nello stesso ambiente (un giro morto fra la creazione e la
+      // memoria): una si tiene, l'altra si toglie, o la List mostrerebbe la stessa risorsa due volte
+      // con due stati.
+      if (!firme.risorsa || righe.has(chiave)) doppie.push(item.id)
+      else righe.set(chiave, { id: item.id, firme })
     }
     cursor = it.response_metadata?.next_cursor || null
     if (!cursor) break
   }
-  return { id: f.id, colonne, tipi, permalink: info?.permalink ?? null, righe, doppie }
+  return { id: f.id, colonne, permalink: info?.permalink ?? null, righe, doppie }
 }
 
-// Una List nuova: creata, messa in sola lettura per il canale (come il canvas: una modifica a mano
-// sparirebbe al giro dopo), e appuntata nel canale con un segnalibro. Accesso e segnalibro, se non
-// riescono, si dicono e basta: la List funziona lo stesso.
-// ⚠️ Il segnalibro NON è una scheda: Slack lo mette nella cartella dei segnalibri, dove nessuno lo
-// trova (05/10/2026), e un'API per aggiungere una List come scheda del canale, come si fa coi canvas,
-// non c'è. Per questo il link alla List sta anche in fondo al canvas del suo ambiente.
+// Una List nuova: creata e messa in sola lettura per i canali del quadro (come il canvas: una modifica
+// a mano sparirebbe al giro dopo). L'accesso, se non riesce, si dice e basta: la List funziona lo
+// stesso.
+// ⚠️ Niente segnalibro: Slack lo mette nella cartella dei segnalibri, dove nessuno lo trova
+// (05/10/2026), e un'API per aggiungere una List come scheda del canale, come si fa coi canvas, non
+// c'è. Il link alla List sta in fondo ai canvas della sua area, e la scheda la aggiunge una persona.
 export async function creaLista(api, l) {
   const r = await api('slackLists.create', { name: l.titolo, schema: SCHEMA_LISTA })
-  await api('slackLists.access.set', { list_id: r.list_id, access_level: 'read', channel_ids: [l.canale] }).catch((err) =>
+  await api('slackLists.access.set', { list_id: r.list_id, access_level: 'read', channel_ids: l.canali?.length ? l.canali : [l.canale] }).catch((err) =>
     log.warn('quadro: List non messa in sola lettura', { lista: l.chiave, err: err.message }),
   )
   const info = await api('files.info', { file: r.list_id }).catch(() => null)
   let schema = r.list_metadata?.schema
   if (SCHEMA_LISTA.some((c) => !colonneDa(schema)[c.key])) schema = info?.file?.list_metadata?.schema
-  if (info?.file?.permalink)
-    await api('bookmarks.add', { channel_id: l.canale, title: l.titolo, type: 'link', link: info.file.permalink, emoji: ':clipboard:' }).catch((err) =>
-      log.warn('quadro: segnalibro della List non aggiunto', { lista: l.chiave, err: err.message }),
-    )
-  return { id: r.list_id, colonne: colonneDa(schema), tipi: tipiDa(schema), permalink: info?.file?.permalink ?? null, righe: new Map(), doppie: [] }
+  return { id: r.list_id, colonne: colonneDa(schema), permalink: info?.file?.permalink ?? null, righe: new Map(), doppie: [] }
 }
 
-// Allinea la List di un ambiente alle sue righe: la ritrova o la crea, poi toglie le righe sparite (e
-// le doppie), crea le nuove (al massimo `maxNuove` per giro) e riscrive le sole celle cambiate, cento
-// per chiamata. Il confronto è con le firme in memoria, rilette dalla List dopo un riavvio: un giro
-// in cui non cambia niente non chiama niente.
+// Allinea la List di un'area alle sue righe: la ritrova o la crea, poi toglie le righe sparite (e le
+// doppie), crea le nuove (al massimo `maxNuove`) e riscrive le sole celle cambiate, cento per
+// chiamata. Il confronto è con le firme in memoria, rilette dalla List dopo un riavvio: un giro in cui
+// non cambia niente non chiama niente.
 export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RIGHE_NUOVE_GIRO } = {}) {
-  // Senza righe non si tocca niente: un ambiente vuoto è quasi sempre una lettura andata male, e
-  // allinearsi vorrebbe dire cancellare tutte le righe per ricrearle al giro dopo.
-  if (!l.righe.length) return { azione: 'invariato' }
+  // Un'area senza righe non crea e non cerca una List: è una squadra che non ha ancora risorse, e una
+  // List vuota non serve. Se la List c'è già (in memoria) si allinea, cioè si tolgono le righe delle
+  // risorse sparite: l'ultimo cron che se ne va non resta nella List per sempre. Le letture andate
+  // male le protegge `tieni`, ambiente per ambiente.
+  if (!l.righe.length && !memoria.has(l.chiave)) return { azione: 'invariato', nuove: 0 }
   let st = memoria.get(l.chiave)
   let creata = false
   if (!st) {
@@ -1541,24 +1597,28 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
     memoria.set(l.chiave, st)
   }
   const voluti = new Map()
-  for (const r of l.righe) if (!voluti.has(r.nome)) voluti.set(r.nome, celleLista(r, st.tipi ?? TIPO_COLONNA))
+  for (const r of l.righe) {
+    const k = chiaveRiga(r.ambiente, r.nome)
+    if (!voluti.has(k)) voluti.set(k, celleLista(r))
+  }
   let tolte = 0
   for (const id of st.doppie ?? []) {
     await api('slackLists.items.delete', { list_id: st.id, id })
     tolte++
   }
   st.doppie = []
-  for (const [nome, riga] of st.righe) {
-    // Con build o risorse non lette, una riga che manca non è sparita: si toglie al giro in cui si sa.
-    if (voluti.has(nome) || l.tieni) continue
+  for (const [k, riga] of st.righe) {
+    // Con build o risorse dell'ambiente non lette, una riga che manca non è sparita: si toglie al giro
+    // in cui si sa.
+    if (voluti.has(k) || l.tieni?.has(riga.firme.ambiente)) continue
     await api('slackLists.items.delete', { list_id: st.id, id: riga.id })
-    st.righe.delete(nome)
+    st.righe.delete(k)
     tolte++
   }
   let nuove = 0
   let restano = 0
-  for (const [nome, celle] of voluti) {
-    if (st.righe.has(nome)) continue
+  for (const [k, celle] of voluti) {
+    if (st.righe.has(k)) continue
     if (nuove >= maxNuove) {
       restano++
       continue
@@ -1567,12 +1627,12 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
       .filter(([, c]) => c.firma)
       .map(([key, c]) => ({ column_id: st.colonne[key], ...c.valore }))
     const r = await api('slackLists.items.create', { list_id: st.id, initial_fields })
-    st.righe.set(nome, { id: r.item.id, firme: Object.fromEntries(Object.entries(celle).map(([key, c]) => [key, c.firma])) })
+    st.righe.set(k, { id: r.item.id, firme: Object.fromEntries(Object.entries(celle).map(([key, c]) => [key, c.firma])) })
     nuove++
   }
   const cambiate = []
-  for (const [nome, celle] of voluti) {
-    const riga = st.righe.get(nome)
+  for (const [k, celle] of voluti) {
+    const riga = st.righe.get(k)
     if (riga) for (const [key, c] of Object.entries(celle)) if (riga.firme[key] !== c.firma) cambiate.push({ riga, key, c })
   }
   for (let i = 0; i < cambiate.length; i += 100) {
@@ -1710,7 +1770,7 @@ export function guardiaQuadro(stato = {}, esiti = [], { ora = Date.now(), avvio 
 
 // La riga per il canale degli allarmi, con la grammatica del canale: emoji, nome fra backtick,
 // ambiente fra quadre, esito in maiuscolo. Puro/testabile.
-// La List di un ambiente ha la sua guardia (`lista-produzione`): si dice «la List», non «il canvas».
+// La List di un'area ha la sua guardia (`lista-prodotto`, `lista-cron`): si dice «la List», non «il canvas».
 export function testoAvviso(a, { ora = Date.now(), url = null } = {}) {
   const lista = String(a.ambiente).startsWith('lista-')
   const amb = lista ? String(a.ambiente).slice('lista-'.length) : a.ambiente
@@ -1734,7 +1794,7 @@ export function startQuadro(leggiDati, env = process.env) {
   const visti = new Set() // ambienti che hanno già avuto un giro con i dati: il primo prende nota e basta
   const api = (m, c) => chiamaSlack(m, c, cfg.token)
   const ultimi = new Map() // canvas → ultimo markdown con cui è allineato
-  const liste = nuovaMemoriaListe() // ambiente → List, colonne e righe: si riempie al primo giro
+  const liste = nuovaMemoriaListe() // area → List, colonne e righe: si riempie al primo giro
   // Lo stato dei test da GitHub Actions: senza le credenziali dell'App le righe non ne hanno, e lo si
   // dice qui, una volta, invece che a ogni giro.
   const github = nuovoGithub(githubConfig(env))
