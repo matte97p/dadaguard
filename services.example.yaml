@@ -317,6 +317,10 @@ services:
 # teleport:
 #   audit:     { account: security, logGroup: /ecs/teleport }
 #   heartbeat: { account: management, logGroup: /dev-env/heartbeat, immagineAttesa: sha256:... }
+#   # La salute delle macchine (memoria e OOM della VM di Docker, container non sani), una riga ogni
+#   # 15 minuti. Facoltativa: se manca e il log group del heartbeat finisce in `/heartbeat`, si legge
+#   # quello accanto che finisce in `/salute`, nello stesso account.
+#   salute:    { account: management, logGroup: /dev-env/salute }
 #   webUrl: https://teleport.example.com          # il bottone «vai ad agire»
 #   sshCommand: tsh ssh dev@{macchina}
 #   auditUserUrl: https://teleport.example.com/web/audit?user={utente}

@@ -18,6 +18,17 @@ All notable changes to Dadaguard are documented here. Format based on
   tolte a mano, e le schede delle List nuove aggiunte a mano al canale.
 
 ### Added
+- **La salute delle macchine del dev-env nella pagina Accessi, e due allarmi** (06/10/2026). Il
+  dev-env manda ogni 15 minuti una riga sul suo log group (`…/dev-env/salute`): memoria e OOM della
+  VM di Docker, container non sani, memoria per app, RAM e swap del Mac. La tabella delle macchine ha
+  una colonna «Salute (24 ore)» sulla riga dell'host (VM in GB su RAM del Mac, processi uccisi per
+  memoria, container non sani, le due app più pesanti, swap del Mac sopra gli 8 GB), e una macchina
+  con un OOM o un container non sano sale in cima come una indietro. Due segnali nuovi su Slack:
+  **MEMORIA FINITA NEL DEV-ENV** quando il contatore `oom_kill` della VM sale (si guarda la salita,
+  non il valore, e un contatore che scende vuol dire VM ripartita), e **CONTAINER DEL DEV-ENV NON
+  SANI** dopo due controlli di fila, detto una volta per serie. Config: `teleport.salute: { account,
+  logGroup }`, facoltativa: senza, si ricava dal heartbeat quando il suo log group finisce in
+  `/heartbeat`.
 - **Le squadre del quadro anche per nome** (06/10/2026). In `DADAGUARD_QUADRO_SQUADRE` un elemento
   con `*` è un glob sul nome breve della risorsa (`data=Scraper,worker-*,sync-*`), per quello che un
   repository nostro non ce l'ha: componenti esterni con l'immagine di altri e Lambda fatte dall'IaC,

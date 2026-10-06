@@ -893,3 +893,87 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     senzaVersione: elenco.filter((m) => !versioneNota(m.immagine)).length,
   }
 }
+
+// ── La SALUTE delle macchine (dal 06/10/2026) ──────────────────────────────────────────────────────
+//
+// Ogni 15 minuti il dev-env manda una riga sul suo log group (`…/dev-env/salute`, separato dal
+// heartbeat, che e' una riga per AVVIO): memoria e `oom_kill` della VM di Docker, container non sani,
+// memoria per app, RAM e swap del Mac. Qui si riassume per macchina, e le domande sono due:
+//   · la VM ha finito la memoria? `oom_kill` e' un contatore dal boot della VM, quindi la notizia e'
+//     quanto e' SALITO nella finestra, non il suo valore. Se scende la VM e' ripartita: si riparte da lui.
+//   · un container e' non sano da piu' di un giro? Uno solo e' un riavvio in corso, due di fila no.
+//
+// Puro, per le prove: prende gli eventi di CloudWatch (timestamp + message) e torna le macchine.
+export function riassumiSalute(eventi = []) {
+  const perMacchina = new Map()
+  for (const ev of eventi) {
+    const r = comeJson(ev.message)
+    if (!r?.macchina || !r.salute) continue
+    if (!perMacchina.has(r.macchina)) perMacchina.set(r.macchina, [])
+    perMacchina.get(r.macchina).push({ quando: ev.timestamp ?? 0, utente: r.utente ?? null, s: r.salute })
+  }
+  const macchine = []
+  for (const [macchina, righe] of perMacchina) {
+    righe.sort((a, b) => a.quando - b.quando)
+    let oomNuovi = 0
+    let oomQuando = null
+    let prima = null
+    for (const { quando, s } of righe) {
+      const v = Number(s.vm?.oom_kill)
+      if (!Number.isFinite(v)) continue
+      if (prima != null) {
+        const salito = v >= prima ? v - prima : v
+        if (salito > 0) {
+          oomNuovi += salito
+          oomQuando = quando
+        }
+      }
+      prima = v
+    }
+    const ultima = righe[righe.length - 1]
+    const s = ultima.s
+    // Da quando i container non sani lo sono di fila, contando all'indietro dall'ultima riga.
+    let nonSaniGiri = 0
+    let nonSaniDa = null
+    for (let i = righe.length - 1; i >= 0; i--) {
+      if (!(righe[i].s.container?.non_sani ?? []).length) break
+      nonSaniGiri += 1
+      nonSaniDa = righe[i].quando
+    }
+    const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null)
+    macchine.push({
+      macchina,
+      utente: ultima.utente,
+      quando: ultima.quando,
+      righe: righe.length,
+      vmMemGb: num(s.docker?.vm_mem_gb),
+      vmMemImpostataGb: num(s.docker?.vm_mem_impostata_gb),
+      memDisponibileGb: num(s.vm?.mem_disponibile_gb),
+      oomTotale: num(s.vm?.oom_kill),
+      oomNuovi,
+      oomQuando,
+      nonSani: s.container?.non_sani ?? [],
+      nonSaniGiri,
+      nonSaniDa,
+      uccisiPerMemoria: s.container?.uccisi_per_memoria ?? [],
+      ramMacGb: num(s.mac?.ram_gb),
+      swapMacMb: num(s.mac?.swap_usata_mb),
+      memoriaLiberaMacPct: num(s.mac?.memoria_libera_pct),
+      appMb: s.app_mb ?? {},
+    })
+  }
+  return macchine.sort((a, b) => b.quando - a.quando)
+}
+
+export async function salute(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
+  if (!logGroup) return null
+  // Una riga ogni 15 minuti per macchina: in 24 ore sono ~100 a testa, ben sotto il tetto di `eventi`.
+  const righe = await eventi(aws, { logGroup, filterPattern: '', da: Date.now() - ore * 3_600_000 })
+  const macchine = riassumiSalute(righe)
+  return {
+    ore,
+    macchine,
+    conOom: macchine.filter((m) => m.oomNuovi > 0).length,
+    conNonSani: macchine.filter((m) => m.nonSani.length > 0).length,
+  }
+}
