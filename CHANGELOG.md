@@ -5,6 +5,18 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Le Slack List del quadro sono una per area, non per ambiente** (06/10/2026). «Lista deploy
+  PRODOTTO», «Lista deploy CRON» e una per squadra («Lista deploy DATA», …), cioè le stesse schede dei
+  canvas, ciascuna con dentro produzione e staging. Due colonne nuove da filtrare, **Ambiente**
+  (produzione, staging) e **Tipo** (servizio, cron ECS, Lambda, componente esterno, sito/statico,
+  IaC), subito dopo Risorsa. Le celle di testo senza valore dicono `n/d` invece di restare vuote
+  (Slack ci disegnava un'icona segnaposto), e la Versione di un componente esterno o di un tag che
+  non è un commit si legge invece di sparire. Il link in fondo a ogni canvas porta alla List della
+  sua area. Niente più segnalibro alla creazione. Le righe nuove hanno un tetto di 20 per giro in
+  tutte le List insieme. Le List per ambiente di prima non si toccano e non si cancellano: vanno
+  tolte a mano, e le schede delle List nuove aggiunte a mano al canale.
+
 ### Added
 - **Le squadre del quadro anche per nome** (06/10/2026). In `DADAGUARD_QUADRO_SQUADRE` un elemento
   con `*` è un glob sul nome breve della risorsa (`data=Scraper,worker-*,sync-*`), per quello che un

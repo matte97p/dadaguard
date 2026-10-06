@@ -410,8 +410,9 @@ app.get('/api/quadro', async (req, res) => {
     const canvas = Object.fromEntries(canvasDaScrivere(q, cfg).map((c) => [c.chiave, c]))
     if (req.query.format === 'markdown')
       return res.type('text/markdown').send(Object.values(canvas).map((c) => `# ${c.titolo}\n\n${c.markdown}`).join('\n\n---\n\n'))
-    // Le righe che la Slack List di ogni ambiente avrebbe, accanto al canvas.
-    const liste = cfg.liste ? Object.fromEntries(listeDaScrivere(q, cfg).map((l) => [l.chiave, l])) : {}
+    // Le righe che la Slack List di ogni area avrebbe, accanto ai canvas. `tieni` è un Set, che in JSON
+    // diventerebbe `{}`: si manda come elenco.
+    const liste = cfg.liste ? Object.fromEntries(listeDaScrivere(q, cfg).map((l) => [l.chiave, { ...l, tieni: [...l.tieni] }])) : {}
     res.json({ quadro: q, canvas, liste })
   } catch (err) {
     res.status(500).json({ error: err.message })
