@@ -296,3 +296,27 @@ export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
 
   return { trovato, tranquillo }
 }
+
+// La SALUTE di una macchina (memoria e OOM della VM di Docker, container non sani), dal log group del
+// dev-env che arriva ogni 15 minuti. Si attacca alla riga dell'HOST: la VM e i container sono del Mac,
+// e il container `dev` non ha una salute sua da mostrare. `null` = nessuna riga nelle ultime 24 ore,
+// che non e' «sana»: e' un Mac spento, o un dev-env non ancora aggiornato.
+export function saluteDellaMacchina(salute, riga) {
+  if (!riga || riga.lato === 'container') return null
+  return (salute?.macchine ?? []).find((m) => m.macchina === riga.macchina) ?? null
+}
+
+// Le app che pesano di piu' dentro al container, in MB: «backend 1,3 GB» dice dove guardare quando la
+// VM e' piena. «altro» (gli MCP, i tool) non e' un'app e resta fuori.
+export function appPiuPesanti(appMb = {}, quante = 2) {
+  return Object.entries(appMb)
+    .filter(([nome, mb]) => nome !== 'altro' && Number(mb) > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, quante)
+    .map(([nome, mb]) => ({ nome, gb: Math.round(Number(mb) / 102.4) / 10 }))
+}
+
+// La salute merita uno sguardo: la VM ha finito la memoria nelle 24 ore, o un container e' non sano.
+export function saluteDaGuardare(s) {
+  return Boolean(s && (s.oomNuovi > 0 || (s.nonSani ?? []).length > 0))
+}

@@ -340,6 +340,19 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const riga = segnale.dettaglio ? ` · \`${rigaSicura(segnale.dettaglio)}\`` : ''
     return `${testa} IL DEV-ENV NON PARTE${chi}${perche}${riga} · due avvii di fila${coda}`
   }
+  if (segnale.tipo === 'oom') {
+    // Il numero, e dove: «la VM da 8 GB su un Mac da 24» dice gia' il primo passo (alzarla).
+    const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
+    const vm = segnale.vmMemGb != null ? ` · VM da ${segnale.vmMemGb} GB${segnale.ramMacGb != null ? ` su ${segnale.ramMacGb} del Mac` : ''}` : ''
+    const chiUcciso = segnale.uccisi?.length ? ` · uccisi: ${segnale.uccisi.join(', ')}` : ''
+    const n = segnale.quante === 1 ? 'un processo' : `${segnale.quante} processi`
+    return `${testa} MEMORIA FINITA NEL DEV-ENV${chi} — il kernel della VM ha ucciso ${n}${vm}${chiUcciso}${coda}`
+  }
+  if (segnale.tipo === 'container') {
+    const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
+    const riga = segnale.dettaglio ? ` — \`${rigaSicura(segnale.dettaglio)}\`` : ''
+    return `${testa} CONTAINER DEL DEV-ENV NON SANI${chi}${riga} · ${segnale.giri ?? 2} controlli di fila${coda}`
+  }
   return `${testa} — ${segnale.tipo}${coda}`
 }
 
