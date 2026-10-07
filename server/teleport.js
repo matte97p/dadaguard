@@ -14,6 +14,7 @@
 // services.yaml o DADAGUARD_CONFIG). Senza quella sezione la superficie non esiste e la pagina lo dice.
 import { CloudWatchLogsClient, FilterLogEventsCommand, StartQueryCommand, GetQueryResultsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './runtime/awsClient.js'
+import { annotaIdentita, fonteUtente, idMacchina } from './identitaMacchine.js'
 
 export const key = 'teleport'
 
@@ -875,9 +876,14 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
   // del portatile, che non si somigliano) e quale dei due finisce in tabella dipende
   // da com'e' andato l'ultimo avvio. La pagina sceglie quello che Teleport conosce.
   const nomiVisti = new Map()
+  // L'IDENTITA' di ogni nome (dal 07/10/2026): prima e ultima riga, gli id del Mac e gli utenti con la
+  // loro fonte. Serve alla pagina Flotta per riconoscere lo stesso Mac sotto due nomi
+  // (server/identitaMacchine.js), e si raccoglie su TUTTE le righe, non sulla storia che ha un tetto.
+  const identita = {}
   for (const ev of righe) {
     const r = comeJson(ev.message)
     if (!r?.macchina) continue
+    annotaIdentita(identita, r, ev.timestamp ?? 0)
     const chiave = `${r.macchina}/${r.lato ?? '?'}`
     if (r.utente) {
       if (!nomiVisti.has(chiave)) nomiVisti.set(chiave, new Set())
@@ -913,6 +919,7 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
       immagine: r.immagine ?? null,
       creata: r.creata ?? null,
       durata: r.durata != null ? Number(r.durata) : null,
+      macchinaId: idMacchina(r),
     })
 
     const precedente = perMacchina.get(chiave)
@@ -921,6 +928,9 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
         macchina: r.macchina,
         lato: r.lato ?? null,
         utente: r.utente ?? null,
+        // Dal 07/10/2026, facoltativi: l'id stabile del Mac e da dove viene `utente`.
+        macchinaId: idMacchina(r),
+        utenteDa: fonteUtente(r),
         immagine: r.immagine ?? null,
         // QUANDO e' stata costruita quell'immagine, se l'avvio l'ha mandata: e' il campo con cui
         // «indietro» diventa un ordine invece di una stima, perche' fra due digest diversi non si sa
@@ -973,6 +983,8 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     // ne fa la storia degli avvii e quella delle immagini. Un tetto per macchina, perche' il payload
     // e' lo stesso della pagina Accessi e sette giorni di avvii di chi riavvia spesso sono tanti.
     storia: storiaAvvii(avviiPerMacchina),
+    // Per nome: prima e ultima riga, id del Mac, utenti con la fonte (vedi server/identitaMacchine.js).
+    identita,
   }
 }
 
@@ -1292,10 +1304,12 @@ export function settimanaDiSalute(eventi = [], { adesso = Date.now(), ore = ORE_
   const recenti = eventi.filter((e) => (e.timestamp ?? 0) >= da)
   const macchine = riassumiSalute(recenti)
   const ultime = {}
+  const identita = {}
   for (const ev of eventi) {
     const r = comeJson(ev.message)
     if (!r?.macchina || !Number.isFinite(ev.timestamp)) continue
     if (!(ultime[r.macchina] >= ev.timestamp)) ultime[r.macchina] = ev.timestamp
+    annotaIdentita(identita, r, ev.timestamp)
   }
   return {
     ore,
@@ -1305,6 +1319,8 @@ export function settimanaDiSalute(eventi = [], { adesso = Date.now(), ore = ORE_
     giorniUltime: giorni,
     ultime,
     serie: binnaSalute(eventi, { adesso, giorni, passoMs }),
+    // Per nome, sui sette giorni: la stessa forma dell'heartbeat (server/identitaMacchine.js).
+    identita,
     // ⚠️ Al tetto mancano le righe PIU' VECCHIE (Insights torna dalle piu' recenti): le 24 ore restano
     // intere, l'andamento no, e la pagina lo deve dire invece di disegnare una settimana corta.
     troncato,
