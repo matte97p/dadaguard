@@ -53,14 +53,7 @@ export async function statoAccessi({ ore = 24 } = {}) {
           }),
         ).catch((err) => ({ errore: cleanAwsReason(err) }))
       : mancante(cfg.audit?.account ?? '?'),
-    conto(accounts, cfg.heartbeat?.account)
-      ? cached('teleport:heartbeat', 120_000, () =>
-          teleport.heartbeat(conto(accounts, cfg.heartbeat?.account), {
-            logGroup: cfg.heartbeat?.logGroup,
-            immagineAttesa: cfg.heartbeat?.immagineAttesa ?? null,
-          }),
-        ).catch((err) => ({ errore: cleanAwsReason(err) }))
-      : mancante(cfg.heartbeat?.account ?? '?'),
+    leggiHeartbeat(accounts, cfg),
     // La salute delle macchine (memoria e OOM della VM, container non sani): 24 ore e non la finestra
     // della pagina, perche' la domanda e' «oggi questa macchina ha finito la memoria?».
     !cfgSalute
@@ -81,6 +74,19 @@ export async function statoAccessi({ ore = 24 } = {}) {
     heartbeat,
     salute,
   }
+}
+
+// L'heartbeat dei dev-env, con la sua cache. Lo leggono la pagina Accessi (e il watchdog) e la pagina
+// Flotta: una funzione sola, cosi' le due pagine condividono la stessa lettura invece di pagarla due
+// volte con due chiavi di cache che un giorno divergono.
+export function leggiHeartbeat(accounts, cfg = {}) {
+  if (!conto(accounts, cfg.heartbeat?.account)) return Promise.resolve(mancante(cfg.heartbeat?.account ?? '?'))
+  return cached('teleport:heartbeat', 120_000, () =>
+    teleport.heartbeat(conto(accounts, cfg.heartbeat?.account), {
+      logGroup: cfg.heartbeat?.logGroup,
+      immagineAttesa: cfg.heartbeat?.immagineAttesa ?? null,
+    }),
+  ).catch((err) => ({ errore: cleanAwsReason(err) }))
 }
 
 // Dove sta la salute delle macchine. `teleport.salute: { account, logGroup }` se la config la dice;
@@ -106,11 +112,16 @@ export function configSalute(cfg = {}) {
 //   · vmSottoGb: quanti GB sotto l'obiettivo la VM puo' stare. Due, perche' Docker arrotonda e un
 //     mezzo GB di differenza fra impostata e vista e' normale.
 //   · comandiSulMac: quanti comandi dei repo sul Mac in 24 ore (bloccati + forzati) fanno un avviso.
+//   · appPesanteMb: quanti MB una sola app del dev-env (`app_mb`) puo' tenere prima che la pagina
+//     Flotta la segnali. Tre GB: il backend sano sta sotto il GB e mezzo, e sopra i tre e' la causa
+//     piu' comune della VM che finisce la memoria (misurato il 07/10/2026: 3,7 GB su una VM da 11,7
+//     con tre OOM nella giornata). Solo pagina, niente Slack: e' il PERCHE' di un OOM, non una notizia.
 export const SOGLIE_DEV_ENV = Object.freeze({
   giorniIndietro: 7,
   motoriAmmessi: Object.freeze(['docker-desktop']),
   vmSottoGb: 2,
   comandiSulMac: 10,
+  appPesanteMb: 3072,
 })
 
 // ⚠️ Come `calmaMinuti` in watch.js: un valore assente o che non e' un numero tiene il default,
@@ -130,6 +141,7 @@ export function soglieDevEnv(cfg = {}) {
     motoriAmmessi: motori,
     vmSottoGb: numero(dentro.vmSottoGb, SOGLIE_DEV_ENV.vmSottoGb),
     comandiSulMac: numero(dentro.comandiSulMac, SOGLIE_DEV_ENV.comandiSulMac),
+    appPesanteMb: numero(dentro.appPesanteMb, SOGLIE_DEV_ENV.appPesanteMb),
   }
 }
 
