@@ -982,3 +982,362 @@
     }
   }
 }
+
+/* ══ CRUSCOTTO: tessere, grafici, comando in riga (07/10/2026) ══════════════════════════════════════
+   Il linguaggio delle pagine Flotta e Accessi: superfici neutre, una sola linea sottile dove serve,
+   lo spazio al posto dei bordi. Il colore di STATO sta solo sul numero cattivo e sul pallino; quello
+   delle SERIE (`--chart-*`) solo sui segni dei grafici, mai sul testo. */
+
+/* ── la fila di numeri ── */
+.ui-tessere {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.ui-tessera {
+  background: var(--panel);
+  padding: 14px 16px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ui-tessera-et {
+  font-size: 12.5px;
+  color: var(--mute);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-tessera-riga {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+}
+.ui-tessera-n {
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ui-tessera-n small {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--faint);
+  margin-left: 3px;
+  letter-spacing: 0;
+}
+/* Il colore del numero cattivo: scritto qui e non lasciato a `.ui-t-*`, che sta piu' in alto nel
+   file e perderebbe contro il colore d'inchiostro della tessera. */
+.ui-tessera-n.ui-t-crit {
+  color: var(--crit);
+}
+.ui-tessera-n.ui-t-warn {
+  color: var(--warn);
+}
+.ui-tessera-n.ui-tessera-ignoto {
+  color: var(--faint);
+  font-weight: 400;
+}
+.ui-tessera-sotto {
+  font-size: 12px;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-trend {
+  flex: none;
+  overflow: visible;
+}
+.ui-trend-linea {
+  fill: none;
+  stroke: var(--chart-neutro);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ui-trend-punto {
+  fill: var(--mute);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+.ui-trend-mark {
+  fill: var(--chart-neutro);
+}
+.ui-trend-ora {
+  fill: var(--mute);
+}
+.ui-trend-base {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* ── i grafici del tempo ── */
+.ui-grafico {
+  position: relative;
+  min-width: 0;
+}
+.ui-grafico svg {
+  display: block;
+  overflow: visible;
+  outline: none;
+}
+.ui-grafico svg:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.ui-asse text {
+  font-size: 11px;
+  fill: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.ui-asse-et {
+  font-size: 11px;
+  fill: var(--faint);
+}
+.ui-griglia {
+  stroke: var(--chart-griglia);
+  stroke-width: 1;
+}
+.ui-griglia-v {
+  stroke: var(--chart-griglia);
+  stroke-width: 1;
+}
+.ui-base,
+.ui-tacca {
+  stroke: var(--line-2);
+  stroke-width: 1;
+}
+.ui-linea {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ui-linea-neutra {
+  stroke: var(--chart-neutro);
+}
+.ui-linea-accento {
+  stroke: var(--chart-1);
+}
+.ui-banda {
+  fill: var(--chart-1);
+  opacity: 0.1;
+}
+.ui-punto-accento,
+.ui-punto-neutro,
+.ui-punto {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+.ui-punto-accento {
+  fill: var(--chart-1);
+}
+.ui-punto-neutro {
+  fill: var(--chart-neutro);
+}
+.ui-oom {
+  fill: var(--crit);
+}
+.ui-ignoto {
+  fill: var(--line-2);
+}
+.ui-mirino {
+  stroke: var(--faint);
+  stroke-width: 1;
+}
+.ui-fascia-mirino {
+  fill: var(--hover);
+}
+.ui-lettura {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(10, 12, 20, 0.12);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  min-width: 170px;
+  white-space: nowrap;
+}
+.ui-lettura b {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.ui-lettura > span {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  color: var(--mute);
+}
+.ui-lettura i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.ui-lettura em {
+  font-style: normal;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.ui-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12.5px;
+  color: var(--mute);
+  margin-bottom: 8px;
+}
+.ui-legenda > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.ui-legenda b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ui-legenda-spenta {
+  color: var(--faint);
+}
+.ui-legenda-spenta i {
+  opacity: 0.45;
+}
+.ui-legenda-quadro {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--c);
+}
+.ui-legenda-linea {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--c);
+}
+.ui-multipli-nome {
+  font-size: 12px;
+  fill: var(--mute);
+}
+.ui-multipli-valore {
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ui-multipli-quando {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.ui-tabella-grafico {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+.ui-tabella-grafico summary {
+  cursor: pointer;
+  color: var(--faint);
+  width: fit-content;
+}
+.ui-tabella-grafico summary:hover {
+  color: var(--ink);
+}
+.ui-tabella-grafico table {
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  max-width: 640px;
+}
+.ui-tabella-grafico th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--faint);
+  font-size: 11.5px;
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ui-tabella-grafico td {
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--mute);
+}
+
+/* ── un comando in riga, col suo «Copia» ── */
+.ui-cmd-in {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 2px;
+  background: var(--hover);
+  border-radius: 6px;
+  padding: 1px 2px 1px 8px;
+  vertical-align: middle;
+}
+.ui-cmd-in code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+  user-select: all;
+}
+.ui-cmd-in button {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: none;
+}
+.ui-cmd-in button:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+
+@media (max-width: 720px) {
+  .ui-tessere {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ui-tessera:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .ui-tessera {
+    padding: 12px 12px 11px;
+  }
+  .ui-tessera-n {
+    font-size: 24px;
+  }
+  .ui-tessera-riga .ui-trend {
+    width: 64px;
+  }
+}

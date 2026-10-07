@@ -257,3 +257,76 @@ export function destinazioneVista(vista, hash = '') {
   if (ancora) return { ancora }
   return VISTE_VECCHIE[vista] ? { ancora: VISTE_VECCHIE[vista] } : {}
 }
+
+// ── I NUMERI della finestra, per il cruscotto (07/10/2026) ─────────────────────────────────────────
+//
+// Cinque tessere in cima alla pagina: login fallite, scritture in produzione, SSH aperte, accessi ai
+// database negati, persone attive. Il numero e' il totale dell'audit (gli stessi conti di sempre);
+// l'andamento e' la serie per fascia che il server binna (`audit.andamento`); il COLORE e' quello della
+// voce piu' grave di quel tipo in «da sistemare», cosi' la tessera e l'elenco non possono dire due
+// gravita' diverse per la stessa cosa. Senza voci il numero resta grigio anche se non e' zero: tre
+// scritture su staging non sono un problema.
+const LIVELLO_PEGGIORE = (voci, tipo) => {
+  const l = voci.filter((v) => v.tipo === tipo).map((v) => v.livello)
+  return l.includes('crit') ? 'crit' : l.includes('warn') ? 'warn' : null
+}
+
+export function numeriAccessi(audit = {}, voci = []) {
+  const persone = audit.persone ?? []
+  const prod = (audit.database ?? []).filter((d) => d.ambiente === 'prod')
+  const a = audit.andamento ?? null
+  const serie = (k) => (a && Array.isArray(a[k]) ? a[k] : null)
+  const somma = (xs, f) => xs.reduce((n, x) => n + (Number(f(x)) || 0), 0)
+  return [
+    {
+      k: 'loginFallite',
+      valore: audit.loginFallite ?? null,
+      chi: persone.filter((p) => (p.loginFallite ?? 0) > 0).length,
+      livello: LIVELLO_PEGGIORE(voci, 'login'),
+      serie: serie('loginFallite'),
+      forma: 'barre',
+    },
+    {
+      k: 'scritture',
+      valore: audit.database ? somma(prod, (d) => d.scritture) : null,
+      chi: prod.filter((d) => (d.scritture ?? 0) > 0).length,
+      livello: LIVELLO_PEGGIORE(voci, 'scrittura'),
+      serie: serie('scrittureProd'),
+      forma: 'barre',
+    },
+    {
+      k: 'ssh',
+      valore: audit.sshAperte ?? null,
+      chi: audit.sessioniSsh ?? null,
+      livello: LIVELLO_PEGGIORE(voci, 'ssh'),
+      serie: serie('ssh'),
+      forma: 'barre',
+    },
+    {
+      k: 'negati',
+      valore: audit.sessioniDbNegate ?? (audit.persone ? somma(persone, (p) => p.sessioniDbNegate) : null),
+      chi: persone.filter((p) => (p.sessioniDbNegate ?? 0) > 0).length,
+      livello: LIVELLO_PEGGIORE(voci, 'negato'),
+      serie: serie('negati'),
+      forma: 'barre',
+    },
+    {
+      k: 'persone',
+      valore: audit.persone ? persone.length : null,
+      chi: somma(persone, (p) => p.loginOk),
+      livello: null,
+      serie: serie('persone'),
+      forma: 'linea',
+    },
+  ]
+}
+
+// Il passo di una fascia detto a voce: «2 min», «1 ora», «6 ore», «1 giorno».
+export function passoDetto(passoMs, t = (k) => k) {
+  if (!Number.isFinite(passoMs) || passoMs <= 0) return ''
+  const min = Math.round(passoMs / 60_000)
+  if (min < 60) return t('accessi.passo.min', { n: min })
+  const h = Math.round(min / 60)
+  if (h < 24) return t('accessi.passo.h', { n: h })
+  return t('accessi.passo.g', { n: Math.round(h / 24) })
+}

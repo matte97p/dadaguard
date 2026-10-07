@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
-import { Verdetto, Lista, Sezione, Pill, ListaLink } from '../ui/index.js'
+import { Verdetto, Lista, Sezione, Dot, ListaLink, Tessere, Tessera, GraficoEventi, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 import Loading from '../components/Loading.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
-import { cercaVoce, daSistemare, destinazioneVista, filtraRighe, inOrdine, linkAudit, proprietariMacchine } from '../accessi.js'
+import { cercaVoce, daSistemare, destinazioneVista, filtraRighe, inOrdine, linkAudit, numeriAccessi, passoDetto, proprietariMacchine } from '../accessi.js'
 import './ops.css'
 import './accessi.css'
 
@@ -32,6 +32,16 @@ import './accessi.css'
 //     riga sola, e si apre per chi lo cerca;
 //   · la mappa «chi ha cosa» resta raggiungibile, ma in fondo e chiusa: e' un elenco da consultare,
 //     non una cosa da sistemare, e non deve pesare quanto l'elenco di sopra.
+//
+// ── E poi un cruscotto (07/10/2026, la sera) ───────────────────────────────────────────────────────
+// La stesura del pomeriggio si leggeva come una pagina di testo: card col bordo colorato, pillola e
+// riquadro per ogni voce, e nessun numero da prendere con un'occhiata. Ora, nello stesso linguaggio
+// della Flotta:
+//   · cinque NUMERI della finestra (login fallite, scritture in produzione, SSH aperte, accessi ai
+//     database negati, persone attive), ognuno col suo andamento per fascia, il colore solo sul numero
+//     e solo se in «da sistemare» c'e' una voce di quel tipo;
+//   · un GRAFICO degli eventi nella finestra, a colonne per fascia, coi soli tipi da guardare;
+//   · «da sistemare» a righe sottili: pallino, frase, chi e quando, e il link dove si agisce.
 
 // I gradini della finestra li dichiara `server/finestre.conf` e li serve `/api/finestre`. Il ripiego
 // serve al primo caricamento e al caso in cui quella chiamata non risponda.
@@ -210,6 +220,9 @@ export default function AccessiPage({ t, lang }) {
       {/* ⚠️ Un campione spacciato per totale e' peggio di nessun numero. */}
       {audit.troncato && <div className="ui-readwarn">{t('accessi.troncato')}</div>}
 
+      {!audit.errore && <NumeriAccessi audit={audit} voci={voci} t={t} />}
+      {audit.andamento && <GraficoAccessi andamento={audit.andamento} t={t} lang={lang} />}
+
       <Sezione titolo={t('accessi.daSistemare')} sotto={voci.length ? t('accessi.daSistemareSotto') : null}>
         {filtrate.length ? (
           <div className="acc-voci">
@@ -364,27 +377,117 @@ function Voce({ v, dati, t, lang }) {
     azione = { label: t('accessi.az.audit'), href: linkAudit(dati.auditUserUrl, 'utente', v.utente) ?? dati.webUrl }
   }
   return (
-    <article className={`acc-voce acc-${v.livello}`} data-ancora={v.ancora}>
-      <Pill livello={v.livello}>{t(`accessi.tipo.${v.tipo}`)}</Pill>
+    <article className="acc-voce" data-ancora={v.ancora} aria-label={`${t(`accessi.tipo.${v.tipo}`)}: ${titolo}`}>
+      <Dot livello={v.livello} title={t(`accessi.tipo.${v.tipo}`)} />
       <div className="acc-voce-corpo">
         <b className="acc-voce-titolo">{titolo}</b>
         {perche && <span className="acc-voce-perche">{perche}</span>}
-        <span className="acc-voce-chi">
-          {chi}
-          {v.ultima ? (
-            <>
-              {' · '}
-              <Quando ts={v.ultima} t={t} lang={lang} />
-            </>
-          ) : null}
-        </span>
       </div>
-      {azione?.href && /^https?:\/\//i.test(azione.href) && (
+      <span className="acc-voce-chi">
+        {chi}
+        {v.ultima ? (
+          <>
+            {chi.length ? ' · ' : ''}
+            <Quando ts={v.ultima} t={t} lang={lang} />
+          </>
+        ) : null}
+      </span>
+      {azione?.href && /^https?:\/\//i.test(azione.href) ? (
         <a className="acc-voce-azione" href={azione.href} target="_blank" rel="noopener noreferrer">
           {azione.label} <span aria-hidden="true">↗</span>
         </a>
+      ) : (
+        <span />
       )}
     </article>
+  )
+}
+
+// ── I cinque numeri della finestra ─────────────────────────────────────────────────────────────────
+function NumeriAccessi({ audit, voci, t }) {
+  const numeri = numeriAccessi(audit, voci)
+  const passo = passoDetto(audit.andamento?.passoMs, t)
+  const sotto = (n) => {
+    if (n.k === 'ssh') return n.chi != null ? t('accessi.kpi.sshSotto', { n: n.chi }) : null
+    if (n.k === 'persone') return t('accessi.kpi.personeSotto', { n: n.chi ?? 0 })
+    if (!n.valore) return t('accessi.kpi.nessuna')
+    return t(`accessi.kpi.${n.k}Sotto`, { n: n.chi ?? 0 })
+  }
+  return (
+    <Tessere etichetta={t('accessi.kpi.aria')}>
+      {numeri.map((n) => (
+        <Tessera
+          key={n.k}
+          etichetta={t(`accessi.kpi.${n.k}`)}
+          valore={n.valore}
+          livello={n.valore > 0 ? n.livello : null}
+          sotto={sotto(n)}
+          trend={
+            n.serie && {
+              valori: n.serie,
+              forma: n.forma,
+              dominio: [0, 1],
+              descrizione: t('accessi.kpi.trend', { passo, valori: n.serie.map((v) => (v == null ? '-' : v)).join(', ') }),
+            }
+          }
+        />
+      ))}
+    </Tessere>
+  )
+}
+
+// ── Gli eventi della finestra ──────────────────────────────────────────────────────────────────────
+// Quattro tipi, ciascuno col suo posto fisso nella palette dei grafici (`--chart-1..4`): il colore
+// segue il tipo, non la sua posizione, quindi un tipo a zero non fa cambiare colore agli altri.
+const SERIE_EVENTI = [
+  { k: 'loginFallite', colore: 'var(--chart-1)' },
+  { k: 'negati', colore: 'var(--chart-2)' },
+  { k: 'scrittureProd', colore: 'var(--chart-3)' },
+  { k: 'ssh', colore: 'var(--chart-4)' },
+]
+
+function GraficoAccessi({ andamento, t, lang }) {
+  const serie = SERIE_EVENTI.map((s) => ({ ...s, etichetta: t(`accessi.serie.${s.k}`), valori: andamento[s.k] ?? [] }))
+  const totale = (s) => s.valori.reduce((n, v) => n + (v ?? 0), 0)
+  const vuoto = serie.every((s) => totale(s) === 0)
+  const passo = passoDetto(andamento.passoMs, t)
+  const fasce = Array.from({ length: andamento.punti }, (_, i) => i).filter((i) => serie.some((s) => s.valori[i] > 0))
+  const quando = (i) =>
+    new Date(andamento.inizio + i * andamento.passoMs).toLocaleString(lang === 'it' ? 'it-IT' : 'en-GB', { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return (
+    <Sezione titolo={t('accessi.grafico')} sotto={t('accessi.graficoSotto', { passo })}>
+      <div className="acc-grafico">
+        <Legenda voci={serie.map((s) => ({ etichetta: s.etichetta, colore: s.colore, valore: totale(s), spenta: totale(s) === 0 }))} />
+        <GraficoEventi andamento={andamento} serie={serie} t={t} lang={lang} />
+        {vuoto ? (
+          <p className="acc-grafico-vuoto">{t('accessi.grafico.vuoto')}</p>
+        ) : (
+          <details className="ui-tabella-grafico">
+            <summary>{t('grafico.tabella')}</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('accessi.tab.fascia')}</th>
+                  {serie.map((s) => (
+                    <th key={s.k}>{s.etichetta}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fasce.map((i) => (
+                  <tr key={i}>
+                    <td>{quando(i)}</td>
+                    {serie.map((s) => (
+                      <td key={s.k}>{s.valori[i] ?? '-'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
+      </div>
+    </Sezione>
   )
 }
 

@@ -6,6 +6,34 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Flotta e Accessi diventano due cruscotti** (07/10/2026). Le pagine rifatte in mattinata si
+  leggevano come testo e come un muro di scatole (card col bordo colorato, pillola, riquadro «Cosa
+  fare» con dentro il riquadro del comando), e rosso e giallo erano ovunque. Ora in cima a tutte e
+  due una fila di cinque numeri piatti, ognuno col suo andamento in piccolo e il colore solo sul
+  numero cattivo. **Flotta**: Mac attivi, da sistemare, OOM nelle 24 ore, immagine in pari (%),
+  memoria libera minima; sotto, la **matrice** della flotta, una riga per Mac e una colonna per cosa
+  si guarda (immagine, VM sull'obiettivo, OOM, motore, salute, doctor, avvio, comandi sul Mac, app più
+  pesante): grigio quando va bene, un pallino col valore quando no, un trattino tenue quando il dato
+  non c'è. Prima i Mac da sistemare, ma tutti visibili; il clic apre il pannello (`?mac=`, come
+  prima). Le azioni sono una riga sola sotto la matrice, e i comandi stanno nel pannello come gettone
+  in riga con «Copia». Poi un grafico di 7 giorni: la memoria libera della VM peggiore e di quella
+  tipica (la mediana), ora per ora, con le ore in cui la memoria ha ucciso un processo sullo stesso
+  asse. Il pannello ha i problemi in elenco (pallino, frase, azione, comando), le quattro serie come
+  piccoli multipli su un asse solo con il mirino condiviso, e la memoria dei container a barre.
+  **Accessi**: login fallite, scritture in produzione, SSH aperte, accessi ai database negati,
+  persone attive, ciascuno con l'andamento nella finestra scelta; un grafico a colonne degli eventi da
+  guardare, per fascia; «da sistemare» a righe sottili (pallino, frase, chi e quando, link), e «tutto
+  il resto» e «chi ha cosa» come righe leggere. Ogni grafico ha il mirino col mouse e con le frecce, e
+  la tabella dei numeri sotto «Vedi i numeri». Restano i link di prima (`?mac=`, `?vista=`, le ancore
+  dei messaggi Slack), le stringhe IT/EN e la tastiera. Colori dei grafici nuovi in `app.css`
+  (`--chart-1..4`, `--chart-neutro`, `--chart-griglia`), in chiaro e in scuro, controllati col
+  validatore della palette. Campi nuovi, tutti facoltativi: `/api/flotta` porta `andamento` (per ora
+  il minimo della memoria libera e di chi, la mediana, gli OOM e i Mac accesi; per giorno gli stessi
+  conti più l'immagine in pari, rigiocata sugli avvii) e `riepilogo` (i numeri in cima);
+  `/api/teleport` porta `audit.andamento`, gli eventi binnati per fascia (fino a 36: 2 minuti su
+  un'ora, un'ora su un giorno, 6 ore su 7 giorni) nella stessa cache dell'audit. Al tetto di
+  Insights le fasce prima del primo evento letto sono `null`, non zero. La demo ha un accesso negato
+  in più e gli eventi dell'audit nella finestra.
 - **La pagina Accessi parla solo di accessi, e apre con una frase e un elenco** (07/10/2026). In cima
   una frase sola («4 cose da sistemare, di cui 3 urgenti», oppure «Tutto in ordine») e sotto UN
   elenco in ordine di urgenza, ognuna con chi, cosa, quando e il link dove si agisce in Teleport: le

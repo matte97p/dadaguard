@@ -445,16 +445,21 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
     return macchine.get(k)
   }
 
+  // La TRACCIA per il grafico della pagina: un elemento per evento che conta, col suo istante. Si
+  // binna in fondo (`andamentoAudit`), insieme al resto e nella stessa cache.
+  const traccia = []
   for (const ev of righe) {
     const dati = comeJson(ev.message)
     const campi = dati?.fields ?? dati
     const tipo = campi?.event ?? dati?.event_type
     const utente = campi?.user ?? dati?.user
     if (!tipo || !utente) continue
+    const segna = (cosa, extra = {}) => traccia.push({ quando: ev.timestamp, tipo: cosa, utente, ...extra })
     const p = chiave(utente)
     p.ultima = Math.max(p.ultima ?? 0, ev.timestamp ?? 0)
     if (tipo === 'user.login') {
       if (campi.success === false) {
+        segna('login-fallita')
         p.loginFallite += 1
         const quando = ev.timestamp ?? 0
         p.primaFallita = p.primaFallita == null ? quando : Math.min(p.primaFallita, quando)
@@ -470,6 +475,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
           p.motivoQuando = quando
         }
       } else {
+        segna('login')
         p.loginOk += 1
         const quando = ev.timestamp ?? 0
         p.ultimoLoginOk = Math.max(p.ultimoLoginOk ?? 0, quando)
@@ -494,6 +500,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
       // 01/09/2026 sette tentativi negati in un giorno, due persone, tre utenti di database diversi,
       // e questa pagina diceva soltanto «sessioni». Il motivo lo porta il log dal primo tentativo.
       if (campi.success === false) {
+        segna('negato')
         p.sessioniDbNegate += 1
         const quando = ev.timestamp ?? 0
         const n = perNegato(utente, campi.db_user, campi.db_name, campi.db_service)
@@ -509,6 +516,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
           p.motivoQuando = quando
         }
       } else {
+        segna('db')
         p.sessioniDb += 1
       }
     } else if (tipo === 'session.start' || tipo === 'session.end') {
@@ -523,6 +531,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
       // `start` poi incrementava. Con gli insiemi l'ordine non conta.
       const sid = campi.sid ?? null
       if (tipo === 'session.start') {
+        segna('ssh')
         m.sessioni += 1
         m.chi.add(utente)
         p.sessioniSsh += 1
@@ -533,6 +542,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
       m.ultima = Math.max(m.ultima ?? 0, ev.timestamp ?? 0)
     } else if (tipo === 'db.session.query') {
       const d = perDatabase(campi.db_service, campi.db_name)
+      segna('query')
       d.query += 1
       d.persone.add(utente)
       d.ambiente = d.ambiente ?? campi.db_labels?.env ?? null
@@ -547,6 +557,7 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
         d.tentate += 1
         d.motiviTentate.add(perche)
       } else if (fatta) {
+        segna('scrittura', { prod: (campi.db_labels?.env ?? d.ambiente) === 'prod' })
         d.scritture += 1
         if (fatta.tipo === 'dati') {
           d.scrittureDati += 1
@@ -649,7 +660,62 @@ export async function audit(aws, { logGroup, ore = ORE_DEFAULT, utentiSolaLettur
     troncato: righe.length >= massimo,
     // Il motivo piu' frequente fra le fallite: e' la riga che risponde a «cosa sta succedendo adesso».
     motivoPiuComune: piuComune(elenco.filter((p) => p.motivo).map((p) => p.motivo)),
+    // Gli stessi eventi nel tempo, per le tessere e il grafico della pagina.
+    andamento: andamentoAudit(traccia, { adesso: Date.now(), ore, troncato: righe.length >= massimo }),
   }
+}
+
+// ── L'ANDAMENTO DELL'AUDIT, per il cruscotto della pagina Accessi (dal 07/10/2026) ────────────────
+//
+// I numeri della pagina (login fallite, scritture in produzione, SSH, accessi negati, persone) sono
+// totali della finestra; qui gli stessi eventi si contano per FASCIA, cosi' la tessera dice se il
+// numero e' di adesso o di tre ore fa, e il grafico mostra quando e' successo cosa.
+//
+// Le fasce sono tante quante si leggono in un grafico largo una colonna (fino a 36), e di una misura
+// che si dice a voce: due minuti su un'ora, dieci su sei ore, un'ora su un giorno, sei su sette.
+export const PASSI_ANDAMENTO = [60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000, 3_600_000, 7_200_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000]
+export const FASCE_MAX = 36
+
+export function passoAndamento(ore, max = FASCE_MAX) {
+  const durata = Math.max(1, Number(ore) || ORE_DEFAULT) * 3_600_000
+  return PASSI_ANDAMENTO.find((p) => durata / p <= max) ?? PASSI_ANDAMENTO.at(-1)
+}
+
+// `eventi`: [{ quando, tipo, utente, prod? }], con tipo fra `login-fallita`, `login`, `negato`, `db`,
+// `ssh`, `scrittura`, `query`. Le serie che escono sono quelle che la pagina disegna:
+//   · loginFallite, negati, ssh (sessioni iniziate), scritture e scrittureProd: conteggi per fascia;
+//   · persone: quante persone DIVERSE hanno fatto qualcosa nella fascia (anche una login fallita).
+// Una fascia senza eventi e' zero, perche' l'audit e' completo: lo zero qui e' un fatto. Tranne al
+// tetto: Insights torna dalle righe piu' recenti, quindi mancano le PIU' VECCHIE, e le fasce prima del
+// primo evento letto sono `null` («non lo so»), non zero.
+export function andamentoAudit(eventi = [], { adesso = Date.now(), ore = ORE_DEFAULT, troncato = false, passoMs = null } = {}) {
+  const passo = passoMs ?? passoAndamento(ore)
+  const punti = Math.max(1, Math.ceil((Math.max(1, Number(ore) || ORE_DEFAULT) * 3_600_000) / passo))
+  const inizio = Math.floor(adesso / passo) * passo - (punti - 1) * passo
+  const zeri = () => Array(punti).fill(0)
+  const serie = { loginFallite: zeri(), negati: zeri(), ssh: zeri(), scritture: zeri(), scrittureProd: zeri() }
+  const persone = Array.from({ length: punti }, () => new Set())
+  let primo = null
+  for (const e of eventi) {
+    if (!Number.isFinite(e?.quando)) continue
+    const i = Math.floor((e.quando - inizio) / passo)
+    if (i < 0 || i >= punti) continue
+    primo = primo == null ? e.quando : Math.min(primo, e.quando)
+    if (e.utente) persone[i].add(e.utente)
+    if (e.tipo === 'login-fallita') serie.loginFallite[i] += 1
+    else if (e.tipo === 'negato') serie.negati[i] += 1
+    else if (e.tipo === 'ssh') serie.ssh[i] += 1
+    else if (e.tipo === 'scrittura') {
+      serie.scritture[i] += 1
+      if (e.prod) serie.scrittureProd[i] += 1
+    }
+  }
+  const fuori = { ...serie, persone: persone.map((x) => x.size) }
+  if (troncato) {
+    const k = primo == null ? punti : Math.floor((primo - inizio) / passo)
+    for (const nome of Object.keys(fuori)) for (let i = 0; i < k; i++) fuori[nome][i] = null
+  }
+  return { inizio, passoMs: passo, punti, troncato: Boolean(troncato), ...fuori }
 }
 
 function piuComune(valori) {
