@@ -513,7 +513,7 @@ test('identita: il Mac rinominato da macOS cambiando rete e una riga sola, col n
 
 test('identita: tre nomi in una settimana, due dei quali si accavallano, e il nome di default che potrebbe continuare tutti e due', () => {
   const f = flottaSera([
-    ...parla('MAC-B1778B', 'bea', alle(10, 1, 7, 19), alle(10, 2, 22, 28)),
+    ...parla('MAC-A0F3C2', 'bea', alle(10, 1, 7, 19), alle(10, 2, 22, 28)),
     ...parla('MacBook-Pro-di-Bea', 'bea', alle(9, 30, 16, 30), alle(10, 3, 15, 54)),
     ...parla('Mac', 'bea', alle(10, 6, 8, 35), alle(10, 7, 14, 1)),
   ])
@@ -522,7 +522,7 @@ test('identita: tre nomi in una settimana, due dei quali si accavallano, e il no
   // da piu' di tre giorni e stanno fra i non visti, che e' come spariscono i nomi vecchi.
   assert.deepEqual(nomi(f), ['Mac'])
   assert.deepEqual(f.macchine[0].alias, [])
-  assert.deepEqual(f.nonViste.map((m) => m.macchina), ['MacBook-Pro-di-Bea', 'MAC-B1778B'])
+  assert.deepEqual(f.nonViste.map((m) => m.macchina), ['MacBook-Pro-di-Bea', 'MAC-A0F3C2'])
 })
 
 test('identita: un nome usato in mezzo a un altro (casa, ufficio, casa) non si unisce, e sparisce coi non visti', () => {

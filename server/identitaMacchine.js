@@ -57,7 +57,9 @@ const FORMA_ID = /^[0-9a-f]{8,64}$/
 
 // L'id del Mac come lo manda il dev-env; qualsiasi altra forma e' «non lo so».
 export function idMacchina(r) {
-  const v = String(r?.macchina_id ?? '').trim().toLowerCase()
+  const v = String(r?.macchina_id ?? '')
+    .trim()
+    .toLowerCase()
   return FORMA_ID.test(v) ? v : null
 }
 
@@ -102,7 +104,10 @@ export function fondiIdentita(...mappe) {
   return fuori
 }
 
-const norm = (u) => String(u ?? '').trim().toLowerCase()
+const norm = (u) =>
+  String(u ?? '')
+    .trim()
+    .toLowerCase()
 
 // Il nome canonico nella mappa delle persone della config (`people`: identita' grezza → nome), come
 // `canonicalActor` in server/util/principal.js; `null` se l'utente non c'e'.

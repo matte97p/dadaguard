@@ -550,6 +550,7 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
     saluteConfigurata: salute != null,
     macchine,
     nonViste,
+    nonVistiDopoGiorni: NON_VISTA_MS / 86_400_000,
     totale: macchine.length,
     daSistemare,
     riferimento: { digest: digestCorto(riferimento.immagine), fonte: riferimento.fonte, data: dataRif },
