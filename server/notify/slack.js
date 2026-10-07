@@ -163,7 +163,7 @@ export async function postSlack(webhook, payload, { timeoutMs = 5000 } = {}) {
 // ⚠️ Nessun `<!channel>`, nemmeno sulla sessione SSH. La destinazione di queste tre regole e' un canale
 // dove per ora legge una persona sola: strappare tutti dal lavoro per una cosa che non e' un guasto del
 // prodotto e' il modo di far silenziare il canale prima che serva davvero.
-const EMOJI_ACCESSI = { allarme: '🚨', attenzione: '⚠️' }
+const EMOJI_ACCESSI = { allarme: '🚨', attenzione: '⚠️', info: 'ℹ️' }
 
 const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
 
@@ -353,8 +353,43 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const riga = segnale.dettaglio ? ` — \`${rigaSicura(segnale.dettaglio)}\`` : ''
     return `${testa} CONTAINER DEL DEV-ENV NON SANI${chi}${riga} · ${segnale.giri ?? 2} controlli di fila${coda}`
   }
+  // Gli avvisi sul dev-env del 07/10/2026: stessa forma degli altri, la persona fra parentesi, poi il
+  // numero o il nome, e il primo passo quando ce n'e' uno solo.
+  const chiTra = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
+  if (segnale.tipo === 'immagine-vecchia') {
+    const g = segnale.giorni === 1 ? 'un giorno' : `${segnale.giorni} giorni`
+    return `${testa} IMMAGINE DEL DEV-ENV VECCHIA${chiTra}: costruita ${g} prima della più nuova in giro · va aggiornato il dev-env${coda}`
+  }
+  if (segnale.tipo === 'salute-muta') {
+    return `${testa} SALUTE DEL DEV-ENV MUTA${chiTra}: nessuna riga da ${segnale.oreZitta} ore, ma il dev-env è partito ${quanteOre(segnale.oreDallAvvio)} fa · l'agent del login non manda${coda}`
+  }
+  if (segnale.tipo === 'motore-non-supportato') {
+    const quale = segnale.motore
+      ? `\`${rigaSicura(segnale.motore, 40)}\``
+      : `non Docker Desktop (${(segnale.candidati ?? []).map((c) => rigaSicura(c, 40)).join(' o ')})`
+    return `${testa} MOTORE DI DOCKER NON SUPPORTATO${chiTra}: ${quale} · ammessi: ${(segnale.ammessi ?? []).join(', ')}${coda}`
+  }
+  if (segnale.tipo === 'vm-sotto-obiettivo') {
+    const vm = `${segnale.vmGb}${segnale.stimata ? ' circa' : ''}`
+    return `${testa} VM DEL DEV-ENV SOTTO L'OBIETTIVO${chiTra}: ${vm} GB su ${segnale.obiettivoGb} · la alza l'update del dev-env${coda}`
+  }
+  if (segnale.tipo === 'opt-out-attivi') {
+    const nomi = (segnale.nomi ?? []).map((n) => `\`${rigaSicura(n, 60)}\``).join(', ')
+    return `${testa} OPT-OUT DEL DEV-ENV ACCESI${chiTra}: ${nomi}${coda}`
+  }
+  if (segnale.tipo === 'lavoro-sul-mac') {
+    const parti = [segnale.bloccati ? `${segnale.bloccati} bloccati` : null, segnale.forzati ? `${segnale.forzati} forzati` : null].filter(Boolean)
+    return `${testa} COMANDI DEI REPO SUL MAC${chiTra}: ${segnale.quante} in 24 ore (${parti.join(', ')}) · il container risponde?${coda}`
+  }
+  if (segnale.tipo === 'doctor-ko') {
+    const n = segnale.quante === 1 ? 'un controllo fallito' : `${segnale.quante} controlli falliti`
+    const quali = segnale.falliti?.length ? ` · \`${rigaSicura(segnale.falliti.join(', '))}\`` : ''
+    return `${testa} DOCTOR DEL DEV-ENV KO${chiTra}: ${n}${quali}${coda}`
+  }
   return `${testa} — ${segnale.tipo}${coda}`
 }
+
+const quanteOre = (n) => (n === 1 ? "un'ora" : `${n} ore`)
 
 // La tabella dove si continua a guardare: il link porta dove sta la riga, non sulla pagina generica.
 function vistaDi(segnale) {

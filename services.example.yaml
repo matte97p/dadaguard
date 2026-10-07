@@ -340,6 +340,15 @@ services:
 #   # `0` = un messaggio a ogni giro, cioe' il comportamento di prima.
 #   calmaMinuti: 30                               # default
 #
+#   # Le soglie degli avvisi sul dev-env, tutte facoltative (qui i default). Un valore che non e' un
+#   # numero tiene il default. I motori di Docker AMMESSI sono un elenco: il giorno in cui la squadra
+#   # passa a OrbStack si aggiunge `orbstack` e il codice non cambia.
+#   soglieDevEnv:
+#     giorniIndietro: 7                           # immagine piu' vecchia della piu' nuova in giro
+#     motoriAmmessi: [docker-desktop]             # gli altri: un avviso alla settimana per macchina
+#     vmSottoGb: 2                                # VM sotto l'obiettivo del dev-env di almeno tanti GB
+#     comandiSulMac: 10                           # comandi dei repo sul Mac in 24 ore (bloccati + forzati)
+#
 #   # Gli utenti di DATABASE che non possono scrivere. Serve perche' l'audit di Teleport registra la
 #   # query quando la INOLTRA, prima della risposta: uno statement che Postgres rifiuta finisce nel log
 #   # con `success: true` come tutti gli altri, e senza questa riga il canale scrive quell'utente fra
