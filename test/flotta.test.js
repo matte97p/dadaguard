@@ -2,11 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { binnaSalute, caricoContainer, contenitoriDi, settimanaDiSalute, storiaAvvii } from '../server/teleport.js'
-import { componiFlotta, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO } from '../server/flotta.js'
+import { componiFlotta, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO, andamentoFlotta, immagineInPari, riepilogoFlotta, MEM_LIBERA_BASSA_GB } from '../server/flotta.js'
 import { soglieDevEnv, SOGLIE_DEV_ENV } from '../server/accessi.js'
 import { linkPagina } from '../server/notify/slack.js'
 import { demoFlotta } from '../server/demo.js'
-import { fraseProblema, fraseAzione, valoreSerie, storiaImmagini, TIPI_PROBLEMA, TIPI_AZIONE } from '../web/flotta.js'
+import { fraseProblema, fraseAzione, valoreSerie, storiaImmagini, TIPI_PROBLEMA, TIPI_AZIONE, celleMac, azioniFlotta, COLONNE, COLONNA_DEL_PROBLEMA } from '../web/flotta.js'
 
 // Il dizionario del frontend e' un `.jsx` senza JSX dentro: node non importa quell'estensione, quindi
 // lo si carica dal suo testo, che e' esattamente il modulo che il browser riceve.
@@ -358,4 +358,116 @@ test('demo: la flotta passa dalle funzioni vere e mostra un caso per Mac', () =>
   for (const n of ['alex-macbook', 'lee-macbook', 'eli-macbook']) assert.equal(di(n).livello, 'ok', n)
   // Sette giorni di andamento: le curve hanno qualcosa da disegnare.
   assert.ok(kim.serie.mem.filter((v) => v != null).length > 150)
+})
+
+// ── Il cruscotto: i conti sulla flotta e la matrice ───────────────────────────────────────────────
+
+// Due Mac per 48 ore: «a» sempre acceso, «b» spento il primo giorno. Gli OOM di «a» nascono nell'ora
+// 30; il contatore di «b» non arriva mai.
+const serieFinta = () => {
+  const punti = 48
+  const vuota = () => Array(punti).fill(null)
+  const a = { mem: vuota().map((_, i) => 5 - (i >= 30 ? 4 : 0)), oom: vuota().map((_, i) => (i === 30 ? 2 : 0)), swap: vuota(), cpu: vuota() }
+  const b = { mem: vuota().map((_, i) => (i >= 24 ? 3 : null)), oom: vuota(), swap: vuota(), cpu: vuota() }
+  return { inizio: ADESSO - 47 * ORA, passoMs: ORA, punti, macchine: { a, b } }
+}
+
+test('andamentoFlotta: per ora il minimo (e di chi), la mediana, gli OOM e i Mac accesi; un ora vuota non e zero', () => {
+  const a = andamentoFlotta({ serie: serieFinta() })
+  assert.equal(a.punti, 48)
+  // Il primo giorno «b» e' spento: la mediana e' quella di «a» da solo, e i Mac accesi sono uno.
+  assert.equal(a.memMediana[0], 5)
+  assert.equal(a.attivi[0], 1)
+  assert.equal(a.memMin[40], 1)
+  assert.equal(a.memMinChi[40], 'a')
+  assert.equal(a.memMediana[40], 2)
+  assert.equal(a.oom[30], 2)
+  // Nessun Mac manda il contatore: «non lo so», non «nessun OOM».
+  const solo = andamentoFlotta({ serie: { ...serieFinta(), macchine: { b: serieFinta().macchine.b } } })
+  assert.equal(solo.oom[30], null)
+  assert.equal(solo.memMin[0], null)
+  assert.equal(solo.attivi[0], 0)
+  assert.equal(andamentoFlotta({ serie: null }), null)
+})
+
+test('andamentoFlotta: i giorni sono blocchi di 24 ore che finiscono adesso, con l OOM e i Mac accesi', () => {
+  const { giorni } = andamentoFlotta({ serie: serieFinta() })
+  assert.equal(giorni.punti, 2)
+  assert.equal(giorni.passoMs, GIORNO)
+  assert.deepEqual(giorni.attivi, [1, 2])
+  assert.deepEqual(giorni.oom, [0, 2])
+  assert.deepEqual(giorni.conOom, [0, 1])
+  assert.deepEqual(giorni.memMin, [5, 1])
+  // Senza avvii l'immagine non si sa: null, non zero per cento.
+  assert.deepEqual(giorni.inPari, [null, null])
+})
+
+test('immagineInPari: rigioca gli avvii con la data piu recente vista FINO A quel momento, per lato', () => {
+  const d = (g) => new Date(ADESSO - g * GIORNO).toISOString()
+  const avvii = [
+    { macchina: 'x', lato: 'host', quando: ADESSO - 5 * GIORNO, creata: d(20) },
+    { macchina: 'y', lato: 'host', quando: ADESSO - 5 * GIORNO, creata: d(19) },
+    // Il giorno dopo esce un'immagine nuova, e «y» la prende: «x» resta dietro di 18 giorni.
+    { macchina: 'y', lato: 'host', quando: ADESSO - 2 * GIORNO, creata: d(2) },
+    // Il container di «z» non dice la data: «z» non si conta.
+    { macchina: 'z', lato: 'container', quando: ADESSO - 2 * GIORNO, creata: null },
+  ]
+  assert.deepEqual(immagineInPari(avvii, ADESSO - 4 * GIORNO), { inPari: 2, conImmagine: 2 })
+  assert.deepEqual(immagineInPari(avvii, ADESSO), { inPari: 1, conImmagine: 2 })
+  assert.deepEqual(immagineInPari([], ADESSO), { inPari: 0, conImmagine: 0 })
+})
+
+test('riepilogoFlotta: i numeri in cima sono gli stessi della matrice, e un dato che manca e null', () => {
+  const f = demoFlotta(ADESSO)
+  const r = f.riepilogo
+  assert.equal(r.oom24h, 3)
+  assert.equal(r.conOom24h, 1)
+  assert.equal(r.urgenti, 1)
+  assert.equal(r.memMinima.macchina, 'kim-macbook')
+  assert.equal(r.memMinima.bassa, r.memMinima.gb < MEM_LIBERA_BASSA_GB)
+  assert.equal(r.inPari, r.conImmagine - 1)
+  // L'ultimo giorno dell'andamento e' la tessera: la stessa regola, lo stesso numero.
+  assert.equal(f.andamento.giorni.inPari.at(-1), r.inPari)
+  assert.equal(f.andamento.giorni.conImmagine.at(-1), r.conImmagine)
+  const vuoto = riepilogoFlotta([{ macchina: 'm', oom: null, problemi: [], immagine: {}, livello: 'ok' }], null, { adesso: ADESSO })
+  assert.equal(vuoto.oom24h, null)
+  assert.equal(vuoto.memMinima, null)
+})
+
+test('matrice: ogni tipo di problema ha la sua colonna, e ogni colonna esiste', () => {
+  assert.deepEqual(Object.keys(COLONNA_DEL_PROBLEMA).sort(), Object.keys(LIVELLO).sort())
+  for (const c of Object.values(COLONNA_DEL_PROBLEMA)) assert.ok(COLONNE.includes(c), c)
+})
+
+test('matrice: le celle di kim dicono il problema col livello, quelle di un Mac senza salute sono «non lo so»', () => {
+  const f = demoFlotta(ADESSO)
+  const it = makeT('it')
+  const di = (n) => Object.fromEntries(celleMac(f.macchine.find((m) => m.macchina === n), it, 'it', ADESSO).map((c) => [c.k, c]))
+  const kim = di('kim-macbook')
+  assert.deepEqual(COLONNE, Object.keys(kim))
+  assert.equal(kim.oom.livello, 'crit')
+  assert.equal(kim.oom.valore, '3')
+  assert.equal(kim.vm.livello, 'warn')
+  assert.equal(kim.vm.valore, '12/14')
+  assert.ok(kim.vm.barra > 80 && kim.vm.barra < 100)
+  assert.equal(kim.motore.livello, 'info')
+  assert.equal(kim.app.valore, 'backend 3,7 GB')
+  assert.match(kim.oom.titolo, /processi uccisi/)
+  // lee ha chiuso il Mac ieri: niente salute nelle 24 ore, quindi trattini e non zeri.
+  const lee = di('lee-macbook')
+  for (const k of ['vm', 'oom', 'doctor', 'sulMac', 'app']) assert.equal(lee[k].livello, null, k)
+  assert.equal(lee.oom.valore, null)
+  // Un Mac in ordine all'obiettivo non ha la barra della VM: sei barre piene non dicono niente.
+  assert.equal(di('alex-macbook').vm.barra, null)
+  assert.equal(di('alex-macbook').vm.livello, 'ok')
+})
+
+test('azioniFlotta: una voce per azione, coi Mac che la chiedono, nell ordine del piu grave', () => {
+  const a = azioniFlotta(demoFlotta(ADESSO).macchine)
+  assert.deepEqual(a.map((x) => x.k), ['memoriaVm', 'doctor', 'aggiorna', 'dentroContainer'])
+  assert.deepEqual(a[0].macchine, ['kim-macbook'])
+  assert.equal(a[0].livello, 'crit')
+  const it = makeT('it')
+  for (const x of a) assert.notEqual(it(`flotta.az.${x.k}`), `flotta.az.${x.k}`)
+  for (const k of TIPI_AZIONE) assert.notEqual(makeT('en')(`flotta.az.${k}`), `flotta.az.${k}`, k)
 })
