@@ -18,6 +18,24 @@ All notable changes to Dadaguard are documented here. Format based on
   tolte a mano, e le schede delle List nuove aggiunte a mano al canale.
 
 ### Added
+- **Sette avvisi nuovi sul dev-env, e i campi nuovi della salute nella pagina Accessi** (07/10/2026).
+  La riga di salute porta ora il motore di Docker, la memoria che la VM dovrebbe avere, gli opt-out
+  accesi, l'ultimo doctor e quante volte Claude ha lanciato i comandi dei repo sul Mac invece che nel
+  container. Ogni campo è facoltativo: uno che manca è «non lo so», mai zero. Su Slack, una chiave per
+  macchina: **IMMAGINE DEL DEV-ENV VECCHIA** (la data di costruzione più di 7 giorni dietro la più
+  nuova in giro: estende il segnale «versione attesa», che senza `immagineAttesa` in config taceva),
+  **SALUTE DEL DEV-ENV MUTA** (l'agent del login che non manda più: nessuna riga da 24 ore mentre le
+  altre macchine parlano, e un avvio del dev-env dopo l'ultima riga negli ultimi 3 giorni, che un Mac
+  chiuso non fa; si arma solo per chi ha mandato almeno una riga nei 7 giorni), **MOTORE DI DOCKER NON
+  SUPPORTATO** (dedotto anche dalle righe vecchie: «Docker Engine» è colima o OrbStack), **VM DEL
+  DEV-ENV SOTTO L'OBIETTIVO** (almeno 2 GB), **OPT-OUT DEL DEV-ENV ACCESI** (con i nomi), **COMANDI DEI
+  REPO SUL MAC** (almeno 10 in 24 ore, bloccati più forzati) e **DOCTOR DEL DEV-ENV KO** (con i
+  controlli falliti, una volta per doctor). Motore, VM e opt-out parlano una volta alla settimana per
+  macchina (gli opt-out anche quando l'elenco cambia), i comandi sul Mac una volta al giorno: il periodo
+  parte il lunedì alle 07:00 UTC e regge a un rilascio, e un giro senza la salute non fa ripartire il
+  conto. Config: `teleport.soglieDevEnv: { giorniIndietro, motoriAmmessi, vmSottoGb, comandiSulMac }`,
+  facoltativa. Nella pagina la colonna «Salute (24 ore)» dice anche obiettivo della VM, motore,
+  opt-out, KO del doctor e comandi sul Mac, senza cambiare forma.
 - **La salute delle macchine del dev-env nella pagina Accessi, e due allarmi** (06/10/2026). Il
   dev-env manda ogni 15 minuti una riga sul suo log group (`…/dev-env/salute`): memoria e OOM della
   VM di Docker, container non sani, memoria per app, RAM e swap del Mac. La tabella delle macchine ha

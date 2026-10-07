@@ -33,6 +33,7 @@ import {
   saluteDellaMacchina,
   appPiuPesanti,
   saluteDaGuardare,
+  usoDellaMacchina,
 } from '../accessi.js'
 import './ops.css'
 
@@ -362,11 +363,17 @@ export default function AccessiPage({ t, lang }) {
     if (!sm) return <span key="s" className="ui-faint" title={t('accessi.salute.nessunaTitolo')}>{t('accessi.salute.nessuna')}</span>
     const app = appPiuPesanti(sm.appMb)
     const swapGb = sm.swapMacMb != null ? Math.round(sm.swapMacMb / 102.4) / 10 : null
+    // Il motore, l'obiettivo della VM, gli opt-out, il doctor e i comandi sul Mac: solo quando la riga
+    // li porta (dev-env aggiornato dal 07/10/2026), e nelle stesse forme di quel che c'era gia'.
+    const uso = usoDellaMacchina(sm)
+    const motore = uso.motore ?? (uso.motoreIncerto ? t('accessi.salute.motoreIncerto') : null)
     return (
       <span key="s" className="ui-what">
         {sm.vmMemGb != null && (
           <span title={t('accessi.salute.vmTitolo', { disp: sm.memDisponibileGb ?? '?' })}>
-            {t('accessi.salute.vm', { gb: sm.vmMemGb, ram: sm.ramMacGb ?? '?' })}
+            {uso.obiettivoGb != null
+              ? t('accessi.salute.vmObiettivo', { gb: sm.vmMemGb, ram: sm.ramMacGb ?? '?', obiettivo: uso.obiettivoGb })
+              : t('accessi.salute.vm', { gb: sm.vmMemGb, ram: sm.ramMacGb ?? '?' })}
           </span>
         )}{' '}
         {sm.oomNuovi > 0 && <Pill livello="crit">{t('accessi.salute.oom', { n: sm.oomNuovi })}</Pill>}{' '}
@@ -374,8 +381,20 @@ export default function AccessiPage({ t, lang }) {
           <Pill livello="warn" title={sm.nonSani.join(', ')}>
             {t('accessi.salute.nonSani', { n: sm.nonSani.length })}
           </Pill>
+        )}{' '}
+        {uso.doctorKo > 0 && (
+          <Pill livello="warn" title={uso.doctorFalliti.join(', ')}>
+            {t('accessi.salute.doctorKo', { n: uso.doctorKo })}
+          </Pill>
         )}
+        {motore && sotto(t('accessi.salute.motore', { m: motore }))}
         {app.length > 0 && sotto(app.map((a) => `${a.nome} ${a.gb} GB`).join(' · '))}
+        {uso.optOut.length > 0 && sotto(t('accessi.salute.optOut', { nomi: uso.optOut.join(', ') }))}
+        {uso.sulMac > 0 && (
+          <span className="ui-hint" title={t('accessi.salute.sulMacTitolo', { b: uso.bloccati, f: uso.forzati })}>
+            {t('accessi.salute.sulMac', { n: uso.sulMac })}
+          </span>
+        )}
         {swapGb != null && swapGb >= 8 && sotto(t('accessi.salute.swap', { gb: swapGb }))}
       </span>
     )

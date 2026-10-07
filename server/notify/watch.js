@@ -7,7 +7,7 @@ import { log } from '../log.js'
 import { diffStates, snapshot } from './diff.js'
 import { slackMessage, postSlack, messaggioAccessi } from './slack.js'
 import { loadConfig } from '../config.js'
-import { statoAccessi, segnali, daAnnunciare, CALMA_MS } from '../accessi.js'
+import { statoAccessi, segnali, daAnnunciare, CALMA_MS, soglieDevEnv } from '../accessi.js'
 import { splitByRoute } from './route.js'
 import { chiamaSlack, quadroConfig } from './quadro.js'
 
@@ -211,7 +211,9 @@ export async function giroAccessi(cfg, deps = {}, prev = null) {
   // le annuncia nessuno. Con ventiquattro le avrebbe recuperate, ma pagando ogni giro con un numero
   // che nessuno poteva usare.
   const dati = await stato({ ore: 3 })
-  const ora = segnali(dati)
+  // Le soglie degli avvisi sul dev-env (`teleport.soglieDevEnv`): un valore che non e' un numero tiene
+  // il default, come `calmaMinuti` qui sopra.
+  const ora = segnali(dati, { soglie: soglieDevEnv(cfgTeleport) })
   const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null, { calmaMs })
   if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }
 

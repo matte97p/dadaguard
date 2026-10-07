@@ -320,3 +320,25 @@ export function appPiuPesanti(appMb = {}, quante = 2) {
 export function saluteDaGuardare(s) {
   return Boolean(s && (s.oomNuovi > 0 || (s.nonSani ?? []).length > 0))
 }
+
+// Quel che la riga di salute dice dal 07/10/2026 sul COME si usa il dev-env: il motore di Docker, la
+// memoria che la VM dovrebbe avere, gli opt-out accesi, i KO dell'ultimo doctor e i comandi dei repo
+// lanciati sul Mac. Un campo che manca resta vuoto (`null`, `[]`, `0`): la cella non mostra niente,
+// invece di un numero che sembri un fatto. `motoreIncerto`: un engine nudo senza il campo `motore`,
+// cioe' colima o OrbStack senza sapere quale.
+export function usoDellaMacchina(sm) {
+  const cm = sm?.comandiMac ?? null
+  const bloccati = Number(cm?.bloccati) || 0
+  const forzati = Number(cm?.forzati) || 0
+  return {
+    motore: sm?.motore ?? null,
+    motoreIncerto: !sm?.motore && (sm?.motoreCandidati ?? []).length > 1,
+    obiettivoGb: sm?.vmMemObiettivoGb ?? null,
+    optOut: [...new Set(sm?.optOut ?? [])].sort(),
+    doctorKo: Number(sm?.doctor?.ko) > 0 ? Number(sm.doctor.ko) : 0,
+    doctorFalliti: sm?.doctor?.falliti ?? [],
+    sulMac: bloccati + forzati,
+    bloccati,
+    forzati,
+  }
+}
