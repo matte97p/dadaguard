@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { binnaSalute, caricoContainer, contenitoriDi, settimanaDiSalute, storiaAvvii } from '../server/teleport.js'
-import { componiFlotta, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO, andamentoFlotta, immagineInPari, riepilogoFlotta, MEM_LIBERA_BASSA_GB } from '../server/flotta.js'
+import { componiFlotta, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO, andamentoFlotta, immagineInPari, riepilogoFlotta, MEM_LIBERA_BASSA_GB, fondiSerie } from '../server/flotta.js'
+import { raggruppaMacchine, stessaPersona, personaDi, idMacchina, annotaIdentita, NON_VISTA_MS } from '../server/identitaMacchine.js'
 import { soglieDevEnv, SOGLIE_DEV_ENV } from '../server/accessi.js'
 import { linkPagina } from '../server/notify/slack.js'
 import { demoFlotta } from '../server/demo.js'
@@ -341,7 +342,7 @@ test('linkPagina: gli avvisi sul dev-env aprono il Mac nella Flotta, gli accessi
 
 test('demo: la flotta passa dalle funzioni vere e mostra un caso per Mac', () => {
   const f = demoFlotta(ADESSO)
-  assert.equal(f.totale, 7)
+  assert.equal(f.totale, 8)
   assert.equal(f.daSistemare, 4)
   const di = (n) => f.macchine.find((m) => m.macchina === n)
   const kim = di('kim-macbook')
@@ -356,6 +357,12 @@ test('demo: la flotta passa dalle funzioni vere e mostra un caso per Mac', () =>
   assert.deepEqual(di('noa-macbook').problemi.map((p) => p.tipo).sort(), ['avvio-storto', 'doctor-ko', 'opt-out-attivi'])
   assert.deepEqual(di('rin-macbook').problemi.map((p) => p.tipo), ['lavoro-sul-mac'])
   for (const n of ['alex-macbook', 'lee-macbook', 'eli-macbook']) assert.equal(di(n).livello, 'ok', n)
+  // Il Mac rinominato di tess e' una riga sola, col nome nuovo e il login Teleport; il Mac di riserva
+  // di rin, spento da cinque giorni, sta fra i non visti e non conta.
+  assert.deepEqual(di('tess-mbp').alias, ['MacBook-Pro-di-tess'])
+  assert.equal(di('tess-mbp').utente, 'tess-dev')
+  assert.equal(di('MacBook-Pro-di-tess'), undefined)
+  assert.deepEqual(f.nonViste.map((m) => m.macchina), ['rin-mini'])
   // Sette giorni di andamento: le curve hanno qualcosa da disegnare.
   assert.ok(kim.serie.mem.filter((v) => v != null).length > 150)
 })
@@ -470,4 +477,184 @@ test('azioniFlotta: una voce per azione, coi Mac che la chiedono, nell ordine de
   const it = makeT('it')
   for (const x of a) assert.notEqual(it(`flotta.az.${x.k}`), `flotta.az.${x.k}`)
   for (const k of TIPI_AZIONE) assert.notEqual(makeT('en')(`flotta.az.${k}`), `flotta.az.${k}`, k)
+})
+
+// ── Lo stesso Mac sotto piu' nomi (07/10/2026) ────────────────────────────────────────────────────
+//
+// I casi veri di una settimana, con persone e Mac rinominati (il repo e' pubblico). Gli orari sono
+// quelli veri, in UTC; «adesso» e' la sera del 07/10.
+const SERA = Date.UTC(2026, 9, 7, 19, 30)
+const alle = (mese, giorno, ore, minuti = 0) => Date.UTC(2026, mese - 1, giorno, ore, minuti)
+
+// Righe di salute ogni 15 minuti fra `da` e `a` (compresi), con `extra` dentro la riga (id, fonte).
+const parla = (macchina, utente, da, a, extra = {}) => {
+  const fuori = []
+  for (let t = da; t <= a; t += 15 * 60_000) fuori.push(ev(t, { utente, macchina, ...extra, lato: 'host', salute: { vm: { oom_kill: 0, mem_disponibile_gb: 5 } } }))
+  if (!fuori.length || fuori.at(-1).timestamp !== a) fuori.push(ev(a, { utente, macchina, ...extra, lato: 'host', salute: { vm: { oom_kill: 0, mem_disponibile_gb: 5 } } }))
+  return fuori
+}
+const flottaSera = (eventi, opts = {}) => componiFlotta({ heartbeat: {}, salute: settimanaDiSalute(eventi, { adesso: SERA }) }, { adesso: SERA, ...opts })
+const nomi = (f) => f.macchine.map((m) => m.macchina).sort()
+
+test('identita: il Mac rinominato da macOS cambiando rete e una riga sola, col nome nuovo e il vecchio fra gli alias', () => {
+  const f = flottaSera([
+    ...parla('MacBook-Pro-di-Ada', 'ada', alle(10, 3, 14, 27), alle(10, 7, 17, 51)),
+    ...parla('MBP-di-Ada', 'ada', alle(10, 7, 18, 44), alle(10, 7, 18, 44)),
+  ])
+  assert.equal(f.totale, 1)
+  const [m] = f.macchine
+  assert.equal(m.macchina, 'MBP-di-Ada')
+  assert.deepEqual(m.alias, ['MacBook-Pro-di-Ada'])
+  assert.equal(m.unitoPer, 'euristica')
+  assert.equal(m.utente, 'ada')
+  // Le curve dei due nomi sono la stessa curva: l'ora del nome vecchio resta, quella del nuovo si aggiunge.
+  assert.ok(m.serie.mem.filter((v) => v != null).length > 90)
+})
+
+test('identita: tre nomi in una settimana, due dei quali si accavallano, e il nome di default che potrebbe continuare tutti e due', () => {
+  const f = flottaSera([
+    ...parla('MAC-B1778B', 'bea', alle(10, 1, 7, 19), alle(10, 2, 22, 28)),
+    ...parla('MacBook-Pro-di-Bea', 'bea', alle(9, 30, 16, 30), alle(10, 3, 15, 54)),
+    ...parla('Mac', 'bea', alle(10, 6, 8, 35), alle(10, 7, 14, 1)),
+  ])
+  // I primi due parlavano negli stessi giorni: per la regola sono due Mac, e restano separati. `Mac`
+  // potrebbe continuare l'uno o l'altro, quindi non si sceglie: resta da solo. Gli altri due tacciono
+  // da piu' di tre giorni e stanno fra i non visti, che e' come spariscono i nomi vecchi.
+  assert.deepEqual(nomi(f), ['Mac'])
+  assert.deepEqual(f.macchine[0].alias, [])
+  assert.deepEqual(f.nonViste.map((m) => m.macchina), ['MacBook-Pro-di-Bea', 'MAC-B1778B'])
+})
+
+test('identita: un nome usato in mezzo a un altro (casa, ufficio, casa) non si unisce, e sparisce coi non visti', () => {
+  const f = flottaSera([
+    ...parla('Cys-MacBook-Pro-Lab', 'cy', alle(9, 30, 9), alle(10, 7, 19, 15)),
+    ...parla('CysMBPLab', 'cy', alle(10, 1, 7, 47), alle(10, 1, 21, 17)),
+  ])
+  assert.deepEqual(nomi(f), ['Cys-MacBook-Pro-Lab'])
+  assert.deepEqual(f.nonViste.map((m) => m.macchina), ['CysMBPLab'])
+})
+
+test('identita: due Mac veri della stessa persona usati in parallelo restano due', () => {
+  // Il portatile e il fisso, accesi negli stessi giorni.
+  const f = flottaSera([...parla('kim-air', 'kim', alle(10, 5, 8), alle(10, 7, 19, 20)), ...parla('kim-studio', 'kim', alle(10, 5, 9), alle(10, 7, 19, 25))])
+  assert.deepEqual(nomi(f), ['kim-air', 'kim-studio'])
+  // Anche senza sovrapposizione: se parlano tutti e due ADESSO sono due Mac.
+  const g = raggruppaMacchine(
+    {
+      a: { primo: SERA - 3 * GIORNO, ultimo: SERA - 20 * 60_000, ids: [], utenti: [{ utente: 'kim', da: null, quando: SERA - 20 * 60_000 }] },
+      b: { primo: SERA - 10 * 60_000, ultimo: SERA - 5 * 60_000, ids: [], utenti: [{ utente: 'kim', da: null, quando: SERA - 5 * 60_000 }] },
+    },
+    { adesso: SERA },
+  )
+  assert.equal(g.length, 2)
+  // Un'ora dopo il nome vecchio tace, e il cambio di nome si riconosce.
+  const dopo = raggruppaMacchine(
+    {
+      a: { primo: SERA - 3 * GIORNO, ultimo: SERA - 20 * 60_000, ids: [], utenti: [{ utente: 'kim', da: null, quando: SERA - 20 * 60_000 }] },
+      b: { primo: SERA - 10 * 60_000, ultimo: SERA + ORA, ids: [], utenti: [{ utente: 'kim', da: null, quando: SERA + ORA }] },
+    },
+    { adesso: SERA + ORA },
+  )
+  assert.deepEqual(dopo.map((x) => x.nomi), [['b', 'a']])
+  // Due persone diverse col Mac chiamato allo stesso modo di default non si uniscono mai.
+  const due = flottaSera([...parla('Mac-1', 'ada', alle(10, 5, 8), alle(10, 6, 8)), ...parla('Mac-2', 'bea', alle(10, 6, 9), alle(10, 7, 19))])
+  assert.equal(due.totale + due.nonViste.length, 2)
+})
+
+test('identita: l id vince sul nome, in tutti e due i versi', () => {
+  const ID = 'a3f09c2e7b41d856'
+  // Lo stesso id con due nomi che parlano NELLE STESSE ore (il nome che va e torna): un Mac solo.
+  const f = flottaSera([
+    ...parla('Cys-MacBook-Pro-Lab', 'cy', alle(10, 5, 9), alle(10, 7, 19, 15), { macchina_id: ID }),
+    ...parla('CysMBPLab', 'cy', alle(10, 6, 7), alle(10, 6, 21), { macchina_id: ID.toUpperCase() }),
+  ])
+  assert.deepEqual(nomi(f), ['Cys-MacBook-Pro-Lab'])
+  assert.deepEqual(f.macchine[0].alias, ['CysMBPLab'])
+  assert.equal(f.macchine[0].id, ID)
+  assert.equal(f.macchine[0].chiave, ID)
+  assert.equal(f.macchine[0].unitoPer, 'id')
+  // Due id diversi sono due Mac anche quando l'euristica li unirebbe (stessa persona, uno dopo l'altro).
+  const g = flottaSera([
+    ...parla('MacBook-Pro-di-Ada', 'ada', alle(10, 6, 8), alle(10, 7, 10), { macchina_id: '1111222233334444' }),
+    ...parla('MBP-di-Ada', 'ada', alle(10, 7, 12), alle(10, 7, 19), { macchina_id: '5555666677778888' }),
+  ])
+  assert.deepEqual(nomi(g), ['MBP-di-Ada', 'MacBook-Pro-di-Ada'].sort())
+  // Una forma che non e' un id e' «non lo so».
+  assert.equal(idMacchina({ macchina_id: 'sconosciuto' }), null)
+  assert.equal(idMacchina({ macchina_id: ' A3F09C2E7B41D856 ' }), ID)
+})
+
+test('identita: la persona, prima Teleport, poi la mappa delle persone, poi il valore grezzo', () => {
+  // Il dev-env che non legge l'utente Teleport ripiega su quello di sistema: lo stesso Mac arriva come
+  // `tess42x` e come `tess`. Il nome vecchio (righe senza fonte) si unisce al nuovo, e la persona e' Teleport.
+  const f = flottaSera([
+    ...parla('MacBook-Pro-di-Tess', 'tess', alle(10, 4, 9), alle(10, 6, 18)),
+    ...parla('tess-mbp', 'tess', alle(10, 6, 19), alle(10, 7, 9), { macchina_id: 'abcdef0123456789', utente_da: 'sistema' }),
+    ...parla('tess-mbp', 'tess42x', alle(10, 7, 9, 15), alle(10, 7, 12), { macchina_id: 'abcdef0123456789', utente_da: 'teleport' }),
+    ...parla('tess-mbp', 'tess', alle(10, 7, 12, 15), alle(10, 7, 19, 15), { macchina_id: 'abcdef0123456789', utente_da: 'sistema' }),
+  ])
+  assert.deepEqual(nomi(f), ['tess-mbp'])
+  const [m] = f.macchine
+  assert.deepEqual(m.alias, ['MacBook-Pro-di-Tess'])
+  // La riga piu' recente dice `tess` (sistema), ma vince l'ultima con la fonte Teleport.
+  assert.equal(m.utente, 'tess42x')
+  assert.equal(m.utenteDa, 'teleport')
+  assert.deepEqual(m.altriNomi, ['tess'])
+  // Senza fonte: un utente che la mappa delle persone conosce prende il suo nome.
+  const persone = { 't.rossi': 'tess42x' }
+  assert.deepEqual(personaDi([{ utente: 't.rossi', da: null, quando: 1 }, { utente: 'tess', da: null, quando: 2 }], persone), { utente: 'tess42x', da: 'mappa', altri: ['tess', 't.rossi'] })
+  // E senza niente, il valore grezzo, ma il ripiego di sistema cede al login che prolunga.
+  assert.equal(personaDi([{ utente: 'tess', da: null, quando: 2 }, { utente: 'tess42x', da: null, quando: 1 }]).utente, 'tess42x')
+  assert.equal(personaDi([]).utente, null)
+})
+
+test('identita: stessa persona, con le regole strette', () => {
+  const u = (utente, da = null) => ({ utente, da })
+  assert.equal(stessaPersona(u('Tess'), u('tess')), true)
+  assert.equal(stessaPersona(u('tess', 'sistema'), u('tess42x', 'teleport')), true)
+  assert.equal(stessaPersona(u('tess'), u('tess42x')), true)
+  // Due login Teleport sono due persone anche se uno e' l'inizio dell'altro.
+  assert.equal(stessaPersona(u('alex', 'teleport'), u('alexandra', 'teleport')), false)
+  // Un prefisso troppo corto non basta.
+  assert.equal(stessaPersona(u('al'), u('alex')), false)
+  assert.equal(stessaPersona(u('ada'), u('bea')), false)
+  // La mappa delle persone, da tutti e due i lati.
+  assert.equal(stessaPersona(u('t.rossi'), u('tess42x'), { 't.rossi': 'tess42x' }), true)
+  assert.equal(stessaPersona(u('t.rossi'), u('tr'), { 't.rossi': 'Tess', TR: 'tess' }), true)
+  // Una riga senza utente non e' nessuno: un nome senza utenti non si unisce.
+  assert.equal(stessaPersona(u(''), u('tess')), false)
+  const m = annotaIdentita({}, { macchina: 'x' }, 10)
+  assert.deepEqual(raggruppaMacchine({ ...m, y: { primo: 20, ultimo: 30, ids: [], utenti: [] } }, { adesso: 1e12 }).length, 2)
+})
+
+test('identita: un Mac non visto da piu di tre giorni esce dai numeri e da «da sistemare»', () => {
+  const vecchio = SERA - NON_VISTA_MS - ORA
+  const heartbeat = {
+    macchine: [
+      { macchina: 'nuovo', lato: 'host', utente: 'ada', esito: 'ok', toolMancanti: 0, quando: SERA - ORA },
+      // Spento da piu' di tre giorni, con tre tool che mancano e un avvio storto: sarebbe da sistemare.
+      { macchina: 'cassetto', lato: 'host', utente: 'bea', esito: 'parziale', toolMancanti: 3, toolMancantiNomi: ['jq'], quando: vecchio },
+    ],
+  }
+  const f = componiFlotta({ heartbeat, salute: settimanaDiSalute(parla('cassetto', 'bea', vecchio - GIORNO, vecchio), { adesso: SERA }) }, { adesso: SERA })
+  assert.deepEqual(nomi(f), ['nuovo'])
+  assert.equal(f.totale, 1)
+  assert.equal(f.daSistemare, 0)
+  assert.deepEqual(f.nonViste.map((m) => [m.macchina, m.livello, m.nonVisto]), [['cassetto', 'warn', true]])
+  assert.equal(f.riepilogo.attivi24h, 1)
+  assert.equal(f.riepilogo.urgenti, 0)
+  // Il grafico e le tessere contano la flotta che si guarda: le ore in cui parlava solo il Mac nel
+  // cassetto non hanno Mac accesi.
+  assert.equal(Math.max(...f.andamento.attivi), 0)
+  // Tre giorni esatti non bastano: si esce DOPO.
+  const alLimite = componiFlotta({ heartbeat: { macchine: [{ ...heartbeat.macchine[1], quando: SERA - NON_VISTA_MS }] } }, { adesso: SERA })
+  assert.equal(alLimite.totale, 1)
+})
+
+test('fondiSerie: ora per ora il caso peggiore, e gli OOM sommati', () => {
+  const a = { mem: [5, null, 3], oom: [0, null, 1], swap: [1, null, null], cpu: [10, null, 5] }
+  const b = { mem: [null, 4, 2], oom: [null, 2, 1], swap: [null, 2, 3], cpu: [null, 50, 9] }
+  assert.deepEqual(fondiSerie([a, b]), { mem: [5, 4, 2], oom: [0, 2, 2], swap: [1, 2, 3], cpu: [10, 50, 9] })
+  assert.equal(fondiSerie([a, null]), a)
+  assert.equal(fondiSerie([]), null)
 })

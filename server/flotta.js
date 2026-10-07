@@ -22,6 +22,8 @@ import { resolveServices } from './status.js'
 import { cached } from './util/ttlcache.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import * as teleport from './teleport.js'
+import { AVVII_IN_STORIA } from './teleport.js'
+import { annotaIdentita, fondiIdentita, personaDi, raggruppaMacchine, NON_VISTA_MS } from './identitaMacchine.js'
 import { conto, configSalute, leggiHeartbeat, segnali, soglieDevEnv, SOGLIE_DEV_ENV } from './accessi.js'
 import {
   appPiuPesanti,
@@ -317,12 +319,56 @@ export function riepilogoFlotta(macchine = [], andamento = null, { adesso = Date
   }
 }
 
+// Le serie di piu' nomi dello stesso Mac in una, ora per ora, con la regola di `binnaSalute`: il
+// caso peggiore (memoria minima, swap e carico massimi) e gli OOM sommati. I nomi di un Mac parlano in
+// ore diverse, quindi quasi sempre un'ora ha un valore solo.
+const SERIE_VERSO = { mem: 'min', oom: 'somma', swap: 'max', cpu: 'max' }
+export function fondiSerie(lista = []) {
+  const ss = lista.filter(Boolean)
+  if (ss.length <= 1) return ss[0] ?? null
+  const fuori = {}
+  for (const [k, verso] of Object.entries(SERIE_VERSO)) {
+    const lunghezza = Math.max(...ss.map((s) => s[k]?.length ?? 0))
+    fuori[k] = Array.from({ length: lunghezza }, (_, i) => {
+      const v = ss.map((s) => s[k]?.[i]).filter((x) => x != null)
+      if (!v.length) return null
+      if (verso === 'somma') return v.reduce((a, b) => a + b, 0)
+      return verso === 'min' ? Math.min(...v) : Math.max(...v)
+    })
+  }
+  return fuori
+}
+
+// L'identita' per nome quando la fonte non la porta (la demo, o una risposta in cache di prima del
+// rilascio): dalle righe per lato e dalla storia degli avvii dell'heartbeat, e dalle macchine e dalle
+// ultime righe della salute. Meno precisa (la storia ha un tetto), ma della stessa forma.
+function identitaDiRiserva(battito, sal) {
+  const m = {}
+  for (const r of battito.macchine ?? []) {
+    if (!r?.macchina || !Number.isFinite(r.quando)) continue
+    annotaIdentita(m, { macchina: r.macchina, macchina_id: r.macchinaId, utente: r.utente, utente_da: r.utenteDa }, r.quando)
+    for (const u of r.utenti ?? []) if (u !== r.utente) annotaIdentita(m, { macchina: r.macchina, utente: u }, r.quando)
+  }
+  for (const [nome, avvii] of Object.entries(battito.storia ?? {})) {
+    for (const a of avvii ?? []) if (Number.isFinite(a?.quando)) annotaIdentita(m, { macchina: nome, macchina_id: a.macchinaId }, a.quando)
+  }
+  const s = {}
+  for (const x of sal?.macchine ?? []) if (x?.macchina && Number.isFinite(x.quando)) annotaIdentita(s, { macchina: x.macchina, utente: x.utente }, x.quando)
+  for (const [nome, t] of Object.entries(sal?.ultime ?? {})) if (Number.isFinite(Number(t))) annotaIdentita(s, { macchina: nome }, Number(t))
+  return [m, s]
+}
+
 // La risposta di `/api/flotta`, da heartbeat e salute gia' letti. Puro, per le prove.
 //
 // ⚠️ Ogni campo e' facoltativo: le macchine che non hanno ancora aggiornato il dev-env non mandano i
 // campi nuovi, e un campo che manca e' «non lo so», mai zero. Una macchina senza righe di salute non
 // e' sana ne' malata: ha `saluteAssente`, e la pagina lo dice in una riga sola.
-export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_ENV, comandi = {} } = {}) {
+//
+// Dal 07/10/2026 una riga e' un MAC, non un nome: i nomi dello stesso Mac (stesso `macchina_id`, o
+// l'euristica di server/identitaMacchine.js per le righe vecchie) diventano una riga sola, col nome
+// piu' recente e gli altri in `alias`. E un Mac che non si vede da piu' di tre giorni esce dalla
+// flotta (`macchine`, i numeri, «da sistemare») e va in `nonViste`.
+export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_ENV, comandi = {}, persone = null } = {}) {
   const sg = { ...SOGLIE_DEV_ENV, ...soglie }
   const battito = heartbeat && !heartbeat.errore ? heartbeat : {}
   const sal = salute && !salute.errore ? salute : null
@@ -350,10 +396,34 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
   const riferimento = immagineRiferimento(righe, battito.attesa ?? null)
   const dataRif = dataRiferimento(righe)
 
-  const macchine = [...nomi].map((nome) => {
-    const { host = null, container = null } = lati.get(nome) ?? {}
-    const sm = salutePer.get(nome) ?? null
-    const problemi = [...(perMacchina.get(nome) ?? [])]
+  // I nomi in Mac. Un nome senza nessun istante (non dovrebbe succedere) resta un Mac da solo.
+  const [riservaBattito, riservaSalute] = identitaDiRiserva(battito, sal)
+  const identita = fondiIdentita(battito.identita ?? riservaBattito, sal?.identita ?? riservaSalute)
+  const gruppi = raggruppaMacchine(identita, { adesso, persone })
+  const inGruppo = new Set(gruppi.flatMap((g) => g.nomi))
+  for (const nome of nomi) if (!inGruppo.has(nome)) gruppi.push({ nomi: [nome], ids: [], utenti: [], come: null })
+
+  const piuRecente = (xs) => xs.filter(Boolean).sort((a, b) => (b.quando ?? 0) - (a.quando ?? 0))[0] ?? null
+  const tutte = gruppi.map((g) => {
+    const nome = g.nomi[0]
+    const suoi = g.nomi.map((n) => lati.get(n) ?? {})
+    const host = piuRecente(suoi.map((x) => x.host))
+    const container = piuRecente(suoi.map((x) => x.container))
+    const sms = g.nomi.map((n) => salutePer.get(n)).filter(Boolean)
+    const sm = piuRecente(sms)
+    const ultimaSalute = Math.max(0, ...g.nomi.map((n) => Number(sal?.ultime?.[n]) || 0)) || null
+
+    // I problemi dei segnali di tutti i nomi, uno per tipo (quello del nome piu' recente). Gli OOM si
+    // sommano: quelli del nome vecchio nelle 24 ore sono successi sullo stesso Mac.
+    const problemi = []
+    for (const p of g.nomi.flatMap((n) => perMacchina.get(n) ?? [])) {
+      const gia = problemi.find((q) => q.tipo === p.tipo)
+      if (!gia) problemi.push({ ...p })
+      else if (p.tipo === 'oom') {
+        gia.quante = (gia.quante ?? 0) + (p.quante ?? 0)
+        gia.uccisi = [...new Set([...(gia.uccisi ?? []), ...(p.uccisi ?? [])])]
+      }
+    }
     // Un guasto nuovo e un dev-env fermo sulla stessa macchina sono la stessa notizia: resta il piu' grave.
     if (problemi.some((p) => p.tipo === 'dev-fermo')) problemi.splice(0, problemi.length, ...problemi.filter((p) => p.tipo !== 'guasto'))
 
@@ -402,15 +472,40 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
       .sort((a, b) => rango(a) - rango(b))
       .map((p) => ({ ...p, azione: azioneDi(p, ctx) }))
 
-    const utenti = [...new Set([sm?.utente, host?.utente, container?.utente, ...(host?.utenti ?? []), ...(container?.utenti ?? [])].filter(Boolean))]
-    const visto = Math.max(0, host?.quando ?? 0, container?.quando ?? 0, sm?.quando ?? 0, Number(sal?.ultime?.[nome]) || 0) || null
+    // La persona: Teleport prima, poi la mappa delle persone, poi l'utente grezzo (identitaMacchine.js).
+    // Senza voci d'identita' (nome senza istanti) si ripiega sugli utenti delle righe, come prima.
+    const voci = g.utenti.length
+      ? g.utenti
+      : [sm?.utente, host?.utente, container?.utente, ...(host?.utenti ?? []), ...(container?.utenti ?? [])].filter(Boolean).map((utente) => ({ utente, da: null, quando: 0 }))
+    const persona = personaDi(voci, persone)
+    const visto = Math.max(0, host?.quando ?? 0, container?.quando ?? 0, sm?.quando ?? 0, ultimaSalute ?? 0) || null
+    const oom = sms.length
+      ? {
+          nuovi: sms.reduce((n, x) => n + (x.oomNuovi ?? 0), 0),
+          uccisi: [...new Set(sms.flatMap((x) => x.uccisiPerMemoria ?? []))],
+          quando: Math.max(0, ...sms.map((x) => x.oomQuando ?? 0)) || null,
+        }
+      : null
+    const storia = g.nomi
+      .flatMap((n) => battito.storia?.[n] ?? [])
+      .sort((a, b) => (b.quando ?? 0) - (a.quando ?? 0))
+      .slice(0, AVVII_IN_STORIA)
     return {
       macchina: nome,
-      utente: utenti[0] ?? null,
-      altriNomi: utenti.slice(1),
+      // La chiave stabile del Mac: l'id quando il dev-env lo manda, il nome altrimenti.
+      chiave: g.ids[0] ?? nome,
+      id: g.ids[0] ?? null,
+      // Gli altri nomi con cui si e' presentato, dal piu' recente, e come li si e' riconosciuti.
+      alias: g.nomi.slice(1),
+      unitoPer: g.come ?? null,
+      utente: persona.utente,
+      utenteDa: persona.da,
+      altriNomi: persona.altri,
       livello: completi[0]?.livello ?? 'ok',
       problemi: completi,
       visto,
+      // Non visto da piu' di tre giorni: fuori dai numeri, nel gruppo chiuso della pagina.
+      nonVisto: visto != null && adesso - visto > NON_VISTA_MS,
       host,
       container,
       immagine: {
@@ -423,34 +518,42 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
       motoreIncerto: uso.motoreIncerto,
       app: pesanti,
       contenitori: sm?.contenitori ?? [],
-      oom: sm ? { nuovi: sm.oomNuovi ?? 0, uccisi: sm.uccisiPerMemoria ?? [], quando: sm.oomQuando ?? null } : null,
+      oom,
       swapGb: sm?.swapMacMb != null ? Math.round(sm.swapMacMb / 102.4) / 10 : null,
       uso: { ...uso, ultimoUp: sm?.ultimoUp ?? null, ultimoUpdate: sm?.ultimoUpdate ?? null, doctor: sm?.doctor ?? null },
       // Nessuna riga di salute nelle 24 ore ne' nei sette giorni: dev-env che l'agent non ce l'ha
       // ancora, o Mac spento. Non e' un problema da card: e' un dato che manca, e si dice una volta.
-      saluteAssente: !sm && !Number.isFinite(Number(sal?.ultime?.[nome])),
-      saluteUltima: Number(sal?.ultime?.[nome]) || sm?.quando || null,
-      serie: sal?.serie?.macchine?.[nome] ?? null,
-      storia: battito.storia?.[nome] ?? [],
+      saluteAssente: !sm && !ultimaSalute,
+      saluteUltima: ultimaSalute || sm?.quando || null,
+      serie: fondiSerie(g.nomi.map((n) => sal?.serie?.macchine?.[n])),
+      storia,
     }
   })
 
-  macchine.sort(
-    (a, b) =>
-      RANGO[a.livello] - RANGO[b.livello] ||
-      b.problemi.filter((p) => p.livello !== 'info').length - a.problemi.filter((p) => p.livello !== 'info').length ||
-      a.macchina.localeCompare(b.macchina),
-  )
+  const ordine = (a, b) =>
+    RANGO[a.livello] - RANGO[b.livello] ||
+    b.problemi.filter((p) => p.livello !== 'info').length - a.problemi.filter((p) => p.livello !== 'info').length ||
+    a.macchina.localeCompare(b.macchina)
+  const macchine = tutte.filter((m) => !m.nonVisto).sort(ordine)
+  const nonViste = tutte.filter((m) => m.nonVisto).sort((a, b) => (b.visto ?? 0) - (a.visto ?? 0) || a.macchina.localeCompare(b.macchina))
   const daSistemare = macchine.filter((m) => m.livello === 'crit' || m.livello === 'warn').length
-  const andamento = andamentoFlotta({ serie: sal?.serie ?? null, storia: battito.storia ?? {}, riferimento, soglia: sg.giorniIndietro })
+  // L'andamento e' quello dei Mac della flotta, come i numeri in cima: un nome vecchio non visto da tre
+  // giorni contava due volte lo stesso Mac nei giorni in cui parlava.
+  const serieVive = sal?.serie
+    ? { ...sal.serie, macchine: Object.fromEntries(macchine.filter((m) => m.serie).map((m) => [m.macchina, m.serie])) }
+    : null
+  const storiaViva = Object.fromEntries(macchine.map((m) => [m.macchina, m.storia]))
+  const andamento = andamentoFlotta({ serie: serieVive, storia: storiaViva, riferimento, soglia: sg.giorniIndietro })
+  const nomiVivi = new Set(macchine.flatMap((m) => [m.macchina, ...m.alias]))
   return {
     configurato: true,
     saluteConfigurata: salute != null,
     macchine,
+    nonViste,
     totale: macchine.length,
     daSistemare,
     riferimento: { digest: digestCorto(riferimento.immagine), fonte: riferimento.fonte, data: dataRif },
-    tuttiIndietro: tuttiIndietro(righe, riferimento),
+    tuttiIndietro: tuttiIndietro(righe.filter((r) => nomiVivi.has(r.macchina)), riferimento),
     serie: sal?.serie ? { inizio: sal.serie.inizio, passoMs: sal.serie.passoMs, punti: sal.serie.punti } : null,
     // I conti sulla flotta per il cruscotto: per ora (il grafico) e per giorno (le tessere).
     andamento,
@@ -479,7 +582,7 @@ export async function statoFlotta({ adesso = Date.now() } = {}) {
         : { errore: `account "${cs.account ?? '?'}" non configurato in accounts` },
   ])
   return {
-    ...componiFlotta({ heartbeat, salute }, { adesso, soglie: soglieDevEnv(cfg), comandi: comandiDevEnv(cfg) }),
+    ...componiFlotta({ heartbeat, salute }, { adesso, soglie: soglieDevEnv(cfg), comandi: comandiDevEnv(cfg), persone: loadConfig().people ?? null }),
     sshCommand: cfg.sshCommand ?? null,
     auditNodeUrl: cfg.auditNodeUrl ?? null,
     auditUserUrl: cfg.auditUserUrl ?? null,

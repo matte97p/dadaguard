@@ -1286,6 +1286,20 @@ export function demoSaluteEventi(now = Date.now()) {
     { macchina: 'alex-macbook', utente: 'alex', riga: (t, i, k) => sano(t, { ram: 32, vm: 12, obiettivo: 12, base: 7.2, swap: 0.3, cpu: 110, k }) },
     { macchina: 'lee-macbook', utente: 'lee', riga: (t, i, k) => sano(t, { ram: 18, vm: 9, obiettivo: 9, base: 4.6, swap: 0.9, cpu: 90, k }) },
     { macchina: 'eli-macbook', utente: 'eli', riga: (t, i, k) => sano(t, { ram: 24, vm: 10, obiettivo: 10, base: 5.4, swap: 0.6, cpu: 130, k }) },
+    // Lo stesso Mac con due nomi: macOS l'ha rinominato ieri cambiando rete. Fino a 30 ore fa le righe
+    // vecchie (senza id, con l'utente di sistema), poi il nome nuovo col dev-env aggiornato, che manda
+    // l'id del Mac e il login Teleport. La pagina ne fa una riga sola, col nome nuovo.
+    { macchina: 'MacBook-Pro-di-tess', utente: 'tess', a: 30 * ORA, riga: (t, i, k) => sano(t, { ram: 36, vm: 14, obiettivo: 14, base: 8.1, swap: 0.2, cpu: 100, k }) },
+    {
+      macchina: 'tess-mbp',
+      utente: 'tess-dev',
+      utenteDa: 'teleport',
+      id: DEMO_ID_TESS,
+      da: 29 * ORA,
+      riga: (t, i, k) => sano(t, { ram: 36, vm: 14, obiettivo: 14, base: 8.1, swap: 0.2, cpu: 100, k }),
+    },
+    // Il Mac di riserva di rin, spento da cinque giorni: esce dai numeri e va fra i «non visti».
+    { macchina: 'rin-mini', utente: 'rin', da: 6 * GIORNO, a: 5 * GIORNO, riga: (t, i, k) => sano(t, { ram: 16, vm: 8, obiettivo: 8, base: 3.9, swap: 0.5, cpu: 80, k }) },
   ]
   function sano(t, { ram, vm, obiettivo, base, swap, cpu, dentro = {} }) {
     const c = ciclo(t)
@@ -1312,15 +1326,59 @@ export function demoSaluteEventi(now = Date.now()) {
       const t = fine - i * PASSO
       // lee ha chiuso il Mac ieri: dall'ultimo avvio in poi niente righe, e le curve si fermano li'.
       if (m.macchina === 'lee-macbook' && t > now - 25 * ORA) continue
+      // `da` e `a`: la finestra in cui quel nome ha parlato (un nome vecchio, un Mac spento).
+      if (m.da != null && t < now - m.da) continue
+      if (m.a != null && t > now - m.a) continue
       const k = (righe - 1 - i) / (righe - 1)
-      eventi.push({ timestamp: t, message: JSON.stringify({ utente: m.utente, macchina: m.macchina, lato: 'host', salute: m.riga(t, i, k) }) })
+      const identita = m.id ? { macchina_id: m.id, utente_da: m.utenteDa ?? null } : {}
+      eventi.push({ timestamp: t, message: JSON.stringify({ utente: m.utente, macchina: m.macchina, ...identita, lato: 'host', salute: m.riga(t, i, k) }) })
     }
   }
   return eventi.sort((a, b) => b.timestamp - a.timestamp)
 }
 
+// L'id stabile del Mac di tess, come lo manda il dev-env aggiornato (16 cifre esadecimali).
+const DEMO_ID_TESS = 'a3f09c2e7b41d856'
+
+// I Mac che servono solo alla Flotta (la pagina Accessi non li ha): il Mac rinominato di tess, coi due
+// nomi, e il Mac di riserva di rin, spento da cinque giorni e con l'immagine vecchia.
+function demoMacchineFlotta(now) {
+  const creata = (giorni) => new Date(now - giorni * GIORNO).toISOString()
+  const riga = (macchina, utente, quando, dentro = {}) => ({
+    macchina,
+    lato: 'host',
+    utente,
+    utenti: [utente],
+    immagine: DEMO_IMG.nuova,
+    creata: creata(2),
+    esito: 'ok',
+    toolMancanti: 0,
+    toolMancantiNomi: [],
+    durata: 77,
+    quando,
+    ...dentro,
+  })
+  const avvio = (quando, dentro = {}) => ({ quando, lato: 'host', esito: 'ok', passo: null, classe: null, primaRiga: null, immagine: DEMO_IMG.nuova, creata: creata(2), durata: 77, ...dentro })
+  const tess = { macchinaId: DEMO_ID_TESS, utenteDa: 'teleport' }
+  return {
+    macchine: [
+      riga('tess-mbp', 'tess-dev', now - 3 * ORA, tess),
+      riga('MacBook-Pro-di-tess', 'tess', now - 2 * GIORNO, { immagine: DEMO_IMG.media, creata: creata(4) }),
+      riga('rin-mini', 'rin', now - 5 * GIORNO - 2 * ORA, { immagine: DEMO_IMG.vecchia, creata: creata(13) }),
+    ],
+    storia: {
+      'tess-mbp': [avvio(now - 3 * ORA, tess), avvio(now - 28 * ORA, tess)],
+      'MacBook-Pro-di-tess': [avvio(now - 2 * GIORNO, { immagine: DEMO_IMG.media, creata: creata(4) }), avvio(now - 4 * GIORNO, { immagine: DEMO_IMG.media, creata: creata(4) })],
+      'rin-mini': [avvio(now - 5 * GIORNO - 2 * ORA, { immagine: DEMO_IMG.vecchia, creata: creata(13) })],
+    },
+  }
+}
+
 export function demoFlotta(now = Date.now()) {
-  const { macchine, storia } = demoMacchineDevEnv(now)
+  const base = demoMacchineDevEnv(now)
+  const solo = demoMacchineFlotta(now)
+  const macchine = [...base.macchine, ...solo.macchine]
+  const storia = { ...base.storia, ...solo.storia }
   const heartbeat = {
     giorni: 7,
     attesa: null,
