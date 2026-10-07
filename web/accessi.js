@@ -1,5 +1,8 @@
 // Le REGOLE della pagina Accessi, fuori dal componente: quali righe hanno un problema, in che ordine
-// si mostrano, qual è l'immagine di riferimento e come si accorcia un digest.
+// si mostrano, e come diventano l'elenco «da sistemare» in cima alla pagina.
+//
+// Le regole sulle MACCHINE del dev-env (immagine indietro, digest, uso) stanno in `shared/devEnv.js`
+// dal 07/10/2026: il dev-env ha una pagina sua (Flotta), e quelle regole le applica il server.
 //
 // Stanno qui e non dentro `AccessiPage.jsx` per la stessa ragione di `deployRows.js` e `nowSignals.js`:
 // una regola dentro un componente si può leggere, non si può provare. E qui le regole sono la parte
@@ -8,132 +11,7 @@
 //
 // Tutto puro: nessun React, nessuna fetch, nessuna data «adesso» letta da dentro.
 
-// Una versione VERA, cioè un digest. Serve perché l'heartbeat manda anche la parola con cui dichiara
-// di non sapere («sconosciuta», quando l'avvio non ha potuto leggere l'immagine), e trattarla come una
-// versione ha due conseguenze, entrambe viste sui dati veri il 31/08/2026: entra nel conteggio delle
-// «versioni in giro» come se fosse una versione, e fa marcare «indietro» una macchina che sta solo
-// senza il dato. Il riconoscimento è sulla FORMA (`algo:esadecimale`, oppure un esadecimale lungo) e
-// non sulla parola: la parola la scrive uno script che non è questo, e un giorno la cambia.
-const FORMA_DIGEST = /^(?:[a-z0-9]+:)?[A-Fa-f0-9]{12,}$/
-export const versioneNota = (immagine) => FORMA_DIGEST.test(String(immagine ?? '').trim())
-
-// `sha256:45486f792f3f2a…` → `45486f792f3f`. Il prefisso è identico su ogni riga: occupa la colonna
-// per niente, e sono i caratteri che servirebbero a distinguere due immagini a colpo d'occhio.
-// Quello che non è un digest torna vuoto: chi chiama mostra «non dichiarata», che è l'informazione
-// giusta, invece di stampare mezza parola come se fosse una versione.
-export function digestCorto(immagine, quanti = 12) {
-  if (!versioneNota(immagine)) return ''
-  const nudo = String(immagine ?? '').replace(/^[a-z0-9]+:/i, '')
-  return nudo.slice(0, quanti)
-}
-
-// L'immagine con cui si confrontano le altre, e da DOVE viene, che è la parte che cambia tutto:
-//
-//  · `config`: la versione attesa è scritta nella config del dev-env. Allora «indietro» è un fatto, e
-//    se NESSUNA macchina ce l'ha vuol dire che sono indietro tutti, che è il caso che il ripiego qui
-//    sotto non può vedere.
-//  · `vista`: nessuna versione attesa, quindi si usa quella dell'avvio più recente registrato. È «la
-//    più nuova che qualcuno ha visto», non «la più nuova che esiste»: se nessuno ha aggiornato, tutti
-//    risultano pari. Il ripiego resta perché senza config è meglio di niente, ma la pagina deve DIRE
-//    quale delle due sta usando, sennò la stessa colonna vuol dire due cose diverse.
-//
-// Le macchine arrivano ordinate per `quando` decrescente (lo fa il server); qui non si assume, si
-// cerca il massimo, perché una funzione che dipende dall'ordine di chi la chiama si rompe in silenzio.
-export function immagineRiferimento(macchine = [], attesa = null) {
-  if (attesa) return { immagine: attesa, fonte: 'config' }
-  let piuRecente = null
-  for (const m of macchine) {
-    if (!versioneNota(m?.immagine)) continue
-    if (!piuRecente || (m.quando ?? 0) > (piuRecente.quando ?? 0)) piuRecente = m
-  }
-  return { immagine: piuRecente?.immagine ?? null, fonte: 'vista' }
-}
-
-// ── La DATA dell'immagine, che è quel che rende «indietro» un fatto ────────────────────────────────
-//
-// Il digest non ha un ORDINE: fra `45486f79` e `36b245a8` non si sa quale sia il più nuovo, e
-// confrontarli con quello dell'avvio più recente fa eleggere il riferimento dall'orologio di chi avvia
-// (il 31/08/2026 la pagina accusava quattro macchine su cinque, fra cui una che aveva l'immagine più
-// nuova di quella eletta). Una data invece si ordina, quindi «indietro di otto giorni» è vero da solo,
-// senza bisogno che qualcuno abbia la versione più nuova che esista.
-//
-// La manda l'avvio, letta dal label OCI sull'host e dal file che l'immagine si porta dentro (dal
-// container il label non si legge, non c'è docker). Per chi non ha ancora aggiornato il dev-env il
-// campo non c'è: allora non si dice niente, invece di indovinare.
-export const dataImmagine = (m) => {
-  const t = Date.parse(String(m?.creata ?? ''))
-  return Number.isFinite(t) ? t : null
-}
-
-// La data più recente vista: è un massimo su un insieme ordinato, non una scelta fra pari.
-export function dataRiferimento(macchine = []) {
-  let max = null
-  for (const m of macchine) {
-    const t = dataImmagine(m)
-    if (t != null && (max == null || t > max)) max = t
-  }
-  return max
-}
-
-// Di quanti GIORNI interi è indietro quella macchina. `null` quando una delle due date manca, e `0`
-// quando sono dello stesso giorno: sotto le 24 ore non è «indietro», è la stessa immagine ricostruita,
-// e chiamarlo indietro farebbe suonare ogni rebuild.
-export function giorniIndietro(m, riferimento) {
-  const mia = dataImmagine(m)
-  if (mia == null || riferimento == null) return null
-  return Math.floor((riferimento - mia) / 86_400_000)
-}
-
-// Quanti giorni di ritardo contano come «indietro». Sette e non uno: l'immagine si ricostruisce a ogni
-// modifica del dev-env, quindi due giorni di ritardo sono il caso normale di chi ha lavorato ieri, e
-// una soglia bassa farebbe suonare ogni rebuild. Una settimana e' il punto in cui il ritardo spiega
-// davvero un «a me non funziona».
-export const GIORNI_INDIETRO = 7
-
-// «Indietro» come FATTO, in ordine di forza: la versione attesa dalla config quando c'e', altrimenti
-// la data di costruzione, e in mancanza di entrambe non si accusa nessuno.
-export function ritardo(m, riferimento, dataRif) {
-  if (macchinaIndietro(m, riferimento)) return { indietro: true, giorni: giorniIndietro(m, dataRif) }
-  const g = giorniIndietro(m, dataRif)
-  if (g != null && g >= GIORNI_INDIETRO) return { indietro: true, giorni: g }
-  return { indietro: false, giorni: g }
-}
-
-// «Indietro» è un'accusa, e si può fare solo con la versione ATTESA in mano.
-//
-// ⚠️ Misurato sui dati veri il 31/08/2026, ed è la ragione di questa firma: con cinque macchine e
-// cinque digest diversi, il ripiego («la più recente vista») elegge il riferimento con l'OROLOGIO, e
-// il risultato era falso. Alle 12:37 una macchina aveva avviato l'immagine `36b245a8`, alle 12:42
-// un'altra la `45486f79`, che era stata pubblicata PRIMA: la seconda diventava il riferimento e la
-// prima veniva marcata «indietro» pur avendo l'immagine più nuova. Quattro righe su cinque accusate
-// da un ordine di avvio. Quindi: `fonte: 'config'` accusa, `fonte: 'vista'` dice solo «diversa».
-// Accetta anche un digest nudo (senza la fonte) per retro-compatibilità, e in quel caso NON accusa.
-export function macchinaIndietro(m, riferimento) {
-  const fonte = typeof riferimento === 'object' && riferimento ? riferimento.fonte : null
-  if (fonte !== 'config') return false
-  const atteso = riferimento.immagine
-  return Boolean(atteso && versioneNota(m?.immagine) && m.immagine !== atteso)
-}
-
-
-// La macchina non ha dichiarato la versione: non è indietro, non è pari, è senza il dato.
-export const senzaVersione = (m) => !versioneNota(m?.immagine)
-
-// Un avvio con esito diverso da `ok` è una macchina che è partita male, e va detto anche se il resto
-// della riga sembra sano. `null` (heartbeat vecchio, senza il campo) NON è un avvio storto: inventare
-// un problema dove il dato manca è peggio che non dirlo.
-export const avvioStorto = (m) => Boolean(m?.esito && m.esito !== 'ok')
-
-// «Tutti indietro»: la versione attesa la sa la config e non ce l'ha NESSUNA macchina. Senza versione
-// attesa la domanda non si può porre, e la risposta è `false` (non «sì per prudenza»: un allarme che
-// non sa distinguere è un allarme che si impara a ignorare).
-export function tuttiIndietro(macchine = [], riferimento) {
-  if (!riferimento || riferimento.fonte !== 'config') return false
-  const conImmagine = macchine.filter((m) => versioneNota(m?.immagine))
-  return conImmagine.length > 0 && conImmagine.every((m) => m.immagine !== riferimento.immagine)
-}
-
-// Chi ha un problema, per ciascuna delle quattro tabelle. Sono le stesse funzioni che decidono il
+// Chi ha un problema, per ciascuna delle tre liste. Sono le stesse funzioni che decidono il
 // pallino sull'interruttore, l'ordine delle righe e cosa resta accendendo «solo da guardare»: se
 // fossero tre copie, il pallino direbbe una cosa e il filtro un'altra.
 // ⚠️ Anche un accesso al DATABASE negato e' un problema di questa persona, non solo una login
@@ -143,8 +21,6 @@ export const problemaPersona = (p) => (p?.loginFallite ?? 0) > 0 || (p?.sessioni
 // Le SCRITTURE su un `prod`, non le query: un database di produzione letto da sei persone è il
 // mestiere, scriverci è la cosa che si guarda.
 export const problemaDatabase = (d) => (d?.scritture ?? 0) > 0 && d?.ambiente === 'prod'
-export const problemaMacchina = (m, riferimento, dataRif = null) =>
-  ritardo(m, riferimento, dataRif).indietro || (m?.toolMancanti ?? 0) > 0 || avvioStorto(m)
 export const problemaSsh = (m) => (m?.aperte ?? 0) > 0
 
 // Ordinamento di default: prima le righe con un problema, poi le più recenti. In un guasto si guarda
@@ -158,11 +34,6 @@ export const ordinaPersone = (persone = []) =>
 export const ordinaDatabase = (database = []) =>
   [...database].sort((a, b) => primaIProblemi(problemaDatabase)(a, b) || (b.query ?? 0) - (a.query ?? 0))
 
-export const ordinaMacchine = (macchine = [], riferimento, dataRif = null) =>
-  [...macchine].sort(
-    (a, b) => primaIProblemi((m) => problemaMacchina(m, riferimento, dataRif))(a, b) || perData('quando')(a, b),
-  )
-
 export const ordinaSsh = (ssh = []) =>
   [...ssh].sort((a, b) => primaIProblemi(problemaSsh)(a, b) || perData('ultima')(a, b))
 
@@ -175,21 +46,6 @@ export function filtraRighe(righe = [], { problema, cerca, query = '', soloProbl
     (r) =>
       (!soloProblemi || !problema || problema(r)) &&
       (!cercato || !cerca || cerca(r).some((v) => String(v ?? '').toLowerCase().includes(cercato))),
-  )
-}
-
-// Quante cose chiedono un intervento in TUTTA la pagina. Serve a due cose: decidere se la riga «tutto
-// tranquillo» ha il diritto di esserci, e non farla comparire quando un dato manca (un errore di
-// lettura non è «tutto bene»).
-export function daGuardare(audit = {}, heartbeat = {}, riferimento = null) {
-  const versioni = heartbeat.versioni?.length ?? 0
-  return (
-    (audit.loginFallite ?? 0) +
-    (audit.sessioniDbNegate ?? 0) +
-    (audit.sshAperte ?? 0) +
-    (heartbeat.conToolMancanti ?? 0) +
-    (versioni > 1 ? 1 : 0) +
-    (tuttiIndietro(heartbeat.macchine ?? [], riferimento) ? 1 : 0)
   )
 }
 
@@ -216,129 +72,188 @@ export function linkAudit(modello, segnaposto, valore) {
   return modello.replaceAll(chiave, encodeURIComponent(valore))
 }
 
-// Il nome da mostrare per una macchina, e gli altri con cui la stessa persona e' comparsa.
+// ── «Da sistemare»: UN elenco, in ordine di urgenza ────────────────────────────────────────────────
 //
-// L'heartbeat manda l'utente Teleport quando c'e' una sessione e quello di SISTEMA quando non c'e',
-// quindi la stessa persona compare con due nomi e quale dei due finisce in tabella dipende da com'e'
-// andato l'ultimo avvio (visto sui dati veri il 31/08/2026 su due macchine su cinque: l'utente del
-// cluster e quello del portatile, che non si somigliano). Si preferisce il nome che Teleport CONOSCE,
-// cioe' quello che compare anche nell'audit del
-// cluster: e' l'unico dei due con cui la riga si collega al resto della pagina, e senza quel criterio
-// la stessa persona sembra due.
-export function personaMacchina(m, utentiNoti = new Set()) {
-  const visti = m?.utenti?.length ? m.utenti : m?.utente ? [m.utente] : []
-  const noto = visti.find((u) => utentiNoti.has(u))
-  const nome = noto ?? m?.utente ?? null
-  return { nome, altri: visti.filter((u) => u !== nome) }
-}
-
-// Le due frasi che vanno in cima: quel che la pagina ha TROVATO, e quel che ha guardato senza trovare
-// niente. Senza, i cinque numeri grandi stanno tutti sulla stessa riga e tre sono spenti: l'occhio non
-// ha un posto dove cadere, e per sapere cosa sono le «6 scritture» tocca aprire due tabelle e
-// incrociarle a mano.
+// La pagina di prima apriva con cinque riassunti uno sotto l'altro (titolo, «da guardare:», due card
+// di numeri, «guardato e a posto») che ripetevano gli stessi conteggi, e poi le tabelle con le righe
+// sane e quelle rotte con lo stesso peso. La domanda della pagina e' una sola, «c'e' qualcosa che non
+// va negli accessi adesso?», e la risposta e' un elenco di cose, ognuna con chi, cosa, quando e il
+// posto dove si agisce. Qui si costruisce quell'elenco; la pagina lo disegna e basta.
 //
-// Torna DATI e non testo: le frasi le compone la pagina, che ha il dizionario. `trovato` è ordinato per
-// urgenza (chi non entra, chi è dentro adesso, chi ha scritto, chi è indietro), `tranquillo` sono le
-// famiglie guardate e risultate a zero, che è un'informazione e non un vuoto.
-export function riepilogo(audit = {}, heartbeat = {}, riferimento = null) {
-  const trovato = []
-  const tranquillo = []
-  const spingi = (condizione, voce) => (condizione ? trovato : tranquillo).push(voce)
+// Le voci, e perche' sono queste:
+//   · `login`: le login fallite RAGGRUPPATE PER MOTIVO, non per persona. Lo stesso motivo per piu'
+//     persone e' la configurazione, non qualcuno che ha sbagliato (il 28/08/2026 un ruolo inesistente
+//     ha chiuso fuori tutto il team, e la pagina mostrava sette righe uguali invece di una causa);
+//   · `ssh`: una sessione ancora aperta sulla macchina di qualcuno, l'unica cosa a cui si reagisce
+//     subito;
+//   · `scrittura`: le scritture su un database di PRODUZIONE (su staging e' il lavoro di tutti i
+//     giorni); rosse sui dati dei clienti, gialle sulla sola struttura, come su Slack;
+//   · `negato`: gli accessi a un database rifiutati, per persona, con la coppia utente+database.
+//
+// ⚠️ Un ruolo che sul cluster non esiste e' un problema di RUOLI anche quando capita a una persona
+// sola: non si sistema riprovando, si sistema nel connector. Per questo la voce lo marca a parte.
+const RUOLO_MANCANTE = /role\b.*\bnot found|ruolo\b.*\bnon (esiste|trovato)/i
+const RANGO = { crit: 0, warn: 1, info: 2 }
+const ORDINE_TIPO = { login: 0, ssh: 1, scrittura: 2, negato: 3 }
 
-  spingi((audit.loginFallite ?? 0) > 0, { k: 'fallite', n: audit.loginFallite ?? 0, vista: 'persone' })
-  spingi((audit.sessioniDbNegate ?? 0) > 0, { k: 'dbNegate', n: audit.sessioniDbNegate ?? 0, vista: 'persone' })
-  spingi((audit.sshAperte ?? 0) > 0, { k: 'sshAperte', n: audit.sshAperte ?? 0, vista: 'ssh' })
+// `proprietari`: { macchina: [nomi] } da chi la avvia (l'heartbeat). Serve a dire «e' sulla sua
+// macchina» invece di suonare come un'intrusione: la stessa regola del canale (`segnali()` in
+// server/accessi.js), che non annuncia chi entra sul proprio Mac.
+export function daSistemare(audit = {}, { proprietari = {} } = {}) {
+  const voci = []
+  const persone = audit.persone ?? []
 
-  // Le scritture: non il totale, ma DOVE sono andate e su quale ambiente, che è la differenza fra il
-  // mestiere di tutti i giorni e la cosa che si guarda.
-  const scriventi = (audit.database ?? []).filter((d) => (d.scritture ?? 0) > 0)
-  const prod = scriventi.filter((d) => d.ambiente === 'prod')
-  // Si nomina la PRODUZIONE quando c'e', e il numero e' quello dei database nominati: non il totale
-  // della finestra. Con 4 scritture su un database di produzione e 2 su staging, «6 scritture su
-  // <produzione>» sarebbe falso due volte.
-  const contate = prod.length ? prod : scriventi
-  spingi(scriventi.length > 0, {
-    k: 'scritture',
-    n: contate.reduce((n, d) => n + (d.scritture ?? 0), 0),
-    dove: contate.map((d) => (d.nome && d.nome !== '?' ? d.nome : d.servizio)),
-    prod: prod.length > 0,
-    // Le altre, quelle fuori produzione: si dicono in coda invece di sparire dentro un totale.
-    altrove: prod.length ? scriventi.length - prod.length : 0,
-    vista: 'database',
-  })
-
-  spingi((heartbeat.conToolMancanti ?? 0) > 0, { k: 'tool', n: heartbeat.conToolMancanti ?? 0, vista: 'devEnv' })
-
-  // Le versioni contano come «trovato» solo quando il confronto è un fatto, cioè con la versione attesa
-  // in config: senza, sono una statistica, e una statistica in cima alla pagina si legge come un
-  // problema che non c'è.
-  // Le macchine INDIETRO, contate: con le date e' un fatto, e va detto come tale invece di parlare di
-  // «versioni in giro», che e' una statistica su cui non si agisce.
-  const macchine = heartbeat.macchine ?? []
-  const dataRif = dataRiferimento(macchine)
-  const indietro = macchine.filter((m) => ritardo(m, riferimento, dataRif).indietro)
-  const versioni = heartbeat.versioni?.length ?? 0
-  const tutti = tuttiIndietro(macchine, riferimento)
-  if (indietro.length > 0) {
-    trovato.push({
-      k: 'indietro',
-      n: indietro.length,
-      giorni: Math.max(...indietro.map((m) => ritardo(m, riferimento, dataRif).giorni ?? 0)),
-      tutti,
-      vista: 'devEnv',
+  const perMotivo = new Map()
+  for (const p of persone) {
+    if (!((p?.loginFallite ?? 0) > 0)) continue
+    const motivo = String(p.motivo ?? '').trim()
+    perMotivo.set(motivo, [...(perMotivo.get(motivo) ?? []), p])
+  }
+  for (const [motivo, chi] of perMotivo) {
+    // Chi non e' mai entrato nella finestra e' FUORI; chi ha anche delle login riuscite ha sbattuto
+    // una volta e poi e' entrato, che e' un'altra notizia.
+    const fuori = chi.filter((p) => !((p.loginOk ?? 0) > 0)).map((p) => p.utente)
+    const ruolo = RUOLO_MANCANTE.test(motivo)
+    const prime = chi.map((p) => p.primaFallita).filter(Number.isFinite)
+    const ultime = chi.map((p) => p.ultimaFallita ?? p.ultima).filter(Number.isFinite)
+    voci.push({
+      id: `login:${motivo}`,
+      tipo: 'login',
+      ancora: 'login',
+      livello: chi.length > 1 || fuori.length > 0 || ruolo ? 'crit' : 'warn',
+      motivo: motivo || null,
+      ruolo,
+      // Piu' persone con lo stesso motivo: e' la frase che dice «guarda la config, non la persona».
+      perTutti: chi.length > 1,
+      chi: chi.map((p) => p.utente).sort(),
+      fuori: fuori.sort(),
+      quante: chi.reduce((n, p) => n + (p.loginFallite ?? 0), 0),
+      prima: prime.length ? Math.min(...prime) : null,
+      ultima: ultime.length ? Math.max(...ultime) : null,
     })
-  } else if (dataRif != null) {
-    // Nessuno indietro E le date ci sono: e' un a posto vero, e si puo' dire.
-    tranquillo.push({ k: 'indietro', n: 0, vista: 'devEnv' })
-  } else if (versioni <= 1) {
-    tranquillo.push({ k: 'versioni', n: versioni, vista: 'devEnv' })
   }
 
-  return { trovato, tranquillo }
+  for (const m of audit.ssh ?? []) {
+    if (!problemaSsh(m)) continue
+    const suoi = proprietari[m.macchina] ?? []
+    const estranei = (m.chi ?? []).filter((c) => !suoi.includes(c))
+    voci.push({
+      id: `ssh:${m.macchina}`,
+      tipo: 'ssh',
+      ancora: 'ssh',
+      // Sulla propria macchina e' una cosa da sapere, non un allarme; su quella di un altro si'.
+      livello: suoi.length && estranei.length === 0 ? 'warn' : 'crit',
+      macchina: m.macchina,
+      diChi: suoi,
+      suaMacchina: suoi.length > 0 && estranei.length === 0,
+      chi: [...(m.chi ?? [])].sort(),
+      aperte: m.aperte,
+      ultima: m.ultima ?? null,
+    })
+  }
+
+  for (const d of audit.database ?? []) {
+    if (!problemaDatabase(d)) continue
+    // La divisione dati/struttura arriva dall'audit; un payload che non la porta (versione
+    // precedente) si legge come scrittura sui dati, che e' il caso da non sottovalutare.
+    const soloStruttura = (d.scrittureStruttura ?? 0) > 0 && !((d.scrittureDati ?? 0) > 0)
+    voci.push({
+      id: `scrittura:${d.servizio}/${d.nome}`,
+      tipo: 'scrittura',
+      ancora: 'scritture',
+      livello: soloStruttura ? 'warn' : 'crit',
+      db: d.nome && d.nome !== '?' ? d.nome : d.servizio,
+      servizio: d.servizio,
+      quante: d.scritture,
+      soloStruttura,
+      azioni: (d.azioni ?? []).slice(0, 3),
+      tabelle: (d.bersagli ?? []).slice(0, 3),
+      chi: [...((d.scriventi ?? []).length ? d.scriventi : (d.chi ?? []))].sort(),
+      ultima: d.ultimaScrittura ?? null,
+    })
+  }
+
+  for (const p of persone) {
+    if (!((p?.sessioniDbNegate ?? 0) > 0)) continue
+    const negati = p.negati ?? []
+    const ultime = negati.map((n) => n.ultima).filter(Number.isFinite)
+    voci.push({
+      id: `negato:${p.utente}`,
+      tipo: 'negato',
+      ancora: 'login',
+      livello: 'warn',
+      utente: p.utente,
+      chi: [p.utente],
+      quante: p.sessioniDbNegate,
+      negati: negati.slice(0, 3),
+      ultima: ultime.length ? Math.max(...ultime) : (p.ultima ?? null),
+    })
+  }
+
+  return voci.sort(
+    (a, b) =>
+      RANGO[a.livello] - RANGO[b.livello] ||
+      ORDINE_TIPO[a.tipo] - ORDINE_TIPO[b.tipo] ||
+      (b.ultima ?? 0) - (a.ultima ?? 0),
+  )
 }
 
-// La SALUTE di una macchina (memoria e OOM della VM di Docker, container non sani), dal log group del
-// dev-env che arriva ogni 15 minuti. Si attacca alla riga dell'HOST: la VM e i container sono del Mac,
-// e il container `dev` non ha una salute sua da mostrare. `null` = nessuna riga nelle ultime 24 ore,
-// che non e' «sana»: e' un Mac spento, o un dev-env non ancora aggiornato.
-export function saluteDellaMacchina(salute, riga) {
-  if (!riga || riga.lato === 'container') return null
-  return (salute?.macchine ?? []).find((m) => m.macchina === riga.macchina) ?? null
+// Chi avvia ogni macchina, secondo l'heartbeat: `{ macchina: [nomi] }`, con tutti i nomi visti
+// (l'avvio manda l'utente Teleport o quello di sistema). Una macchina mai avviata non ha proprietari.
+export function proprietariMacchine(heartbeat = {}) {
+  const fuori = {}
+  for (const m of heartbeat?.macchine ?? []) {
+    if (!m?.macchina) continue
+    const nomi = m.utenti?.length ? m.utenti : m.utente ? [m.utente] : []
+    fuori[m.macchina] = [...new Set([...(fuori[m.macchina] ?? []), ...nomi])]
+  }
+  return fuori
 }
 
-// Le app che pesano di piu' dentro al container, in MB: «backend 1,3 GB» dice dove guardare quando la
-// VM e' piena. «altro» (gli MCP, i tool) non e' un'app e resta fuori.
-export function appPiuPesanti(appMb = {}, quante = 2) {
-  return Object.entries(appMb)
-    .filter(([nome, mb]) => nome !== 'altro' && Number(mb) > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, quante)
-    .map(([nome, mb]) => ({ nome, gb: Math.round(Number(mb) / 102.4) / 10 }))
-}
+// I campi di una voce su cui si cerca: le persone, il motivo, la macchina, il database.
+export const cercaVoce = (v) => [
+  ...(v.chi ?? []),
+  v.motivo,
+  v.macchina,
+  v.db,
+  v.servizio,
+  ...(v.negati ?? []).flatMap((n) => [n.dbUser, n.nome, n.servizio]),
+]
 
-// La salute merita uno sguardo: la VM ha finito la memoria nelle 24 ore, o un container e' non sano.
-export function saluteDaGuardare(s) {
-  return Boolean(s && (s.oomNuovi > 0 || (s.nonSani ?? []).length > 0))
-}
-
-// Quel che la riga di salute dice dal 07/10/2026 sul COME si usa il dev-env: il motore di Docker, la
-// memoria che la VM dovrebbe avere, gli opt-out accesi, i KO dell'ultimo doctor e i comandi dei repo
-// lanciati sul Mac. Un campo che manca resta vuoto (`null`, `[]`, `0`): la cella non mostra niente,
-// invece di un numero che sembri un fatto. `motoreIncerto`: un engine nudo senza il campo `motore`,
-// cioe' colima o OrbStack senza sapere quale.
-export function usoDellaMacchina(sm) {
-  const cm = sm?.comandiMac ?? null
-  const bloccati = Number(cm?.bloccati) || 0
-  const forzati = Number(cm?.forzati) || 0
+// Tutto il resto, cioe' quello che e' in ordine: le persone senza problemi, i database senza
+// scritture in produzione, le macchine senza sessioni aperte. Sta chiuso sotto una riga sola, perche'
+// una riga sana non deve pesare quanto una rotta.
+// `voci`: l'elenco «da sistemare», perche' una persona che compare li' (chi ha scritto in produzione,
+// chi e' dentro un Mac) non e' anche «in ordine» una riga sotto.
+export function inOrdine(audit = {}, voci = []) {
+  const nominati = new Set(voci.flatMap((v) => v.chi ?? []))
   return {
-    motore: sm?.motore ?? null,
-    motoreIncerto: !sm?.motore && (sm?.motoreCandidati ?? []).length > 1,
-    obiettivoGb: sm?.vmMemObiettivoGb ?? null,
-    optOut: [...new Set(sm?.optOut ?? [])].sort(),
-    doctorKo: Number(sm?.doctor?.ko) > 0 ? Number(sm.doctor.ko) : 0,
-    doctorFalliti: sm?.doctor?.falliti ?? [],
-    sulMac: bloccati + forzati,
-    bloccati,
-    forzati,
+    persone: ordinaPersone((audit.persone ?? []).filter((p) => !problemaPersona(p) && !nominati.has(p.utente))),
+    database: ordinaDatabase((audit.database ?? []).filter((d) => !problemaDatabase(d))),
+    ssh: ordinaSsh((audit.ssh ?? []).filter((m) => !problemaSsh(m))),
   }
+}
+
+// I link di PRIMA, che restano validi come indirizzo: le viste della pagina vecchia (`?vista=persone`,
+// `?vista=database`, …) e quelli dei messaggi Slack gia' nel canale. Un link rotto lo scopre chi lo
+// riceve, non chi lo ha mandato. Ognuna porta dove sta oggi la stessa domanda:
+//   · le login e le sessioni → la voce dell'elenco con quell'ancora;
+//   · la mappa → la sezione «chi ha cosa», aperta;
+//   · il dev-env → la pagina Flotta, che e' dove i Mac stanno ora.
+// L'ancora dell'URL (`#scritture`, il link nuovo) vince sulla vista.
+export const VISTE_VECCHIE = Object.freeze({
+  chi: 'login',
+  persone: 'login',
+  ssh: 'ssh',
+  database: 'scritture',
+  chiHaCosa: 'chiHaCosa',
+  mappa: 'chiHaCosa',
+  team: 'chiHaCosa',
+})
+
+export function destinazioneVista(vista, hash = '') {
+  if (vista === 'devEnv') return { flotta: '/flotta' }
+  const ancora = String(hash ?? '').replace(/^#/, '')
+  if (ancora) return { ancora }
+  return VISTE_VECCHIE[vista] ? { ancora: VISTE_VECCHIE[vista] } : {}
 }

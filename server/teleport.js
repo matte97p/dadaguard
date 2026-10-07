@@ -835,7 +835,19 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     // ⚠️ La riga d'errore viaggia anche QUI, non solo nei `guasti`: la riga rossa di chi non parte
     // piu' porta la sola classe, e `porta-occupata` non dice QUALE porta, che e' l'unica cosa su cui
     // si puo' agire (visto il 16/09/2026: due avvii fermati da una porta di app, allarme muto).
-    avviiPerMacchina.get(chiave).push({ esito: r.esito ?? null, quando: ev.timestamp ?? 0, classe: r.classe ?? null, primaRiga: r.prima_riga ?? null })
+    avviiPerMacchina.get(chiave).push({
+      esito: r.esito ?? null,
+      quando: ev.timestamp ?? 0,
+      classe: r.classe ?? null,
+      primaRiga: r.prima_riga ?? null,
+      // Il resto della riga serve alla STORIA della macchina nella pagina Flotta (gli ultimi avvii con
+      // esito e passo, e le immagini che si sono succedute): `bloccate()` non li guarda.
+      lato: r.lato ?? null,
+      passo: r.passo ?? null,
+      immagine: r.immagine ?? null,
+      creata: r.creata ?? null,
+      durata: r.durata != null ? Number(r.durata) : null,
+    })
 
     const precedente = perMacchina.get(chiave)
     if (!precedente || (ev.timestamp ?? 0) > precedente.quando) {
@@ -891,7 +903,26 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
     // Le macchine che non hanno dichiarato la versione: non sono indietro, sono senza il dato, e
     // vanno contate a parte invece di sparire dentro «versioni in giro».
     senzaVersione: elenco.filter((m) => !versioneNota(m.immagine)).length,
+    // Gli ultimi avvii di ogni MACCHINA (host e container insieme), dal piu' recente: la pagina Flotta
+    // ne fa la storia degli avvii e quella delle immagini. Un tetto per macchina, perche' il payload
+    // e' lo stesso della pagina Accessi e sette giorni di avvii di chi riavvia spesso sono tanti.
+    storia: storiaAvvii(avviiPerMacchina),
   }
+}
+
+export const AVVII_IN_STORIA = 12
+
+// `{ macchina: [avvio, ...] }` dai gruppi `macchina/lato`: i due lati della stessa macchina sono una
+// storia sola, perche' chi la guarda chiede «com'e' andato l'ultimo avvio sul Mac di X», non «sul lato».
+export function storiaAvvii(avviiPerMacchina = new Map(), quanti = AVVII_IN_STORIA) {
+  const perMacchina = new Map()
+  for (const [chiave, avvii] of avviiPerMacchina) {
+    const macchina = chiave.slice(0, chiave.lastIndexOf('/'))
+    perMacchina.set(macchina, [...(perMacchina.get(macchina) ?? []), ...avvii])
+  }
+  return Object.fromEntries(
+    [...perMacchina].map(([m, avvii]) => [m, [...avvii].sort((a, b) => b.quando - a.quando).slice(0, quanti)]),
+  )
 }
 
 // ── La SALUTE delle macchine (dal 06/10/2026) ──────────────────────────────────────────────────────
@@ -960,6 +991,9 @@ export function riassumiSalute(eventi = []) {
       swapMacMb: num(s.mac?.swap_usata_mb),
       memoriaLiberaMacPct: num(s.mac?.memoria_libera_pct),
       appMb: s.app_mb ?? {},
+      // Quanto usa ogni container (`docker stats`): e' la ripartizione che risponde a «chi si e'
+      // mangiato la VM?». Una riga senza il blocco lascia l'elenco vuoto, non una fila di zeri.
+      contenitori: contenitoriDi(s.container?.uso),
       // Dal 07/10/2026: il motore di Docker, la memoria che la VM DOVREBBE avere, e come si usa il
       // dev-env. Tutti facoltativi: un campo che manca e' «non lo so», mai zero, e `null` lo dice.
       ...motoreDocker(s.docker),
@@ -973,6 +1007,16 @@ export function riassumiSalute(eventi = []) {
     })
   }
   return macchine.sort((a, b) => b.quando - a.quando)
+}
+
+// `{ dev: { mem_mb, cpu_pct } }` → `[{ nome, memMb, cpuPct }]`, dal piu' pesante. I campi che mancano
+// restano `null`.
+export function contenitoriDi(uso) {
+  if (!uso || typeof uso !== 'object') return []
+  const n = (x) => (x === null || x === undefined || x === '' ? null : Number.isFinite(Number(x)) ? Number(x) : null)
+  return Object.entries(uso)
+    .map(([nome, u]) => ({ nome, memMb: n(u?.mem_mb), cpuPct: n(u?.cpu_pct) }))
+    .sort((a, b) => (b.memMb ?? -1) - (a.memMb ?? -1) || a.nome.localeCompare(b.nome))
 }
 
 // Il MOTORE di Docker del Mac. Lo dice `docker.motore` dal 07/10/2026; prima c'era solo `desktop`, la
@@ -1085,4 +1129,130 @@ export async function salute(aws, { logGroup, ore = ORE_DEFAULT, giorniUltime = 
     giorniUltime,
     ultime,
   }
+}
+
+// ── La SETTIMANA di salute, per la pagina Flotta (dal 07/10/2026) ─────────────────────────────────
+//
+// La pagina Flotta chiede tre cose alle stesse righe: lo stato delle ultime 24 ore (lo stesso di
+// `salute()`), l'ultima riga di ogni macchina nei sette giorni (lo stesso di `ultimeSalute()`) e
+// l'ANDAMENTO di sette giorni, cioe' se le cose stanno peggiorando. Erano tre letture, e qui e' una
+// sola: sette giorni di righe da Insights, poi le tre risposte si ricavano in memoria.
+//
+// ⚠️ L'andamento si BINNA qui e non nel browser: una riga ogni 15 minuti per sette giorni sono ~670
+// righe a macchina, e al browser servono quattro numeri per ora. Il binning e' quello che rende la
+// risposta piccola, e il criterio di ogni serie e' il caso PEGGIORE dell'ora (il minimo della memoria
+// libera, il massimo dello swap): una linea fatta di medie nasconde proprio il picco che si cerca.
+export const PASSO_SERIE_MS = 3_600_000
+
+const numero = (x) => (x === null || x === undefined || x === '' ? null : Number.isFinite(Number(x)) ? Number(x) : null)
+const arrotonda = (x, cifre = 1) => (x == null ? null : Math.round(x * 10 ** cifre) / 10 ** cifre)
+
+// Il carico dei container: la somma dei `cpu_pct` di `container.uso`, come la manda `docker stats`
+// (100 = un core pieno). `null` quando la riga non porta il blocco, che non e' «carico zero».
+export function caricoContainer(s) {
+  const uso = s?.container?.uso
+  if (!uso || typeof uso !== 'object') return null
+  let somma = null
+  for (const c of Object.values(uso)) {
+    const v = numero(c?.cpu_pct)
+    if (v != null) somma = (somma ?? 0) + v
+  }
+  return somma
+}
+
+// Le serie per macchina, un punto per ora da `inizio` ad `adesso`. Un'ora senza righe resta `null`:
+// e' un Mac spento o chiuso, e disegnarla come zero direbbe «memoria finita» o «nessun carico».
+//   · mem: la memoria disponibile della VM, il MINIMO dell'ora (GB)
+//   · oom: i processi uccisi per memoria NATI nell'ora, con la stessa regola di `riassumiSalute`
+//     (il contatore e' dal boot della VM: conta quanto sale, e se scende la VM e' ripartita)
+//   · swap: lo swap del Mac, il MASSIMO dell'ora (GB)
+//   · cpu: il carico dei container, il MASSIMO dell'ora (percento, 100 = un core)
+export function binnaSalute(eventi = [], { adesso = Date.now(), giorni = 7, passoMs = PASSO_SERIE_MS } = {}) {
+  const punti = Math.ceil((giorni * 86_400_000) / passoMs)
+  const inizio = Math.floor(adesso / passoMs) * passoMs - (punti - 1) * passoMs
+  const perMacchina = new Map()
+  for (const ev of eventi) {
+    const r = comeJson(ev.message)
+    if (!r?.macchina || !r.salute || !Number.isFinite(ev.timestamp)) continue
+    if (!perMacchina.has(r.macchina)) perMacchina.set(r.macchina, [])
+    perMacchina.get(r.macchina).push({ quando: ev.timestamp, s: r.salute })
+  }
+  const serie = {}
+  for (const [macchina, righe] of perMacchina) {
+    righe.sort((a, b) => a.quando - b.quando)
+    const vuota = () => Array(punti).fill(null)
+    const mem = vuota()
+    const oom = vuota()
+    const swap = vuota()
+    const cpu = vuota()
+    let prima = null
+    const peggiore = (arr, i, v, verso) => {
+      if (v == null) return
+      arr[i] = arr[i] == null ? v : verso === 'min' ? Math.min(arr[i], v) : Math.max(arr[i], v)
+    }
+    for (const { quando, s } of righe) {
+      const i = Math.floor((quando - inizio) / passoMs)
+      const kill = numero(s.vm?.oom_kill)
+      // Il contatore va seguito anche FUORI dalla finestra (righe piu' vecchie del primo punto), o il
+      // primo valore dentro la finestra si conterebbe come una salita.
+      if (kill != null) {
+        const salito = prima == null ? 0 : kill >= prima ? kill - prima : kill
+        if (i >= 0 && i < punti) oom[i] = (oom[i] ?? 0) + salito
+        prima = kill
+      }
+      if (i < 0 || i >= punti) continue
+      peggiore(mem, i, numero(s.vm?.mem_disponibile_gb), 'min')
+      const swapMb = numero(s.mac?.swap_usata_mb)
+      peggiore(swap, i, swapMb == null ? null : swapMb / 1024, 'max')
+      peggiore(cpu, i, caricoContainer(s), 'max')
+    }
+    serie[macchina] = {
+      mem: mem.map((v) => arrotonda(v)),
+      oom,
+      swap: swap.map((v) => arrotonda(v)),
+      cpu: cpu.map((v) => arrotonda(v, 0)),
+    }
+  }
+  return { inizio, passoMs, punti, macchine: serie }
+}
+
+// Le tre risposte della settimana dalle stesse righe. Puro, per le prove: `eventi` e' quello che
+// torna da Insights (timestamp + message), `troncato` se la lettura ha toccato il tetto.
+//   · `macchine`, `conOom`, `conNonSani`: le ultime `ore`, con la regola di `salute()`;
+//   · `ultime`: l'ultima riga di ogni macchina nei `giorni`, la forma di `ultimeSalute()`;
+//   · `serie`: l'andamento binnato (vedi `binnaSalute`).
+export function settimanaDiSalute(eventi = [], { adesso = Date.now(), ore = ORE_DEFAULT, giorni = 7, passoMs = PASSO_SERIE_MS, troncato = false } = {}) {
+  const da = adesso - ore * 3_600_000
+  const recenti = eventi.filter((e) => (e.timestamp ?? 0) >= da)
+  const macchine = riassumiSalute(recenti)
+  const ultime = {}
+  for (const ev of eventi) {
+    const r = comeJson(ev.message)
+    if (!r?.macchina || !Number.isFinite(ev.timestamp)) continue
+    if (!(ultime[r.macchina] >= ev.timestamp)) ultime[r.macchina] = ev.timestamp
+  }
+  return {
+    ore,
+    macchine,
+    conOom: macchine.filter((m) => m.oomNuovi > 0).length,
+    conNonSani: macchine.filter((m) => m.nonSani.length > 0).length,
+    giorniUltime: giorni,
+    ultime,
+    serie: binnaSalute(eventi, { adesso, giorni, passoMs }),
+    // ⚠️ Al tetto mancano le righe PIU' VECCHIE (Insights torna dalle piu' recenti): le 24 ore restano
+    // intere, l'andamento no, e la pagina lo deve dire invece di disegnare una settimana corta.
+    troncato,
+  }
+}
+
+export async function saluteSettimana(aws, { logGroup, giorni = 7, ore = ORE_DEFAULT, limite = MAX_EVENTI } = {}) {
+  if (!logGroup) return null
+  const adesso = Date.now()
+  const righe = await eventiInsights(aws, {
+    logGroup,
+    filtro: 'filter ispresent(macchina)',
+    da: adesso - giorni * 86_400_000,
+    limite,
+  })
+  return settimanaDiSalute(righe, { adesso, ore, giorni, troncato: righe.length >= limite })
 }

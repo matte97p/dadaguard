@@ -1,0 +1,432 @@
+/* Le pagine Accessi e Flotta (07/10/2026). Stesso linguaggio del resto: i token di app.css, le pillole
+   e i riquadri di ui.css. Quello che aggiungono e' una cosa sola, la GERARCHIA: una cosa da sistemare
+   ha un bordo colorato e pesa, una cosa in ordine sta in una riga grigia. Un colore per livello, gli
+   stessi di `Pill` e `Verdetto`. */
+
+/* ── Accessi: l'elenco «da sistemare» ── */
+.acc-voci {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.acc-voce {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--off);
+  border-radius: var(--r);
+  scroll-margin-top: 80px;
+}
+.acc-voce.acc-crit {
+  border-left-color: var(--crit);
+}
+.acc-voce.acc-warn {
+  border-left-color: var(--warn);
+}
+.acc-voce.acc-info {
+  border-left-color: var(--info);
+}
+.acc-voce > .ui-pill {
+  margin-top: 1px;
+}
+.acc-voce-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.acc-voce-titolo {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.acc-voce-perche {
+  color: var(--mute);
+  font-size: 13px;
+}
+.acc-voce-chi {
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.acc-voce-chi .ui-when {
+  text-align: left;
+}
+.acc-voce-azione {
+  color: var(--brand);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.acc-voce-azione:hover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.acc-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 2px;
+}
+.acc-link:hover {
+  text-decoration-color: var(--ink);
+}
+.acc-vuoto {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px;
+  color: var(--mute);
+}
+.acc-amb {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--mute);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-inline-start: 4px;
+}
+
+.acc-filtri .ui-campo {
+  width: 280px;
+  max-width: 100%;
+}
+
+/* ── Una sezione chiusa: una riga, e si apre ── */
+.acc-chiusa {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  color: var(--mute);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.acc-chiusa:hover {
+  border-color: var(--line-2);
+}
+.acc-chiusa-testo {
+  flex: 1;
+  min-width: 0;
+}
+.acc-chiusa-azione {
+  color: var(--brand);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.acc-dentro {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+.acc-dentro .ui-note {
+  border-top: 0;
+  padding-top: 0;
+}
+.acc-riga {
+  padding: 8px 14px;
+  font-size: 13.5px;
+}
+
+/* ── Flotta: le card dei Mac con un problema ── */
+.fl-carte {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 12px;
+}
+.fl-carta {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--off);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.fl-carta.fl-crit {
+  border-left-color: var(--crit);
+}
+.fl-carta.fl-warn {
+  border-left-color: var(--warn);
+}
+.fl-carta.fl-info {
+  border-left-color: var(--info);
+}
+.fl-carta header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.fl-carta-nome {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.fl-carta-nome b {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.fl-carta-nome small {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+.fl-carta header .ui-when {
+  margin-left: auto;
+}
+.fl-perche {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.fl-meter {
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--mute);
+}
+.fl-altri {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--mute);
+}
+.fl-altri li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.fl-altri .ui-dot {
+  transform: translateY(-1px);
+}
+.fl-azione {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+}
+.fl-azione b {
+  font-weight: 600;
+}
+.fl-azione-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.fl-azione .ui-cmd {
+  background: var(--panel);
+}
+.fl-carta footer {
+  margin-top: auto;
+}
+
+/* ── Flotta: i Mac in ordine, in una riga ── */
+.fl-sani {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  font-size: 13.5px;
+  color: var(--mute);
+}
+.fl-sani .ui-dot {
+  transform: translateY(-1px);
+}
+.fl-sani-testo {
+  flex: 1;
+  min-width: 0;
+}
+.fl-nome {
+  font-weight: 500;
+  color: var(--ink);
+}
+.fl-sani-lista {
+  margin-top: 8px;
+}
+.fl-sano {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 110px;
+  font-size: 13.5px;
+  padding: 8px 14px;
+}
+
+/* ── Flotta: il pannello di dettaglio ── */
+.fl-problemi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fl-problema {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--off);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-size: 13.5px;
+}
+.fl-problema b {
+  font-weight: 600;
+}
+.fl-problema.fl-crit {
+  border-left-color: var(--crit);
+  background: var(--crit-soft);
+}
+.fl-problema.fl-warn {
+  border-left-color: var(--warn);
+}
+.fl-problema.fl-info {
+  border-left-color: var(--info);
+}
+.fl-serie {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.fl-serie-voce {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fl-serie-voce .ui-spark {
+  max-width: 100%;
+}
+.fl-serie-nome {
+  font-size: 12px;
+  color: var(--mute);
+}
+.fl-serie-voce b {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.fl-serie-voce small {
+  font-size: 11.5px;
+}
+.fl-cont {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fl-cont-riga {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 130px;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.fl-cont-riga > :last-child {
+  text-align: right;
+}
+.fl-avvii {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.fl-avvio {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+.fl-immagine {
+  grid-template-columns: 116px minmax(0, 1fr);
+}
+.fl-uso {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.fl-uso div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 10px;
+}
+.fl-uso dt {
+  color: var(--faint);
+}
+.fl-uso dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ui-drawer .ui-sezione h2 {
+  margin-bottom: 10px;
+}
+
+@media (max-width: 860px) {
+  .acc-voce {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .acc-voce-azione {
+    justify-self: start;
+  }
+  .fl-sano {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .fl-sani {
+    flex-wrap: wrap;
+  }
+  .fl-cont-riga {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+  .fl-cont-riga > :last-child {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
+@media (max-width: 480px) {
+  .fl-serie {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fl-uso div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}

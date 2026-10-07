@@ -348,6 +348,15 @@ services:
 #     motoriAmmessi: [docker-desktop]             # gli altri: un avviso alla settimana per macchina
 #     vmSottoGb: 2                                # VM sotto l'obiettivo del dev-env di almeno tanti GB
 #     comandiSulMac: 10                           # comandi dei repo sul Mac in 24 ore (bloccati + forzati)
+#     appPesanteMb: 3072                          # una sola app del dev-env sopra tanti MB: card nella Flotta
+#
+#   # I comandi del VOSTRO dev-env che la pagina Flotta mette sotto l'azione da fare, da copiare. Tutti
+#   # facoltativi: senza, l'azione resta una frase («aggiorna il dev-env»), mai un comando inventato.
+#   devEnvComandi:
+#     aggiorna: ./dev-env update                  # immagine indietro, tool mancanti
+#     doctor: ./dev-env doctor                    # doctor KO, avvio fallito, dev-env fermo
+#     salute: ./dev-env up                        # l'agent della salute che non manda piu'
+#     dentro: ./dev-env shell                     # comandi dei repo lanciati sul Mac
 #
 #   # Gli utenti di DATABASE che non possono scrivere. Serve perche' l'audit di Teleport registra la
 #   # query quando la INOLTRA, prima della risposta: uno statement che Postgres rifiuta finisce nel log
