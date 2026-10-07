@@ -27,6 +27,18 @@
   --info-soft: #e8f0fc;
   --off: #7d8492;
   --off-soft: #eef0f3;
+  /* I colori dei GRAFICI del cruscotto (Flotta, Accessi), separati da quelli di stato: una serie non
+     e' un livello. `--chart-1..4` sono i primi quattro posti di una palette categoriale controllata
+     col validatore della guida dataviz (blu, acqua, viola, magenta: niente arancio ne' giallo, che qui
+     si leggerebbero «attenzione»); in scuro sono gli stessi toni rifatti per il fondo scuro, non
+     invertiti. `--chart-neutro` e' la serie di contesto (la mediana, le tessere), `--chart-griglia` la
+     linea sottile dell'asse. */
+  --chart-1: #2a78d6;
+  --chart-2: #1baf7a;
+  --chart-3: #4a3aa7;
+  --chart-4: #e87ba4;
+  --chart-neutro: #a3a9b4;
+  --chart-griglia: #eceef2;
   --sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --r: 8px;
@@ -68,6 +80,12 @@
     --info-soft: #17264a;
     --off: #737b87;
     --off-soft: #20242a;
+    --chart-1: #3987e5;
+    --chart-2: #199e70;
+    --chart-3: #9085e9;
+    --chart-4: #d55181;
+    --chart-neutro: #5b626e;
+    --chart-griglia: #23272e;
     color-scheme: dark;
   }
 }
@@ -92,6 +110,12 @@
   --info-soft: #17264a;
   --off: #737b87;
   --off-soft: #20242a;
+  --chart-1: #3987e5;
+  --chart-2: #199e70;
+  --chart-3: #9085e9;
+  --chart-4: #d55181;
+  --chart-neutro: #5b626e;
+  --chart-griglia: #23272e;
   color-scheme: dark;
 }
 

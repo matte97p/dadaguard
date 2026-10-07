@@ -26,12 +26,14 @@ import { conto, configSalute, leggiHeartbeat, segnali, soglieDevEnv, SOGLIE_DEV_
 import {
   appPiuPesanti,
   avvioStorto,
+  dataImmagine,
   dataRiferimento,
   digestCorto,
   immagineRiferimento,
   ritardo,
   tuttiIndietro,
   usoDellaMacchina,
+  versioneNota,
 } from '../shared/devEnv.js'
 
 // Il livello di ogni problema sulla PAGINA. Non e' quello del canale, apposta: su Slack un OOM e'
@@ -166,6 +168,155 @@ const macchinaDel = (s) => (s.tipo === 'guasto' ? s.macchina : s.bersaglio)
 
 const num = (x) => (Number.isFinite(x) ? x : null)
 
+// ── L'ANDAMENTO DELLA FLOTTA, per il cruscotto (dal 07/10/2026) ─────────────────────────────────
+//
+// La pagina apre con cinque numeri e un grafico di sette giorni: quanti Mac sono accesi, quanti
+// processi la memoria ha ucciso, quanta memoria libera ha la VM peggiore, quanti Mac hanno l'immagine
+// in pari. Sono conti sulla FLOTTA, e si fanno qui dalle serie per macchina gia' binnate per ora
+// (`binnaSalute`), non nel browser: al browser servono sette numeri per tessera e 168 per il grafico,
+// non sette serie da incrociare.
+//
+// ⚠️ «Non lo so» non e' zero, come nel resto della pagina. Un'ora in cui nessun Mac ha mandato righe
+// ha la memoria `null` (non «finita») e gli OOM `null` (non «nessuno»); i Mac ACCESI invece si
+// contano, e zero e' la risposta vera di una notte.
+const GIORNO_MS = 86_400_000
+
+// Sotto questa memoria libera la VM sta per uccidere un processo: e' la soglia che colora il numero
+// della tessera. Un giga e' il punto in cui, sui dati veri, sono arrivati gli OOM.
+export const MEM_LIBERA_BASSA_GB = 1
+
+function mediana(valori) {
+  if (!valori.length) return null
+  const v = [...valori].sort((a, b) => a - b)
+  const m = Math.floor(v.length / 2)
+  const x = v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2
+  return Math.round(x * 10) / 10
+}
+
+// Ogni ora della settimana, sulla flotta intera:
+//   · memMin, memMinChi: la memoria libera della VM peggiore, e di chi e';
+//   · memMediana: quella del Mac tipico, per dire se il minimo e' un Mac solo o tutti;
+//   · oom: i processi uccisi in quell'ora su tutti i Mac (`null` se nessuno ha mandato il contatore);
+//   · attivi: quanti Mac hanno mandato almeno una riga.
+// Poi gli stessi conti per GIORNO (blocchi di 24 ore che finiscono adesso, non giorni di calendario:
+// l'ultimo e' «le ultime 24 ore», lo stesso periodo dei numeri in cima) per le tessere, e l'immagine
+// in pari giorno per giorno, rigiocando gli avvii con la stessa regola di `ritardo()`.
+export function andamentoFlotta({ serie = null, storia = {}, riferimento = null, soglia = SOGLIE_DEV_ENV.giorniIndietro } = {}) {
+  if (!serie?.punti || !serie.passoMs || !Number.isFinite(serie.inizio)) return null
+  const { inizio, passoMs, punti } = serie
+  const mac = Object.entries(serie.macchine ?? {})
+  const ore = { memMin: [], memMinChi: [], memMediana: [], oom: [], attivi: [] }
+  for (let i = 0; i < punti; i++) {
+    const mem = []
+    let min = null
+    let chi = null
+    let oom = null
+    let attivi = 0
+    for (const [nome, s] of mac) {
+      const v = s.mem?.[i]
+      if (v != null) {
+        mem.push(v)
+        if (min == null || v < min) {
+          min = v
+          chi = nome
+        }
+      }
+      const k = s.oom?.[i]
+      if (k != null) oom = (oom ?? 0) + k
+      if (v != null || k != null || s.swap?.[i] != null || s.cpu?.[i] != null) attivi += 1
+    }
+    ore.memMin.push(min)
+    ore.memMinChi.push(chi)
+    ore.memMediana.push(mediana(mem))
+    ore.oom.push(oom)
+    ore.attivi.push(attivi)
+  }
+
+  const perGiorno = Math.round(GIORNO_MS / passoMs)
+  const quantiGiorni = perGiorno > 0 ? Math.floor(punti / perGiorno) : 0
+  const avvii = Object.entries(storia ?? {}).flatMap(([macchina, xs]) => (xs ?? []).map((a) => ({ ...a, macchina })))
+  const giorni = { inizio: inizio + (punti - quantiGiorni * perGiorno) * passoMs, passoMs: perGiorno * passoMs, punti: quantiGiorni, attivi: [], oom: [], conOom: [], memMin: [], inPari: [], conImmagine: [] }
+  for (let g = 0; g < quantiGiorni; g++) {
+    const da = punti - (quantiGiorni - g) * perGiorno
+    const a = da + perGiorno
+    const t0 = inizio + da * passoMs
+    const t1 = inizio + a * passoMs
+    const accesi = new Set()
+    let oom = null
+    let conOom = 0
+    let memMin = null
+    for (const [nome, s] of mac) {
+      let suoi = null
+      for (let i = da; i < a; i++) {
+        if (s.mem?.[i] != null || s.oom?.[i] != null || s.swap?.[i] != null || s.cpu?.[i] != null) accesi.add(nome)
+        if (s.oom?.[i] != null) suoi = (suoi ?? 0) + s.oom[i]
+        if (s.mem?.[i] != null) memMin = memMin == null ? s.mem[i] : Math.min(memMin, s.mem[i])
+      }
+      if (suoi != null) oom = (oom ?? 0) + suoi
+      if (suoi > 0) conOom += 1
+    }
+    // Un Mac che ha avviato il dev-env quel giorno era acceso anche se la salute non l'ha mandata.
+    for (const x of avvii) if (x.quando >= t0 && x.quando < t1) accesi.add(x.macchina)
+    giorni.attivi.push(accesi.size)
+    giorni.oom.push(oom)
+    giorni.conOom.push(oom == null ? null : conOom)
+    giorni.memMin.push(memMin)
+    const pari = immagineInPari(avvii, t1, riferimento, soglia)
+    giorni.inPari.push(pari.conImmagine ? pari.inPari : null)
+    giorni.conImmagine.push(pari.conImmagine)
+  }
+  return { inizio, passoMs, punti, ...ore, giorni }
+}
+
+// Quanti Mac avevano l'immagine in pari all'istante `t`: per ogni Mac e per ogni LATO l'ultimo avvio
+// fino a `t`, e la regola di `ritardo()` con la data piu' recente vista fino a quel momento (non
+// quella di oggi: un'immagine di lunedi' non era indietro domenica). E' la regola della colonna
+// Immagine della matrice: un Mac e' noto se almeno un lato porta la data (o la versione, con la
+// versione attesa in config), ed e' indietro se lo e' almeno un lato.
+export function immagineInPari(avvii = [], t = Date.now(), riferimento = null, soglia = SOGLIE_DEV_ENV.giorniIndietro) {
+  const finoA = avvii.filter((a) => Number.isFinite(a?.quando) && a.quando < t)
+  const dataRif = dataRiferimento(finoA)
+  const ultimo = new Map()
+  for (const a of finoA) {
+    const k = `${a.macchina}\u0000${a.lato === 'container' ? 'container' : 'host'}`
+    if (!ultimo.has(k) || a.quando > ultimo.get(k).quando) ultimo.set(k, a)
+  }
+  const perMac = new Map()
+  for (const a of ultimo.values()) {
+    const perVersione = riferimento?.fonte === 'config' && versioneNota(a.immagine)
+    if (dataImmagine(a) == null && !perVersione) continue
+    perMac.set(a.macchina, (perMac.get(a.macchina) ?? false) || ritardo(a, riferimento, dataRif, soglia).indietro)
+  }
+  const indietro = [...perMac.values()].filter(Boolean).length
+  return { inPari: perMac.size - indietro, conImmagine: perMac.size }
+}
+
+// I numeri in cima alla pagina, adesso. Le stesse macchine della matrice, cosi' la tessera e la
+// colonna dicono lo stesso numero.
+export function riepilogoFlotta(macchine = [], andamento = null, { adesso = Date.now() } = {}) {
+  const daUltime24 = adesso - GIORNO_MS
+  const conOom = macchine.filter((m) => m.oom != null)
+  // La memoria libera minima delle ultime 24 ore, e di chi: il caso peggiore, come nel grafico.
+  let memMinima = null
+  if (andamento) {
+    const da = Math.max(0, andamento.punti - Math.round(GIORNO_MS / andamento.passoMs))
+    for (let i = da; i < andamento.punti; i++) {
+      const v = andamento.memMin[i]
+      if (v != null && (memMinima == null || v <= memMinima.gb)) memMinima = { gb: v, macchina: andamento.memMinChi[i] }
+    }
+  }
+  const conImmagine = macchine.filter((m) => m.immagine?.creata || m.problemi.some((p) => p.tipo === 'immagine-indietro'))
+  return {
+    attivi24h: macchine.filter((m) => (m.visto ?? 0) >= daUltime24).length,
+    oom24h: conOom.length ? conOom.reduce((n, m) => n + (m.oom.nuovi ?? 0), 0) : null,
+    conOom24h: conOom.length ? conOom.filter((m) => (m.oom.nuovi ?? 0) > 0).length : null,
+    memMinima: memMinima ? { ...memMinima, bassa: memMinima.gb < MEM_LIBERA_BASSA_GB } : null,
+    conImmagine: conImmagine.length,
+    inPari: conImmagine.filter((m) => !m.problemi.some((p) => p.tipo === 'immagine-indietro')).length,
+    urgenti: macchine.filter((m) => m.livello === 'crit').length,
+  }
+}
+
 // La risposta di `/api/flotta`, da heartbeat e salute gia' letti. Puro, per le prove.
 //
 // ⚠️ Ogni campo e' facoltativo: le macchine che non hanno ancora aggiornato il dev-env non mandano i
@@ -291,6 +442,7 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
       a.macchina.localeCompare(b.macchina),
   )
   const daSistemare = macchine.filter((m) => m.livello === 'crit' || m.livello === 'warn').length
+  const andamento = andamentoFlotta({ serie: sal?.serie ?? null, storia: battito.storia ?? {}, riferimento, soglia: sg.giorniIndietro })
   return {
     configurato: true,
     saluteConfigurata: salute != null,
@@ -300,6 +452,9 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
     riferimento: { digest: digestCorto(riferimento.immagine), fonte: riferimento.fonte, data: dataRif },
     tuttiIndietro: tuttiIndietro(righe, riferimento),
     serie: sal?.serie ? { inizio: sal.serie.inizio, passoMs: sal.serie.passoMs, punti: sal.serie.punti } : null,
+    // I conti sulla flotta per il cruscotto: per ora (il grafico) e per giorno (le tessere).
+    andamento,
+    riepilogo: riepilogoFlotta(macchine, andamento, { adesso }),
     soglie: sg,
     troncato: Boolean(sal?.troncato),
     errori: [heartbeat?.errore, salute?.errore].filter(Boolean),

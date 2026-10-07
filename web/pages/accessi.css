@@ -3,40 +3,34 @@
    ha un bordo colorato e pesa, una cosa in ordine sta in una riga grigia. Un colore per livello, gli
    stessi di `Pill` e `Verdetto`. */
 
-/* ── Accessi: l'elenco «da sistemare» ── */
+/* ── Accessi: l'elenco «da sistemare» ──
+   Righe sottili dentro un pannello solo: pallino, frase, chi e quando, e il link dove si agisce. Nessun
+   bordo colorato e nessuna pillola: la gravita' e' il pallino, l'ordine fa il resto. */
 .acc-voci {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
 }
 .acc-voce {
   display: grid;
-  grid-template-columns: 132px minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
   gap: 14px;
-  align-items: start;
-  padding: 12px 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--off);
-  border-radius: var(--r);
+  align-items: baseline;
+  padding: 11px 16px;
+  border-top: 1px solid var(--line);
   scroll-margin-top: 80px;
 }
-.acc-voce.acc-crit {
-  border-left-color: var(--crit);
+.acc-voce:first-child {
+  border-top: 0;
 }
-.acc-voce.acc-warn {
-  border-left-color: var(--warn);
-}
-.acc-voce.acc-info {
-  border-left-color: var(--info);
-}
-.acc-voce > .ui-pill {
-  margin-top: 1px;
+.acc-voce > .ui-dot {
+  transform: translateY(-1px);
 }
 .acc-voce-corpo {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 .acc-voce-titolo {
@@ -45,28 +39,38 @@
 }
 .acc-voce-perche {
   color: var(--mute);
-  font-size: 13px;
+  font-size: 12.5px;
 }
 .acc-voce-chi {
   font-size: 12.5px;
   color: var(--faint);
+  white-space: nowrap;
 }
 .acc-voce-chi .ui-when {
   text-align: left;
 }
 .acc-voce-azione {
-  color: var(--brand);
-  font-weight: 600;
-  font-size: 13px;
-  text-decoration: none;
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
   white-space: nowrap;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 10px;
 }
 .acc-voce-azione:hover {
-  border-color: var(--brand);
-  background: var(--brand-soft);
+  text-decoration-color: var(--ink);
+}
+.acc-grafico {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px 16px 12px;
+}
+.acc-grafico-vuoto {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--faint);
 }
 .acc-link {
   color: var(--ink);
@@ -99,38 +103,43 @@
   max-width: 100%;
 }
 
-/* ── Una sezione chiusa: una riga, e si apre ── */
+/* ── Una sezione chiusa: una riga, e si apre ──
+   Leggera apposta: una linea sottile sopra, il riassunto in grigio e «Mostra». Non e' un riquadro,
+   perche' non e' una cosa da guardare: e' una porta. */
 .acc-chiusa {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 14px;
   width: 100%;
   text-align: left;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 10px 2px;
   color: var(--mute);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   cursor: pointer;
 }
-.acc-chiusa:hover {
-  border-color: var(--line-2);
+.acc-chiusa:hover .acc-chiusa-azione {
+  text-decoration-color: var(--ink);
 }
 .acc-chiusa-testo {
   flex: 1;
   min-width: 0;
 }
 .acc-chiusa-azione {
-  color: var(--brand);
-  font-weight: 600;
-  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 12.5px;
   white-space: nowrap;
   background: transparent;
   border: 0;
   padding: 0;
   cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
 }
 .acc-dentro {
   display: flex;
@@ -147,234 +156,270 @@
   font-size: 13.5px;
 }
 
-/* ── Flotta: le card dei Mac con un problema ── */
-.fl-carte {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
-  gap: 12px;
-}
-.fl-carta {
+/* ── Flotta: la matrice ──
+   Una riga per Mac e una colonna per cosa si guarda. Le righe sono separate da una linea sottile e
+   basta; il colore sta solo sul pallino e sul valore di una cella con un problema. Le righe in ordine
+   restano in grigio: si vedono, ma non chiamano. */
+.fm {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--off);
   border-radius: var(--r);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
+  overflow: hidden;
+  --fm-cols: minmax(170px, 1.25fr) 66px 104px 58px minmax(100px, 0.9fr) 60px 62px minmax(70px, 0.7fr) minmax(76px, 0.6fr) minmax(120px, 1.1fr);
 }
-.fl-carta.fl-crit {
-  border-left-color: var(--crit);
+.fm-riga {
+  display: grid;
+  grid-template-columns: var(--fm-cols);
+  gap: 12px;
+  align-items: center;
+  padding: 9px 14px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
 }
-.fl-carta.fl-warn {
-  border-left-color: var(--warn);
+.fm-testa {
+  border-top: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
 }
-.fl-carta.fl-info {
-  border-left-color: var(--info);
+.fm-testa > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
 }
-.fl-carta header {
+.fm-testa > span:first-child {
+  cursor: default;
+}
+.fm-mac {
+  cursor: pointer;
+}
+.fm-mac:hover {
+  background: var(--hover);
+}
+.fm-nome {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 9px;
+  min-width: 0;
 }
-.fl-carta-nome {
+.fm-nome > span:last-child {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 7px;
   min-width: 0;
 }
-.fl-carta-nome b {
-  font-size: 15px;
-  overflow-wrap: anywhere;
+.fm-nome b {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.fl-carta-nome small {
-  color: var(--faint);
-  font-size: 12.5px;
-}
-.fl-carta header .ui-when {
-  margin-left: auto;
-}
-.fl-perche {
-  margin: 0;
-  font-size: 15.5px;
+.fm-male .fm-nome b {
   font-weight: 600;
-  line-height: 1.35;
-  color: var(--ink);
-  overflow-wrap: anywhere;
 }
-.fl-meter {
-  display: grid;
-  grid-template-columns: auto minmax(80px, 1fr);
+.fm-nome small {
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fm-c {
+  display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12.5px;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fm-v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.fm-ok {
+  color: var(--faint);
+}
+.fm-ignoto {
+  color: var(--line-2);
+}
+.fm-crit,
+.fm-warn,
+.fm-info {
+  color: var(--ink);
+  font-weight: 500;
+}
+.fm-et,
+.fm-tutto-ok {
+  display: none;
+}
+.fm-barra {
+  flex: none;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.fm-barra i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--chart-neutro);
+}
+.fm-warn .fm-barra i {
+  background: var(--warn);
+}
+
+/* La riga delle azioni, sotto la matrice: una frase, non un riquadro. */
+.fl-azioni {
+  margin: 10px 2px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  font-size: 13px;
   color: var(--mute);
 }
-.fl-altri {
+.fl-azioni b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.fl-azioni > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.fl-azioni .ui-dot {
+  transform: translateY(-1px);
+}
+.fl-nome-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 2px;
+}
+.fl-nome-link:hover {
+  text-decoration-color: var(--ink);
+}
+
+/* ── Flotta: il grafico ── */
+.fl-grafico {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px 16px 12px;
+}
+
+/* ── Flotta: il pannello di dettaglio ── */
+.fl-liv {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.fl-plist {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--mute);
 }
-.fl-altri li {
-  display: flex;
+.fl-plist li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
   align-items: baseline;
-  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.fl-plist li:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+.fl-plist li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.fl-plist b {
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
-.fl-altri .ui-dot {
-  transform: translateY(-1px);
-}
-.fl-azione {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--bg);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 13.5px;
-}
-.fl-azione b {
-  font-weight: 600;
-}
-.fl-azione-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-}
-.fl-azione .ui-cmd {
-  background: var(--panel);
-}
-.fl-carta footer {
-  margin-top: auto;
-}
-
-/* ── Flotta: i Mac in ordine, in una riga ── */
-.fl-sani {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 10px 14px;
-  font-size: 13.5px;
+.fl-plist-az {
   color: var(--mute);
-}
-.fl-sani .ui-dot {
-  transform: translateY(-1px);
-}
-.fl-sani-testo {
-  flex: 1;
-  min-width: 0;
-}
-.fl-nome {
-  font-weight: 500;
-  color: var(--ink);
-}
-.fl-sani-lista {
-  margin-top: 8px;
-}
-.fl-sano {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 110px;
-  font-size: 13.5px;
-  padding: 8px 14px;
-}
-
-/* ── Flotta: il pannello di dettaglio ── */
-.fl-problemi {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.fl-problema {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--off);
-  border-radius: var(--r);
-  padding: 10px 12px;
-  font-size: 13.5px;
-}
-.fl-problema b {
-  font-weight: 600;
-}
-.fl-problema.fl-crit {
-  border-left-color: var(--crit);
-  background: var(--crit-soft);
-}
-.fl-problema.fl-warn {
-  border-left-color: var(--warn);
-}
-.fl-problema.fl-info {
-  border-left-color: var(--info);
-}
-.fl-serie {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.fl-serie-voce {
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.fl-serie-voce .ui-spark {
-  max-width: 100%;
-}
-.fl-serie-nome {
-  font-size: 12px;
-  color: var(--mute);
-}
-.fl-serie-voce b {
-  font-size: 17px;
-  letter-spacing: -0.01em;
-}
-.fl-serie-voce small {
-  font-size: 11.5px;
+  line-height: 1.6;
 }
 .fl-cont {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 .fl-cont-riga {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr) 130px;
-  gap: 10px;
+  grid-template-columns: 84px minmax(0, 1fr) 120px;
+  gap: 12px;
   align-items: center;
   font-size: 13px;
 }
-.fl-cont-riga > :last-child {
+.fl-cont-barra {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--off-soft);
+  overflow: hidden;
+}
+.fl-cont-barra i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--chart-neutro);
+}
+.fl-cont-barra i.fl-pesante {
+  background: var(--warn);
+}
+.fl-cont-v {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fl-cont-v small {
+  color: var(--faint);
+  margin-left: 8px;
+  font-size: 12px;
 }
 .fl-avvii {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
 }
-.fl-avvio {
+.fl-avvii li {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
 }
-.fl-immagine {
-  grid-template-columns: 116px minmax(0, 1fr);
+.fl-avvii .ui-hint {
+  display: block;
 }
 .fl-uso {
   margin: 0;
@@ -395,36 +440,82 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.fl-entra {
+  margin: 0 0 8px;
+}
 .ui-drawer .ui-sezione h2 {
   margin-bottom: 10px;
 }
 
+/* Sotto i 1100px la matrice perde le colonne di contesto (motore, salute): restano nel pannello e
+   nel titolo della riga. */
+@media (max-width: 1100px) {
+  .fm {
+    --fm-cols: minmax(150px, 1.5fr) 58px 100px 54px 56px 56px 60px minmax(110px, 1.25fr);
+  }
+  .fm .fm-c-motore,
+  .fm .fm-c-salute {
+    display: none;
+  }
+}
+
 @media (max-width: 860px) {
   .acc-voce {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: 8px minmax(0, 1fr);
+    gap: 4px 12px;
+    padding: 11px 12px;
   }
+  .acc-voce-chi,
   .acc-voce-azione {
+    grid-column: 2;
     justify-self: start;
   }
-  .fl-sano {
-    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Sul telefono la matrice diventa un elenco: per ogni Mac il nome e, sotto, solo le celle con un
+   problema, ciascuna col suo nome di colonna. Un Mac in ordine dice «In ordine» e basta. */
+@media (max-width: 720px) {
+  .fm-testa {
+    display: none;
   }
-  .fl-sani {
+  /* Le celle vanno a capo allineate al nome, non al pallino: il rientro e' della riga, e il nome
+     torna indietro della larghezza del pallino. */
+  .fm-riga.fm-mac {
+    display: flex;
     flex-wrap: wrap;
+    gap: 4px 14px;
+    padding: 10px 12px 10px 29px;
+  }
+  .fm-nome {
+    flex: 1 0 100%;
+    margin-left: -17px;
+  }
+  .fm .fm-c {
+    display: none;
+  }
+  .fm .fm-c.fm-crit,
+  .fm .fm-c.fm-warn,
+  .fm .fm-c.fm-info {
+    display: inline-flex;
+  }
+  .fm-et {
+    display: inline;
+    color: var(--faint);
+    font-weight: 400;
+  }
+  .fm-tutto-ok {
+    display: inline;
+    color: var(--faint);
+    font-size: 12.5px;
   }
   .fl-cont-riga {
-    grid-template-columns: 80px minmax(0, 1fr);
+    grid-template-columns: 76px minmax(0, 1fr) auto;
   }
-  .fl-cont-riga > :last-child {
-    grid-column: 1 / -1;
-    text-align: left;
+  .fl-cont-v small {
+    display: none;
   }
 }
 @media (max-width: 480px) {
-  .fl-serie {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .fl-uso div {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;

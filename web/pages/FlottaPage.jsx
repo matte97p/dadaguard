@@ -1,38 +1,45 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Verdetto, Sezione, Pill, Dot, Meter, Sparkline, Drawer, BloccoComando, ListaLink } from '../ui/index.js'
+import { Verdetto, Sezione, Dot, Drawer, ListaLink, ComandoInline, Tessere, Tessera, GraficoMemoria, PiccoliMultipli, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
 import PollStatus from '../components/PollStatus.jsx'
 import Loading from '../components/Loading.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
 import { digestCorto } from '../../shared/devEnv.js'
 import { linkAudit } from '../accessi.js'
-import { fraseProblema, fraseAzione, valoreSerie, storiaImmagini } from '../flotta.js'
+import { fraseProblema, fraseAzione, storiaImmagini, celleMac, azioniFlotta, COLONNE } from '../flotta.js'
+import { numero } from '../grafici.js'
 import './ops.css'
 import './accessi.css'
 
-// Superficie "Flotta": come stanno i Mac del dev-env, e cosa fare su quelli che non stanno bene.
+// Superficie "Flotta": come stanno i Mac del dev-env, e quale sistemare.
 //
-// Perche' una pagina sua (07/10/2026): stava dentro Accessi come una colonna di una tabella larga,
-// dove «nessun dato» riempiva le celle, il comando `tsh ssh` si ripeteva su ogni riga, e un Mac con
-// tre processi uccisi per memoria era alto quanto uno sano. La domanda di questa pagina e' «quale Mac
-// devo sistemare, e come?», e la risposta e' una card per Mac in ordine di gravita', ognuna col
-// perche' a parole e l'UNICA azione che lo risolve. I Mac in ordine stanno in una riga sola.
+// ── Perche' e' un cruscotto (rifatta il 07/10/2026, la sera) ──────────────────────────────────────
+// La prima stesura del giorno era una card per Mac con un problema: bordo colorato, pillola, frase,
+// barra, elenco, e dentro un riquadro «Cosa fare» con dentro un riquadro col comando. Si leggeva come
+// una pagina di testo e come un muro di scatole, e la flotta intera non si vedeva: i Mac in ordine
+// stavano in una riga di nomi. Ora la pagina risponde in tre righe d'occhio:
+//   · cinque NUMERI in cima (Mac attivi, da sistemare, OOM, immagine in pari, memoria minima), ognuno
+//     col suo andamento di sette giorni, e il colore solo sul numero cattivo;
+//   · la MATRICE: una riga per Mac, una colonna per cosa si guarda, grigio quando va bene e un pallino
+//     col valore quando no. Prima i Mac da sistemare, ma tutti visibili: e' la flotta, non l'elenco dei
+//     guasti. Il clic apre il pannello del Mac (`?mac=`), dove stanno le azioni coi comandi;
+//   · un GRAFICO di sette giorni: la memoria libera della VM peggiore e di quella tipica, e le ore con
+//     un OOM, che e' la domanda che ha fatto nascere la pagina.
+// Le azioni sotto la matrice sono una riga sola; il «cosa fare» per intero e' nel pannello.
 //
-// Le regole (cosa e' un problema, quanto e' grave, quale azione) le compone il server
-// (`server/flotta.js`): sono le stesse dei messaggi del canale, e qui si disegnano e basta. Ogni campo
-// e' facoltativo, perche' le macchine che non hanno aggiornato il dev-env non mandano quelli nuovi:
-// un campo che manca non si scrive, invece di stampare «nessun dato» in una cella.
+// Le regole (cosa e' un problema, quanto e' grave, quale azione, i conti sulla flotta) le compone il
+// server (`server/flotta.js`): qui si disegnano e basta. Ogni campo e' facoltativo: una cella che non
+// si sa e' un trattino tenue, mai uno zero.
 //
 // ⚠️ Read-only come tutto il resto: le azioni sono frasi e comandi da copiare, mai eseguiti da qui.
 
 const dataCorta = (ts, lang) => new Date(ts).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB')
-const gb = (x, lang) => (x == null ? null : String(Math.round(x * 10) / 10).replace('.', lang === 'it' ? ',' : '.'))
+const gb = (x, lang) => numero(x, lang)
 
 export default function FlottaPage({ t, lang }) {
   const { data, loading, refreshing, error, lastUpdated } = usePoll('/api/flotta', { intervalMs: 60000 })
   const [params, setParams] = useSearchParams()
-  const [saniAperti, setSaniAperti] = useState(false)
 
   // Il Mac aperto nel pannello sta nell'URL (`?mac=`): cosi' «guarda il Mac di kim» si manda come link,
   // ed e' dove portano i messaggi del canale.
@@ -46,6 +53,7 @@ export default function FlottaPage({ t, lang }) {
     },
     [params, setParams],
   )
+  const azioni = useMemo(() => azioniFlotta(data?.macchine ?? []), [data])
 
   if (error && !data) return <div className="ui-readwarn">{String(error)}</div>
   if (loading || !data) return <Loading text={t('flotta.caricamento')} />
@@ -60,13 +68,12 @@ export default function FlottaPage({ t, lang }) {
 
   const macchine = data.macchine ?? []
   const daSistemare = macchine.filter((m) => m.livello === 'crit' || m.livello === 'warn')
-  const sani = macchine.filter((m) => !(m.livello === 'crit' || m.livello === 'warn'))
   const peggiore = daSistemare[0]?.livello ?? 'ok'
   const selezionata = macchine.find((m) => m.macchina === aperto) ?? null
   const rif = data.riferimento ?? {}
 
   return (
-    <div className="ui-pagina">
+    <div className="ui-pagina fl-pagina">
       <Verdetto
         resto={
           <>
@@ -90,68 +97,49 @@ export default function FlottaPage({ t, lang }) {
       {!data.saluteConfigurata && <div className="ui-readwarn">{t('flotta.senzaSalute')}</div>}
       {data.troncato && <div className="ui-readwarn">{t('flotta.troncato')}</div>}
 
-      {macchine.length === 0 && <div className="acc-vuoto">{t('accessi.nessunAvvio')}</div>}
+      {macchine.length > 0 && <NumeriFlotta dati={data} t={t} lang={lang} />}
 
-      {daSistemare.length > 0 && (
-        <Sezione titolo={t('flotta.daSistemare')} sotto={t('flotta.daSistemareSotto')}>
-          <div className="fl-carte">
-            {daSistemare.map((m) => (
-              <CartaMac key={m.macchina} m={m} onApri={() => apri(m.macchina)} t={t} lang={lang} />
-            ))}
-          </div>
+      {macchine.length === 0 ? (
+        <div className="acc-vuoto">{t('accessi.nessunAvvio')}</div>
+      ) : (
+        <Sezione titolo={t('flotta.matrice')} sotto={t('flotta.matriceSotto')}>
+          <Matrice macchine={macchine} onApri={apri} t={t} lang={lang} />
+          {azioni.length > 0 && (
+            <p className="fl-azioni">
+              <b>{t('flotta.azioni', { n: azioni.reduce((n, a) => n + a.macchine.length, 0) })}</b>
+              {azioni.map((a) => (
+                <span key={a.k}>
+                  <Dot livello={a.livello} />
+                  {t(`flotta.az.${a.k}`)}:{' '}
+                  {a.macchine.map((nome, i) => (
+                    <span key={nome}>
+                      {i > 0 && ', '}
+                      <button type="button" className="fl-nome-link" onClick={() => apri(nome)}>
+                        {nome}
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              ))}
+            </p>
+          )}
         </Sezione>
       )}
 
-      {sani.length > 0 && (
-        <section className="ui-sezione" id="in-ordine">
-          <h2>{t('flotta.inOrdine')}</h2>
-          <div className="fl-sani">
-            <Dot livello="ok" />
-            <span className="fl-sani-testo">
-              {t('flotta.saniN', { n: sani.length })}{' '}
-              {sani.map((m, i) => (
-                <span key={m.macchina}>
-                  {i > 0 && ', '}
-                  <button type="button" className="ui-azione fl-nome" onClick={() => apri(m.macchina)}>
-                    {m.macchina}
-                  </button>
-                </span>
-              ))}
-            </span>
-            <button type="button" className="acc-chiusa-azione fl-sani-apri" aria-expanded={saniAperti} aria-controls="in-ordine-dentro" onClick={() => setSaniAperti(!saniAperti)}>
-              {saniAperti ? t('accessi.chiudi') : t('accessi.mostra')}
-            </button>
-          </div>
-          {saniAperti && (
-            <div className="ui-lista fl-sani-lista" id="in-ordine-dentro">
-              {sani.map((m) => (
-                <button key={m.macchina} type="button" className="ui-row ui-row-btn fl-sano" onClick={() => apri(m.macchina)}>
-                  <span className="ui-name">
-                    {m.macchina}
-                    <small>{[m.utente, m.motore].filter(Boolean).join(' · ')}</small>
-                  </span>
-                  <span className="ui-what ui-mute">
-                    {[
-                      m.vm?.gb != null ? t('flotta.vmGb', { gb: gb(m.vm.gb, lang) }) : null,
-                      m.immagine?.creata ? t('flotta.immagineDel', { data: dataCorta(Date.parse(m.immagine.creata), lang) }) : null,
-                      ...m.problemi.map((p) => fraseProblema(p, t, lang)),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                  <span className="ui-when">{m.visto ? t('flotta.visto', { quando: fmtAgo(m.visto, t) }) : null}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+      {data.andamento && <GraficoFlotta andamento={data.andamento} t={t} lang={lang} />}
 
       <Drawer
         aperto={Boolean(selezionata)}
         onChiudi={() => apri(null)}
         titolo={selezionata?.macchina}
-        sopra={selezionata && <Pill livello={selezionata.livello}>{t(`flotta.liv.${selezionata.livello}`)}</Pill>}
+        sopra={
+          selezionata && (
+            <span className={`fl-liv ui-t-${selezionata.livello === 'ok' ? 'ok' : selezionata.livello}`}>
+              <Dot livello={selezionata.livello} />
+              {t(`flotta.liv.${selezionata.livello}`)}
+            </span>
+          )
+        }
         sotto={selezionata && [selezionata.utente, selezionata.motore, selezionata.vm?.ramMacGb != null ? t('flotta.ramMac', { gb: gb(selezionata.vm.ramMacGb, lang) }) : null].filter(Boolean).join(' · ')}
         etichettaChiudi={t('ui.chiudi')}
       >
@@ -161,77 +149,181 @@ export default function FlottaPage({ t, lang }) {
   )
 }
 
-// La memoria della VM contro il suo obiettivo, come barra: la differenza fra «11,7 GB» e «11,7 su 14»
-// e' la differenza fra un numero e un problema.
-function MemoriaVm({ vm, lang, t }) {
-  const impostata = vm?.impostataGb ?? vm?.gb
-  if (impostata == null || vm?.obiettivoGb == null) return null
-  const pct = (impostata / vm.obiettivoGb) * 100
+// ── I cinque numeri ────────────────────────────────────────────────────────────────────────────────
+// I conti li fa il server (`riepilogo`, `andamento.giorni`): qui si sceglie solo cosa colorare. Il
+// colore va sul numero cattivo e basta; l'andamento resta grigio.
+function NumeriFlotta({ dati, t, lang }) {
+  const r = dati.riepilogo ?? {}
+  const g = dati.andamento?.giorni ?? null
+  const totale = dati.totale ?? dati.macchine?.length ?? 0
+  const elenco = (xs, f = (x) => x) => (xs ?? []).map((x) => (x == null ? '-' : f(x))).join(', ')
+  const pct = r.conImmagine ? Math.round((r.inPari / r.conImmagine) * 100) : null
+  const pctGiorni = g ? g.inPari.map((v, i) => (v == null || !g.conImmagine[i] ? null : Math.round((v / g.conImmagine[i]) * 100))) : null
   return (
-    <div className="fl-meter">
-      <span>{t('flotta.vmSuObiettivo', { gb: gb(impostata, lang), obiettivo: gb(vm.obiettivoGb, lang) })}</span>
-      <Meter valore={pct} livello={pct < 100 ? 'warn' : 'ok'} title={t('flotta.vmSuObiettivo', { gb: gb(impostata, lang), obiettivo: gb(vm.obiettivoGb, lang) })} />
+    <Tessere etichetta={t('flotta.kpi.aria')}>
+      <Tessera
+        etichetta={t('flotta.kpi.attivi')}
+        valore={r.attivi24h}
+        sotto={t('flotta.kpi.attiviSotto', { n: totale })}
+        trend={g && { valori: g.attivi, forma: 'linea', dominio: [0, totale], descrizione: t('flotta.kpi.attiviTrend', { valori: elenco(g.attivi) }) }}
+      />
+      <Tessera
+        etichetta={t('flotta.kpi.daSistemare')}
+        valore={dati.daSistemare ?? null}
+        sotto={
+          r.urgenti > 0 ? (
+            <>
+              <Dot livello="crit" /> {t('flotta.kpi.urgenti', { n: r.urgenti })}
+            </>
+          ) : (
+            t('flotta.kpi.nessunoUrgente')
+          )
+        }
+      />
+      <Tessera
+        etichetta={t('flotta.kpi.oom')}
+        valore={r.oom24h}
+        livello={r.oom24h > 0 ? 'crit' : null}
+        sotto={r.oom24h > 0 ? t('flotta.kpi.oomSotto', { n: r.conOom24h }) : r.oom24h === 0 ? t('flotta.kpi.oomNessuno') : null}
+        trend={g && { valori: g.oom, forma: 'barre', dominio: [0, 1], descrizione: t('flotta.kpi.oomTrend', { valori: elenco(g.oom) }) }}
+      />
+      <Tessera
+        etichetta={t('flotta.kpi.immagine')}
+        valore={pct}
+        unita="%"
+        livello={pct != null && pct < 100 ? 'warn' : null}
+        sotto={r.conImmagine ? t('flotta.kpi.immagineSotto', { n: r.inPari, tot: r.conImmagine }) : null}
+        title={t('flotta.kpi.immagineTitolo', { g: dati.soglie?.giorniIndietro ?? 7 })}
+        trend={pctGiorni && { valori: pctGiorni, forma: 'linea', dominio: [0, 100], descrizione: t('flotta.kpi.immagineTrend', { valori: elenco(pctGiorni, (v) => `${v}%`) }) }}
+      />
+      <Tessera
+        etichetta={t('flotta.kpi.mem')}
+        valore={r.memMinima ? gb(r.memMinima.gb, lang) : null}
+        unita="GB"
+        livello={r.memMinima?.bassa ? 'warn' : null}
+        title={t('flotta.kpi.memTitolo')}
+        sotto={r.memMinima?.macchina ? t('flotta.kpi.memSotto', { mac: r.memMinima.macchina }) : null}
+        trend={g && { valori: g.memMin, forma: 'linea', dominio: [0, null], descrizione: t('flotta.kpi.memTrend', { valori: elenco(g.memMin, (v) => gb(v, lang)) }) }}
+      />
+    </Tessere>
+  )
+}
+
+// ── La matrice ─────────────────────────────────────────────────────────────────────────────────────
+// Una riga per Mac, nell'ordine del server (prima i piu' gravi). Ogni riga e' un bottone che apre il
+// pannello; il suo nome per lo screen reader e' la frase intera dei problemi, non la fila di celle.
+function Matrice({ macchine, onApri, t, lang }) {
+  return (
+    <div className="fm">
+      <div className="fm-riga fm-testa" aria-hidden="true">
+        <span>{t('flotta.col.mac')}</span>
+        {COLONNE.map((k) => (
+          <span key={k} title={t(`flotta.colT.${k}`)} className={`fm-c-${k}`}>
+            {t(`flotta.col.${k}`)}
+          </span>
+        ))}
+      </div>
+      {macchine.map((m) => (
+        <RigaMac key={m.macchina} m={m} onApri={() => onApri(m.macchina)} t={t} lang={lang} />
+      ))}
     </div>
   )
 }
 
-function Azione({ azione, t, lang }) {
-  if (!azione) return null
+function RigaMac({ m, onApri, t, lang }) {
+  const celle = celleMac(m, t, lang)
+  const male = m.livello === 'crit' || m.livello === 'warn'
+  const nome = [m.macchina, m.utente, t(`flotta.liv.${m.livello}`), ...m.problemi.map((p) => fraseProblema(p, t, lang))].filter(Boolean).join(', ')
   return (
-    <div className="fl-azione">
-      <span className="fl-azione-label">{t('flotta.cosaFare')}</span>
-      <b>{fraseAzione(azione, t, lang)}</b>
-      {azione.comando && <BloccoComando comando={azione.comando} t={t} />}
-    </div>
-  )
-}
-
-// Una card per Mac con un problema: il PERCHE' in una frase grande, le altre cose in piccolo, e
-// l'azione che risolve la prima. Niente comando `tsh ssh` qui: e' nel pannello, dove serve.
-function CartaMac({ m, onApri, t, lang }) {
-  const [primo, ...resto] = m.problemi
-  const memoria = m.problemi.some((p) => p.tipo === 'oom' || p.tipo === 'vm-sotto-obiettivo') && m.vm?.obiettivoGb != null
-  // La VM sotto l'obiettivo la dice gia' la barra: ripeterla in elenco e' rumore.
-  const altri = resto.filter((p) => !(memoria && p.tipo === 'vm-sotto-obiettivo'))
-  return (
-    <article className={`fl-carta fl-${m.livello}`} aria-label={m.macchina}>
-      <header>
-        <Pill livello={m.livello}>{t(`flotta.liv.${m.livello}`)}</Pill>
-        <span className="fl-carta-nome">
+    <button type="button" className={`fm-riga fm-mac ${male ? 'fm-male' : 'fm-bene'}`} onClick={onApri} aria-label={nome}>
+      <span className="fm-nome">
+        <Dot livello={m.livello === 'ok' ? 'off' : m.livello} />
+        <span>
           <b>{m.macchina}</b>
-          <small>{[m.utente, m.motore, m.visto ? t('flotta.visto', { quando: fmtAgo(m.visto, t) }) : null].filter(Boolean).join(' · ')}</small>
+          {m.utente && <small>{m.utente}</small>}
         </span>
-      </header>
-      <p className="fl-perche">{fraseProblema(primo, t, lang)}</p>
-      {memoria && <MemoriaVm vm={m.vm} lang={lang} t={t} />}
-      {altri.length > 0 && (
-        <ul className="fl-altri">
-          {altri.map((p) => (
-            <li key={p.tipo}>
-              <Dot livello={p.livello} />
-              {fraseProblema(p, t, lang)}
-            </li>
-          ))}
-        </ul>
-      )}
-      <Azione azione={primo.azione} t={t} lang={lang} />
-      <footer>
-        <button type="button" className="ui-azione" onClick={onApri}>
-          {t('flotta.dettagli')} →
-        </button>
-      </footer>
-    </article>
+      </span>
+      {celle.map((c) => (
+        <Cella key={c.k} c={c} t={t} />
+      ))}
+      {!celle.some((c) => c.livello && c.livello !== 'ok') && <span className="fm-tutto-ok">{t('flotta.liv.ok')}</span>}
+    </button>
   )
 }
+
+function Cella({ c, t }) {
+  const stato = c.livello == null ? 'ignoto' : c.livello
+  const allarme = stato !== 'ok' && stato !== 'ignoto'
+  return (
+    <span className={`fm-c fm-c-${c.k} fm-${stato}`} title={c.titolo ?? (stato === 'ignoto' ? t('flotta.c.ignoto') : undefined)}>
+      <span className="fm-et">{t(`flotta.col.${c.k}`)}</span>
+      {allarme && <Dot livello={stato} />}
+      {c.barra != null && (
+        <span className="fm-barra" aria-hidden="true">
+          <i style={{ width: `${c.barra}%` }} />
+        </span>
+      )}
+      <span className="fm-v">{c.valore ?? '-'}</span>
+    </span>
+  )
+}
+
+// ── Il grafico di sette giorni ─────────────────────────────────────────────────────────────────────
+function GraficoFlotta({ andamento, t, lang }) {
+  const g = andamento.giorni
+  return (
+    <Sezione titolo={t('flotta.grafico')} sotto={t('flotta.graficoSotto')}>
+      <div className="fl-grafico">
+        <Legenda
+          voci={[
+            { etichetta: t('flotta.grafico.legMinimo'), colore: 'var(--chart-1)', forma: 'linea' },
+            { etichetta: t('flotta.grafico.legMediana'), colore: 'var(--chart-neutro)', forma: 'linea' },
+            { etichetta: t('flotta.grafico.legOom'), colore: 'var(--crit)', forma: 'quadro' },
+          ]}
+        />
+        <GraficoMemoria andamento={andamento} t={t} lang={lang} formatoGb={(v) => gb(v, lang)} />
+        {g?.punti > 0 && (
+          <details className="ui-tabella-grafico">
+            <summary>{t('grafico.tabella')}</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('flotta.tab.giorno')}</th>
+                  <th>{t('flotta.tab.accesi')}</th>
+                  <th>{t('flotta.tab.minimo')}</th>
+                  <th>{t('flotta.tab.oom')}</th>
+                  <th>{t('flotta.tab.inPari')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.attivi.map((_, i) => (
+                  <tr key={i}>
+                    <td>{new Date(g.inizio + i * g.passoMs).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                    <td>{g.attivi[i]}</td>
+                    <td>{g.memMin[i] == null ? '-' : `${gb(g.memMin[i], lang)} GB`}</td>
+                    <td>{g.oom[i] ?? '-'}</td>
+                    <td>{g.inPari[i] == null ? '-' : `${g.inPari[i]}/${g.conImmagine[i]}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
+      </div>
+    </Sezione>
+  )
+}
+
+// ── Il pannello di un Mac ──────────────────────────────────────────────────────────────────────────
 
 // Le quattro serie del pannello, e la SCALA di ciascuna: fissa sulla grandezza vera (la memoria della
 // VM, la RAM del Mac, i core della VM), cosi' una curva piatta resta piatta invece di essere stirata
 // da bordo a bordo.
 const SERIE = [
-  { k: 'mem', unita: 'GB', livello: 'info', peggio: 'min', dominio: (m) => [0, m.vm?.gb ?? null] },
-  { k: 'oom', unita: '', livello: 'crit', peggio: 'somma', dominio: () => [0, 1] },
-  { k: 'swap', unita: 'GB', livello: 'warn', peggio: 'max', dominio: (m) => [0, m.vm?.ramMacGb ?? null] },
-  { k: 'cpu', unita: '%', livello: 'info', peggio: 'max', dominio: (m) => [0, m.vm?.cpu ? m.vm.cpu * 100 : null] },
+  { k: 'mem', unita: 'GB', colore: 'var(--chart-1)', forma: 'linea', dominio: (m) => [0, m.vm?.gb ?? null] },
+  { k: 'oom', unita: '', colore: 'var(--crit)', forma: 'barre', dominio: () => [0, 1] },
+  { k: 'swap', unita: 'GB', colore: 'var(--chart-1)', forma: 'linea', dominio: (m) => [0, m.vm?.ramMacGb ?? null] },
+  { k: 'cpu', unita: '%', colore: 'var(--chart-1)', forma: 'linea', dominio: (m) => [0, m.vm?.cpu ? m.vm.cpu * 100 : null] },
 ]
 
 function DettaglioMac({ m, dati, t, lang }) {
@@ -261,52 +353,73 @@ function DettaglioMac({ m, dati, t, lang }) {
     // Lo swap ha la sua curva qui sopra: in tabella solo quando la curva non c'e'.
     !m.serie && m.swapGb != null && [t('flotta.uso.swap'), `${gb(m.swapGb, lang)} GB`],
   ].filter(Boolean)
+  const tempo = dati.serie
   return (
     <>
       {m.problemi.length ? (
-        <div className="fl-problemi">
-          {m.problemi.map((p, i) => {
-            // Due problemi con la stessa azione (la VM piccola e l'OOM che causa) la dicono una volta.
-            const ripetuta = m.problemi.slice(0, i).some((q) => q.azione?.k === p.azione?.k && q.azione?.comando === p.azione?.comando)
-            return (
-              <div key={p.tipo} className={`fl-problema fl-${p.livello}`}>
-                <b>{fraseProblema(p, t, lang)}</b>
-                {ripetuta ? (
-                  <span className="ui-faint">{t('flotta.stessaAzione')}</span>
-                ) : (
-                  <>
-                    <span>{fraseAzione(p.azione, t, lang)}</span>
-                    <BloccoComando comando={p.azione?.comando} t={t} />
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        <Sezione titolo={t('flotta.problemi')}>
+          <ul className="fl-plist">
+            {m.problemi.map((p, i) => {
+              // Due problemi con la stessa azione (la VM piccola e l'OOM che causa) la dicono una volta.
+              const ripetuta = m.problemi.slice(0, i).some((q) => q.azione?.k === p.azione?.k && q.azione?.comando === p.azione?.comando)
+              return (
+                <li key={p.tipo}>
+                  <Dot livello={p.livello} />
+                  <div>
+                    <b>{fraseProblema(p, t, lang)}</b>
+                    {ripetuta ? (
+                      <span className="ui-faint">{t('flotta.stessaAzione')}</span>
+                    ) : (
+                      <span className="fl-plist-az">
+                        {fraseAzione(p.azione, t, lang)} <ComandoInline comando={p.azione?.comando} t={t} />
+                      </span>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </Sezione>
       ) : (
         <p className="ui-mute">{t('flotta.nienteDaSistemare')}</p>
       )}
       {m.saluteAssente && <p className="ui-faint">{t('flotta.saluteAssente')}</p>}
       {!m.saluteAssente && !m.vm?.gb && m.saluteUltima && <p className="ui-faint">{t('flotta.saluteVecchia', { quando: fmtAgo(m.saluteUltima, t) })}</p>}
 
-      {m.serie && (
+      {m.serie && tempo && (
         <Sezione titolo={t('flotta.andamento')} sotto={t('flotta.andamentoSotto')}>
-          <div className="fl-serie">
-            {SERIE.map((s) => {
-              const v = valoreSerie(m.serie[s.k], s.peggio)
-              if (!v.punti) return null
+          <PiccoliMultipli
+            serie={tempo}
+            lang={lang}
+            t={t}
+            righe={SERIE.map((s) => ({
+              k: s.k,
+              etichetta: t(`flotta.serie.${s.k}`),
+              valori: m.serie[s.k] ?? [],
+              forma: s.forma,
+              colore: s.colore,
+              dominio: s.dominio(m),
+              formato: (v) => (s.k === 'oom' ? String(v) : `${s.k === 'cpu' ? Math.round(v) : gb(v, lang)}${s.unita ? ` ${s.unita}` : ''}`),
+            }))}
+          />
+        </Sezione>
+      )}
+
+      {(m.contenitori ?? []).length > 0 && (
+        <Sezione titolo={t('flotta.contenitori')} sotto={m.vm?.gb ? t('flotta.contenitoriSotto', { gb: gb(m.vm.gb, lang) }) : null}>
+          <div className="fl-cont">
+            {m.contenitori.map((c) => {
+              const quota = vmMb > 0 && c.memMb != null ? c.memMb / vmMb : null
               return (
-                <div key={s.k} className="fl-serie-voce">
-                  <span className="fl-serie-nome">{t(`flotta.serie.${s.k}`)}</span>
-                  <b>
-                    {s.k === 'oom' ? t('flotta.serie.oomTot', { n: v.totale }) : `${gb(v.ultimo, lang)}${s.unita ? ` ${s.unita}` : ''}`}
-                  </b>
-                  <Sparkline valori={(m.serie[s.k] ?? []).filter((x) => x != null)} livello={s.k === 'oom' && v.totale === 0 ? 'ok' : s.livello} larghezza={210} altezza={34} dominio={s.dominio(m)} />
-                  <small className="ui-faint">
-                    {s.k === 'oom'
-                      ? t('flotta.serie.oomSotto')
-                      : t(`flotta.serie.${s.k}Sotto`, { min: gb(v.min, lang), max: gb(v.max, lang) })}
-                  </small>
+                <div key={c.nome} className="fl-cont-riga">
+                  <span className="ui-mono">{c.nome}</span>
+                  <span className="fl-cont-barra" aria-hidden="true">
+                    {quota != null && <i className={quota > 0.35 ? 'fl-pesante' : ''} style={{ width: `${Math.min(100, quota * 100)}%` }} />}
+                  </span>
+                  <span className="fl-cont-v">
+                    {c.memMb != null ? `${gb(c.memMb / 1024, lang)} GB` : '-'}
+                    {c.cpuPct != null && <small>CPU {Math.round(c.cpuPct)}%</small>}
+                  </span>
                 </div>
               )
             })}
@@ -314,29 +427,14 @@ function DettaglioMac({ m, dati, t, lang }) {
         </Sezione>
       )}
 
-      {(m.contenitori ?? []).length > 0 && (
-        <Sezione titolo={t('flotta.contenitori')} sotto={m.vm?.gb ? t('flotta.contenitoriSotto', { gb: gb(m.vm.gb, lang) }) : null}>
-          <div className="fl-cont">
-            {m.contenitori.map((c) => (
-              <div key={c.nome} className="fl-cont-riga">
-                <span className="ui-mono">{c.nome}</span>
-                {vmMb > 0 && c.memMb != null ? <Meter valore={(c.memMb / vmMb) * 100} livello={c.memMb / vmMb > 0.35 ? 'warn' : 'brand'} /> : <span />}
-                <span className="ui-mute">
-                  {[c.memMb != null ? `${gb(c.memMb / 1024, lang)} GB` : null, c.cpuPct != null ? `CPU ${Math.round(c.cpuPct)}%` : null].filter(Boolean).join(' · ')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Sezione>
-      )}
-
       {(m.storia ?? []).length > 0 && (
         <Sezione titolo={t('flotta.avvii')}>
-          <div className="fl-avvii">
+          <ul className="fl-avvii">
             {m.storia.slice(0, 6).map((a, i) => (
-              <div key={`${a.quando}-${i}`} className="fl-avvio">
-                <Pill livello={a.esito === 'ok' ? 'ok' : a.esito === 'ko' ? 'crit' : a.esito ? 'warn' : 'off'}>{a.esito ?? '?'}</Pill>
-                <span>
+              <li key={`${a.quando}-${i}`}>
+                <Dot livello={a.esito === 'ok' ? 'off' : a.esito === 'ko' ? 'crit' : a.esito ? 'warn' : 'off'} />
+                <span className={a.esito && a.esito !== 'ok' ? '' : 'ui-mute'}>
+                  {a.esito && a.esito !== 'ok' ? <b>{a.esito} </b> : null}
                   {fmtAgo(a.quando, t)}
                   {a.lato ? ` · ${a.lato}` : ''}
                   {a.durata != null ? ` · ${fmtMs(a.durata * 1000)}` : ''}
@@ -344,26 +442,26 @@ function DettaglioMac({ m, dati, t, lang }) {
                     <span className="ui-hint">{[a.passo && t('flotta.passo', { passo: a.passo }), a.classe, a.primaRiga].filter(Boolean).join(' · ')}</span>
                   )}
                 </span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </Sezione>
       )}
 
       {immagini.length > 0 && (
         <Sezione titolo={t('flotta.immagini')}>
-          <div className="fl-avvii">
+          <dl className="fl-uso">
             {immagini.map((im) => (
-              <div key={`${im.immagine}-${im.dal}`} className="fl-avvio fl-immagine">
-                <code className="ui-mono">{digestCorto(im.immagine) || t('flotta.nonDichiarata')}</code>
-                <span className="ui-mute">
+              <div key={`${im.immagine}-${im.dal}`}>
+                <dt className="ui-mono">{digestCorto(im.immagine) || t('flotta.nonDichiarata')}</dt>
+                <dd className="ui-mute">
                   {[im.creata ? t('flotta.costruita', { data: dataCorta(Date.parse(im.creata), lang) }) : null, t('flotta.inUsoDa', { quando: fmtAgo(im.dal, t) })]
                     .filter(Boolean)
                     .join(' · ')}
-                </span>
+                </dd>
               </div>
             ))}
-          </div>
+          </dl>
         </Sezione>
       )}
 
@@ -382,7 +480,11 @@ function DettaglioMac({ m, dati, t, lang }) {
 
       {(ssh || audit) && (
         <Sezione titolo={t('flotta.entrare')} sotto={t('flotta.entrareSotto')}>
-          {ssh && <BloccoComando comando={ssh} t={t} />}
+          {ssh && (
+            <p className="fl-entra">
+              <ComandoInline comando={ssh} t={t} />
+            </p>
+          )}
           <ListaLink link={[{ label: t('flotta.audit'), href: audit, nota: t('accessi.vaiTeleportNota') }]} />
         </Sezione>
       )}

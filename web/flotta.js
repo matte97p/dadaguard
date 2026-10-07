@@ -131,3 +131,149 @@ export function storiaImmagini(avvii = []) {
   }
   return fuori
 }
+
+// ── La MATRICE della flotta (dal 07/10/2026) ───────────────────────────────────────────────────────
+//
+// Una riga per Mac, una colonna per cosa si guarda. Ogni cella e' un valore corto e un livello:
+//   · `ok`: in ordine, si scrive in grigio (il valore c'e', ma non chiama);
+//   · `warn`, `crit`, `info`: c'e' un problema, col pallino del colore e il valore;
+//   · `null`: non lo so (il Mac non manda quel campo), e si disegna come un trattino tenue.
+// Le colonne pescano dai PROBLEMI che il server ha gia' deciso (`server/flotta.js`): qui non si rifa'
+// nessuna regola, si sceglie solo dove mostrarla. `titolo` e' la frase intera, per il mouse e per chi
+// legge con uno screen reader.
+export const COLONNE = ['immagine', 'vm', 'oom', 'motore', 'salute', 'doctor', 'avvio', 'sulMac', 'app']
+
+// Quale colonna mostra quale problema. Ogni tipo del server ha la sua: un problema senza colonna
+// sarebbe un pallino rosso nella riga senza una cella che dica perche' (c'e' una prova).
+export const COLONNA_DEL_PROBLEMA = {
+  'immagine-indietro': 'immagine',
+  'tool-mancanti': 'immagine',
+  'vm-sotto-obiettivo': 'vm',
+  oom: 'oom',
+  'motore-non-supportato': 'motore',
+  'salute-muta': 'salute',
+  'doctor-ko': 'doctor',
+  'dev-fermo': 'avvio',
+  'avvio-storto': 'avvio',
+  guasto: 'avvio',
+  container: 'avvio',
+  'lavoro-sul-mac': 'sulMac',
+  'opt-out-attivi': 'sulMac',
+  'app-pesante': 'app',
+}
+
+const RANGO_LIV = { crit: 0, warn: 1, info: 2, ok: 3 }
+
+export function celleMac(m, t = (k) => k, lang = 'it', adesso = Date.now()) {
+  const breve = (ts) => {
+    if (!Number.isFinite(ts)) return null
+    const min = Math.max(0, Math.round((adesso - ts) / 60_000))
+    if (min < 1) return t('ago.now')
+    if (min < 60) return `${min}${t('time.unit.m')}`
+    const h = Math.floor(min / 60)
+    return h < 48 ? `${h}${t('time.unit.h')}` : `${Math.floor(h / 24)}${t('time.unit.d')}`
+  }
+  const problemi = (col) =>
+    (m?.problemi ?? []).filter((p) => COLONNA_DEL_PROBLEMA[p.tipo] === col).sort((a, b) => RANGO_LIV[a.livello] - RANGO_LIV[b.livello])
+  const cella = (k, base) => {
+    const ps = problemi(k)
+    if (!ps.length) return { k, ...base }
+    return { k, ...base, livello: ps[0].livello, titolo: ps.map((p) => fraseProblema(p, t, lang)).join(' · '), problemi: ps.map((p) => p.tipo) }
+  }
+  const uso = m?.uso ?? {}
+  const vm = m?.vm ?? {}
+  const impostata = vm.impostataGb ?? vm.gb
+  const fuori = []
+
+  // Immagine: quanti giorni dietro la piu' nuova; «attuale» quando e' dello stesso giorno.
+  {
+    const ind = (m?.problemi ?? []).find((p) => p.tipo === 'immagine-indietro')
+    const tool = (m?.problemi ?? []).find((p) => p.tipo === 'tool-mancanti')
+    const g = ind?.giorni ?? m?.immagine?.giorni
+    const nota = m?.immagine?.creata || ind
+    let valore = null
+    if (ind) valore = g > 0 ? t('flotta.c.giorni', { n: g }) : t('flotta.c.diversa')
+    else if (tool) valore = t('flotta.c.tool', { n: tool.quante ?? tool.nomi?.length ?? 0 })
+    else if (nota) valore = g > 0 ? t('flotta.c.giorni', { n: g }) : t('flotta.c.attuale')
+    fuori.push(cella('immagine', { livello: valore == null ? null : 'ok', valore, titolo: m?.immagine?.creata ? t('flotta.immagineDel', { data: new Date(Date.parse(m.immagine.creata)).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB') }) : null }))
+  }
+  // VM: la memoria impostata contro l'obiettivo, con la barra.
+  {
+    const ob = vm.obiettivoGb
+    const valore = impostata == null ? null : ob != null ? `${num(impostata, lang)}/${num(ob, lang)}` : `${num(impostata, lang)} GB`
+    fuori.push(
+      cella('vm', {
+        livello: valore == null ? null : 'ok',
+        valore,
+        // La barra solo quando la VM e' sotto l'obiettivo: su sei righe in ordine sei barre piene sono
+        // sei segni che non dicono niente.
+        barra: impostata != null && ob && impostata < ob - 0.5 ? Math.min(100, (impostata / ob) * 100) : null,
+        titolo: impostata != null && ob != null ? t('flotta.vmSuObiettivo', { gb: num(impostata, lang), obiettivo: num(ob, lang) }) : null,
+      }),
+    )
+  }
+  // OOM delle ultime 24 ore. Zero e' un fatto solo se il Mac manda il contatore.
+  fuori.push(cella('oom', { livello: m?.oom ? 'ok' : null, valore: m?.oom ? String(m.oom.nuovi ?? 0) : null }))
+  // Motore di Docker.
+  {
+    const valore = m?.motore ?? (m?.motoreIncerto ? t('flotta.motoreIncerto') : null)
+    fuori.push(cella('motore', { livello: valore ? 'ok' : null, valore }))
+  }
+  // Salute: quanto e' fresca l'ultima riga.
+  {
+    const ultima = Number(m?.saluteUltima) || null
+    fuori.push(cella('salute', { livello: m?.saluteAssente || !ultima ? null : 'ok', valore: m?.saluteAssente ? null : breve(ultima), titolo: ultima ? t('flotta.c.saluteTitolo', { quando: breve(ultima) }) : null }))
+  }
+  // Doctor: l'esito dell'ultimo.
+  {
+    const d = uso.doctor
+    const ko = Number(d?.ko) || 0
+    const valore = d ? (ko > 0 ? t('flotta.c.ko', { n: ko }) : t('flotta.c.ok')) : null
+    fuori.push(cella('doctor', { livello: valore ? 'ok' : null, valore }))
+  }
+  // Avvio: l'esito dell'ultimo, e i guasti.
+  {
+    const ps = problemi('avvio')
+    const ultimo = (m?.storia ?? [])[0]
+    let valore = ultimo?.esito ? (ultimo.esito === 'ok' ? t('flotta.c.ok') : ultimo.esito) : null
+    if (ps[0]?.tipo === 'dev-fermo') valore = t('flotta.c.fermo')
+    else if (ps[0]?.tipo === 'avvio-storto') valore = ps[0].esito ?? valore
+    else if (ps[0]?.tipo === 'guasto') valore = ps[0].classe ?? t('flotta.c.guasto')
+    else if (ps[0]?.tipo === 'container') valore = t('flotta.c.container', { n: ps[0].nomi?.length ?? 0 })
+    fuori.push(cella('avvio', { livello: valore ? 'ok' : null, valore }))
+  }
+  // Comandi dei repo lanciati sul Mac nelle 24 ore, e gli opt-out.
+  {
+    const ps = problemi('sulMac')
+    // `uso` c'e' sempre (il server lo compone anche senza salute), quindi «so quanti comandi» vuol dire
+    // «questo Mac ha mandato la salute nelle 24 ore», che e' quando c'e' il blocco `oom`.
+    let valore = m?.oom ? String(uso.sulMac ?? 0) : null
+    if (ps[0]?.tipo === 'lavoro-sul-mac') valore = String((m.problemi.find((p) => p.tipo === 'lavoro-sul-mac')?.quante ?? uso.sulMac) || 0)
+    else if (ps[0]?.tipo === 'opt-out-attivi') valore = t('flotta.c.optOut', { n: ps[0].nomi?.length ?? 0 })
+    fuori.push(cella('sulMac', { livello: valore != null ? 'ok' : null, valore }))
+  }
+  // L'app piu' pesante dentro al container.
+  {
+    const a = (m?.app ?? [])[0]
+    const pesante = (m?.problemi ?? []).find((p) => p.tipo === 'app-pesante')
+    const nome = pesante?.app ?? a?.nome
+    const gb = pesante?.gb ?? a?.gb
+    fuori.push(cella('app', { livello: nome ? 'ok' : null, valore: nome ? `${nome} ${num(gb, lang)} GB` : null }))
+  }
+  return fuori
+}
+
+// Le AZIONI della flotta in una riga, sotto la matrice: per ogni azione (la prima di ogni Mac da
+// sistemare) quali Mac. «memoria della VM: kim · aggiorna: sam, eli». Le azioni nell'ordine del Mac
+// piu' grave che le chiede.
+export function azioniFlotta(macchine = []) {
+  const perAzione = new Map()
+  for (const m of macchine) {
+    if (!(m.livello === 'crit' || m.livello === 'warn')) continue
+    const a = m.problemi?.find((p) => p.livello === m.livello)?.azione ?? m.problemi?.[0]?.azione
+    if (!a?.k) continue
+    if (!perAzione.has(a.k)) perAzione.set(a.k, { k: a.k, livello: m.livello, macchine: [] })
+    perAzione.get(a.k).macchine.push(m.macchina)
+  }
+  return [...perAzione.values()]
+}

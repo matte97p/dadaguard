@@ -13,7 +13,7 @@ import { budgetErrore, conteggiDaRuntime } from './meta/budget.js'
 import { linkServizio, linkDeploy } from './meta/link.js'
 import { aggregaGiorni } from './meta/spesa.js'
 import { durataTipica } from './meta/cron.js'
-import { settimanaDiSalute } from './teleport.js'
+import { andamentoAudit, passoAndamento, settimanaDiSalute } from './teleport.js'
 import { componiFlotta } from './flotta.js'
 import { SOGLIE_DEV_ENV } from './accessi.js'
 
@@ -1001,7 +1001,22 @@ export function demoTeleport(ore = 24) {
     { utente: 'sam', loginOk: 0, loginFallite: su(3), motivo: 'role "db-writer" is not found', primaFallita: now - 21 * 60_000, ultimaFallita: now - 9 * 60_000, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: now - 9 * 60_000 },
     { utente: 'noa', loginOk: su(4), loginFallite: su(1), motivo: 'access denied: MFA required', primaFallita: now - 3 * 3600_000, ultimaFallita: now - 3 * 3600_000, sessioniDb: su(14), query: su(28), scritture: 0, sessioniSsh: 0, ultima: now - 51 * 60_000 },
     { utente: 'kim', loginOk: su(4), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(101), query: su(116), scritture: su(5), sessioniSsh: 0, ultima: now - 3 * 3600_000 },
-    { utente: 'lee', loginOk: su(2), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(1), query: su(4), scritture: 0, sessioniSsh: 0, ultima: now - 5 * 3600_000 },
+    // Un accesso al database NEGATO: lee chiede `postgres` al tunnel di sola lettura, che non lo concede.
+    {
+      utente: 'lee',
+      loginOk: su(2),
+      loginFallite: 0,
+      motivo: 'access to db denied: user postgres is not allowed',
+      primaFallita: null,
+      ultimaFallita: null,
+      sessioniDb: su(1),
+      sessioniDbNegate: su(2),
+      negati: [{ utente: 'lee', dbUser: 'postgres', nome: 'orders', servizio: 'orders-prod-db-ro', quante: su(2), ultima: now - 33 * 60_000 }],
+      query: su(4),
+      scritture: 0,
+      sessioniSsh: 0,
+      ultima: now - 33 * 60_000,
+    },
   ]
   const database = [
     { servizio: 'orders-prod-db-ro', nome: 'orders', ambiente: 'prod', query: su(2329), scritture: 0, persone: 4 },
@@ -1050,8 +1065,11 @@ export function demoTeleport(ore = 24) {
       query: somma('query'),
       scritture: somma('scritture'),
       sessioniDb: somma('sessioniDb'),
+      sessioniDbNegate: somma('sessioniDbNegate'),
+      negati: persone.flatMap((p) => p.negati ?? []),
       troncato: false,
       motivoPiuComune: { motivo: 'role "db-writer" is not found', quante: su(3) },
+      andamento: andamentoAudit(demoTracciaAudit(now, ore, persone, database, ssh), { adesso: now, ore }),
     },
     heartbeat: {
       giorni: 7,
@@ -1068,6 +1086,41 @@ export function demoTeleport(ore = 24) {
       storia,
     },
   }
+}
+
+// Gli eventi dell'audit in demo, per il grafico della pagina Accessi: tanti quanti ne dicono i totali
+// qui sopra, nella finestra chiesta. L'ultimo di ogni persona sta al suo istante vero quando e' dentro
+// la finestra, le raffiche (le login fallite di sam, i negati di lee) sono fitte come una raffica vera,
+// e il resto si spande sulla finestra con un passo fisso (niente caso: la stessa demo, lo stesso
+// grafico). Poi passano da `andamentoAudit`, la stessa funzione della produzione.
+export function demoTracciaAudit(now, ore, persone = [], database = [], ssh = []) {
+  // L'inizio della prima fascia, non `now - ore`: le fasce sono allineate, e un evento fra i due
+  // cadrebbe fuori dal grafico pur stando nei totali.
+  const passo = passoAndamento(ore)
+  const da = Math.floor(now / passo) * passo - (Math.ceil((ore * 3600_000) / passo) - 1) * passo
+  const ev = []
+  const spandi = (n, { tipo, utente, ultima = null, raffica = 0, extra = {} }) => {
+    for (let k = 0; k < n; k++) {
+      let q = null
+      if (ultima != null && ultima >= da && (k === 0 || (raffica > 0 && k < 3))) q = ultima - k * raffica
+      if (q == null || q < da) q = da + (((k + 1) * 0.618 + utente.length * 0.137) % 1) * (now - da)
+      ev.push({ quando: q, tipo, utente, ...extra })
+    }
+  }
+  for (const p of persone) {
+    spandi(p.loginOk ?? 0, { tipo: 'login', utente: p.utente })
+    spandi(Math.min(p.sessioniDb ?? 0, 60), { tipo: 'db', utente: p.utente })
+    spandi(p.loginFallite ?? 0, { tipo: 'login-fallita', utente: p.utente, ultima: p.ultimaFallita, raffica: 6 * 60_000 })
+    for (const n of p.negati ?? []) spandi(n.quante, { tipo: 'negato', utente: p.utente, ultima: n.ultima, raffica: 4 * 60_000 })
+  }
+  for (const d of database) {
+    if (!d.scritture) continue
+    const prod = d.ambiente === 'prod'
+    const chi = d.chi?.[0] ?? 'kim'
+    spandi(d.scritture, { tipo: 'scrittura', utente: chi, ultima: d.ultimaScrittura ?? null, raffica: 5 * 60_000, extra: { prod } })
+  }
+  for (const m of ssh) for (const u of m.chi ?? []) spandi(m.sessioni ?? 0, { tipo: 'ssh', utente: u, ultima: m.ultima, raffica: 25 * 60_000 })
+  return ev
 }
 
 // ── La FLOTTA dei dev-env in demo ──────────────────────────────────────────────────────────────────
