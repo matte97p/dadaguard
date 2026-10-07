@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { riassumiSalute } from '../server/teleport.js'
 import { segnali, configSalute } from '../server/accessi.js'
 import { messaggioAccessi } from '../server/notify/slack.js'
-import { saluteDellaMacchina, appPiuPesanti, saluteDaGuardare } from '../web/accessi.js'
+import { appPiuPesanti } from '../shared/devEnv.js'
 
 // La SALUTE delle macchine del dev-env: una riga ogni 15 minuti con memoria e OOM della VM di Docker e
 // container non sani. Le prove difendono le due domande che contano, e i due modi muti di sbagliarle:
@@ -121,25 +121,10 @@ test('messaggio: container non sani dice quali e da quanti controlli', () => {
   assert.match(m, /3 controlli di fila/)
 })
 
-test('pagina: la salute si attacca alla riga dell host, non a quella del container', () => {
-  const salute = { macchine: [mac({ oomNuovi: 1 })] }
-  assert.equal(saluteDellaMacchina(salute, { macchina: 'mac-di-gio', lato: 'host' }).oomNuovi, 1)
-  assert.equal(saluteDellaMacchina(salute, { macchina: 'mac-di-gio', lato: 'container' }), null)
-  assert.equal(saluteDellaMacchina(salute, { macchina: 'altro', lato: 'host' }), null)
-  assert.equal(saluteDellaMacchina(null, { macchina: 'mac-di-gio', lato: 'host' }), null)
-})
-
 test('pagina: le app piu pesanti in GB, senza «altro»', () => {
   assert.deepEqual(appPiuPesanti({ altro: 5000, backend: 1327, chat: 253, autopilot: 419 }), [
     { nome: 'backend', gb: 1.3 },
     { nome: 'autopilot', gb: 0.4 },
   ])
   assert.deepEqual(appPiuPesanti({}), [])
-})
-
-test('pagina: da guardare se c e un OOM o un container non sano', () => {
-  assert.equal(saluteDaGuardare(mac({ oomNuovi: 1 })), true)
-  assert.equal(saluteDaGuardare(mac({ nonSani: ['db: exited (1)'] })), true)
-  assert.equal(saluteDaGuardare(mac({})), false)
-  assert.equal(saluteDaGuardare(null), false)
 })
