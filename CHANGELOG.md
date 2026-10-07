@@ -14,6 +14,17 @@ All notable changes to Dadaguard are documented here. Format based on
   giro dopo i soli suoi segnali, senza ripetere l'altro canale.
 
 ### Changed
+- **Il dettaglio di un Mac, sullo schermo largo, è una finestra al centro** (07/10/2026). Il pannello
+  laterale su un monitor si leggeva male: una colonna stretta contro il bordo, i grafici schiacciati e
+  metà schermo vuoto. Dai 861px in su il dettaglio della pagina Flotta si apre in una finestra
+  centrata (fino a 960px di larghezza e all'85% dell'altezza, con lo scorrimento dentro e il fondo
+  scurito): problemi e azioni a sinistra con la memoria dei container sotto, i quattro grafici a
+  destra, e sotto avvii, immagini e uso del dev-env in tre colonne. Esc, il clic sul fondo e la
+  crocetta la chiudono; il fuoco entra sul nome del Mac, resta dentro con Tab e torna sulla riga alla
+  chiusura; `role="dialog"`, `aria-modal` e il nome del Mac come titolo. Sul telefono resta il pannello
+  di prima. Il link `?mac=` è lo stesso, e trova il Mac anche col nome vecchio o con l'id. La finestra
+  è un componente comune, `web/ui/Modale.jsx` (con `useSchermoLargo`), per le altre pagine che la
+  vorranno; i loro pannelli non cambiano.
 - **Flotta e Accessi diventano due cruscotti** (07/10/2026). Le pagine rifatte in mattinata si
   leggevano come testo e come un muro di scatole (card col bordo colorato, pillola, riquadro «Cosa
   fare» con dentro il riquadro del comando), e rosso e giallo erano ovunque. Ora in cima a tutte e
@@ -127,6 +138,28 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **Lo stesso Mac compariva due o tre volte nella Flotta** (07/10/2026). macOS rinomina l'host quando
+  cambia rete (`hostname -s` gli va dietro), e il dev-env, quando non legge l'utente Teleport, ripiega
+  su quello di sistema: sui dati veri di una settimana un portatile aveva due nomi a un'ora di
+  distanza, un altro tre nomi in sette giorni, e la stessa persona due utenti. Ora una riga è un MAC:
+  - col campo nuovo `macchina_id` (un hash stabile per la vita del Mac, che il dev-env manda da oggi
+    su heartbeat e salute) i nomi con lo stesso id sono un Mac solo, e due id diversi sono sempre due
+    Mac;
+  - per le righe vecchie, senza id, due nomi si uniscono solo se è la stessa persona (lo stesso utente,
+    lo stesso nome nella mappa `people`, o l'utente di sistema che è l'inizio del login Teleport), i
+    loro periodi non si sovrappongono (mezz'ora di tolleranza), non parlano tutti e due adesso, e il
+    Mac da continuare è uno solo. Due Mac veri usati in parallelo restano due;
+  - il nome mostrato è il più recente, gli altri stanno sotto il titolo del dettaglio («anche: …»);
+  - la persona è quella dell'ultima riga con `utente_da = teleport` (campo nuovo anche lui), poi un
+    utente che la mappa `people` conosce, poi il valore grezzo.
+  Un Mac che non si vede da più di tre giorni va in un gruppo chiuso sotto la matrice, «Non visti da
+  più di 3 giorni», e non conta più nei numeri in cima, nel grafico né in «da sistemare»: è così che
+  spariscono quasi tutti i nomi vecchi. Campi nuovi di `/api/flotta`, tutti facoltativi: per Mac
+  `chiave`, `id`, `alias`, `unitoPer`, `utenteDa`, `nonVisto`; in cima `nonViste` e
+  `nonVistiDopoGiorni`. L'heartbeat e la salute portano `identita` per nome. Limite noto: i dati a
+  monte sono ancora raggruppati per nome, quindi due Mac diversi con lo stesso nome restano una riga.
+  La demo ha il Mac rinominato di tess e il Mac di riserva di rin, spento da cinque giorni.
+
 - **Le righe del quadro sono le risorse, e non cambiano con lo stato** (05/10/2026). Un servizio ECS,
   un cron ECS, una Lambda e un componente esterno hanno sempre una riga loro. Le risorse con la stessa
   immagine e senza build proprie diventavano una riga sola col nome del repo, e un riavvio a mano di

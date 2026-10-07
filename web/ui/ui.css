@@ -971,9 +971,88 @@
     grid-template-columns: 1fr;
   }
 }
+/* ── finestra di dettaglio centrata (Modale.jsx), per lo schermo largo ──
+   Lo stesso fondo del pannello, un po' piu' scuro perche' copre tutta la pagina; la finestra e'
+   larga fino a 960px e alta fino all'85% dello schermo, e scorre DENTRO, sotto la testata fissa. */
+.ui-modale-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  /* `--scrim` e' piu' scuro nel tema scuro (app.css): sullo sfondo scuro lo stesso velo non si vede. */
+  background: var(--scrim, rgba(10, 8, 20, 0.45));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 24px;
+}
+.ui-modale {
+  width: min(960px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(10, 8, 20, 0.28), 0 2px 8px rgba(10, 8, 20, 0.12);
+  overflow: hidden;
+}
+.ui-modale-testa {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.ui-modale-testa > div {
+  min-width: 0;
+}
+.ui-modale h3 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.ui-modale h3:focus {
+  outline: none;
+}
+.ui-modale h3:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.ui-modale-sotto {
+  margin-top: 2px;
+  font-size: 13.5px;
+}
+.ui-modale-corpo {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ui-modale :where(button, a, input, summary):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.ui-modale .ui-sezione h2 {
+  margin-bottom: 10px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .ui-drawer {
     animation: ui-in 0.18s ease-out;
+  }
+  .ui-modale {
+    animation: ui-su 0.16s ease-out;
+  }
+  @keyframes ui-su {
+    from {
+      transform: translateY(8px) scale(0.99);
+      opacity: 0.6;
+    }
   }
   @keyframes ui-in {
     from {

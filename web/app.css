@@ -60,6 +60,7 @@
    sistema», la seconda quando l'ha scelto chi guarda. Un solo blocco non copre tutti e due i casi. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    --scrim: rgba(0, 0, 0, 0.66);
     --bg: #0f1114;
     --panel: #171a1f;
     --ink: #eceff3;
@@ -90,6 +91,7 @@
   }
 }
 :root[data-theme='dark'] {
+  --scrim: rgba(0, 0, 0, 0.66);
   --bg: #0f1114;
   --panel: #171a1f;
   --ink: #eceff3;

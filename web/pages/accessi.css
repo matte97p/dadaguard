@@ -447,6 +447,144 @@
   margin-bottom: 10px;
 }
 
+/* ── Flotta: i Mac non visti da piu' di tre giorni, in un gruppo chiuso sotto la matrice ── */
+.fl-nonviste {
+  margin-top: -6px;
+}
+.fl-nonviste > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 2px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--mute);
+  list-style: none;
+}
+.fl-nonviste > summary::-webkit-details-marker {
+  display: none;
+}
+.fl-nonviste > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  align-self: center;
+  margin-right: 2px;
+}
+.fl-nonviste[open] > summary::before {
+  transform: rotate(45deg);
+}
+.fl-nonviste > summary span {
+  font-weight: 600;
+  color: var(--ink);
+}
+.fl-nonviste > summary small {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+.fl-nonviste > summary:hover span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line-2);
+}
+.fl-nonviste > .fm {
+  margin-top: 6px;
+}
+/* Un Mac che non si vede da giorni non chiama: niente colore, niente grassetto. */
+.fm-spenta .fm-mac {
+  color: var(--mute);
+}
+.fm-spenta .fm-nome b,
+.fm-spenta .fm-crit,
+.fm-spenta .fm-warn,
+.fm-spenta .fm-info {
+  font-weight: 400;
+  color: var(--mute);
+}
+.fm-spenta .ui-dot {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+/* Gli altri nomi del Mac, sotto il titolo del dettaglio: piccoli, su una riga loro. */
+.fl-anche {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+
+/* ── Flotta: il dettaglio di un Mac ──
+   Nel pannello del telefono i contenitori non ci sono (`display: contents`): le sezioni stanno in
+   colonna come prima. Nella finestra centrata dello schermo largo, problemi e azioni a sinistra, i
+   grafici a destra, e sotto i dettagli in tre colonne. */
+.fl-det-alto,
+.fl-det-sx,
+.fl-det-dx,
+.fl-det-cont,
+.fl-det-basso {
+  display: contents;
+}
+/* I grafici occupano tutta l'altezza a destra; a sinistra i problemi e, subito sotto, la memoria dei
+   contenitori (la seconda riga prende quel che avanza, cosi' non si apre un buco fra i due). */
+.ui-modale .fl-det-alto {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  grid-template-rows: auto 1fr;
+  gap: 22px 36px;
+  align-items: start;
+}
+.ui-modale .fl-det-sx {
+  grid-column: 1;
+  grid-row: 1;
+}
+.ui-modale .fl-det-dx {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.ui-modale .fl-det-cont {
+  grid-column: 1;
+  grid-row: 2;
+}
+.ui-modale .fl-det-alto.fl-det-solo {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+}
+.ui-modale .fl-det-solo > .fl-det-cont {
+  grid-row: auto;
+}
+.ui-modale .fl-det-sx,
+.ui-modale .fl-det-dx,
+.ui-modale .fl-det-cont {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.ui-modale .fl-det-cont:empty {
+  display: none;
+}
+.ui-modale .fl-det-basso {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 20px 32px;
+  align-items: start;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.ui-modale .fl-det-basso:empty {
+  display: none;
+}
+.ui-modale .fl-uso div {
+  grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1fr);
+}
+
 /* Sotto i 1100px la matrice perde le colonne di contesto (motore, salute): restano nel pannello e
    nel titolo della riga. */
 @media (max-width: 1100px) {
