@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { riassumiSalute, motoreDocker, leggiUltime } from '../server/teleport.js'
 import { segnali, daAnnunciare, soglieDevEnv, inizioPeriodo, SOGLIE_DEV_ENV, GIORNO_MS, ORA_MS, SETTIMANA_MS } from '../server/accessi.js'
 import { messaggioAccessi } from '../server/notify/slack.js'
-import { usoDellaMacchina } from '../web/accessi.js'
+import { usoDellaMacchina } from '../shared/devEnv.js'
 
 // Gli avvisi sul dev-env del 07/10/2026: immagine vecchia, agent della salute muto, motore di Docker
 // non ammesso, VM sotto l'obiettivo, opt-out accesi, comandi dei repo sul Mac, doctor con dei KO. Le
@@ -369,7 +369,7 @@ test('cadenza: la calma e la forma dello stato degli altri segnali non cambiano'
 
 const msg = (segnale) => messaggioAccessi({ livello: 'attenzione', bersaglio: 'mac-di-tizio', chi: ['tizio'], ...segnale }, { publicUrl: 'https://dg' })
 
-test('messaggi: una riga sola, la persona, il numero e il link ad Accessi, senza trattino lungo', () => {
+test('messaggi: una riga sola, la persona, il numero e il link al Mac nella Flotta, senza trattino lungo', () => {
   const tutti = [
     msg({ tipo: 'immagine-vecchia', giorni: 9 }),
     msg({ tipo: 'salute-muta', oreZitta: 31, oreDallAvvio: 2 }),
@@ -384,7 +384,7 @@ test('messaggi: una riga sola, la persona, il numero e il link ad Accessi, senza
     assert.equal(m.includes('\n'), false, m)
     assert.equal(m.includes(String.fromCharCode(0x2014)), false, m)
     assert.match(m, /\(tizio\)/, m)
-    assert.match(m, /<https:\/\/dg\/accessi\?vista=devEnv\|Accessi>$/, m)
+    assert.match(m, /<https:\/\/dg\/flotta\?mac=mac-di-tizio\|Flotta>$/, m)
   }
   assert.match(tutti[0], /IMMAGINE DEL DEV-ENV VECCHIA \(tizio\): costruita 9 giorni prima/)
   assert.match(tutti[1], /SALUTE DEL DEV-ENV MUTA \(tizio\): nessuna riga da 31 ore, ma il dev-env è partito 2 ore fa/)
