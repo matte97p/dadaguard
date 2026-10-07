@@ -331,6 +331,12 @@ services:
 #   # AWS: chi non ha una destinazione non paga due letture di CloudWatch ogni cinque minuti.
 #   slackWebhook: https://hooks.slack.com/services/...
 #
+#   # Facoltativo: l'id del canale (`C0…`) degli avvisi sulla salute dei Mac (motore di Docker,
+#   # immagine vecchia, VM, OOM, doctor…). Lo scrive il bot del quadro (DADAGUARD_SLACK_BOT_TOKEN,
+#   # invitato nel canale). Scritture e sessioni SSH restano nel webhook qui sopra. Senza questa riga,
+#   # o senza il token, tutto va nel webhook.
+#   canaleFlotta: C0123456789
+#
 #   # Quanto sta zitto un segnale che CONTINUA ad arrivare. Il giro gira ogni cinque minuti, quindi
 #   # senza calma una sessione di migration di mezz'ora sono sei messaggi che dicono la stessa cosa con
 #   # una cifra diversa. Niente si perde: quello che succede nel silenzio finisce nel messaggio dopo,

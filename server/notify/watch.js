@@ -78,6 +78,14 @@ async function saveState(file, state) {
   }
 }
 
+// L'invio col bot del quadro, per i canali che non hanno un webhook (data, flotta). Un errore si logga
+// e diventa `false`, come per `postSlack`.
+const postBot = (cfg) => (canale, payload) =>
+  chiamaSlack('chat.postMessage', { channel: canale, ...payload, unfurl_links: false }, cfg.botToken).then(
+    () => true,
+    (err) => (log.error('slack: invio col bot fallito', { canale, err: err.message }), false),
+  )
+
 // Un giro: leggi lo stato del mondo, confronta col precedente, annuncia le transizioni, salva.
 // Esportato perché è la cosa da testare (e da invocare a mano, in un futuro `/api/watch/run`).
 export async function runOnce(cfg, deps = {}) {
@@ -87,13 +95,7 @@ export async function runOnce(cfg, deps = {}) {
   // un dato fresco senza che nessuno abbia aspettato. Iniettabile perché `runOnce` è la cosa provata.
   const pubblica = deps.publishStatus ?? publishStatus
   const send = deps.postSlack ?? postSlack
-  const sendBot =
-    deps.postBot ??
-    ((canale, payload) =>
-      chiamaSlack('chat.postMessage', { channel: canale, ...payload, unfurl_links: false }, cfg.botToken).then(
-        () => true,
-        (err) => (log.error('slack: invio col bot fallito', { canale, err: err.message }), false),
-      ))
+  const sendBot = deps.postBot ?? postBot(cfg)
   const readState = deps.loadState ?? loadState
   const writeState = deps.saveState ?? saveState
   const t = makeT(cfg.lang)
@@ -177,6 +179,9 @@ export async function runOnce(cfg, deps = {}) {
 // TRANSIZIONI di stato (su → giu → su), queste sono EVENTI (una scrittura e' avvenuta, e non «rientra»).
 // Passarle dal differ dei servizi vorrebbe dire inventargli un rientro che non esiste.
 //
+// Le destinazioni sono due: `teleport.slackWebhook` per tutto e, se c'e', `teleport.canaleFlotta` per la
+// salute dei Mac (vedi sotto).
+//
 // ⚠️ Senza `teleport.slackWebhook` in config non fa NIENTE, e soprattutto non chiama AWS: chi non ha
 // configurato la destinazione non paga due letture di CloudWatch ogni cinque minuti.
 export async function giroAccessi(cfg, deps = {}, prev = null) {
@@ -213,16 +218,43 @@ export async function giroAccessi(cfg, deps = {}, prev = null) {
   const dati = await stato({ ore: 3 })
   // Le soglie degli avvisi sul dev-env (`teleport.soglieDevEnv`): un valore che non e' un numero tiene
   // il default, come `calmaMinuti` qui sopra.
-  const ora = segnali(dati, { soglie: soglieDevEnv(cfgTeleport) })
+  const ora = (deps.segnali ?? segnali)(dati, { soglie: soglieDevEnv(cfgTeleport) })
   const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null, { calmaMs })
   if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }
 
-  const testo = nuovi.map((s) => messaggioAccessi(s, { publicUrl: cfg.publicUrl })).join('\n')
-  const inviato = await send(hook, { text: testo })
-  log.info('watch: accessi', { n: nuovi.length, inviato, segnali: nuovi.map((s) => s.chiave) })
-  // Se l'invio fallisce lo stato NON avanza: al giro dopo si riprova, come per i servizi.
-  return { spento: false, nuovi, sent: inviato, stato: inviato ? statoNuovo : null }
+  // Due destinazioni dal 07/10/2026. Scritture e SSH sono sicurezza e restano dove sono; gli avvisi
+  // sulla salute dei Mac (motore, immagine, VM, OOM, doctor…) vanno nel canale della flotta, che il
+  // bot del quadro scrive con `chat.postMessage`, come il canale data: niente webhook in piu'. E' la
+  // stessa riga che divide i link fra Accessi e Flotta (vedi `linkPagina`).
+  // Senza canale o senza token del bot, tutto nel webhook di sempre.
+  const canaleFlotta = cfgTeleport.canaleFlotta && cfg.botToken ? cfgTeleport.canaleFlotta : null
+  const sendBot = deps.postBot ?? postBot(cfg)
+  const gruppi = [
+    { dove: 'sicurezza', lista: canaleFlotta ? nuovi.filter(diSicurezza) : nuovi, manda: (p) => send(hook, p) },
+    { dove: 'flotta', lista: canaleFlotta ? nuovi.filter((s) => !diSicurezza(s)) : [], manda: (p) => sendBot(canaleFlotta, p) },
+  ]
+
+  let inviato = true
+  const statoDetto = { ...statoNuovo }
+  for (const { dove, lista, manda } of gruppi) {
+    if (!lista.length) continue
+    const testo = lista.map((s) => messaggioAccessi(s, { publicUrl: cfg.publicUrl })).join('\n')
+    const ok = await manda({ text: testo })
+    log.info('watch: accessi', { dove, n: lista.length, inviato: ok, segnali: lista.map((s) => s.chiave) })
+    if (ok) continue
+    inviato = false
+    // Se un invio fallisce, per i SUOI segnali lo stato non avanza: al giro dopo si riprovano quelli,
+    // e non si ripete nell'altro canale quello che e' gia' arrivato.
+    for (const s of lista) {
+      if (prev?.accessi?.[s.chiave] === undefined) delete statoDetto[s.chiave]
+      else statoDetto[s.chiave] = prev.accessi[s.chiave]
+    }
+  }
+  // Con un solo canale l'invio fallito tiene lo stato di prima per intero, come per i servizi.
+  return { spento: false, nuovi, sent: inviato, stato: inviato || canaleFlotta ? statoDetto : null }
 }
+
+const diSicurezza = (s) => s.tipo === 'scrittura' || s.tipo === 'ssh'
 
 export function startWatcher(env = process.env) {
   const cfg = watchConfig(env)

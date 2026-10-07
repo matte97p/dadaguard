@@ -728,6 +728,65 @@ test('giroAccessi: invio fallito, stato NON avanzato', async () => {
   assert.equal(out.stato, null)
 })
 
+// ── Due canali: sicurezza nel webhook, salute dei Mac nel canale della flotta ─────────────────────
+const SCRITTURA = { chiave: 'scrittura-dati:db/x', tipo: 'scrittura', livello: 'allarme', bersaglio: 'x', servizio: 'db', ambiente: 'prod', quante: 1, quando: 9000, chi: ['tizio'] }
+const MOTORE = { chiave: 'motore-non-supportato:mac-di-tizio', tipo: 'motore-non-supportato', livello: 'info', bersaglio: 'mac-di-tizio', chi: ['tizio'], motore: 'colima', ammessi: ['docker-desktop'], quando: 9000 }
+const giroDueCanali = (deps, prev = { accessi: {} }) =>
+  giroAccessi(
+    { ...CFG_ACCESSI, botToken: 'xoxb-test' },
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x', canaleFlotta: 'C0FLOTTA' } }),
+      statoAccessi: async () => ({ configurato: true, audit: {}, heartbeat: {} }),
+      segnali: () => [SCRITTURA, MOTORE],
+      ...deps,
+    },
+    prev,
+  )
+
+test('giroAccessi: con canaleFlotta le scritture restano nel webhook e il motore va nel canale della flotta', async () => {
+  const webhook = []
+  const bot = []
+  const out = await giroDueCanali({
+    postSlack: async (_hook, p) => (webhook.push(p.text), true),
+    postBot: async (canale, p) => (bot.push([canale, p.text]), true),
+  })
+  assert.equal(out.sent, true)
+  assert.equal(webhook.length, 1)
+  assert.match(webhook[0], /SCRITTURE/)
+  assert.doesNotMatch(webhook[0], /MOTORE/)
+  assert.equal(bot.length, 1)
+  assert.equal(bot[0][0], 'C0FLOTTA')
+  assert.match(bot[0][1], /MOTORE DI DOCKER NON SUPPORTATO/)
+})
+
+test('giroAccessi: senza token del bot il canale della flotta non si usa, e tutto va nel webhook', async () => {
+  const webhook = []
+  await giroAccessi(
+    CFG_ACCESSI,
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x', canaleFlotta: 'C0FLOTTA' } }),
+      statoAccessi: async () => ({ configurato: true, audit: {}, heartbeat: {} }),
+      segnali: () => [SCRITTURA, MOTORE],
+      postSlack: async (_hook, p) => (webhook.push(p.text), true),
+      postBot: async () => assert.fail('il bot senza token non si chiama'),
+    },
+    { accessi: {} },
+  )
+  assert.equal(webhook.length, 1)
+  assert.match(webhook[0], /SCRITTURE[\s\S]*MOTORE/)
+})
+
+// Un canale che non risponde non deve far ripetere l'altro: al giro dopo si riprovano solo i suoi.
+test('giroAccessi: se fallisce il canale della flotta, avanza solo lo stato delle scritture', async () => {
+  const out = await giroDueCanali({
+    postSlack: async () => true,
+    postBot: async () => false,
+  })
+  assert.equal(out.sent, false)
+  assert.ok(out.stato[SCRITTURA.chiave])
+  assert.equal(out.stato[MOTORE.chiave], undefined)
+})
+
 test('giroAccessi: niente da dire, niente messaggio', async () => {
   let mandati = 0
   const out = await giroAccessi(
