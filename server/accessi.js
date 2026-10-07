@@ -96,6 +96,55 @@ export function configSalute(cfg = {}) {
   return null
 }
 
+// Le SOGLIE degli allarmi sul dev-env, in config come `teleport.soglieDevEnv` (vedi
+// services.example.yaml). Si decidono li' perche' le decide chi legge il canale: il giorno in cui la
+// squadra passa a OrbStack, `motoriAmmessi` prende una parola in piu' e il codice non cambia.
+//   · giorniIndietro: di quanti giorni l'immagine di una macchina puo' essere piu' vecchia della piu'
+//     nuova in giro. Sette come sulla pagina (`GIORNI_INDIETRO` in web/accessi.js): l'immagine si
+//     ricostruisce a ogni modifica, e due giorni sono il caso normale.
+//   · motoriAmmessi: i motori di Docker supportati. Gli altri hanno un avviso alla settimana.
+//   · vmSottoGb: quanti GB sotto l'obiettivo la VM puo' stare. Due, perche' Docker arrotonda e un
+//     mezzo GB di differenza fra impostata e vista e' normale.
+//   · comandiSulMac: quanti comandi dei repo sul Mac in 24 ore (bloccati + forzati) fanno un avviso.
+export const SOGLIE_DEV_ENV = Object.freeze({
+  giorniIndietro: 7,
+  motoriAmmessi: Object.freeze(['docker-desktop']),
+  vmSottoGb: 2,
+  comandiSulMac: 10,
+})
+
+// ⚠️ Come `calmaMinuti` in watch.js: un valore assente o che non e' un numero tiene il default,
+// invece di diventare `0` passando da `Number` (che spegnerebbe la soglia, cioe' il contrario).
+export function soglieDevEnv(cfg = {}) {
+  const dentro = cfg?.soglieDevEnv ?? {}
+  const numero = (v, d) => {
+    if (v === null || v === undefined || v === '') return d
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : d
+  }
+  const motori = Array.isArray(dentro.motoriAmmessi) && dentro.motoriAmmessi.length
+    ? dentro.motoriAmmessi.map((m) => String(m).trim().toLowerCase()).filter(Boolean)
+    : SOGLIE_DEV_ENV.motoriAmmessi
+  return {
+    giorniIndietro: numero(dentro.giorniIndietro, SOGLIE_DEV_ENV.giorniIndietro),
+    motoriAmmessi: motori,
+    vmSottoGb: numero(dentro.vmSottoGb, SOGLIE_DEV_ENV.vmSottoGb),
+    comandiSulMac: numero(dentro.comandiSulMac, SOGLIE_DEV_ENV.comandiSulMac),
+  }
+}
+
+export const ORA_MS = 3_600_000
+export const GIORNO_MS = 24 * ORA_MS
+export const SETTIMANA_MS = 7 * GIORNO_MS
+// Gli avvisi a CADENZA (una volta alla settimana, una volta al giorno) hanno un `quando` che e' l'inizio
+// del periodo, non l'istante dell'ultima riga. E' quello che li fa reggere a un rilascio: lo stato del
+// watchdog riparte da zero a ogni deploy, il primo giro prende nota del periodo in corso, e la cosa si
+// ridice al periodo dopo invece che al giro dopo. Il periodo parte il lunedi' alle 07:00 UTC (le 9 in
+// Italia d'estate, le 8 d'inverno), cosi' il promemoria della settimana arriva quando c'e' qualcuno.
+const ANCORA_PERIODO = Date.UTC(1970, 0, 5, 7)
+export const inizioPeriodo = (adesso, periodoMs) =>
+  ANCORA_PERIODO + Math.floor((adesso - ANCORA_PERIODO) / periodoMs) * periodoMs
+
 // Una versione VERA è un digest: la parola con cui l'avvio dichiara di non sapere non è una versione.
 const FORMA_DIGEST = /^(?:[a-z0-9]+:)?[A-Fa-f0-9]{12,}$/
 const versioneNota = (v) => FORMA_DIGEST.test(String(v ?? '').trim())
@@ -126,8 +175,9 @@ function chiDiNatura(d, natura) {
   return Object.keys(suoi).sort()
 }
 
-export function segnali(dati = {}) {
+export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_ENV } = {}) {
   if (!dati.configurato) return []
+  const sg = { ...SOGLIE_DEV_ENV, ...soglie }
   const audit = dati.audit ?? {}
   const battito = dati.heartbeat ?? {}
   const fuori = []
@@ -250,6 +300,39 @@ export function segnali(dati = {}) {
     })
   }
 
+  // 3b. La STESSA domanda («chi ha il dev-env indietro?»), macchina per macchina e con la data di
+  //     costruzione invece del digest. Il 3 qui sopra dice «la versione attesa non ce l'ha nessuno» e
+  //     senza `immagineAttesa` in config tace; questo non ha bisogno della config, perche' due date si
+  //     ordinano da sole (vedi `dataImmagine` in web/accessi.js, che fa lo stesso conto sulla pagina).
+  //     Il riferimento e' la `creata` piu' nuova vista nei sette giorni del heartbeat. Una macchina
+  //     senza `creata` (dev-env vecchio) non si accusa. Una volta alla settimana per macchina.
+  const creataDi = (m) => {
+    const t = Date.parse(String(m?.creata ?? ''))
+    return Number.isFinite(t) ? t : null
+  }
+  const ultimaPerMacchina = new Map()
+  for (const m of battito.macchine ?? []) {
+    if (!m?.macchina || creataDi(m) == null) continue
+    const gia = ultimaPerMacchina.get(m.macchina)
+    if (!gia || (m.quando ?? 0) > (gia.quando ?? 0)) ultimaPerMacchina.set(m.macchina, m)
+  }
+  const creataPiuNuova = Math.max(-Infinity, ...[...ultimaPerMacchina.values()].map(creataDi))
+  for (const m of ultimaPerMacchina.values()) {
+    const dietroMs = creataPiuNuova - creataDi(m)
+    if (!(dietroMs > sg.giorniIndietro * GIORNO_MS)) continue
+    fuori.push({
+      chiave: `immagine-vecchia:${m.macchina}`,
+      tipo: 'immagine-vecchia',
+      livello: 'attenzione',
+      bersaglio: m.macchina,
+      chi: [...(chiLaAvvia.get(m.macchina) ?? [])],
+      giorni: Math.floor(dietroMs / GIORNO_MS),
+      creata: m.creata,
+      quando: inizioPeriodo(adesso, SETTIMANA_MS),
+      calmaMs: SETTIMANA_MS,
+    })
+  }
+
   // 4. Un guasto del dev-env MAI VISTO prima. E' la riga per cui questo canale esiste: un avvio che non
   //    parte sulla macchina di qualcun altro oggi si scopre solo se quel qualcuno lo racconta.
   //    ⚠️ Una riga per CLASSE e non per macchina: se domani l'immagine nuova rompe l'avvio a tutti e
@@ -331,6 +414,149 @@ export function segnali(dati = {}) {
       giri: m.nonSaniGiri,
       quando: m.nonSaniDa ?? null,
     })
+  }
+
+  // Dal 07/10/2026 la riga di salute dice anche il motore di Docker, la memoria che la VM DOVREBBE
+  // avere, gli opt-out accesi, l'ultimo doctor e quante volte Claude ha provato a lavorare sul Mac.
+  // Ogni campo e' facoltativo: un campo che manca e' «non lo so», e da un «non lo so» non nasce una riga.
+  const chiDi = (m) => (m.utente ? [m.utente] : [...(chiLaAvvia.get(m.macchina) ?? [])])
+  const settimana = inizioPeriodo(adesso, SETTIMANA_MS)
+  for (const m of salute.macchine ?? []) {
+    // 8. Un motore di Docker che non e' fra quelli ammessi. Non e' un guasto, e' la causa piu' comune
+    //    dei guasti che nessuno sa riprodurre: una volta alla settimana. Dai soli candidati (vedi
+    //    `motoreDocker` in teleport.js) si parla quando NESSUNO dei due e' ammesso: «colima o OrbStack»
+    //    con OrbStack in elenco non e' un'accusa che si possa fare.
+    const candidati = m.motoreCandidati ?? (m.motore ? [m.motore] : [])
+    if (candidati.length && !candidati.some((c) => sg.motoriAmmessi.includes(String(c).toLowerCase()))) {
+      fuori.push({
+        chiave: `motore-non-supportato:${m.macchina}`,
+        tipo: 'motore-non-supportato',
+        livello: 'info',
+        bersaglio: m.macchina,
+        chi: chiDi(m),
+        motore: m.motore ?? null,
+        candidati,
+        ammessi: sg.motoriAmmessi,
+        quando: settimana,
+        calmaMs: SETTIMANA_MS,
+      })
+    }
+
+    // 9. La VM ha MENO memoria di quella che il dev-env le chiede. `vm_mem_impostata_gb` e' quella
+    //    scritta nelle impostazioni; senza, si stima da quella vista dentro la VM piu' mezzo GB, che e'
+    //    quanto il kernel della VM si tiene per se'. Senza obiettivo non si confronta niente.
+    const impostata = m.vmMemImpostataGb ?? (m.vmMemGb != null ? m.vmMemGb + 0.5 : null)
+    const obiettivo = m.vmMemObiettivoGb ?? null
+    if (impostata != null && obiettivo != null && obiettivo - impostata >= sg.vmSottoGb) {
+      fuori.push({
+        chiave: `vm-sotto-obiettivo:${m.macchina}`,
+        tipo: 'vm-sotto-obiettivo',
+        livello: 'info',
+        bersaglio: m.macchina,
+        chi: chiDi(m),
+        vmGb: Math.round(impostata * 10) / 10,
+        stimata: m.vmMemImpostataGb == null,
+        obiettivoGb: obiettivo,
+        quando: settimana,
+        calmaMs: SETTIMANA_MS,
+      })
+    }
+
+    // 10. Opt-out ACCESI (le variabili `*_NO_*` dell'avvio): ognuno spegne un passo dell'avvio, e un passo
+    //     spento da mesi e' un dev-env diverso da quello degli altri. Una volta alla settimana, e
+    //     subito se l'insieme cambia: l'`impronta` e' l'elenco ordinato.
+    const optOut = [...new Set(m.optOut ?? [])].sort()
+    if (optOut.length) {
+      fuori.push({
+        chiave: `opt-out-attivi:${m.macchina}`,
+        tipo: 'opt-out-attivi',
+        livello: 'info',
+        bersaglio: m.macchina,
+        chi: chiDi(m),
+        nomi: optOut,
+        impronta: optOut.join(','),
+        quando: settimana,
+        calmaMs: SETTIMANA_MS,
+      })
+    }
+
+    // 11. Claude continua a lanciare i comandi dei repo SUL MAC invece che nel container: o li ferma
+    //     l'hook (`bloccati`), o passano con la variabile di fuga (`forzati`). Dieci in un giorno sono
+    //     un'abitudine, o un container che non risponde e una sessione che ripiega. Una volta al giorno.
+    const cm = m.comandiMac
+    const sulMac = cm ? (cm.bloccati ?? 0) + (cm.forzati ?? 0) : 0
+    if (cm && sulMac >= sg.comandiSulMac) {
+      fuori.push({
+        chiave: `lavoro-sul-mac:${m.macchina}`,
+        tipo: 'lavoro-sul-mac',
+        livello: 'attenzione',
+        bersaglio: m.macchina,
+        chi: chiDi(m),
+        quante: sulMac,
+        bloccati: cm.bloccati ?? 0,
+        forzati: cm.forzati ?? 0,
+        quando: inizioPeriodo(adesso, GIORNO_MS),
+        calmaMs: GIORNO_MS,
+      })
+    }
+
+    // 12. L'ultimo doctor del dev-env ha dei KO. Il `quando` e' quello del doctor, quindi lo stesso
+    //     risultato riportato da cento righe di salute si dice una volta, e un doctor nuovo riparla.
+    //     Un doctor di piu' di una settimana fa non e' una notizia, e senza data non si sa se lo e'.
+    const d = m.doctor
+    const dQuando = Date.parse(String(d?.quando ?? ''))
+    if (d && d.ko > 0 && Number.isFinite(dQuando) && adesso - dQuando < SETTIMANA_MS) {
+      fuori.push({
+        chiave: `doctor-ko:${m.macchina}`,
+        tipo: 'doctor-ko',
+        livello: 'attenzione',
+        bersaglio: m.macchina,
+        chi: chiDi(m),
+        quante: d.ko,
+        falliti: d.falliti ?? [],
+        quando: dQuando,
+      })
+    }
+  }
+
+  // 13. La SALUTE MUTA: l'agent del login che manda la riga ogni 15 minuti si e' rotto. Il difficile e'
+  //     non scambiarlo per un Mac chiuso, che non manda niente nemmeno lui. La regola, e perche':
+  //       · la macchina ha mandato almeno una riga di salute negli ultimi 7 giorni (`ultime`): l'agent
+  //         ce l'ha. Senza questa condizione suonerebbe per tutta la flotta finche' il dev-env che lo
+  //         ripara non arriva a tutti, e per chi non aggiorna per sempre;
+  //       · nessuna riga nelle ultime 24 ore, cosi' un giro saltato (l'agent che si ricarica dopo un
+  //         update) non e' un guasto;
+  //       · ALTRE macchine le righe le hanno mandate: se tacciono tutte e' il log group o la lettura,
+  //         non l'agent di qualcuno;
+  //       · e la prova che il Mac era ACCESO: un avvio del dev-env (heartbeat) negli ultimi 3
+  //         giorni, DOPO l'ultima riga di salute e da almeno un'ora. Un Mac chiuso non avvia il
+  //         dev-env, e un agent sano dopo un avvio manda la sua riga entro 15 minuti.
+  //     Il `quando` e' l'ultima riga di salute: lo stesso silenzio si dice una volta sola, e se l'agent
+  //     riparte e poi si rompe di nuovo e' un silenzio nuovo.
+  const ultime = salute.ultime
+  const mandanoOggi = new Set((salute.macchine ?? []).filter((m) => adesso - (m.quando ?? 0) < GIORNO_MS).map((m) => m.macchina))
+  if (ultime && typeof ultime === 'object' && mandanoOggi.size > 0) {
+    const avvio = new Map()
+    for (const m of battito.macchine ?? []) {
+      if (!m?.macchina) continue
+      avvio.set(m.macchina, Math.max(avvio.get(m.macchina) ?? 0, m.quando ?? 0))
+    }
+    for (const [macchina, avviata] of avvio) {
+      const ultimaSalute = Number(ultime[macchina])
+      if (!Number.isFinite(ultimaSalute) || ultimaSalute <= 0) continue
+      if (mandanoOggi.has(macchina) || adesso - ultimaSalute < GIORNO_MS) continue
+      if (adesso - avviata > 3 * GIORNO_MS || avviata <= ultimaSalute || adesso - avviata < ORA_MS) continue
+      fuori.push({
+        chiave: `salute-muta:${macchina}`,
+        tipo: 'salute-muta',
+        livello: 'attenzione',
+        bersaglio: macchina,
+        chi: [...(chiLaAvvia.get(macchina) ?? [])],
+        oreZitta: Math.floor((adesso - ultimaSalute) / ORA_MS),
+        oreDallAvvio: Math.floor((adesso - avviata) / ORA_MS),
+        quando: ultimaSalute,
+      })
+    }
   }
 
   return fuori
@@ -417,7 +643,19 @@ const vocePerStato = (segnale, adesso) => ({
   livello: segnale.livello ?? null,
   // Vedi `precParziale`: non serve a questo messaggio, serve al prossimo delta.
   parziale: Boolean(segnale.parziale),
+  // Solo per gli avvisi a cadenza (vedi `calmaDi` e `tenuti`), e solo quando ci sono: la forma dello
+  // stato degli altri segnali resta quella di prima.
+  ...(segnale.calmaMs != null ? { calmaMs: segnale.calmaMs } : {}),
+  ...(segnale.impronta != null ? { impronta: segnale.impronta } : {}),
 })
+
+// La calma di un segnale: quella del giro, o la SUA per gli avvisi a cadenza (una settimana, un
+// giorno), che sono il passo con cui quella notizia si ripete e non il rumore di una cosa che dura.
+const calmaDi = (segnale, calmaMs) => (Number.isFinite(segnale.calmaMs) ? segnale.calmaMs : calmaMs)
+// L'insieme che l'avviso descrive e' CAMBIATO (un opt-out in piu', uno in meno): si ridice subito,
+// cadenza o no. Un'impronta che prima non c'era non e' un cambio: e' uno stato di una versione prima.
+const improntaCambiata = (segnale, prec) =>
+  segnale.impronta != null && prec != null && typeof prec === 'object' && prec.impronta != null && prec.impronta !== segnale.impronta
 
 // Le tabelle NUOVE, con lo stesso ripiego delle azioni: se non ce n'è nessuna mai vista prima si
 // ridicono quelle della finestra, perché «+3 UPDATE» senza dire su cosa non è una notizia.
@@ -486,7 +724,8 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
   const nuovi = []
   for (const s of segnaliOra) {
     const prec = statoPrec[s.chiave]
-    const inedito = (s.quando ?? 0) > precQuando(prec)
+    const cambiata = improntaCambiata(s, prec)
+    const inedito = (s.quando ?? 0) > precQuando(prec) || cambiata
     // Il segnale COM'È ADESSO: quante ne sono arrivate, quali e su cosa. Il colore non si ricalcola:
     // lo porta la chiave, che è per natura.
     const { azioni, nuove, ripiego } = arrivate(s, prec)
@@ -496,7 +735,11 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
     // finestra ridetta oppure perche' si misura contro un campione. `null`: e' esatto.
     const stima = precParziale(prec) ? 'circa' : s.parziale ? (ripiego ? 'circa' : 'almeno') : null
     const adessoDetto = { ...s, nuove, azioni, ripiego, stima, parziale: Boolean(s.parziale) || precParziale(prec), tabelle: tabelleNuove(s, prec), chi: chiNuovi(s, prec) }
-    const zitto = inedito && adesso - precDetto(prec) < calmaMs && !rompeLaCalma(adessoDetto, prec)
+    // ⚠️ Per gli avvisi a cadenza la calma la rompe solo un'impronta cambiata, non un nome nuovo: il
+    // nome di una macchina arriva dal heartbeat, che a volte manda l'utente di Teleport e a volte
+    // quello del Mac, e un avviso settimanale tornerebbe a ogni cambio di nome.
+    const rompe = s.calmaMs != null ? cambiata : rompeLaCalma(adessoDetto, prec)
+    const zitto = inedito && adesso - precDetto(prec) < calmaDi(s, calmaMs) && !rompe
     if (!inedito || zitto) {
       // Niente da dire, oppure non adesso: si tiene quello che c'era. Una chiave sconosciuta che non ha
       // niente di nuovo non esiste (`prec` è undefined solo se `inedito`), quindi il ramo è sicuro.
@@ -508,6 +751,14 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
     // dopo si fa contro «quanto ne sapevo quando ho parlato». Con i numeri del delta il messaggio
     // seguente ricomincerebbe da capo a ogni giro.
     stato[s.chiave] = vocePerStato(s, adesso)
+  }
+  // ⚠️ Gli avvisi a cadenza RESTANO in stato anche quando un giro non li vede, finche' non e' passata
+  // la loro calma. Un giro senza la salute (una lettura fallita, un Mac chiuso per una notte) li
+  // toglierebbe, e al giro dopo la stessa macchina sarebbe una chiave mai vista: l'avviso settimanale
+  // diventerebbe quotidiano. Gli altri segnali no: lo stato e' quello di ADESSO, come prima.
+  for (const [chiave, prec] of Object.entries(statoPrec)) {
+    if (chiave in stato || !prec || typeof prec !== 'object' || !Number.isFinite(prec.calmaMs)) continue
+    if (adesso - Math.max(precDetto(prec), precQuando(prec)) < prec.calmaMs) stato[chiave] = prec
   }
   return { nuovi, stato }
 }

@@ -960,20 +960,129 @@ export function riassumiSalute(eventi = []) {
       swapMacMb: num(s.mac?.swap_usata_mb),
       memoriaLiberaMacPct: num(s.mac?.memoria_libera_pct),
       appMb: s.app_mb ?? {},
+      // Dal 07/10/2026: il motore di Docker, la memoria che la VM DOVREBBE avere, e come si usa il
+      // dev-env. Tutti facoltativi: un campo che manca e' «non lo so», mai zero, e `null` lo dice.
+      ...motoreDocker(s.docker),
+      vmMemObiettivoGb: num(s.docker?.vm_mem_obiettivo_gb),
+      vmCpu: num(s.docker?.vm_cpu),
+      optOut: Array.isArray(s.uso?.opt_out) ? s.uso.opt_out.map(String) : null,
+      doctor: doctorDi(s.uso?.doctor),
+      ultimoUp: s.uso?.ultimo_up ?? null,
+      ultimoUpdate: s.uso?.ultimo_update ?? null,
+      comandiMac: comandiSulMac(righe),
     })
   }
   return macchine.sort((a, b) => b.quando - a.quando)
 }
 
-export async function salute(aws, { logGroup, ore = ORE_DEFAULT } = {}) {
+// Il MOTORE di Docker del Mac. Lo dice `docker.motore` dal 07/10/2026; prima c'era solo `desktop`, la
+// riga che il demone dice di se', e da quella si deduce quel che si puo': «Docker Desktop …» e' Docker
+// Desktop, «Docker Engine - Community» e' un engine nudo dentro a una VM, cioe' colima o OrbStack, e
+// quale dei due non si sa. Per questo torna i CANDIDATI e non un nome: «non e' Docker Desktop» e' un
+// fatto anche senza sapere quale dei due sia.
+export function motoreDocker(docker = {}) {
+  const dichiarato = docker?.motore ? String(docker.motore) : null
+  if (dichiarato) return { motore: dichiarato, motoreCandidati: [dichiarato], desktop: docker?.desktop ?? null }
+  const desktop = docker?.desktop ? String(docker.desktop) : null
+  if (/^Docker Desktop/i.test(desktop ?? '')) return { motore: 'docker-desktop', motoreCandidati: ['docker-desktop'], desktop }
+  if (/^Docker Engine/i.test(desktop ?? '')) return { motore: null, motoreCandidati: ['colima', 'orbstack'], desktop }
+  return { motore: null, motoreCandidati: [], desktop }
+}
+
+// L'ultimo doctor del dev-env, come lo riporta la riga. Senza `quando` non c'e' modo di dire se e'
+// lo stesso controllo della riga prima, quindi resta `null`: un KO senza data ripeterebbe l'allarme.
+function doctorDi(d) {
+  if (!d || typeof d !== 'object') return null
+  const n = (x) => (Number.isFinite(Number(x)) ? Number(x) : null)
+  return {
+    quando: d.quando ?? null,
+    ok: n(d.ok),
+    warn: n(d.warn),
+    ko: n(d.ko),
+    falliti: Array.isArray(d.falliti) ? d.falliti.map(String) : [],
+  }
+}
+
+// I comandi dei repo che Claude ha provato a lanciare sul Mac invece che nel container. Ogni riga dice
+// quanti dalla riga PRIMA, quindi si SOMMANO sulla finestra: `bloccati` li ha fermati l'hook,
+// `forzati` sono passati con la variabile di fuga. `null` se nessuna riga porta i campi (dev-env vecchio).
+function comandiSulMac(righe) {
+  let bloccati = 0
+  let forzati = 0
+  let visto = false
+  for (const { s } of righe) {
+    const b = Number(s.uso?.bloccati_mac)
+    const f = Number(s.uso?.sul_mac)
+    if (Number.isFinite(b)) {
+      bloccati += b
+      visto = true
+    }
+    if (Number.isFinite(f)) {
+      forzati += f
+      visto = true
+    }
+  }
+  return visto ? { bloccati, forzati } : null
+}
+
+// L'ultima riga di salute per macchina negli ultimi `giorni`, come `{ macchina: istante }`. Serve a
+// una domanda sola: l'agent di QUELLA macchina ha mai parlato di recente? Una macchina che non ha mai
+// mandato una riga ha un dev-env che l'agent non ce l'ha ancora, e non un agent rotto.
+// Insights e non FilterLogEvents: sette giorni di righe sono ~700 a macchina, e qui serve un massimo.
+export async function ultimeSalute(aws, { logGroup, giorni = 7 } = {}) {
+  if (!logGroup) return null
+  const cw = new CloudWatchLogsClient(clientOpts(aws))
+  const fine = Math.floor(Date.now() / 1000)
+  const avvio = await cw.send(
+    new StartQueryCommand({
+      logGroupName: logGroup,
+      startTime: fine - giorni * 86_400,
+      endTime: fine,
+      queryString: 'filter ispresent(macchina) | stats max(@timestamp) as ultima by macchina | limit 1000',
+    }),
+  )
+  if (!avvio.queryId) return null
+  let esito
+  const scadenza = Date.now() + ATTESA_QUERY_MS
+  let passo = PASSO_QUERY_MS
+  do {
+    await new Promise((r) => setTimeout(r, passo))
+    passo = Math.min(passo * 2, PASSO_QUERY_MAX_MS)
+    esito = await cw.send(new GetQueryResultsCommand({ queryId: avvio.queryId }))
+  } while (['Scheduled', 'Running'].includes(esito.status) && Date.now() < scadenza)
+  if (esito.status !== 'Complete') throw new Error(`query non completata (${esito.status})`)
+  return leggiUltime(esito.results ?? [])
+}
+
+// Le righe di `stats max(@timestamp) by macchina`. Insights rende il massimo come millisecondi o come
+// data UTC senza fuso, secondo la versione: si leggono tutte e due, e la seconda con la `Z`.
+export function leggiUltime(righe = []) {
+  const fuori = {}
+  for (const riga of righe) {
+    const macchina = riga.find((c) => c.field === 'macchina')?.value
+    const v = String(riga.find((c) => c.field === 'ultima')?.value ?? '')
+    const t = /^\d+$/.test(v) ? Number(v) : Date.parse(v.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? '' : 'Z'))
+    if (macchina && Number.isFinite(t)) fuori[macchina] = t
+  }
+  return fuori
+}
+
+export async function salute(aws, { logGroup, ore = ORE_DEFAULT, giorniUltime = 7 } = {}) {
   if (!logGroup) return null
   // Una riga ogni 15 minuti per macchina: in 24 ore sono ~100 a testa, ben sotto il tetto di `eventi`.
-  const righe = await eventi(aws, { logGroup, filterPattern: '', da: Date.now() - ore * 3_600_000 })
+  // ⚠️ Le ultime righe dei sette giorni sono una lettura a parte e FACOLTATIVA: se non torna, l'allarme
+  // sull'agent muto resta spento (`ultime: null`), e il resto della salute si vede lo stesso.
+  const [righe, ultime] = await Promise.all([
+    eventi(aws, { logGroup, filterPattern: '', da: Date.now() - ore * 3_600_000 }),
+    ultimeSalute(aws, { logGroup, giorni: giorniUltime }).catch(() => null),
+  ])
   const macchine = riassumiSalute(righe)
   return {
     ore,
     macchine,
     conOom: macchine.filter((m) => m.oomNuovi > 0).length,
     conNonSani: macchine.filter((m) => m.nonSani.length > 0).length,
+    giorniUltime,
+    ultime,
   }
 }
