@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Un canale a parte per la salute dei Mac** (07/10/2026). Con `teleport.canaleFlotta` (l'id del
+  canale) gli avvisi sul dev-env (motore di Docker, immagine vecchia, VM sotto l'obiettivo, OOM,
+  container, doctor, opt-out, comandi sul Mac, guasti, versione) li scrive il bot del quadro in quel
+  canale, e il webhook degli accessi resta per scritture e sessioni SSH. Senza la chiave, o senza
+  `DADAGUARD_SLACK_BOT_TOKEN`, tutto resta nel webhook. Se uno dei due invii fallisce si riprovano al
+  giro dopo i soli suoi segnali, senza ripetere l'altro canale.
+
 ### Changed
 - **Flotta e Accessi diventano due cruscotti** (07/10/2026). Le pagine rifatte in mattinata si
   leggevano come testo e come un muro di scatole (card col bordo colorato, pillola, riquadro «Cosa
