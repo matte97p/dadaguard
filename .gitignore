@@ -29,3 +29,5 @@ HANDOFF.md
 # I worktree git di questo repo: cartelle di lavoro, non contenuto. Committarli aggiunge un
 # "embedded git repository" che in un clone arriva vuoto (visto il 31/08/2026, `git add -A`).
 .worktrees/
+# Le worktree che apre Claude Code finiscono qui, non in .worktrees/ (vista il 07/10/2026).
+.claude/worktrees/
