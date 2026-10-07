@@ -25,6 +25,7 @@ import DeploysPage from './pages/DeploysPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import AccessiPage from './pages/AccessiPage.jsx'
+import FlottaPage from './pages/FlottaPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
 
 // Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
@@ -79,6 +80,9 @@ const NAV_OPS = [
   // Accessi: sempre visibile. La pagina stessa dice se manca la sezione `teleport:` della config, che
   // e' un'informazione utile: nascondere la voce farebbe sembrare che non esista.
   { to: '/accessi', key: 'accessi', fields: [], surfaces: [] },
+  // Flotta dev-env: i Mac di chi sviluppa, una card per Mac con il problema e l'azione. Stava dentro
+  // Accessi (07/10/2026) ed e' un altro mestiere: sempre visibile per la stessa ragione di Accessi.
+  { to: '/flotta', key: 'flotta', fields: [], surfaces: [] },
   { to: '/iam', key: 'iam', fields: [], surfaces: ['iam'] },
 ]
 
@@ -804,6 +808,7 @@ export default function App() {
               />
               <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
               <Route path="/accessi" element={<AccessiPage t={t} lang={lang} />} />
+              <Route path="/flotta" element={<FlottaPage t={t} lang={lang} />} />
               <Route path="/sicurezza" element={<SecurityPage t={t} lang={lang} />} />
               {/* I percorsi vecchi non muoiono: reindirizzano alla scheda giusta della pagina fusa. */}
               {Object.entries(REDIRECTS).map(([from, to]) => (

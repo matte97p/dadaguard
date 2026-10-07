@@ -6,6 +6,20 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **La pagina Accessi parla solo di accessi, e apre con una frase e un elenco** (07/10/2026). In cima
+  una frase sola («4 cose da sistemare, di cui 3 urgenti», oppure «Tutto in ordine») e sotto UN
+  elenco in ordine di urgenza, ognuna con chi, cosa, quando e il link dove si agisce in Teleport: le
+  login fallite raggruppate per motivo (lo stesso motivo per più persone dice «è la configurazione, non
+  una persona», e un ruolo che non esiste sul cluster è urgente anche per una persona sola), le
+  sessioni SSH aperte (sul Mac di un altro è urgente, sul proprio no), le scritture su un database di
+  produzione (rosse sui dati, gialle sulla sola struttura) e gli accessi ai database negati. Tutto il
+  resto (persone in ordine, database letti, sessioni chiuse) sta chiuso sotto una riga, e la mappa «chi
+  ha cosa» in fondo, chiusa, e si carica solo da aperta. Spariscono le due card di numeri, la riga «da
+  guardare:», «guardato e a posto», le schede e la vista del dev-env. Restano la finestra (1h, 6h,
+  1g, 7g) e la ricerca. I link di prima funzionano: `?vista=persone`, `chi`, `ssh` e `database` portano
+  alla voce giusta dell'elenco, `mappa` e `team` aprono «chi ha cosa», `devEnv` rimanda alla Flotta.
+  I messaggi del canale linkano `/accessi#scritture`, `/accessi#ssh` e, per gli avvisi sul dev-env,
+  `/flotta?mac=<macchina>`.
 - **Le Slack List del quadro sono una per area, non per ambiente** (06/10/2026). «Lista deploy
   PRODOTTO», «Lista deploy CRON» e una per squadra («Lista deploy DATA», …), cioè le stesse schede dei
   canvas, ciascuna con dentro produzione e staging. Due colonne nuove da filtrare, **Ambiente**
@@ -18,6 +32,25 @@ All notable changes to Dadaguard are documented here. Format based on
   tolte a mano, e le schede delle List nuove aggiunte a mano al canale.
 
 ### Added
+- **Pagina Flotta dev-env (`/flotta`)** (07/10/2026). I Mac di chi sviluppa hanno una pagina loro, nel
+  menu DevOps: in cima «7 Mac · 4 da sistemare», poi una card per Mac con un problema, dal più grave,
+  col perché a parole (processi uccisi per memoria e quali container, la VM sotto l'obiettivo come
+  barra, l'immagine indietro di N giorni, il motore di Docker non supportato, la salute muta, il doctor
+  KO coi controlli falliti, gli opt-out accesi, i comandi dei repo lanciati sul Mac, i tool mancanti,
+  l'app che pesa troppo) e l'UNICA azione che lo risolve, col comando quando c'è (`colima stop &&
+  colima start --memory 14`). I Mac in ordine stanno in una riga di nomi, che si apre. Ogni Mac ha un
+  pannello (`?mac=` nell'URL) con l'andamento di 7 giorni (memoria libera della VM, processi uccisi,
+  swap del Mac, carico dei container, un punto per ora col valore peggiore), la memoria per container,
+  gli ultimi avvii con esito e passo, le immagini che si sono succedute, l'uso del dev-env e il
+  comando `tsh ssh`, che non sta più su ogni riga. Le regole le compone il server
+  (`/api/flotta`, `server/flotta.js`) e sono quelle del canale: i problemi che parlano su Slack arrivano
+  da `segnali()` con le stesse soglie. Sette giorni di salute in una query Insights sola, binnati per
+  ora lato server e in cache 2 minuti; l'heartbeat è la stessa lettura della pagina Accessi, e porta
+  ora gli ultimi avvii per macchina. Ogni campo è facoltativo: un Mac col dev-env vecchio non mostra
+  «nessun dato», dice una riga sola. Config nuova, facoltativa:
+  `teleport.soglieDevEnv.appPesanteMb` (default 3072) e `teleport.devEnvComandi: { aggiorna, doctor,
+  salute, dentro }`, i comandi del vostro dev-env da mettere sotto l'azione. La demo ha una flotta di
+  sette Mac con sette giorni di salute.
 - **Sette avvisi nuovi sul dev-env, e i campi nuovi della salute nella pagina Accessi** (07/10/2026).
   La riga di salute porta ora il motore di Docker, la memoria che la VM dovrebbe avere, gli opt-out
   accesi, l'ultimo doctor e quante volte Claude ha lanciato i comandi dei repo sul Mac invece che nel

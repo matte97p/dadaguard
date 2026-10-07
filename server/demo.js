@@ -13,6 +13,9 @@ import { budgetErrore, conteggiDaRuntime } from './meta/budget.js'
 import { linkServizio, linkDeploy } from './meta/link.js'
 import { aggregaGiorni } from './meta/spesa.js'
 import { durataTipica } from './meta/cron.js'
+import { settimanaDiSalute } from './teleport.js'
+import { componiFlotta } from './flotta.js'
+import { SOGLIE_DEV_ENV } from './accessi.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -993,10 +996,10 @@ export function demoTeleport(ore = 24) {
   const su = (n) => Math.round(n * f)
   const persone = [
     { utente: 'alex', loginOk: su(9), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(6), query: su(184), scritture: 0, sessioniSsh: 0, ultima: now - 4 * 60_000 },
-    { utente: 'rin', loginOk: su(7), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(68), query: su(1487), scritture: 0, sessioniSsh: 0, ultima: now - 22 * 60_000 },
+    { utente: 'rin', loginOk: su(7), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(68), query: su(1487), scritture: 0, sessioniSsh: 3, ultima: now - 22 * 60_000 },
     // Chi è chiuso fuori, col motivo per intero: è la riga per cui la pagina esiste.
     { utente: 'sam', loginOk: 0, loginFallite: su(3), motivo: 'role "db-writer" is not found', primaFallita: now - 21 * 60_000, ultimaFallita: now - 9 * 60_000, sessioniDb: 0, query: 0, scritture: 0, sessioniSsh: 0, ultima: now - 9 * 60_000 },
-    { utente: 'noa', loginOk: su(4), loginFallite: su(1), motivo: 'access denied: MFA required', primaFallita: now - 3 * 3600_000, ultimaFallita: now - 3 * 3600_000, sessioniDb: su(14), query: su(28), scritture: 0, sessioniSsh: 2, ultima: now - 51 * 60_000 },
+    { utente: 'noa', loginOk: su(4), loginFallite: su(1), motivo: 'access denied: MFA required', primaFallita: now - 3 * 3600_000, ultimaFallita: now - 3 * 3600_000, sessioniDb: su(14), query: su(28), scritture: 0, sessioniSsh: 0, ultima: now - 51 * 60_000 },
     { utente: 'kim', loginOk: su(4), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(101), query: su(116), scritture: su(5), sessioniSsh: 0, ultima: now - 3 * 3600_000 },
     { utente: 'lee', loginOk: su(2), loginFallite: 0, motivo: null, primaFallita: null, ultimaFallita: null, sessioniDb: su(1), query: su(4), scritture: 0, sessioniSsh: 0, ultima: now - 5 * 3600_000 },
   ]
@@ -1006,28 +1009,29 @@ export function demoTeleport(ore = 24) {
     { servizio: 'cache-prod', nome: '?', ambiente: 'prod', query: su(28), scritture: 0, persone: 3 },
     { servizio: 'cache-staging', nome: '?', ambiente: 'staging', query: su(26), scritture: 0, persone: 3 },
     // Una scrittura su un database di PRODUZIONE: il pallino sull'interruttore nasce da questa riga.
-    { servizio: 'app-production-db', nome: 'postgres', ambiente: 'prod', query: su(9), scritture: 2, persone: 1 },
+    {
+      servizio: 'app-production-db',
+      nome: 'postgres',
+      ambiente: 'prod',
+      query: su(9),
+      scritture: 2,
+      scrittureDati: 2,
+      scrittureStruttura: 0,
+      azioni: [{ etichetta: 'UPDATE', quante: 2, tipo: 'dati' }],
+      bersagli: ['public.orders'],
+      persone: 1,
+      chi: ['kim'],
+      scriventi: ['kim'],
+      ultimaScrittura: now - 47 * 60_000,
+    },
   ]
   const ssh = [
-    // Ancora aperta: qualcuno è su quella macchina adesso, ed è l'unica riga a cui si reagisce subito.
-    { macchina: 'noa-macbook', chi: ['noa'], sessioni: 2, aperte: 1, ultima: now - 12 * 60_000 },
+    // Ancora aperta, e sul Mac di un'ALTRA persona: qualcuno e' dentro adesso, ed e' l'unica riga a cui
+    // si reagisce subito.
+    { macchina: 'noa-macbook', chi: ['rin'], sessioni: 2, aperte: 1, ultima: now - 12 * 60_000 },
     { macchina: 'alex-macbook', chi: ['rin'], sessioni: 1, aperte: 0, ultima: now - 6 * 3600_000 },
   ]
-  const IMG = { nuova: 'sha256:4f21c8a0e9d3b7c15a2f6e08d94b3c71', vecchia: 'sha256:9b0e73d4a1c86f52e7d09a4b31c5f860' }
-  const macchine = [
-    { macchina: 'alex-macbook', lato: 'host', utente: 'alex', utenti: ['alex'], immagine: IMG.nuova, creata: new Date(now - 2 * 86_400_000).toISOString(), esito: 'ok', toolMancanti: 0, durata: 74, quando: now - 40 * 60_000 },
-    { macchina: 'alex-macbook', lato: 'container', utente: 'alex', utenti: ['alex'], immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 41, quando: now - 39 * 60_000 },
-    // La stessa persona con due nomi: l'avvio manda l'utente Teleport se c'e' una sessione e quello di
-    // sistema se non c'e', e la pagina deve mostrare quello che Teleport conosce (`rin`).
-    { macchina: 'rin-macbook', lato: 'host', utente: 'rin-locale', utenti: ['rin-locale', 'rin'], immagine: IMG.nuova, creata: new Date(now - 2 * 86_400_000).toISOString(), esito: 'ok', toolMancanti: 0, durata: 96, quando: now - 3 * 3600_000 },
-    // Rimasta indietro, e con dei tool che mancano sul portatile: i due modi in cui un dev-env spiega
-    // un «a me non funziona» senza che nessuno debba andare a chiederlo.
-    // Indietro di undici giorni: con la DATA e' un fatto, e la pagina lo dice con un numero dentro.
-    { macchina: 'sam-macbook', lato: 'host', utente: 'sam', utenti: ['sam'], immagine: IMG.vecchia, creata: new Date(now - 13 * 86_400_000).toISOString(), esito: 'ok', toolMancanti: 3, durata: 212, quando: now - 5 * 86_400_000 },
-    // Versione NON dichiarata: l'avvio non ha potuto leggerla. Non e' «indietro», e non e' una versione
-    // che vada contata fra quelle in giro: e' il terzo stato, e prima la pagina non lo distingueva.
-    { macchina: 'noa-macbook', lato: 'host', utente: 'noa', utenti: ['noa'], immagine: 'sconosciuta', esito: 'parziale', toolMancanti: 1, durata: 168, quando: now - 2 * 86_400_000 },
-  ]
+  const { macchine, storia, IMG } = demoMacchineDevEnv(now)
   const somma = (campo) => persone.reduce((n, p) => n + (p[campo] ?? 0), 0)
   return {
     configurato: true,
@@ -1061,7 +1065,229 @@ export function demoTeleport(ore = 24) {
       ],
       conToolMancanti: macchine.filter((m) => m.toolMancanti > 0).length,
       senzaVersione: 1,
+      storia,
     },
+  }
+}
+
+// ── La FLOTTA dei dev-env in demo ──────────────────────────────────────────────────────────────────
+//
+// Le macchine dell'heartbeat (una riga per avvio) e sette giorni di righe di salute (una ogni 15
+// minuti), finte ma con la forma vera: passano dalle stesse funzioni della produzione
+// (`settimanaDiSalute` e `componiFlotta`), cosi' la demo prova la composizione invece di aggirarla.
+//
+// La flotta mostra i casi che la pagina sa dire, uno per Mac:
+//   · kim: colima, tre processi uccisi per memoria oggi, VM a 11,7 GB su un obiettivo di 14, il backend
+//     a 3,7 GB e la memoria libera che scende da una settimana;
+//   · sam: l'immagine undici giorni indietro e tre tool mancanti;
+//   · noa: due opt-out accesi e il doctor con due controlli KO, piu' un avvio finito a meta';
+//   · rin: tanti comandi dei repo lanciati sul Mac invece che nel container;
+//   · alex, lee, eli: in ordine.
+// Valori calcolati dall'indice della riga e non casuali: la stessa demo disegna le stesse curve.
+const ORA = 3_600_000
+const GIORNO = 24 * ORA
+const DEMO_IMG = {
+  nuova: 'sha256:4f21c8a0e9d3b7c15a2f6e08d94b3c71',
+  vecchia: 'sha256:9b0e73d4a1c86f52e7d09a4b31c5f860',
+  media: 'sha256:5c3a9e1f0b7d24c68e9a1f3b5d7c9e02',
+}
+
+export function demoMacchineDevEnv(now = Date.now()) {
+  const IMG = DEMO_IMG
+  const creata = (giorni) => new Date(now - giorni * GIORNO).toISOString()
+  const host = (macchina, utente, dentro = {}) => ({
+    macchina,
+    lato: 'host',
+    utente,
+    utenti: [utente],
+    immagine: IMG.nuova,
+    creata: creata(2),
+    esito: 'ok',
+    toolMancanti: 0,
+    toolMancantiNomi: [],
+    durata: 80,
+    quando: now - 40 * 60_000,
+    ...dentro,
+  })
+  const macchine = [
+    host('alex-macbook', 'alex', { durata: 74 }),
+    { macchina: 'alex-macbook', lato: 'container', utente: 'alex', utenti: ['alex'], immagine: IMG.nuova, esito: 'ok', toolMancanti: 0, durata: 41, quando: now - 39 * 60_000 },
+    // La stessa persona con due nomi: l'avvio manda l'utente Teleport se c'e' una sessione e quello di
+    // sistema se non c'e'.
+    host('rin-macbook', 'rin-locale', { utenti: ['rin-locale', 'rin'], durata: 96, quando: now - 3 * ORA }),
+    // Indietro di undici giorni, e con tre tool che mancano sul portatile.
+    host('sam-macbook', 'sam', { immagine: IMG.vecchia, creata: creata(13), toolMancanti: 3, toolMancantiNomi: ['jq', 'gh', 'uv'], durata: 212, quando: now - 2 * ORA }),
+    // Versione NON dichiarata e un avvio finito a meta'.
+    host('noa-macbook', 'noa', { immagine: 'sconosciuta', creata: null, esito: 'parziale', toolMancanti: 0, durata: 168, quando: now - 5 * ORA }),
+    host('kim-macbook', 'kim', { durata: 131, quando: now - 2.5 * ORA }),
+    host('lee-macbook', 'lee', { durata: 69, quando: now - 26 * ORA }),
+    host('eli-macbook', 'eli', { immagine: IMG.media, creata: creata(4), durata: 88, quando: now - 7 * ORA }),
+  ]
+  // Gli ultimi avvii per macchina, dal piu' recente: esito, passo e immagine, come li manda l'avvio.
+  const avvio = (fa, dentro = {}) => ({ quando: now - fa, lato: 'host', esito: 'ok', passo: null, classe: null, primaRiga: null, immagine: IMG.nuova, creata: creata(2), durata: 80, ...dentro })
+  const storia = {
+    'alex-macbook': [avvio(40 * 60_000, { durata: 74 }), avvio(40 * 60_000 - 60_000, { lato: 'container', durata: 41, creata: null }), avvio(2 * GIORNO, { immagine: IMG.media, creata: creata(4) })],
+    'rin-macbook': [avvio(3 * ORA, { durata: 96 }), avvio(27 * ORA, { durata: 102 }), avvio(3 * GIORNO, { immagine: IMG.media, creata: creata(4) })],
+    'sam-macbook': [
+      avvio(2 * ORA, { immagine: IMG.vecchia, creata: creata(13), durata: 212 }),
+      avvio(26 * ORA, { immagine: IMG.vecchia, creata: creata(13), esito: 'ko', passo: 'tool', classe: 'tool-mancante', primaRiga: 'command not found: uv', durata: 64 }),
+      avvio(6 * GIORNO, { immagine: IMG.vecchia, creata: creata(13), durata: 198 }),
+    ],
+    'noa-macbook': [
+      avvio(5 * ORA, { immagine: 'sconosciuta', creata: null, esito: 'parziale', passo: 'migrazioni', classe: 'porta-occupata', primaRiga: 'porta 5432 gia in uso', durata: 168 }),
+      avvio(2 * GIORNO, { immagine: IMG.media, creata: creata(4), durata: 140 }),
+    ],
+    'kim-macbook': [avvio(2.5 * ORA, { durata: 131 }), avvio(30 * ORA, { durata: 125 }), avvio(4 * GIORNO, { immagine: IMG.media, creata: creata(4), durata: 119 })],
+    'lee-macbook': [avvio(26 * ORA, { durata: 69 }), avvio(5 * GIORNO, { immagine: IMG.media, creata: creata(4), durata: 71 })],
+    'eli-macbook': [avvio(7 * ORA, { immagine: IMG.media, creata: creata(4), durata: 88 }), avvio(3 * GIORNO, { immagine: IMG.media, creata: creata(4), durata: 90 })],
+  }
+  return { macchine, storia, IMG }
+}
+
+// Sette giorni di righe di salute, una ogni 15 minuti per Mac. Le curve: un ciclo giornaliero (il
+// carico sale di giorno) piu' una tendenza per chi peggiora.
+export function demoSaluteEventi(now = Date.now()) {
+  const PASSO = 15 * 60_000
+  const righe = Math.floor((7 * GIORNO) / PASSO)
+  const fine = Math.floor(now / PASSO) * PASSO
+  const eventi = []
+  const ciclo = (t) => (1 + Math.sin(((t / ORA) % 24) / 24 * 2 * Math.PI - Math.PI / 2)) / 2 // 0 di notte, 1 di pomeriggio
+  const r1 = (x) => Math.round(x * 10) / 10
+  const uso = (dentro = {}) => ({
+    ultimo_up: new Date(now - 3 * ORA).toISOString(),
+    ultimo_update: new Date(now - 2 * GIORNO).toISOString(),
+    doctor: { quando: new Date(now - 20 * ORA).toISOString(), ok: 24, warn: 1, ko: 0, falliti: [] },
+    opt_out: [],
+    bloccati_mac: 0,
+    sul_mac: 0,
+    ...dentro,
+  })
+  const MAC = [
+    {
+      macchina: 'kim-macbook',
+      utente: 'kim',
+      riga: (t, i, k) => {
+        const peggio = k // 0 una settimana fa, 1 adesso
+        const c = ciclo(t)
+        // Il contatore OOM dal boot della VM: uno tre giorni fa, due l'altro ieri, tre nelle ultime 24 ore.
+        const oom = [now - 4 * GIORNO, now - 2.2 * GIORNO, now - 20 * ORA, now - 9 * ORA, now - 2 * ORA].filter((x) => x <= t).length + (t >= now - 2.2 * GIORNO ? 1 : 0)
+        return {
+          mac: { ram_gb: 24, swap_usata_mb: Math.round((3 + 9.5 * peggio) * 1024 * (0.7 + 0.3 * c)), memoria_libera_pct: Math.round(30 - 22 * peggio) },
+          docker: { desktop: 'Docker Engine - Community', motore: 'colima', vm_mem_gb: 11.7, vm_mem_impostata_gb: 12, vm_mem_obiettivo_gb: 14, vm_cpu: 4 },
+          vm: { oom_kill: oom, mem_disponibile_gb: r1(Math.max(0.4, 6.5 - 4.4 * peggio - 1.6 * c)) },
+          app_mb: { backend: Math.round(1500 + 2242 * peggio), frontend: Math.round(900 + 247 * peggio), altro: 600 },
+          container: {
+            uccisi_per_memoria: t >= now - 20 * ORA ? ['dev'] : [],
+            uso: {
+              dev: { mem_mb: Math.round(3000 + 1957 * peggio), cpu_pct: Math.round(60 + 241 * c * (0.6 + 0.4 * peggio)) },
+              postgres: { mem_mb: 1320, cpu_pct: Math.round(8 + 30 * c) },
+              gateway: { mem_mb: 240, cpu_pct: 3 },
+              redis: { mem_mb: 96, cpu_pct: 1 },
+            },
+          },
+          uso: uso({ doctor: { quando: new Date(now - 30 * ORA).toISOString(), ok: 23, warn: 2, ko: 0, falliti: [] } }),
+        }
+      },
+    },
+    {
+      macchina: 'sam-macbook',
+      utente: 'sam',
+      riga: (t, i, k) => sano(t, { ram: 16, vm: 8, obiettivo: 8, base: 3.4, swap: 1.2, cpu: 120, k, dentro: { uso: uso({ ultimo_update: new Date(now - 13 * GIORNO).toISOString() }) } }),
+    },
+    {
+      macchina: 'noa-macbook',
+      utente: 'noa',
+      riga: (t, i, k) =>
+        sano(t, {
+          ram: 32,
+          vm: 12,
+          obiettivo: 12,
+          base: 6,
+          swap: 0.8,
+          cpu: 140,
+          k,
+          dentro: {
+            uso: uso({
+              opt_out: ['DEVENV_NO_MIGRATE', 'DEVENV_NO_GUARDS'],
+              doctor: { quando: new Date(now - 6 * ORA).toISOString(), ok: 21, warn: 1, ko: 2, falliti: ['porte-libere', 'login-segreti'] },
+            }),
+          },
+        }),
+    },
+    {
+      macchina: 'rin-macbook',
+      utente: 'rin',
+      // Ogni riga dice quanti comandi dalla riga prima: nelle ultime 24 ore ne passano una ventina.
+      riga: (t, i, k) =>
+        sano(t, {
+          ram: 32,
+          vm: 12,
+          obiettivo: 12,
+          base: 6.8,
+          swap: 0.4,
+          cpu: 160,
+          k,
+          dentro: { uso: uso({ bloccati_mac: t >= now - GIORNO && i % 6 === 0 ? 2 : 0, sul_mac: t >= now - GIORNO && i % 11 === 0 ? 1 : 0 }) },
+        }),
+    },
+    { macchina: 'alex-macbook', utente: 'alex', riga: (t, i, k) => sano(t, { ram: 32, vm: 12, obiettivo: 12, base: 7.2, swap: 0.3, cpu: 110, k }) },
+    { macchina: 'lee-macbook', utente: 'lee', riga: (t, i, k) => sano(t, { ram: 18, vm: 9, obiettivo: 9, base: 4.6, swap: 0.9, cpu: 90, k }) },
+    { macchina: 'eli-macbook', utente: 'eli', riga: (t, i, k) => sano(t, { ram: 24, vm: 10, obiettivo: 10, base: 5.4, swap: 0.6, cpu: 130, k }) },
+  ]
+  function sano(t, { ram, vm, obiettivo, base, swap, cpu, dentro = {} }) {
+    const c = ciclo(t)
+    return {
+      mac: { ram_gb: ram, swap_usata_mb: Math.round(swap * 1024 * (0.6 + 0.4 * c)), memoria_libera_pct: Math.round(40 - 15 * c) },
+      docker: { desktop: 'Docker Desktop 4.48.0', motore: 'docker-desktop', vm_mem_gb: vm - 0.3, vm_mem_impostata_gb: vm, vm_mem_obiettivo_gb: obiettivo, vm_cpu: 6 },
+      vm: { oom_kill: 0, mem_disponibile_gb: r1(base - 1.8 * c) },
+      app_mb: { backend: Math.round(900 + 300 * c), frontend: Math.round(700 + 200 * c), altro: 500 },
+      container: {
+        uccisi_per_memoria: [],
+        uso: {
+          dev: { mem_mb: Math.round(2200 + 600 * c), cpu_pct: Math.round(20 + cpu * c) },
+          postgres: { mem_mb: 980, cpu_pct: Math.round(4 + 12 * c) },
+          gateway: { mem_mb: 210, cpu_pct: 2 },
+          redis: { mem_mb: 80, cpu_pct: 1 },
+        },
+      },
+      uso: uso(),
+      ...dentro,
+    }
+  }
+  for (const m of MAC) {
+    for (let i = righe - 1; i >= 0; i--) {
+      const t = fine - i * PASSO
+      // lee ha chiuso il Mac ieri: dall'ultimo avvio in poi niente righe, e le curve si fermano li'.
+      if (m.macchina === 'lee-macbook' && t > now - 25 * ORA) continue
+      const k = (righe - 1 - i) / (righe - 1)
+      eventi.push({ timestamp: t, message: JSON.stringify({ utente: m.utente, macchina: m.macchina, lato: 'host', salute: m.riga(t, i, k) }) })
+    }
+  }
+  return eventi.sort((a, b) => b.timestamp - a.timestamp)
+}
+
+export function demoFlotta(now = Date.now()) {
+  const { macchine, storia } = demoMacchineDevEnv(now)
+  const heartbeat = {
+    giorni: 7,
+    attesa: null,
+    macchine,
+    versioni: [],
+    conToolMancanti: macchine.filter((m) => m.toolMancanti > 0).length,
+    storia,
+    classiNuove: [],
+    bloccate: [],
+  }
+  const salute = settimanaDiSalute(demoSaluteEventi(now), { adesso: now, ore: 24, giorni: 7 })
+  return {
+    ...componiFlotta(
+      { heartbeat, salute },
+      { adesso: now, soglie: SOGLIE_DEV_ENV, comandi: { aggiorna: './dev-env update', doctor: './dev-env doctor', salute: null, dentro: './dev-env shell' } },
+    ),
+    sshCommand: 'tsh ssh dev@{macchina}',
+    auditNodeUrl: 'https://teleport.example.com/web/audit?node={macchina}',
+    auditUserUrl: 'https://teleport.example.com/web/audit?user={utente}',
+    webUrl: 'https://teleport.example.com/web',
   }
 }
 

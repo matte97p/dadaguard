@@ -663,7 +663,7 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
   // quattro cose il messaggio obbliga ad aprire i log per sapere se e' successo qualcosa o niente.
   // `+3` e non `4`: tre sono arrivate dall'ultimo messaggio, una era gia' stata detta.
   assert.match(testo, /^🚨 `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
-  assert.match(testo, /esempio\.test\/accessi\?vista=database\|Accessi/)
+  assert.match(testo, /esempio\.test\/accessi#scritture\|Accessi/)
 })
 
 // La riga dell'altro caso vero: tanti DDL su una matview di reportistica. Colore diverso, parola

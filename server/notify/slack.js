@@ -277,7 +277,7 @@ function sommarioTentate(segnale) {
 
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
   const emoji = EMOJI_ACCESSI[segnale.livello] ?? '⚠️'
-  const coda = publicUrl ? ` · <${publicUrl}/accessi?vista=${vistaDi(segnale)}|Accessi>` : ''
+  const coda = publicUrl ? ` · ${linkPagina(segnale, publicUrl)}` : ''
   // Il database logico da solo non identifica niente: `postgres` e' il nome che hanno quasi tutti, e
   // chi legge non sa DI QUALE cluster si stia parlando quando ce n'e' piu' di uno. Davanti ci va il
   // servizio, che e' il nome del cluster (`<cluster>/postgres`), se non e' gia' la stessa parola.
@@ -391,9 +391,15 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
 
 const quanteOre = (n) => (n === 1 ? "un'ora" : `${n} ore`)
 
-// La tabella dove si continua a guardare: il link porta dove sta la riga, non sulla pagina generica.
-function vistaDi(segnale) {
-  if (segnale.tipo === 'scrittura') return 'database'
-  if (segnale.tipo === 'ssh') return 'ssh'
-  return 'devEnv'
+// Dove porta il link in fondo al messaggio. Dal 07/10/2026 le due domande hanno due pagine: chi entra
+// dove sta su Accessi (con un'ancora sulla voce giusta dell'elenco «da sistemare»), come sta un Mac sta
+// sulla Flotta, gia' aperta sul pannello di QUELLA macchina. I link vecchi (`/accessi?vista=…`) restano
+// validi: la pagina li rimanda da se', quindi i messaggi gia' nel canale non si rompono.
+export function linkPagina(segnale, publicUrl) {
+  if (segnale.tipo === 'scrittura') return `<${publicUrl}/accessi#scritture|Accessi>`
+  if (segnale.tipo === 'ssh') return `<${publicUrl}/accessi#ssh|Accessi>`
+  // I guasti nuovi hanno per bersaglio il dev-env intero e la macchina a parte; la versione che non ha
+  // nessuno e' una notizia di flotta, senza macchina.
+  const mac = segnale.tipo === 'guasto' ? segnale.macchina : segnale.bersaglio && segnale.bersaglio !== 'dev-env' ? segnale.bersaglio : null
+  return `<${publicUrl}/flotta${mac ? `?mac=${encodeURIComponent(mac)}` : ''}|Flotta>`
 }

@@ -35,7 +35,7 @@ import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
 import { demoMappaAccessi } from './demo.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport, demoFlotta } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import * as teleport from './teleport.js'
 import { collectFindings } from './security.js'
@@ -47,6 +47,7 @@ import { statoLeggero } from './quadroStato.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
+import { statoFlotta } from './flotta.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 import { storicoFlotta } from './storicoAws.js'
@@ -517,6 +518,19 @@ app.get('/api/teleport', async (req, res) => {
     // La composizione sta in `server/accessi.js`, condivisa col watchdog: una regola che deve parlare
     // su Slack ha bisogno esattamente di questi numeri, e riscriverli la' sarebbe la seconda verita'.
     res.json(await statoAccessi({ ore: req.query.ore }))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// La FLOTTA dei dev-env: una card per Mac, con i problemi in ordine di gravita' e l'azione che li
+// risolve, e l'andamento di sette giorni per il pannello di dettaglio. La composizione sta in
+// `server/flotta.js`; le letture sono le stesse della pagina Accessi (l'heartbeat, con la sua cache)
+// piu' sette giorni di salute in una query sola, con due minuti di cache.
+app.get('/api/flotta', async (_req, res) => {
+  try {
+    if (isDemo) return res.json(demoFlotta())
+    res.json(await statoFlotta())
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

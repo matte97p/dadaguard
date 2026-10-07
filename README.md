@@ -69,7 +69,7 @@ cosa fare con un comando **di sola lettura** da copiare, e porta ad **Apri altro
 GitHub, CodeBuild, PostHog se configurato).
 
 In alto si sceglie l'ambiente e il punto di vista, **Sviluppo** o **DevOps**: il primo vede Adesso,
-Servizi, Deploy, Cron e Topologia; il secondo anche Spesa, Limiti, Sicurezza, Accessi e Permessi, e
+Servizi, Deploy, Cron e Topologia; il secondo anche Spesa, Limiti, Sicurezza, Accessi, Flotta dev-env e Permessi, e
 nel riquadro di oggi la spesa del giorno e i login falliti. `⌘K` apre la palette per saltare a un
 servizio o a una pagina. Tema chiaro e scuro (segue il sistema finché non lo scegli), italiano e inglese.
 
