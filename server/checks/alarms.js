@@ -28,6 +28,20 @@ export function isAutoscalingAlarm(a) {
   return actions.some((arn) => String(arn).includes(':scalingPolicy:'))
 }
 
+// L'allarme ha GIA' chi lo dice: fra le sue AlarmActions c'e' un topic SNS, cioe' allarme → SNS → una
+// Lambda o un abbonamento che scrive su Slack da se' (es. il notifier degli allarmi ALB in
+// aws-management, modules/alb-alarms). Per quelli Dadaguard non deve parlare: il notifier lo dice
+// nel momento in cui scatta e lo richiude quando rientra, mentre noi arriviamo al giro dopo e con il
+// debounce. Visto l'08/10/2026: `acme-production-alb-5xx` scattato alle 14:52, detto dal suo notifier
+// alle 14:52 e rientrato alle 15:01, e alle 15:01 un nostro «1 allarme attivo» su un fatto gia' detto
+// e gia' finito. Sulla dashboard restano: e' l'unico posto dove si vedono tutti insieme.
+// Contano solo le AlarmActions (lo scatto), non le OKActions: e' lo scatto che non va detto due volte.
+// La partizione dell'ARN non si fissa (`arn:aws:`, `arn:aws-cn:`, …).
+const SNS_ARN = /^arn:[^:]+:sns:/
+export function haNotificaPropria(a) {
+  return (a?.AlarmActions ?? []).some((arn) => SNS_ARN.test(String(arn)))
+}
+
 // Allarmi attualmente in ALARM nell'account (preload), esclusi quelli di autoscaling. Paginato.
 // Nota: regionale → usa la region dell'account; i servizi con override `aws.region` in un'altra
 // region non sono coperti dal preload (limite noto, raro).
@@ -114,5 +128,23 @@ export async function run(service, ctx) {
     mine.map((a) => a.AlarmName),
     MAX_NOMI,
   )
-  return { key, status: 'degraded', summary: t('alarms.firing', { n: mine.length, list }) }
+  const summary = t('alarms.firing', { n: mine.length, list })
+  const daDire = mine.filter((a) => !haNotificaPropria(a))
+  if (daDire.length === mine.length) return { key, status: 'degraded', summary }
+
+  // Lo stato resta `degraded` per tutti: la card deve restare gialla finche' qualcosa suona. Cambia
+  // solo chi lo dice su Slack, e lo decide il notificatore leggendo questi campi (vedi
+  // `overallPerNotifica` in status.js):
+  //  · tutti gia' detti dal loro notifier → `notificatoAltrove`, e per Slack questo check non conta;
+  //  · misti → il check conta, ma `alert` (la frase che va in chat, vedi `snapshot` in notify/diff.js)
+  //    nomina solo quelli che nessun altro dice.
+  // La nota in coda al summary e' per chi guarda la card: spiega perche' l'allarme non e' arrivato
+  // anche da Dadaguard.
+  if (!daDire.length) return { key, status: 'degraded', summary: `${summary} · ${t('alarms.notifiedElsewhere')}`, notificatoAltrove: true }
+  return {
+    key,
+    status: 'degraded',
+    summary: `${summary} · ${t('alarms.someNotifiedElsewhere', { n: mine.length - daDire.length })}`,
+    alert: t('alarms.firing', { n: daDire.length, list: truncateList(daDire.map((a) => a.AlarmName), MAX_NOMI) }),
+  }
 }

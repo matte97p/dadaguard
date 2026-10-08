@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeOverall, endpointFromHealth, urlForService } from '../server/status.js'
+import { computeOverall, endpointFromHealth, overallPerNotifica, urlForService } from '../server/status.js'
 import * as alarms from '../server/checks/alarms.js'
 const { isAutoscalingAlarm } = alarms
 
@@ -65,6 +65,29 @@ test('computeOverall: più check allo stesso livello → causa primaria per prio
   assert.equal(r.overall, 'degraded')
   assert.equal(r.cause, 'runtime') // runtime ha priorità su version
   assert.deepEqual(new Set(r.causes), new Set(['version', 'runtime']))
+})
+
+// --- Il semaforo per Slack: senza i check che hanno gia' chi li dice ---
+
+test('overallPerNotifica: nessun check detto da altri → null, vale il semaforo della card', () => {
+  assert.equal(overallPerNotifica({ alarms: { key: 'alarms', status: 'degraded' } }), null)
+  assert.equal(overallPerNotifica({}), null)
+})
+
+test('overallPerNotifica: un allarme gia\' detto dal suo notifier non tinge Slack', () => {
+  const r = overallPerNotifica({
+    runtime: { key: 'runtime', status: 'up' },
+    alarms: { key: 'alarms', status: 'degraded', notificatoAltrove: true },
+  })
+  assert.deepEqual(r, { overall: 'up', cause: null })
+})
+
+test('overallPerNotifica: il resto dei check continua a contare', () => {
+  const r = overallPerNotifica({
+    liveness: { key: 'liveness', status: 'down' },
+    alarms: { key: 'alarms', status: 'degraded', notificatoAltrove: true },
+  })
+  assert.deepEqual(r, { overall: 'down', cause: 'liveness' })
 })
 
 // --- Filtro allarmi di autoscaling: rumore atteso, non guasto ---

@@ -164,6 +164,82 @@ test('allarme taciuto dal routing: nemmeno il suo rientro parla', () => {
   assert.deepEqual(transitions, [], 'simmetria: se non ho detto che si è rotto, non dico che è a posto')
 })
 
+// --- gli allarmi CloudWatch che hanno gia' il loro notifier (allarme → SNS → Lambda → Slack) ---
+// Visto l'08/10/2026: `acme-production-alb-5xx` detto dal suo notifier alle 14:52 e richiuso alle
+// 15:01, e alle 15:01 un nostro «1 allarme attivo» su un fatto gia' detto e gia' finito. La card resta
+// gialla (`overall`), Slack guarda `perNotifica`, che status.js calcola senza i check gia' detti.
+const conAllarme = (name, account, perNotifica, checks = {}) => ({
+  ...svc(name, account, 'degraded', 'alarms'),
+  ...(perNotifica ? { perNotifica } : {}),
+  checks: { alarms: { summary: '1 allarme attivo: acme-production-alb-5xx', notificatoAltrove: true }, ...checks },
+})
+const tuttoDetto = { overall: 'up', cause: null }
+
+test('allarme col suo notifier: la card e\' gialla ma Dadaguard non lo annuncia', () => {
+  let s = stato({ 'production/backend': { confirmed: 'up' } })
+  for (const giro of [1, 2, 3]) {
+    const r = diffStates(s, snapshot([conAllarme('backend', 'Production', tuttoDetto)]), conferma)
+    assert.deepEqual(r.transitions, [], `giro ${giro}: il notifier l'ha gia' detto`)
+    s = r.next
+  }
+  assert.equal(s.services['production/backend'].confirmed, 'up')
+})
+
+test('rilascio con un allarme aperto da noi e ancora attivo: niente «tornato OK» finto', () => {
+  // Prima del rilascio lo avevamo annunciato noi (stato su disco: rosso per `alarms`, annunciato).
+  let s = stato({ 'production/backend': { confirmed: 'degraded', cause: 'alarms', alerted: true, route: 'main' } })
+  for (const giro of [1, 2, 3]) {
+    const r = diffStates(s, snapshot([conAllarme('backend', 'Production', tuttoDetto)]), conferma)
+    assert.deepEqual(r.transitions, [], `giro ${giro}: l'allarme suona ancora, non e' rientrato`)
+    s = r.next
+  }
+  assert.equal(s.services['production/backend'].alerted, true, 'resta aperto, con la sua destinazione')
+  assert.equal(s.services['production/backend'].route, 'main')
+
+  // Quando smette di suonare davvero, il rientro chiude il messaggio che avevamo mandato noi.
+  let rientri = []
+  for (const _ of [1, 2]) {
+    const r = diffStates(s, snapshot([svc('backend', 'Production', 'up')]), conferma)
+    rientri = rientri.concat(r.transitions)
+    s = r.next
+  }
+  assert.equal(rientri.length, 1)
+  assert.equal(rientri[0].kind, 'recovery')
+})
+
+test('rosso aperto per altro: rientra anche se resta acceso un allarme che ha gia\' il suo notifier', () => {
+  // Il guasto annunciato era il servizio che non rispondeva: e' quello che si chiude, e l'allarme
+  // rimasto lo sta gia' dicendo chi deve.
+  let s = stato({ 'production/backend': { confirmed: 'down', cause: 'liveness', alerted: true, route: 'main' } })
+  let tr = []
+  for (const _ of [1, 2]) {
+    const r = diffStates(s, snapshot([conAllarme('backend', 'Production', tuttoDetto)]), conferma)
+    tr = tr.concat(r.transitions)
+    s = r.next
+  }
+  assert.equal(tr.length, 1)
+  assert.equal(tr[0].kind, 'recovery')
+})
+
+test('rosso per allarmi mai annunciato: diventato «gia\' detto», nessun rientro orfano', () => {
+  let s = stato({ 'production/backend': { confirmed: 'degraded', cause: 'alarms', alerted: false } })
+  for (const _ of [1, 2]) {
+    const r = diffStates(s, snapshot([conAllarme('backend', 'Production', tuttoDetto)]), conferma)
+    assert.deepEqual(r.transitions, [])
+    s = r.next
+  }
+})
+
+test('snapshot: causa e frase vengono dal semaforo per Slack, non da quello della card', () => {
+  const s = conAllarme('backend', 'Production', { overall: 'degraded', cause: 'drift' }, { drift: { summary: '2 risorse fuori da Terraform' } })
+  const obs = snapshot([s])['production/backend']
+  assert.equal(obs.overall, 'degraded')
+  assert.equal(obs.cause, 'drift')
+  assert.equal(obs.detail, '2 risorse fuori da Terraform')
+  assert.equal(obs.overallReale, 'degraded')
+  assert.equal(snapshot([svc('api', 'Production', 'up')])['production/api'].overallReale, null, 'senza perNotifica non serve')
+})
+
 // --- le due gravità dentro al rosso (regola 5) --------------------------------------------------
 test('il flag alerted sopravvive a un alleggerimento (down → degraded → up)', () => {
   // Regressione: `down → degraded` NON chiude l'allarme, passa solo dal ramo che riscrive lo stato.

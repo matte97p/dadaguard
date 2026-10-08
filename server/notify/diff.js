@@ -48,20 +48,29 @@ const legacyKey = (s) => `${accountKey(s)}/${s?.name}`
 // Fotografia da salvare: per ogni servizio lo stato osservato ora + il candidato in attesa di conferma.
 // `confirmed` è l'ultimo stato ANNUNCIATO (o osservato al primo giro): il confronto si fa su quello,
 // altrimenti un rosso che sfarfalla genererebbe una notifica a ogni oscillazione.
+//
+// Il semaforo che conta qui e' quello PER SLACK (`perNotifica`, vedi `overallPerNotifica` in
+// status.js) quando il servizio lo porta: un check gia' detto da altri (gli allarmi CloudWatch che
+// hanno un loro notifier via SNS) colora la card ma non apre un allarme di Dadaguard. `overallReale`
+// tiene il semaforo della card, e serve solo a non chiudere per finta un allarme gia' aperto: vedi
+// `diffStates`.
 export function snapshot(services = []) {
   const out = {}
   for (const s of services) {
+    const perSlack = s.perNotifica ?? s
+    const cause = perSlack.cause ?? null
     out[serviceKey(s)] = {
-      overall: s.overall ?? 'unknown',
-      cause: s.cause ?? null,
+      overall: perSlack.overall ?? 'unknown',
+      cause,
+      overallReale: s.perNotifica ? (s.overall ?? 'unknown') : null,
       // `alert` prima di `summary`: la card e la chat non vogliono la stessa frase. Il summary è
       // scritto per stare accanto alle metriche e al pannello dei task ("6/7 target sani", "no ·
       // memoria 512MB"); in chat non c'è niente accanto, quindi serve il soggetto, la conseguenza e
       // la soglia. I provider che hanno qualcosa in più da dire mettono `alert`, gli altri no.
-      detail: s.checks?.[s.cause]?.alert ?? s.checks?.[s.cause]?.summary ?? s.checks?.[s.cause]?.reason ?? null,
+      detail: s.checks?.[cause]?.alert ?? s.checks?.[cause]?.summary ?? s.checks?.[cause]?.reason ?? null,
       // Quale SEGNALE ha degradato il servizio, quando non è quello del suo tipo: un servizio ECS può
       // essere rosso per i target dietro al load balancer, non per i container.
-      causeType: s.checks?.[s.cause]?.causeType ?? null,
+      causeType: s.checks?.[cause]?.causeType ?? null,
       account: s.account?.label ?? null,
       name: s.name,
       // La chiave vecchia della stessa riga: non finisce nello stato salvato (`next` copia campo per
@@ -77,7 +86,7 @@ export function snapshot(services = []) {
       // quella lunga (l'unica che può dire «è finita») non l'ha ancora confermato. Non cambia lo
       // stato né il routing: diventa una nota in coda alla riga (vedi `slackMessage` in slack.js),
       // perché chi legge un allarme deve sapere che potrebbe richiudersi da solo.
-      provisional: s.checks?.[s.cause]?.provisional === true,
+      provisional: s.checks?.[cause]?.provisional === true,
     }
   }
   return out
@@ -121,14 +130,22 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
       continue
     }
     const confirmed = before.confirmed ?? 'unknown'
-    if (obs.overall === confirmed) {
+    // Un allarme che ABBIAMO aperto per gli allarmi CloudWatch resta aperto finche' suonano davvero,
+    // anche se nel frattempo sono diventati «gia' detti da altri». Senza, al primo giro dopo il rilascio
+    // di quella regola un allarme aperto e ancora attivo sparirebbe dal semaforo per Slack e partirebbe
+    // un «tornato OK» falso; e lo stesso succederebbe quando l'allarme che non aveva notifier rientra e
+    // ne resta acceso solo uno che ce l'ha. Si guarda quindi il semaforo della card: il rientro arriva
+    // quando gli allarmi tacciono tutti, e chiude il messaggio che avevamo mandato noi.
+    const tieniAperto = before.alerted && before.cause === 'alarms' && obs.overallReale != null
+    const osservato = tieniAperto ? obs.overallReale : obs.overall
+    if (osservato === confirmed) {
       next[key] = { ...before, confirmed, pending: null } // tornato quello noto: candidato annullato
       continue
     }
     // stato diverso da quello confermato: conta le letture consecutive
-    const count = before.pending?.overall === obs.overall ? (before.pending.count ?? 1) + 1 : 1
+    const count = before.pending?.overall === osservato ? (before.pending.count ?? 1) + 1 : 1
     if (count < confirmations) {
-      next[key] = { ...before, confirmed, pending: { overall: obs.overall, count } }
+      next[key] = { ...before, confirmed, pending: { overall: osservato, count } }
       continue
     }
     // confermato: aggiorna lo stato noto e valuta se è una notizia
@@ -136,14 +153,14 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     // `alerted` va conservato come `route`: un cambio di gravità dentro la stessa classe non chiude
     // l'allarme, e se perdessimo il flag il rientro vero verrebbe poi soppresso come orfano.
     next[key] = {
-      confirmed: obs.overall,
+      confirmed: osservato,
       cause: obs.cause,
       pending: null,
       ...(before.route ? { route: before.route } : {}),
       ...(before.alerted ? { alerted: true } : {}),
     }
     const from = stateClass(confirmed)
-    const to = stateClass(obs.overall)
+    const to = stateClass(osservato)
     const attraversa = from !== to && from !== 'unknown' && to !== 'unknown'
     // Regola 4: un rientro si annuncia SOLO se l'allarme è stato davvero mandato. Una chiave mai
     // annunciata (servizio nuovo nato già rotto, vedi sopra, o allarme taciuto dal routing) altrimenti
@@ -153,8 +170,8 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
     const rientroOrfano = to !== 'problem' && !before.alerted
     // Cambio di gravità restando nel rosso (regola 5). Il miglioramento segue la stessa regola del
     // rientro: se l'allarme non è mai stato mandato, non si annuncia nemmeno il suo alleggerimento.
-    const dentro = from === 'problem' && to === 'problem' && GRAVITA[obs.overall] !== GRAVITA[confirmed]
-    const peggiora = dentro && GRAVITA[obs.overall] > GRAVITA[confirmed]
+    const dentro = from === 'problem' && to === 'problem' && GRAVITA[osservato] !== GRAVITA[confirmed]
+    const peggiora = dentro && GRAVITA[osservato] > GRAVITA[confirmed]
     const migliora = dentro && !peggiora && before.alerted
     if ((attraversa && !rientroOrfano) || peggiora || migliora) {
       transitions.push({
@@ -163,7 +180,7 @@ export function diffStates(prev, now, { confirmations = 2 } = {}) {
         name: obs.name,
         account: obs.account,
         from: confirmed,
-        to: obs.overall,
+        to: osservato,
         cause: obs.cause,
         detail: obs.detail,
         type: obs.type,
