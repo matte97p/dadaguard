@@ -11,6 +11,8 @@ import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { manualActions } from './manualActions.js'
 import { stripOrgEnv } from './util/envToken.js'
 import { linkDeploy } from './meta/link.js'
+import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs'
+import { causaBuild, motivoDalVerdetto } from './buildCausa.js'
 
 const DEPLOY_SUFFIX = '-deploy'
 // Il progetto che applica l'infrastruttura (`<org>-<env>-iac-apply`): non è il deploy di un servizio,
@@ -189,8 +191,23 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
     raw.push(...(r.builds ?? []))
   }
 
+  // Il motivo delle build fallite si legge dal LORO log (vedi buildCausa.js): il verdetto di CodeBuild
+  // ripete il comando. Solo le build finite, che sono anche le sole che si possono mettere in cache.
+  const logs = new CloudWatchLogsClient(clientOpts(aws))
+  const cause = new Map(
+    await Promise.all(
+      raw
+        .filter((b) => b.buildStatus !== 'IN_PROGRESS' && failureOf(b.phases))
+        .map(async (b) => [b.id, await causaBuild(logs, b)]),
+    ),
+  )
+
   const { restarts, startedBy } = await manual
-  const builds = raw.map((b) => mapBuild(b, startedBy.get(b.arn) ?? startedBy.get(b.id)))
+  const builds = raw.map((b) => {
+    const out = mapBuild(b, startedBy.get(b.arn) ?? startedBy.get(b.id))
+    if (out.failReason) out.failReason = cause.get(b.id) || motivoDalVerdetto(out.failReason)
+    return out
+  })
   // Il taglio si fa QUI e non a monte: CodeBuild non filtra per data, quindi le build arrivano
   // comunque e si tengono solo quelle dentro la finestra. Senza `ore` non si taglia niente, che e' il
   // comportamento di prima e serve a chi chiama senza finestra (il pannello dei rilasci in Adesso).
