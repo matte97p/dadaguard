@@ -25,8 +25,8 @@ import { log } from '../log.js'
 // deploy con `needs:` sui test) un filtro per nome li perderebbe tutti, e se il deploy parte la riga
 // passa comunque a ⏳ (CodeBuild vince sui test, vedi `conTest`).
 //
-// Il rate limit è di 5.000 richieste l'ora per installazione. Una lettura ogni `GIRI_PER_GITHUB` giri
-// (circa una al minuto) e una richiesta per repository, CONDIZIONALE: l'indirizzo cambia solo una
+// Il rate limit è di 5.000 richieste l'ora per installazione. Una lettura al minuto (`OGNI_MS`, o
+// `GIRI_PER_GITHUB` giri se passano prima) e una richiesta per repository, CONDIZIONALE: l'indirizzo cambia solo una
 // volta l'ora (la finestra parte dall'inizio dell'ora), quindi l'`ETag` della risposta di prima vale,
 // e un `304 Not Modified` non consuma rate limit.
 //
@@ -44,6 +44,12 @@ const API = 'https://api.github.com'
 export const GIRI_PER_GITHUB = 4
 // Dopo un errore che non è il rate limit (chiave sbagliata, App non installata) si riprova di rado.
 const GIRI_DOPO_ERRORE = 40
+// Le stesse due attese contate in TEMPO, perché un giro non dura 15 secondi: fra 25 secondi e 14
+// minuti misurati l'08/10/2026, quindi «ogni 4 giri» voleva dire ogni 4-6 minuti, e «40 giri dopo un
+// errore» quasi un'ora. Vale la prima delle due condizioni che scade, giri o tempo: con i giri veloci
+// delle prove cambia niente.
+export const OGNI_MS = 60_000
+const DOPO_ERRORE_MS = 2 * 60_000
 const FINESTRA_MS = 24 * 3_600_000
 // Il token d'installazione vale un'ora: si rinnova prima, per non usarlo mentre scade.
 const MARGINE_TOKEN_MS = 5 * 60_000
@@ -157,7 +163,7 @@ class LimiteGithub extends Error {}
 export function nuovoGithub(cfg, deps = {}) {
   if (!cfg) return null
   const fetchGh = deps.fetch ?? globalThis.fetch
-  const mem = { giro: 0, prossimo: 0, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), stati: new Map(), nascosti: new Map() }
+  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), stati: new Map(), nascosti: new Map() }
 
   async function gh(metodo, path, { auth, etag } = {}) {
     const ctrl = new AbortController()
@@ -237,7 +243,7 @@ export function nuovoGithub(cfg, deps = {}) {
 
   async function leggi(repos, { ora = Date.now(), ogni = GIRI_PER_GITHUB } = {}) {
     mem.giro++
-    if (mem.giro < mem.prossimo || ora < mem.pausaFino || !repos.length) return mem.stati
+    if ((mem.giro < mem.prossimo && ora < mem.prossimoAlle) || ora < mem.pausaFino || !repos.length) return mem.stati
     try {
       const perRepo = new Map()
       const usati = new Set()
@@ -263,17 +269,23 @@ export function nuovoGithub(cfg, deps = {}) {
       mem.stati = statoDaRun(perRepo, cfg.rami)
       if (mem.errore) log.info('quadro: GitHub di nuovo leggibile, tornano gli stati dei test')
       mem.errore = null
+      mem.letto = ora
       mem.prossimo = mem.giro + ogni
+      mem.prossimoAlle = ora + OGNI_MS
     } catch (err) {
       // Una volta sola nel log finché l'errore resta lo stesso: ogni minuto sarebbero 1.440 righe al
       // giorno per una cosa nota. Lo stato di prima resta: meglio un 🧪 di un minuto fa che nessuno.
       if (mem.errore !== err.message) log.warn('quadro: GitHub non letto, righe senza stato dei test aggiornato', { err: err.message })
       mem.errore = err.message
       if (err instanceof LimiteGithub) mem.pausaFino = err.fino
-      else mem.prossimo = mem.giro + GIRI_DOPO_ERRORE
+      else {
+        mem.prossimo = mem.giro + GIRI_DOPO_ERRORE
+        mem.prossimoAlle = ora + DOPO_ERRORE_MS
+      }
     }
     return mem.stati
   }
 
-  return { leggi, mem, org: cfg.org }
+  // `lettoAlle`: l'ultima lettura riuscita, per capire se un 🧪 arrivato dalla coda è già finito.
+  return { leggi, mem, org: cfg.org, lettoAlle: () => mem.letto }
 }

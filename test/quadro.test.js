@@ -4,6 +4,7 @@
 // piani del canvas coi loro tetti, i link a Dadaguard e il giro che crea o riscrive il canvas.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { normalizza, nuoviEventi } from '../server/notify/eventi.js'
 import {
   statoBuild,
   quadroAmbiente,
@@ -1626,3 +1627,38 @@ test('build non lette: la riga che il canvas ha e il modello no resta, ma una ri
   assert.equal(pianoCelle(modello([], true), blocchi).length, 0, 'anche senza nessuna riga letta')
 })
 const INTESTAZIONE_HTML = ['Risorsa', 'Stato', 'Dettagli'].map((h, i) => `<td><p id="i${i}" class="line">${h}</p></td>`).join('')
+
+test('gli eventi della coda arrivano sul canvas: ⏳ da CodeBuild su una riga, 🧪 dalla CI sull’altra', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig({ DADAGUARD_QUADRO_CANALI: 'produzione=CP', DADAGUARD_QUADRO_LISTE: '0' })
+  const leggiDati = async () => ({
+    deploys: {
+      production: {
+        builds: [
+          b('api', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/api', number: 10 }),
+          b('web', 'ccccccc', '2026-10-02T09:00:00Z', 'SUCCEEDED', { repo: 'https://github.com/acme/web', number: 7 }),
+        ],
+      },
+    },
+    servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-02T10:05:00Z' }), svc('web', 'production', { tag: 'ccccccc', da: '2026-10-02T09:05:00Z' })],
+  })
+  const eventi = nuoviEventi()
+  eventi.registra(
+    normalizza({
+      source: 'aws.codebuild',
+      'detail-type': 'CodeBuild Build State Change',
+      time: '2026-10-03T11:58:00Z',
+      detail: { 'build-status': 'IN_PROGRESS', 'project-name': 'acme-production-api-deploy', 'additional-information': { 'build-number': 11, 'source-version': 'bbbbbbb' } },
+    }),
+    ORA,
+  )
+  eventi.registra(
+    normalizza({ fonte: 'ci', evento: 'test_avviati', progetto: 'acme-production-web-deploy', repo: 'acme/web', commit: 'ddddddd', run: 'https://github.com/acme/web/actions/runs/5', quando: '2026-10-03T11:59:00Z' }),
+    ORA,
+  )
+  await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati, ora: ORA, eventi })
+  const righe = leggiCanvasHtml(s.html([...s.canvas.values()].find((c) => c.titolo === 'Quadro deploy PRODUZIONE').blocchi)).find((x) => x.tipo === 'table').righe
+  assert.equal(righe[1][1].testo, '⏳ in corso · oggi 13:58')
+  assert.equal(righe[1][2].testo, 'aaaaaaa · build #11 · verso bbbbbbb')
+  assert.equal(righe[2][1].testo, '🧪 test · oggi 13:59')
+})
