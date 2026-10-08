@@ -378,8 +378,15 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     return `${testa} OPT-OUT DEL DEV-ENV ACCESI${chiTra}: ${nomi}${coda}`
   }
   if (segnale.tipo === 'lavoro-sul-mac') {
-    const parti = [segnale.bloccati ? `${segnale.bloccati} bloccati` : null, segnale.forzati ? `${segnale.forzati} forzati` : null].filter(Boolean)
-    return `${testa} COMANDI DEI REPO SUL MAC${chiTra}: ${segnale.quante} in 24 ore (${parti.join(', ')}) · il container risponde?${coda}`
+    // Una frase che si legge senza conoscere l'hook: chi ha lanciato cosa, dove doveva andare, com'e'
+    // finita e la causa solita. «bloccati» e «forzati» erano i nomi dei contatori, non parole.
+    const { bloccati = 0, forzati = 0 } = segnale
+    const esito = !forzati
+      ? 'tutte fermate prima di partire'
+      : !bloccati
+        ? 'tutte eseguite lo stesso sul Mac'
+        : `${bloccati} fermate prima di partire, ${forzati} eseguite lo stesso sul Mac`
+    return `${testa} CLAUDE LANCIA I COMANDI DEI REPO SUL MAC INVECE CHE NEL CONTAINER${chiTra}: ${segnale.quante} volte in 24 ore, ${esito} · di solito vuol dire che il container è spento e va riacceso${coda}`
   }
   if (segnale.tipo === 'doctor-ko') {
     const n = segnale.quante === 1 ? 'un controllo fallito' : `${segnale.quante} controlli falliti`
