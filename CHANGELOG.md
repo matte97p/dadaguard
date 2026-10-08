@@ -6,6 +6,18 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Il quadro dei deploy si aggiorna appena succede qualcosa, non al giro dopo** (08/10/2026). Il giro
+  legge CodeBuild, ECS e GitHub da sé, e dura fra 25 secondi e 14 minuti: un 🧪 arrivava sul quadro
+  minuti dopo la riga in canale. Ora il quadro ascolta una coda SQS (`DADAGUARD_QUADRO_CODA`, accesa
+  con `deploy/enable-eventi.sh`) dove arrivano gli eventi di CodeBuild ed ECS e i messaggi della CI
+  (test avviati, check rossi), e riscrive le righe in pochi secondi. Il giro è diviso in due: la
+  LETTURA (AWS e GitHub, lenta) e la SCRITTURA (canvas, List, allarmi), e un evento chiede solo la
+  seconda, che non aspetta la prima. Un evento anticipa il giro e non lo sostituisce: vale finché il
+  giro non sa la stessa cosa, e al massimo mezz'ora (due ore per i test). I messaggi della CI si
+  trattano come dati non fidati: entrano solo nomi, sha e link a GitHub con la forma giusta. È la
+  sola scrittura su AWS del quadro: `DeleteMessage` sulla sua coda. Senza la variabile tutto resta
+  com'era.
+
 - **La Flotta dice cosa gira dentro a un'app pesante, e perché pesa** (08/10/2026). La riga di salute
   ora porta, per servizio, i MB, i processi e le categorie di processo (`app`: server, reload, test,
   worker, build, avvio…), e lo stato del lanciatore delle app (servizi accesi, copie in più, reload
@@ -152,6 +164,10 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **GitHub si legge una volta al minuto davvero** (08/10/2026). La lettura dei test era ogni 4 giri
+  pensando a giri da 15 secondi, cioè ogni 4-6 minuti con i giri veri, e dopo un errore aspettava 40
+  giri, quasi un'ora. Ora vale la prima che scade fra i giri e il tempo: un minuto, e due dopo un
+  errore.
 - **Lo stesso Mac compariva due o tre volte nella Flotta** (07/10/2026). macOS rinomina l'host quando
   cambia rete (`hostname -s` gli va dietro), e il dev-env, quando non legge l'utente Teleport, ripiega
   su quello di sistema: sui dati veri di una settimana un portatile aveva due nomi a un'ora di
