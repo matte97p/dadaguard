@@ -6,6 +6,20 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **La Flotta dice cosa gira dentro a un'app pesante, e perché pesa** (08/10/2026). La riga di salute
+  ora porta, per servizio, i MB, i processi e le categorie di processo (`app`: server, reload, test,
+  worker, build, avvio…), e lo stato del lanciatore delle app (servizi accesi, copie in più, reload
+  delle copie). Tutti e due facoltativi: un Mac che non li manda resta com'era, con `app_mb`. Nella
+  matrice la colonna «App più pesante», sopra la soglia, dice quale processo tiene la memoria
+  («backend 9,9 GB · uvicorn 9,2», le categorie nel titolo). Nel dettaglio una sezione nuova, «Cosa
+  gira», sotto la memoria dei container: per ogni app una barra a pezzi, un colore fisso per gruppo
+  di categorie con la legenda una volta sola, il totale e i processi, e sotto la riga del lanciatore.
+  E il problema dell'app pesante nomina la causa probabile, con l'azione: una categoria sopra il 70%
+  («pesa uvicorn: il server stesso cresce», riavvia l'app), i test sopra il 40% (lascia finire i
+  test), il reload sopra un quarto dell'app o un giga (riavvia senza reload), due copie o più (spegni
+  quelle che non usi, col comando di `teleport.devEnvComandi.spegniCopia` se c'è). Il blocco del
+  lanciatore si riconosce dalla forma, non dal nome della chiave. La demo ha un backend dove pesa il
+  server con due copie accese, e un Mac con una corsa di test.
 - **Un canale a parte per la salute dei Mac** (07/10/2026). Con `teleport.canaleFlotta` (l'id del
   canale) gli avvisi sul dev-env (motore di Docker, immagine vecchia, VM sotto l'obiettivo, OOM,
   container, doctor, opt-out, comandi sul Mac, guasti, versione) li scrive il bot del quadro in quel

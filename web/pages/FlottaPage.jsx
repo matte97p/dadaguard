@@ -7,7 +7,7 @@ import Loading from '../components/Loading.jsx'
 import { fmtAgo, fmtMs } from '../format.js'
 import { digestCorto } from '../../shared/devEnv.js'
 import { linkAudit } from '../accessi.js'
-import { fraseProblema, fraseAzione, storiaImmagini, celleMac, azioniFlotta, COLONNE } from '../flotta.js'
+import { fraseProblema, fraseAzione, storiaImmagini, celleMac, azioniFlotta, COLONNE, righeProcessi, legendaProcessi, rigaCopie, pesoMb } from '../flotta.js'
 import { numero } from '../grafici.js'
 import './ops.css'
 import './accessi.css'
@@ -415,6 +415,11 @@ function DettaglioMac({ m, dati, t, lang }) {
                             {fraseAzione(p.azione, t, lang)} <ComandoInline comando={p.azione?.comando} t={t} />
                           </span>
                         )}
+                        {!ripetuta && p.azione?.poi && (
+                          <span className="fl-plist-az">
+                            {fraseAzione(p.azione.poi, t, lang)} <ComandoInline comando={p.azione.poi.comando} t={t} />
+                          </span>
+                        )}
                       </div>
                     </li>
                   )
@@ -469,6 +474,7 @@ function DettaglioMac({ m, dati, t, lang }) {
               </div>
             </Sezione>
           )}
+          <CosaGira m={m} vmMb={vmMb} t={t} lang={lang} />
         </div>
       </div>
       <div className="fl-det-basso">
@@ -535,5 +541,48 @@ function DettaglioMac({ m, dati, t, lang }) {
       )}
       <p className="ui-note">{t('home.soloLettura')}</p>
     </>
+  )
+}
+
+// ── Cosa gira: memoria e processi di ogni app, per tipo di processo (dal 08/10/2026) ───────────────
+// Una riga per app: il nome, una barra a pezzi (uno per categoria, nei colori fissi di
+// `GRUPPI_CATEGORIE`) sulla stessa scala della memoria dei container qui sopra, e il totale coi
+// processi. La legenda una volta sola, in cima; sotto, la riga del lanciatore (servizi, copie,
+// reload). Un Mac che manda solo `app_mb` ha la barra grigia e lo dice; uno che non manda niente non
+// ha la sezione.
+function CosaGira({ m, vmMb, t, lang }) {
+  const righe = righeProcessi(m.app ?? [], vmMb > 0 ? vmMb : null)
+  const run = rigaCopie(m.copie, t)
+  if (!righe.length && !run) return null
+  const legenda = legendaProcessi(righe, t)
+  const senzaCat = righe.length > 0 && righe.every((r) => !r.conCategorie)
+  return (
+    <Sezione titolo={t('flotta.processi')} sotto={senzaCat ? t('flotta.processiSenzaCat') : t('flotta.processiSotto')}>
+      {legenda.length > 0 && <Legenda voci={legenda.map((v) => ({ etichetta: v.etichetta, colore: v.colore, forma: 'quadro' }))} />}
+      {righe.length > 0 && (
+        <div className="fl-cont fl-proc">
+          {righe.map((r) => {
+            const titolo = r.conCategorie
+              ? r.pezzi.map((p) => `${p.cat} ${pesoMb(p.mb, lang)}${p.n > 1 ? ` (${p.n})` : ''}`).join(' · ')
+              : t('flotta.processiBarra', { app: r.nome, gb: gb(r.mb / 1024, lang) })
+            return (
+              <div key={r.nome} className="fl-cont-riga">
+                <span className="ui-mono">{r.nome}</span>
+                <span className="fl-proc-barra" role="img" aria-label={`${r.nome}: ${titolo}`} title={titolo}>
+                  {r.pezzi.map((p, i) => (
+                    <i key={p.cat ?? i} style={{ width: `${Math.max(0.6, p.pct)}%`, background: p.colore }} title={p.cat ? `${p.cat} ${pesoMb(p.mb, lang)}` : undefined} />
+                  ))}
+                </span>
+                <span className="fl-cont-v">
+                  {gb(r.mb / 1024, lang)} GB
+                  {r.processi != null && <small>{t('flotta.processiN', { n: r.processi })}</small>}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {run && <p className="fl-proc-run">{run}</p>}
+    </Sezione>
   )
 }

@@ -15,6 +15,7 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, StartQueryCommand, GetQueryResultsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './runtime/awsClient.js'
 import { annotaIdentita, fonteUtente, idMacchina } from './identitaMacchine.js'
+import { bloccoLanciatore, processiPerApp, statoCopie } from '../shared/devEnv.js'
 
 export const key = 'teleport'
 
@@ -1069,6 +1070,10 @@ export function riassumiSalute(eventi = []) {
       swapMacMb: num(s.mac?.swap_usata_mb),
       memoriaLiberaMacPct: num(s.mac?.memoria_libera_pct),
       appMb: s.app_mb ?? {},
+      // Dal 08/10/2026: per servizio i processi e le categorie (`app`), e lo stato del lanciatore delle
+      // app (servizi accesi, copie, reload). Facoltativi: un Mac vecchio non li manda, ed e' `null`.
+      app: processiPerApp(s.app),
+      copie: statoCopie(bloccoLanciatore(s)),
       // Quanto usa ogni container (`docker stats`): e' la ripartizione che risponde a «chi si e'
       // mangiato la VM?». Una riga senza il blocco lascia l'elenco vuoto, non una fila di zeri.
       contenitori: contenitoriDi(s.container?.uso),
