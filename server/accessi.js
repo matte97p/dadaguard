@@ -15,6 +15,7 @@ import { cached } from './util/ttlcache.js'
 import { entroLimiti, tetto } from './finestre.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import * as teleport from './teleport.js'
+import { soloLoginPersonali } from './loginPersonali.js'
 
 // ⚠️ Le credenziali di un account si compongono dai suoi CAMPI (`roleArn` + `externalId` in cloud,
 // `profile` in locale), come fa `awsForAccount` in iam.js.
@@ -211,12 +212,27 @@ export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_EN
   //    giallo che parlava di indici. Separate, ognuna ha il suo colore per sempre, il suo istante e la
   //    sua calma: un `CREATE INDEX` non fa ripartire la riga rossa, e un `UPDATE` non aspetta che
   //    finisca la calma dei DDL.
+  //    ⚠️ Dal 08/10/2026 la riga dei DATI non e' piu' rossa a prescindere. Nel canale 🚨 vuol dire
+  //    «un allarme e' acceso, il servizio e' ridotto», e una persona che scrive sui dati col SUO
+  //    login (`dev_tizio`), cioe' firmato e messo a log, e' un fatto d'audit, non un guasto: con la
+  //    sirena sembrava un'interruzione, e insegnava a ignorare il rosso proprio a chi deve leggerlo.
+  //    Ora la riga e' ℹ️ quando TUTTI i login con cui si e' scritto sono il nome di chi ha scritto, e
+  //    resta 🚨 appena ce n'e' uno che non lo e' (`postgres`, un login condiviso, il login di un
+  //    altro), o quando i login non si conoscono: quella e' l'anomalia vera. Il riconoscimento e'
+  //    quello del messaggio (server/loginPersonali.js), cosi' una riga ℹ️ non puo' avere un login
+  //    estraneo fra parentesi.
+  //    ⚠️ I login (`utentiDb`) l'audit li dà per database, non per natura: un `CREATE INDEX` fatto
+  //    come `postgres` tiene rossa anche la riga dei dati scritti con `dev_tizio`. Si sbaglia verso
+  //    il rumore, che e' il verso giusto.
   for (const d of audit.database ?? []) {
     if (d.ambiente !== 'prod') continue
     const riga = (natura, quante, quando, azioni, tabelle, oggetti = []) => ({
       chiave: `scrittura-${natura}:${d.servizio}/${d.nome}`,
       tipo: 'scrittura',
-      livello: natura === 'dati' ? 'allarme' : 'attenzione',
+      // Vedi il ⚠️ del 08/10/2026 qui sopra. `d.scriventi` e non i soli nomi di questa natura, per
+      // la stessa ragione di `chiTutti` qui sotto: e' l'insieme con cui il messaggio decide quali
+      // login sono personali, e le due risposte devono essere la stessa.
+      livello: natura === 'struttura' ? 'attenzione' : soloLoginPersonali(d.utentiDb, d.scriventi) ? 'info' : 'allarme',
       natura,
       // Vedi `parziale` qui sopra: viaggia con la riga perche' solo chi scrive il messaggio sa come
       // dirlo, e un numero parziale spacciato per esatto e' peggio di un numero assente.
@@ -254,12 +270,14 @@ export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_EN
     // ⚠️ Se la divisione non c'è (payload di una versione precedente, cioè un rilascio a metà) NON si
     // scende di livello: non sapere cosa è stato scritto non è la stessa cosa che sapere che era
     // struttura, e fra i due errori il silenzioso è quello che costa. Una riga sola, rossa, con la
-    // chiave di prima.
+    // chiave di prima. Rossa anche quando i login sono tutti personali (08/10/2026): il ℹ️ e' una
+    // discesa di livello, e su un payload che non dice cosa e' stato scritto non si scende.
     if (d.scrittureDati === undefined && d.scrittureStruttura === undefined) {
       if ((d.scritture ?? 0) > 0)
         fuori.push({
           ...riga('dati', d.scritture, d.ultimaScrittura, d.azioni ?? [], d.bersagli ?? []),
           chiave: `scrittura:${d.servizio}/${d.nome}`,
+          livello: 'allarme',
         })
       continue
     }
@@ -709,9 +727,16 @@ export const CALMA_MS = 30 * 60_000
 //
 // Il passaggio dalla struttura ai dati dei clienti non è più un caso da trattare qui: sono due segnali
 // con due chiavi, quindi il primo `UPDATE` è una chiave che non ha mai parlato e parla subito.
+//
+// ⚠️ Rompe la calma anche la riga dei dati che passa da ℹ️ a 🚨 (08/10/2026): stessa chiave, ma un
+// login che non e' il nome di nessuno e' comparso dopo il messaggio ℹ️. Prima del 08/10/2026 quella
+// riga era gia' rossa e aspettare non nascondeva niente; ora, senza questa regola, l'anomalia vera
+// starebbe zitta mezz'ora dietro a una riga che diceva «tutto firmato». Il verso opposto (da 🚨 a ℹ️)
+// non rompe niente: e' una notizia meno grave, e aspetta la calma come le altre.
 function rompeLaCalma(segnale, prec) {
   const gia = new Set(precChi(prec))
-  return (segnale.chi ?? []).some((c) => !gia.has(c))
+  if ((segnale.chi ?? []).some((c) => !gia.has(c))) return true
+  return segnale.livello === 'allarme' && typeof prec === 'object' && prec?.livello === 'info'
 }
 
 // Cosa NON è già stato annunciato, e cosa non è ancora il momento di annunciare. Lo stato è
@@ -738,8 +763,8 @@ export function daAnnunciare(segnaliOra = [], statoPrec = null, { adesso = Date.
     const prec = statoPrec[s.chiave]
     const cambiata = improntaCambiata(s, prec)
     const inedito = (s.quando ?? 0) > precQuando(prec) || cambiata
-    // Il segnale COM'È ADESSO: quante ne sono arrivate, quali e su cosa. Il colore non si ricalcola:
-    // lo porta la chiave, che è per natura.
+    // Il segnale COM'È ADESSO: quante ne sono arrivate, quali e su cosa. Il colore non si ricalcola
+    // qui: lo decide `segnali()` a ogni giro, per natura e, sui dati, per i login (08/10/2026).
     const { azioni, nuove, ripiego } = arrivate(s, prec)
     // Quanto ci si puo' fidare del numero, in una parola sola, decisa QUI perche' dipende dai due
     // giri e non da come si scrive la riga. `almeno`: il numero e' un pavimento (campione, ma le
