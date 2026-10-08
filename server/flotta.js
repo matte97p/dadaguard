@@ -28,6 +28,7 @@ import { conto, configSalute, leggiHeartbeat, segnali, soglieDevEnv, SOGLIE_DEV_
 import {
   appPiuPesanti,
   avvioStorto,
+  diagnosiApp,
   dataImmagine,
   dataRiferimento,
   digestCorto,
@@ -83,7 +84,28 @@ export function comandoMemoria(motore, gb) {
 export function comandiDevEnv(cfg = {}) {
   const c = cfg?.devEnvComandi ?? {}
   const testo = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
-  return { aggiorna: testo(c.aggiorna), doctor: testo(c.doctor), salute: testo(c.salute), dentro: testo(c.dentro) }
+  return { aggiorna: testo(c.aggiorna), doctor: testo(c.doctor), salute: testo(c.salute), dentro: testo(c.dentro), spegniCopia: testo(c.spegniCopia) }
+}
+
+// Il comando che spegne UNA copia del lanciatore delle app, con `{n}` al posto del numero. La pagina
+// non sa quale copia si usa, quindi il numero resta da scegliere: `<N>`, e la frase dice quali ci sono.
+export function comandoSpegniCopia(modello) {
+  if (!modello) return null
+  return modello.includes('{n}') ? modello.replaceAll('{n}', '<N>') : modello
+}
+
+// L'azione per UNA causa dell'app pesante (`diagnosiApp` in shared/devEnv.js).
+function azioneCausa(c, p, comandi) {
+  switch (c?.k) {
+    case 'test':
+      return { k: 'aspettaTest', app: p.app, comando: null }
+    case 'reload':
+      return { k: 'senzaReload', app: p.app, gb: c.gb, comando: null }
+    case 'copie':
+      return { k: 'spegniCopie', n: c.n, quali: c.quali ?? [], comando: comandoSpegniCopia(comandi.spegniCopia) }
+    default:
+      return { k: 'riavviaApp', app: p.app, gb: p.gb, comando: null }
+  }
 }
 
 // Un nome di container che si puo' mettere in un comando senza virgolette.
@@ -123,8 +145,15 @@ export function azioneDi(p, ctx = {}) {
       const comando = nomi.length && nomi.every((n) => NOME_SEMPLICE.test(n)) ? `docker restart ${nomi.join(' ')}` : null
       return { k: 'riavviaContainer', comando }
     }
-    case 'app-pesante':
-      return { k: 'riavviaApp', app: p.app, gb: p.gb, comando: null }
+    case 'app-pesante': {
+      // La prima causa decide l'azione; le copie accese, se non sono gia' la prima, si dicono dopo:
+      // spegnerle libera memoria qualunque sia la causa.
+      const cause = p.cause ?? []
+      const azione = azioneCausa(cause[0], p, comandi)
+      const copie = cause.find((c) => c.k === 'copie')
+      if (copie && cause[0] !== copie) azione.poi = azioneCausa(copie, p, comandi)
+      return azione
+    }
     case 'motore-non-supportato':
       return { k: 'cambiaMotore', ammessi: p.ammessi ?? [], comando: null }
     case 'opt-out-attivi':
@@ -446,9 +475,14 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
       problemi.push({ tipo: 'avvio-storto', esito: ultimo.esito, lato: ultimo.lato ?? null, quando: ultimo.quando ?? null })
     }
 
-    const pesanti = appPiuPesanti(sm?.appMb ?? {}, 3)
-    const troppo = pesanti.find((a) => a.gb * 1024 >= sg.appPesanteMb)
-    if (troppo) problemi.push({ tipo: 'app-pesante', app: troppo.nome, gb: troppo.gb, sogliaGb: Math.round(sg.appPesanteMb / 102.4) / 10 })
+    // Tutte le app, dalla piu' pesante: `app` quando il Mac lo manda (coi processi e le categorie),
+    // `app_mb` altrimenti. Sopra la soglia, la causa probabile (`diagnosiApp`) va nel problema.
+    const pesanti = appPiuPesanti(sm?.appMb ?? {}, Infinity, sm?.app ?? null)
+    const copie = sm?.copie ?? null
+    const troppo = pesanti.find((a) => (a.mb ?? a.gb * 1024) >= sg.appPesanteMb)
+    if (troppo) {
+      problemi.push({ tipo: 'app-pesante', app: troppo.nome, gb: troppo.gb, sogliaGb: Math.round(sg.appPesanteMb / 102.4) / 10, cause: diagnosiApp(troppo, copie) })
+    }
 
     const uso = usoDellaMacchina(sm)
     const vm = {
@@ -517,6 +551,8 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
       motore: uso.motore,
       motoreIncerto: uso.motoreIncerto,
       app: pesanti,
+      // Il lanciatore delle app: servizi accesi, copie, reload delle copie. `null`: non lo manda.
+      copie,
       contenitori: sm?.contenitori ?? [],
       oom,
       swapGb: sm?.swapMacMb != null ? Math.round(sm.swapMacMb / 102.4) / 10 : null,

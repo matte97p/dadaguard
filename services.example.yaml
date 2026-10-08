@@ -363,6 +363,7 @@ services:
 #     doctor: ./dev-env doctor                    # doctor KO, avvio fallito, dev-env fermo
 #     salute: ./dev-env up                        # l'agent della salute che non manda piu'
 #     dentro: ./dev-env shell                     # comandi dei repo lanciati sul Mac
+#     spegniCopia: ./dev-env down {n}             # app pesante con piu' copie accese ({n} diventa <N>)
 #
 #   # Gli utenti di DATABASE che non possono scrivere. Serve perche' l'audit di Teleport registra la
 #   # query quando la INOLTRA, prima della risposta: uno statement che Postgres rifiuta finisce nel log
