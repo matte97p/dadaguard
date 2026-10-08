@@ -125,6 +125,17 @@ export function computeOverall(checks) {
   return { overall, cause, causes }
 }
 
+// Il semaforo COME LO VEDE SLACK, quando e' diverso da quello della card: un check che si dichiara
+// `notificatoAltrove` (oggi solo `alarms`, quando ogni allarme che suona ha gia' un suo notifier via
+// SNS) resta sulla dashboard ma non deve far partire un messaggio di Dadaguard, che sarebbe un doppione
+// in ritardo. `null` quando non c'e' niente da togliere: il notificatore usa `overall` e `cause`.
+export function overallPerNotifica(checks) {
+  const restano = Object.entries(checks ?? {}).filter(([, c]) => !c?.notificatoAltrove)
+  if (restano.length === Object.keys(checks ?? {}).length) return null
+  const { overall, cause } = computeOverall(Object.fromEntries(restano))
+  return { overall, cause }
+}
+
 // Scoperti + dichiarati: chi vince, campo per campo. I DICHIARATI vincono, perché sono intento
 // umano — label, colore, e soprattutto `terraform.stateBucket`, che è ciò che alimenta i segnali di
 // drift e di risorse non gestite. Prima la fusione era `{...dichiarati, ...scoperti}`, cioè l'account
@@ -469,6 +480,7 @@ export async function getStatus(lang) {
       const endpoint =
         urlForService(urls, service.account, service.name) ?? service.url ?? checks.runtime?.url ?? endpointFromHealth(service.healthUrl)
       const { overall, cause, causes } = computeOverall(checks)
+      const perNotifica = overallPerNotifica(checks)
       const region = service.aws?.region ?? acct?.region ?? null
       const meta = metaDaTags(service.account ? tagsDelServizio(service.aws, tagsByAccount[service.account]) : null)
       const conteggi = conteggiDaRuntime(checks.runtime)
@@ -505,6 +517,9 @@ export async function getStatus(lang) {
         overall, // semaforo (colore)
         cause, // check colpevole primario → testo del badge (es. "ALLARME", "TASK GIÙ")
         causes, // tutti i check allo stesso livello del peggiore
+        // Il semaforo per Slack quando un check e' gia' detto da altri (vedi `overallPerNotifica`);
+        // assente quando nessun check e' detto da altri.
+        ...(perNotifica ? { perNotifica } : {}),
         checks,
       }, { aws: service.aws, profile: acct?.profile ?? null, region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
   }

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { alarmiSenzaServizio, isAutoscalingAlarm, run } from '../server/checks/alarms.js'
+import { alarmiSenzaServizio, haNotificaPropria, isAutoscalingAlarm, run } from '../server/checks/alarms.js'
+import { makeT } from '../server/i18n.js'
 
 // Un allarme su un ALB non porta il nome del servizio ECS: le sue dimensioni sono `LoadBalancer` e
 // `TargetGroup`. Il ponte è la convenzione di nome del target group, `<cluster>-<servizio>`.
@@ -106,4 +107,39 @@ test('senza servizio: nessun servizio configurato vuol dire che sono tutti orfan
   // suona su un account dove non monitoriamo niente e\' proprio quello che nessun altro mostrerebbe.
   const orfani = alarmiSenzaServizio([allarmeEcs('backend')], [])
   assert.equal(orfani.length, 1)
+})
+
+// ── Gli allarmi che hanno gia' chi li dice ────────────────────────────────────────────────────────
+// Visto l'08/10/2026: `acme-production-alb-5xx` detto su Slack dal suo notifier (allarme → SNS →
+// Lambda) alle 14:52 e richiuso alle 15:01, e alle 15:01 un nostro «1 allarme attivo» doppione e gia'
+// scaduto. La card li mostra ancora; e' Slack che non deve sentirli due volte.
+const conSns = (a) => ({ ...a, AlarmActions: ['arn:aws:sns:eu-central-1:123456789012:acme-production-alb-alarms'] })
+
+test('notifica propria: un topic SNS fra le AlarmActions, in qualunque partizione', () => {
+  assert.equal(haNotificaPropria(conSns(allarmeAlb('acme-production-backend'))), true)
+  assert.equal(haNotificaPropria({ AlarmActions: ['arn:aws-cn:sns:cn-north-1:123456789012:t'] }), true)
+  assert.equal(haNotificaPropria(allarmeAlb('acme-production-backend')), false, 'nessuna azione: lo diciamo noi')
+  assert.equal(haNotificaPropria({ AlarmActions: ['arn:aws:lambda:eu-central-1:123456789012:function:x'] }), false)
+  // Conta lo scatto: un SNS solo sul rientro non dice a nessuno che l'allarme e' partito.
+  assert.equal(haNotificaPropria({ OKActions: ['arn:aws:sns:eu-central-1:123456789012:t'] }), false)
+})
+
+test('tutti gia\' detti: la riga resta gialla, con la nota, e si dichiara notificata altrove', async () => {
+  const r = await run(ecs('backend'), { alarms: [conSns(allarmeAlb('acme-production-backend'))], t: makeT('it') })
+  assert.equal(r.status, 'degraded', 'la card resta gialla finche\' l\'allarme suona')
+  assert.equal(r.notificatoAltrove, true)
+  assert.equal(r.summary, '1 allarme attivo: acme-production-alb-5xx · già notificato su Slack dal suo allarme')
+})
+
+test('misti: il check conta per Slack, e la frase in chat nomina solo quelli senza notifier', async () => {
+  const alarms = [conSns(allarmeAlb('acme-production-backend')), allarmeAlb('acme-production-backend', 'latenza')]
+  const r = await run(ecs('backend'), { alarms, t: makeT('it') })
+  assert.equal(r.notificatoAltrove, undefined)
+  assert.equal(r.alert, '1 allarme attivo: latenza')
+  assert.match(r.summary, /^2 allarmi attivi: acme-production-alb-5xx, latenza · 1 già notificato su Slack/)
+})
+
+test('nessuno con notifier: la riga di sempre, senza nota e senza campi in piu\'', async () => {
+  const r = await run(ecs('backend'), { alarms: [allarmeAlb('acme-production-backend')], t: makeT('en') })
+  assert.deepEqual(r, { key: 'alarms', status: 'degraded', summary: '1 alarm firing: acme-production-alb-5xx' })
 })

@@ -164,6 +164,14 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **Un allarme CloudWatch che ha già il suo notifier non arriva più due volte su Slack** (08/10/2026).
+  `acme-production-alb-5xx` è scattato alle 14:52: il suo notifier (allarme → SNS → Lambda → Slack)
+  l'ha detto alle 14:52 e richiuso alle 15:01, e alle 15:01 Dadaguard ha mandato il suo «1 allarme
+  attivo», un doppione arrivato quando era già rientrato. Ora un allarme con un topic SNS fra le
+  `AlarmActions` resta sulla card, gialla e con la nota «già notificato su Slack dal suo allarme», ma
+  non apre un allarme di Dadaguard. Quelli senza azione SNS si annunciano come prima; con allarmi misti
+  il messaggio nomina solo quelli che nessun altro dice. Un allarme già aperto da Dadaguard al momento
+  del rilascio resta aperto finché suona e si chiude col suo rientro, senza «tornato OK» finti.
 - **GitHub si legge una volta al minuto davvero** (08/10/2026). La lettura dei test era ogni 4 giri
   pensando a giri da 15 secondi, cioè ogni 4-6 minuti con i giri veri, e dopo un errore aspettava 40
   giri, quasi un'ora. Ora vale la prima che scade fra i giri e il tempo: un minuto, e due dopo un

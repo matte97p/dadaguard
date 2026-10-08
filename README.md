@@ -172,6 +172,7 @@ che dicono la stessa cosa insegnano a ignorarli entrambi. Quindi:
 |---|---|---|
 | Cron **mai partito** | `WEBHOOK_CRON` (o il principale, se non lo imposti) | schedule non applicato, target sbagliato, IAM, concorrenza a zero: il job non esiste nel momento in cui dovrebbe parlare, quindi **nessuno** può dirlo dall'interno |
 | Cron **caduto** | nessuno | lo scrive il job stesso, con più dettaglio. `NOTIFY_CRON_FAILED=1` per riaccenderlo |
+| Allarme CloudWatch con un topic SNS fra le `AlarmActions` | nessuno | lo dice già il suo notifier (allarme → SNS → Lambda → Slack), nel momento in cui scatta e quando rientra. Resta sulla card, con la nota «già notificato su Slack». Quelli senza azione SNS vanno nel `WEBHOOK` |
 | Tutto il resto | `WEBHOOK` | task ECS a 0/N, endpoint che non risponde, secret mancante, drift, backup vecchio, certificato in scadenza, bucket pubblico, Bedrock 5xx, worker Cloudflare: oggi non hanno voce da nessuna parte |
 
 Il **rientro** torna dove l'allarme è stato aperto: un rosso che nessuno chiude lascia un canale pieno
