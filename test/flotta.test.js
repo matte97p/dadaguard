@@ -2,12 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { binnaSalute, caricoContainer, contenitoriDi, settimanaDiSalute, storiaAvvii } from '../server/teleport.js'
-import { componiFlotta, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO, andamentoFlotta, immagineInPari, riepilogoFlotta, MEM_LIBERA_BASSA_GB, fondiSerie } from '../server/flotta.js'
+import { componiFlotta, comandoSpegniCopia, comandoMemoria, comandiDevEnv, azioneDi, LIVELLO, andamentoFlotta, immagineInPari, riepilogoFlotta, MEM_LIBERA_BASSA_GB, fondiSerie } from '../server/flotta.js'
 import { raggruppaMacchine, stessaPersona, personaDi, idMacchina, annotaIdentita, NON_VISTA_MS } from '../server/identitaMacchine.js'
 import { soglieDevEnv, SOGLIE_DEV_ENV } from '../server/accessi.js'
 import { linkPagina } from '../server/notify/slack.js'
 import { demoFlotta } from '../server/demo.js'
-import { fraseProblema, fraseAzione, valoreSerie, storiaImmagini, TIPI_PROBLEMA, TIPI_AZIONE, celleMac, azioniFlotta, COLONNE, COLONNA_DEL_PROBLEMA } from '../web/flotta.js'
+import { fraseProblema, fraseAzione, valoreSerie, storiaImmagini, TIPI_PROBLEMA, TIPI_AZIONE, celleMac, azioniFlotta, COLONNE, COLONNA_DEL_PROBLEMA, fraseCausa, righeProcessi, legendaProcessi, rigaCopie, coloreCategoria, GRUPPI_CATEGORIE, pesoMb } from '../web/flotta.js'
+import { appPiuPesanti, processiPerApp, statoCopie, bloccoLanciatore, diagnosiApp, CATEGORIE_PROCESSI } from '../shared/devEnv.js'
 
 // Il dizionario del frontend e' un `.jsx` senza JSX dentro: node non importa quell'estensione, quindi
 // lo si carica dal suo testo, che e' esattamente il modulo che il browser riceve.
@@ -274,8 +275,14 @@ test('soglie: appPesanteMb ha un default di 3 GB e si cambia dalla config', () =
 })
 
 test('comandiDevEnv: solo stringhe non vuote, e senza config nessun comando inventato', () => {
-  assert.deepEqual(comandiDevEnv({}), { aggiorna: null, doctor: null, salute: null, dentro: null })
-  assert.deepEqual(comandiDevEnv({ devEnvComandi: { aggiorna: ' ./x update ', doctor: '', salute: 3 } }), { aggiorna: './x update', doctor: null, salute: null, dentro: null })
+  assert.deepEqual(comandiDevEnv({}), { aggiorna: null, doctor: null, salute: null, dentro: null, spegniCopia: null })
+  assert.deepEqual(comandiDevEnv({ devEnvComandi: { aggiorna: ' ./x update ', doctor: '', salute: 3, spegniCopia: './x down {n}' } }), {
+    aggiorna: './x update',
+    doctor: null,
+    salute: null,
+    dentro: null,
+    spegniCopia: './x down {n}',
+  })
 })
 
 // ── Le frasi ──────────────────────────────────────────────────────────────────────────────────────
@@ -343,7 +350,7 @@ test('linkPagina: gli avvisi sul dev-env aprono il Mac nella Flotta, gli accessi
 test('demo: la flotta passa dalle funzioni vere e mostra un caso per Mac', () => {
   const f = demoFlotta(ADESSO)
   assert.equal(f.totale, 8)
-  assert.equal(f.daSistemare, 4)
+  assert.equal(f.daSistemare, 5)
   const di = (n) => f.macchine.find((m) => m.macchina === n)
   const kim = di('kim-macbook')
   assert.equal(f.macchine[0], kim)
@@ -351,12 +358,20 @@ test('demo: la flotta passa dalle funzioni vere e mostra un caso per Mac', () =>
   assert.equal(kim.oom.nuovi, 3)
   assert.equal(kim.vm.gb, 11.7)
   assert.equal(kim.vm.obiettivoGb, 14)
-  assert.deepEqual(kim.app[0], { nome: 'backend', gb: 3.7 })
+  assert.deepEqual([kim.app[0].nome, kim.app[0].gb, kim.app[0].processi], ['backend', 9.9, 8])
+  // Il backend di kim: pesa uvicorn, e ci sono due copie accese; eli ha una corsa di test.
+  assert.deepEqual(kim.problemi.find((p) => p.tipo === 'app-pesante').cause.map((c) => c.k), ['categoria', 'copie'])
+  assert.equal(kim.copie.copie, 2)
+  assert.deepEqual(di('eli-macbook').problemi.map((p) => p.tipo), ['app-pesante'])
+  assert.deepEqual(di('eli-macbook').problemi[0].cause.map((c) => c.k), ['test'])
+  // sam ha il dev-env vecchio: solo il totale per app, niente processi ne' lanciatore.
+  assert.equal(di('sam-macbook').app[0].categorie, undefined)
+  assert.equal(di('sam-macbook').copie, null)
   assert.equal(di('sam-macbook').problemi.find((p) => p.tipo === 'immagine-indietro').giorni, 11)
   assert.ok(di('sam-macbook').problemi.some((p) => p.tipo === 'tool-mancanti'))
   assert.deepEqual(di('noa-macbook').problemi.map((p) => p.tipo).sort(), ['avvio-storto', 'doctor-ko', 'opt-out-attivi'])
   assert.deepEqual(di('rin-macbook').problemi.map((p) => p.tipo), ['lavoro-sul-mac'])
-  for (const n of ['alex-macbook', 'lee-macbook', 'eli-macbook']) assert.equal(di(n).livello, 'ok', n)
+  for (const n of ['alex-macbook', 'lee-macbook']) assert.equal(di(n).livello, 'ok', n)
   // Il Mac rinominato di tess e' una riga sola, col nome nuovo e il login Teleport; il Mac di riserva
   // di rin, spento da cinque giorni, sta fra i non visti e non conta.
   assert.deepEqual(di('tess-mbp').alias, ['MacBook-Pro-di-tess'])
@@ -458,7 +473,11 @@ test('matrice: le celle di kim dicono il problema col livello, quelle di un Mac 
   assert.equal(kim.vm.valore, '12/14')
   assert.ok(kim.vm.barra > 80 && kim.vm.barra < 100)
   assert.equal(kim.motore.livello, 'info')
-  assert.equal(kim.app.valore, 'backend 3,7 GB')
+  assert.equal(kim.app.valore, 'backend 9,9 GB · uvicorn 9,2')
+  assert.match(kim.app.titolo, /^uvicorn 9,2 GB · reload 0,4 GB · test 0,1 GB \(2\) · avvio 60 MB \(2\) · worker 40 MB\n/)
+  assert.match(kim.app.titolo, /3 GB\. Pesa uvicorn: il server stesso cresce; 2 copie accese/)
+  // Sotto la soglia la cella resta il solo peso, anche con le categorie.
+  assert.equal(di('alex-macbook').app.valore.includes('·'), false)
   assert.match(kim.oom.titolo, /processi uccisi/)
   // lee ha chiuso il Mac ieri: niente salute nelle 24 ore, quindi trattini e non zeri.
   const lee = di('lee-macbook')
@@ -471,7 +490,7 @@ test('matrice: le celle di kim dicono il problema col livello, quelle di un Mac 
 
 test('azioniFlotta: una voce per azione, coi Mac che la chiedono, nell ordine del piu grave', () => {
   const a = azioniFlotta(demoFlotta(ADESSO).macchine)
-  assert.deepEqual(a.map((x) => x.k), ['memoriaVm', 'doctor', 'aggiorna', 'dentroContainer'])
+  assert.deepEqual(a.map((x) => x.k), ['memoriaVm', 'doctor', 'aggiorna', 'aspettaTest', 'dentroContainer'])
   assert.deepEqual(a[0].macchine, ['kim-macbook'])
   assert.equal(a[0].livello, 'crit')
   const it = makeT('it')
@@ -657,4 +676,145 @@ test('fondiSerie: ora per ora il caso peggiore, e gli OOM sommati', () => {
   assert.deepEqual(fondiSerie([a, b]), { mem: [5, 4, 2], oom: [0, 2, 2], swap: [1, 2, 3], cpu: [10, 50, 9] })
   assert.equal(fondiSerie([a, null]), a)
   assert.equal(fondiSerie([]), null)
+})
+
+// ── Cosa gira dentro alle app (08/10/2026) ────────────────────────────────────────────────────────
+//
+// La salute ora dice, per servizio, i processi e le categorie (`app`) e lo stato del lanciatore delle
+// app (servizi, copie, reload). Le prove difendono: `app` vince su `app_mb` e `app_mb` resta il
+// ripiego; un campo che manca e' «non lo so»; ogni regola della diagnosi scatta da sola e nell'ordine.
+
+// La riga vera del Mac del 08/10/2026, con persona e macchina cambiate.
+const APP_PESANTE = {
+  backend: { mb: 9900, processi: 8, categorie: { avvio: { n: 2, mb: 60 }, reload: { n: 1, mb: 400 }, test: { n: 2, mb: 150 }, uvicorn: { n: 1, mb: 9200 }, worker: { n: 1, mb: 40 } } },
+}
+const LANCIATORE = { servizi: ['backend', 'frontend'], copie: 2, copie_servizi: { 1: ['backend', 'frontend'], 2: ['backend'] }, reload: true }
+const conApp = (dentro) => [ev(ADESSO - 2 * ORA, PRIMA), ev(ADESSO - 5 * 60_000, conSalute(dentro))]
+
+test('processiPerApp: numeri controllati, categorie nell ordine fisso, e una chiave fuori elenco diventa altro', () => {
+  const a = processiPerApp({ ...APP_PESANTE, chat: { mb: '300', processi: 2, categorie: { nuova: { n: 1, mb: 100 }, altro: { n: 1, mb: 50 }, python: { n: 'x', mb: null } } } })
+  assert.deepEqual(a.backend.categorie.map((c) => c.cat), ['uvicorn', 'reload', 'worker', 'test', 'avvio'])
+  assert.deepEqual(a.chat, { mb: 300, processi: 2, categorie: [{ cat: 'altro', n: 2, mb: 150 }] })
+  for (const c of a.backend.categorie) assert.ok(CATEGORIE_PROCESSI.includes(c.cat))
+  // Senza il totale, il totale e' la somma delle categorie; senza nessuno dei due, l'app non c'e'.
+  assert.equal(processiPerApp({ x: { categorie: { node: { n: 1, mb: 700 } } } }).x.mb, 700)
+  assert.equal(processiPerApp({ x: { processi: 3 } }), null)
+})
+
+test('campi mancanti: niente app ne lanciatore e «non lo so», non zero', () => {
+  for (const v of [undefined, null, {}, [], 'x', 3]) assert.equal(processiPerApp(v), null, String(v))
+  for (const v of [undefined, null, {}, [], 'x']) assert.equal(statoCopie(v), null, String(v))
+  assert.equal(bloccoLanciatore({ app_mb: {}, vm: { oom_kill: 0 } }), null)
+  assert.equal(bloccoLanciatore(null), null)
+  // Un reload che non e' un booleano e' «non lo so»; `copie` assente con le copie elencate si conta.
+  assert.deepEqual(statoCopie({ servizi: ['backend'], copie_servizi: { 1: ['backend'] }, reload: 'si' }), { servizi: ['backend'], copie: 1, copieServizi: { 1: ['backend'] }, reload: null })
+  // Un Mac vecchio: la flotta si compone come prima, senza processi e senza lanciatore.
+  const [m] = flottaDi(EVENTI).macchine
+  assert.equal(m.copie, null)
+  assert.deepEqual(m.app.map((a) => [a.nome, a.categorie]), [['backend', undefined], ['frontend', undefined]])
+  assert.deepEqual(m.problemi.find((p) => p.tipo === 'app-pesante').cause, [])
+})
+
+test('aggregazione: app vince su app_mb, e app_mb resta il ripiego per i servizi che app non nomina', () => {
+  const ps = appPiuPesanti({ backend: 3742, frontend: 1147, altro: 900 }, Infinity, processiPerApp(APP_PESANTE))
+  assert.deepEqual(ps.map((a) => [a.nome, a.gb, a.processi ?? null]), [['backend', 9.7, 8], ['frontend', 1.1, null]])
+  assert.equal(ps[0].mb, 9900)
+  // Il blocco del lanciatore si trova dalla forma, qualunque sia il nome della chiave.
+  const [m] = flottaDi(conApp({ app: APP_PESANTE, avvio_app: LANCIATORE })).macchine
+  assert.deepEqual(m.app.map((a) => a.nome), ['backend', 'frontend'])
+  assert.equal(m.app[0].processi, 8)
+  assert.deepEqual(m.copie, { servizi: ['backend', 'frontend'], copie: 2, copieServizi: { 1: ['backend', 'frontend'], 2: ['backend'] }, reload: true })
+  const p = m.problemi.find((x) => x.tipo === 'app-pesante')
+  assert.deepEqual([p.app, p.gb], ['backend', 9.7])
+  // Senza `app`, il problema e la cella vengono da `app_mb` come prima.
+  const [vecchio] = flottaDi(conApp({ app_mb: { backend: 3742 } })).macchine
+  assert.equal(vecchio.problemi.find((x) => x.tipo === 'app-pesante').gb, 3.7)
+})
+
+test('diagnosi: una categoria sopra il 70% e «pesa <categoria>», e le copie si aggiungono', () => {
+  const a = appPiuPesanti({}, 1, processiPerApp(APP_PESANTE))[0]
+  assert.deepEqual(diagnosiApp(a, statoCopie(LANCIATORE)), [
+    { k: 'categoria', cat: 'uvicorn', n: 1, gb: 9, quota: 0.93 },
+    { k: 'copie', n: 2, quali: ['1', '2'] },
+  ])
+  // Una copia sola non e' una causa: e' l'uso normale di due branch insieme.
+  assert.deepEqual(diagnosiApp(a, statoCopie({ ...LANCIATORE, copie: 1 })).map((c) => c.k), ['categoria'])
+  assert.deepEqual(diagnosiApp(a, null).map((c) => c.k), ['categoria'])
+})
+
+test('diagnosi: i test sopra il 40% sono «test in corso», e sopra il 70% la causa e una sola', () => {
+  const app = (cat) => ({ mb: 4000, categorie: Object.entries(cat).map(([k, mb]) => ({ cat: k, n: 2, mb })) })
+  assert.deepEqual(diagnosiApp(app({ uvicorn: 2000, test: 1800, avvio: 200 })).map((c) => c.k), ['test'])
+  assert.deepEqual(diagnosiApp(app({ uvicorn: 2300, test: 1500, avvio: 200 })).map((c) => c.k), [])
+  assert.deepEqual(diagnosiApp(app({ uvicorn: 800, test: 3200 })).map((c) => [c.k, c.cat]), [['test', 'test']])
+})
+
+test('diagnosi: il reload pesante (un quarto dell app, o un giga) e «il reload»', () => {
+  const app = (mb, cat) => ({ mb, categorie: Object.entries(cat).map(([k, v]) => ({ cat: k, n: 1, mb: v })) })
+  assert.deepEqual(diagnosiApp(app(4000, { uvicorn: 2700, reload: 1100, avvio: 200 })).map((c) => c.k), ['reload'])
+  assert.deepEqual(diagnosiApp(app(8000, { uvicorn: 5500, reload: 1024, python: 1476 })).map((c) => c.k), ['reload'])
+  assert.deepEqual(diagnosiApp(app(4000, { uvicorn: 2600, reload: 400, python: 1000 })).map((c) => c.k), [])
+  assert.deepEqual(diagnosiApp(app(4000, { reload: 3600, avvio: 400 })).map((c) => c.k), ['reload'])
+  // Senza categorie (solo `app_mb`) non c'e' niente da dire, e nemmeno da inventare.
+  assert.deepEqual(diagnosiApp({ nome: 'backend', gb: 9.7 }), [])
+})
+
+test('diagnosi: la prima causa decide l azione, le copie la seguono col comando della config', () => {
+  const [m] = flottaDi(conApp({ app: APP_PESANTE, x: LANCIATORE }), {}, { comandi: { spegniCopia: './x down {n}' } }).macchine
+  const p = m.problemi.find((x) => x.tipo === 'app-pesante')
+  assert.deepEqual(p.azione, { k: 'riavviaApp', app: 'backend', gb: 9.7, comando: null, poi: { k: 'spegniCopie', n: 2, quali: ['1', '2'], comando: './x down <N>' } })
+  // Senza il comando in config l'azione resta una frase.
+  const solo = azioneDi({ tipo: 'app-pesante', app: 'backend', gb: 5, cause: [{ k: 'copie', n: 3, quali: ['1', '2', '3'] }] })
+  assert.deepEqual(solo, { k: 'spegniCopie', n: 3, quali: ['1', '2', '3'], comando: null })
+  assert.equal(azioneDi({ tipo: 'app-pesante', app: 'b', gb: 4, cause: [{ k: 'test', gb: 2, n: 4 }] }).k, 'aspettaTest')
+  assert.deepEqual(azioneDi({ tipo: 'app-pesante', app: 'b', gb: 4, cause: [{ k: 'reload', gb: 1.1 }] }), { k: 'senzaReload', app: 'b', gb: 1.1, comando: null })
+  assert.equal(comandoSpegniCopia('./x stop'), './x stop')
+  assert.equal(comandoSpegniCopia(null), null)
+})
+
+test('diagnosi a parole: la frase del problema e le azioni, in IT e EN', () => {
+  const it = makeT('it')
+  const en = makeT('en')
+  const p = { tipo: 'app-pesante', app: 'backend', gb: 9.9, sogliaGb: 3, cause: [{ k: 'categoria', cat: 'uvicorn', gb: 9.2 }, { k: 'copie', n: 2 }] }
+  assert.equal(fraseProblema(p, it, 'it'), "backend tiene 9,9 GB, sopra la soglia di 3 GB. Pesa uvicorn: il server stesso cresce; 2 copie accese oltre all'istanza standard")
+  assert.equal(fraseProblema(p, en, 'en'), 'backend holds 9.9 GB, above the 3 GB threshold. Uvicorn is heavy: the server itself is growing; 2 copies running besides the standard instance')
+  assert.equal(fraseCausa({ k: 'test', gb: 1.6, n: 6 }, it, 'it'), 'test in corso, 1,6 GB in 6 processi')
+  assert.equal(fraseCausa({ k: 'reload', gb: 1.1 }, it, 'it'), 'il reload tiene 1,1 GB')
+  for (const cat of CATEGORIE_PROCESSI) assert.notEqual(it(`flotta.cat.spiega.${cat}`), `flotta.cat.spiega.${cat}`, cat)
+  for (const cat of CATEGORIE_PROCESSI) assert.notEqual(en(`flotta.cat.spiega.${cat}`), `flotta.cat.spiega.${cat}`, cat)
+  assert.equal(fraseAzione({ k: 'spegniCopie', n: 2, quali: ['1', '2'] }, it, 'it'), 'Spegni le copie che non usi (copie 1, 2).')
+  assert.equal(fraseAzione({ k: 'aspettaTest', app: 'backend' }, it, 'it'), 'Lascia finire i test, o fermali: la memoria torna quando escono.')
+  // Senza cause la frase e' quella di prima.
+  assert.equal(fraseProblema({ ...p, cause: [] }, it, 'it'), 'backend tiene 9,9 GB, sopra la soglia di 3 GB')
+})
+
+test('cosa gira: i pezzi della barra sulla scala della VM, un colore fisso per categoria, la legenda una volta', () => {
+  const app = appPiuPesanti({ frontend: 900 }, Infinity, processiPerApp(APP_PESANTE))
+  const righe = righeProcessi(app, 12 * 1024)
+  assert.deepEqual(righe.map((r) => [r.nome, r.processi, r.conCategorie]), [['backend', 8, true], ['frontend', null, false]])
+  assert.ok(Math.abs(righe[0].pezzi[0].pct - (9200 / 12288) * 100) < 1e-9)
+  assert.equal(righe[0].pezzi[0].colore, 'var(--chart-1)')
+  // L'app senza categorie ha un pezzo solo, grigio.
+  assert.deepEqual(righe[1].pezzi.map((p) => [p.cat, p.colore]), [[null, 'var(--chart-neutro)']])
+  // Senza la VM la scala e' l'app piu' pesante.
+  assert.equal(righeProcessi(app, null)[0].pezzi.reduce((s, p) => s + p.pct, 0), 100 * (9850 / 9900))
+  // Ogni categoria ha un colore, e lo stesso colore sta in un gruppo solo.
+  for (const c of CATEGORIE_PROCESSI) assert.match(coloreCategoria(c), /^var\(--chart-/)
+  assert.deepEqual(GRUPPI_CATEGORIE.flatMap((g) => g.cat).sort(), [...CATEGORIE_PROCESSI].sort())
+  const it = makeT('it')
+  assert.deepEqual(legendaProcessi(righe, it).map((v) => v.etichetta), ['server (uvicorn)', 'reload', 'test', 'worker', 'resto (avvio)'])
+  assert.deepEqual(righeProcessi([], 1000), [])
+  assert.equal(pesoMb(40), '40 MB')
+  assert.equal(pesoMb(9200, 'en'), '9 GB')
+})
+
+test('cosa gira: la riga del lanciatore dice servizi, copie e reload, e tace quello che non sa', () => {
+  const it = makeT('it')
+  assert.equal(rigaCopie(statoCopie(LANCIATORE), it), 'accesi: backend, frontend · 2 copie in più (1: backend, frontend; 2: backend) · copie col reload')
+  assert.equal(rigaCopie(statoCopie({ servizi: ['backend'], copie: 0, copie_servizi: {}, reload: null }), it), 'accesi: backend · nessuna copia in più')
+  assert.equal(rigaCopie(statoCopie({ servizi: [], copie: 1, copie_servizi: { 1: ['backend'] }, reload: false }), it), 'nessuna app accesa · 1 copia in più (1: backend) · copie senza reload')
+  // Il reload che non si sa non si dice.
+  assert.equal(rigaCopie(statoCopie({ servizi: ['a'], copie: 1, reload: null }), it), 'accesi: a · 1 copia in più')
+  assert.equal(rigaCopie(null, it), null)
+  assert.match(rigaCopie(statoCopie(LANCIATORE), makeT('en')), /^running: backend, frontend · 2 extra copies \(1: backend, frontend; 2: backend\) · copies with reload$/)
 })

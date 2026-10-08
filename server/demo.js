@@ -1215,6 +1215,8 @@ export function demoSaluteEventi(now = Date.now()) {
     sul_mac: 0,
     ...dentro,
   })
+  // Il backend di kim: 1,5 GB una settimana fa, 9,9 GB adesso.
+  const backendKim = (peggio) => Math.round(1500 + 8640 * peggio)
   const MAC = [
     {
       macchina: 'kim-macbook',
@@ -1228,11 +1230,22 @@ export function demoSaluteEventi(now = Date.now()) {
           mac: { ram_gb: 24, swap_usata_mb: Math.round((3 + 9.5 * peggio) * 1024 * (0.7 + 0.3 * c)), memoria_libera_pct: Math.round(30 - 22 * peggio) },
           docker: { desktop: 'Docker Engine - Community', motore: 'colima', vm_mem_gb: 11.7, vm_mem_impostata_gb: 12, vm_mem_obiettivo_gb: 14, vm_cpu: 4 },
           vm: { oom_kill: oom, mem_disponibile_gb: r1(Math.max(0.4, 6.5 - 4.4 * peggio - 1.6 * c)) },
-          app_mb: { backend: Math.round(1500 + 2242 * peggio), frontend: Math.round(900 + 247 * peggio), altro: 600 },
+          app_mb: { backend: backendKim(peggio), frontend: Math.round(900 + 247 * peggio), altro: 600 },
+          // Il backend che cresce: il server (uvicorn) tiene quasi tutto, e il lanciatore ha due copie
+          // accese oltre all'istanza standard, col reload.
+          app: {
+            backend: {
+              mb: backendKim(peggio),
+              processi: 8,
+              categorie: { avvio: { n: 2, mb: 60 }, reload: { n: 1, mb: 400 }, test: { n: 2, mb: 150 }, uvicorn: { n: 1, mb: backendKim(peggio) - 700 }, worker: { n: 1, mb: 40 } },
+            },
+            frontend: { mb: Math.round(900 + 247 * peggio), processi: 3, categorie: { avvio: { n: 2, mb: 110 }, node: { n: 1, mb: Math.round(790 + 247 * peggio) } } },
+          },
+          lanciatore: { servizi: ['backend', 'frontend'], copie: 2, copie_servizi: { 1: ['backend', 'frontend'], 2: ['backend'] }, reload: true },
           container: {
             uccisi_per_memoria: t >= now - 20 * ORA ? ['dev'] : [],
             uso: {
-              dev: { mem_mb: Math.round(3000 + 1957 * peggio), cpu_pct: Math.round(60 + 241 * c * (0.6 + 0.4 * peggio)) },
+              dev: { mem_mb: Math.round(3000 + 7800 * peggio), cpu_pct: Math.round(60 + 241 * c * (0.6 + 0.4 * peggio)) },
               postgres: { mem_mb: 1320, cpu_pct: Math.round(8 + 30 * c) },
               gateway: { mem_mb: 240, cpu_pct: 3 },
               redis: { mem_mb: 96, cpu_pct: 1 },
@@ -1245,7 +1258,9 @@ export function demoSaluteEventi(now = Date.now()) {
     {
       macchina: 'sam-macbook',
       utente: 'sam',
-      riga: (t, i, k) => sano(t, { ram: 16, vm: 8, obiettivo: 8, base: 3.4, swap: 1.2, cpu: 120, k, dentro: { uso: uso({ ultimo_update: new Date(now - 13 * GIORNO).toISOString() }) } }),
+      // Dev-env vecchio: manda solo il totale per app (`app_mb`), niente processi ne' lanciatore.
+      riga: (t, i, k) =>
+        sano(t, { ram: 16, vm: 8, obiettivo: 8, base: 3.4, swap: 1.2, cpu: 120, k, dentro: { uso: uso({ ultimo_update: new Date(now - 13 * GIORNO).toISOString() }), app: undefined, lanciatore: undefined } }),
     },
     {
       macchina: 'noa-macbook',
@@ -1285,7 +1300,17 @@ export function demoSaluteEventi(now = Date.now()) {
     },
     { macchina: 'alex-macbook', utente: 'alex', riga: (t, i, k) => sano(t, { ram: 32, vm: 12, obiettivo: 12, base: 7.2, swap: 0.3, cpu: 110, k }) },
     { macchina: 'lee-macbook', utente: 'lee', riga: (t, i, k) => sano(t, { ram: 18, vm: 9, obiettivo: 9, base: 4.6, swap: 0.9, cpu: 90, k }) },
-    { macchina: 'eli-macbook', utente: 'eli', riga: (t, i, k) => sano(t, { ram: 24, vm: 10, obiettivo: 10, base: 5.4, swap: 0.6, cpu: 130, k }) },
+    // Una corsa di test nell'ultima ora: il backend passa i 3 GB, e quasi meta' sono i test.
+    {
+      macchina: 'eli-macbook',
+      utente: 'eli',
+      riga: (t, i, k) => {
+        const r = sano(t, { ram: 24, vm: 10, obiettivo: 10, base: 5.4, swap: 0.6, cpu: 130, k })
+        if (t < now - ORA) return r
+        const backend = { mb: 3600, processi: 10, categorie: { avvio: { n: 2, mb: 70 }, reload: { n: 1, mb: 380 }, test: { n: 6, mb: 1650 }, uvicorn: { n: 1, mb: 1500 } } }
+        return { ...r, app_mb: { ...r.app_mb, backend: backend.mb }, app: { ...r.app, backend } }
+      },
+    },
     // Lo stesso Mac con due nomi: macOS l'ha rinominato ieri cambiando rete. Fino a 30 ore fa le righe
     // vecchie (senza id, con l'utente di sistema), poi il nome nuovo col dev-env aggiornato, che manda
     // l'id del Mac e il login Teleport. La pagina ne fa una riga sola, col nome nuovo.
@@ -1308,6 +1333,11 @@ export function demoSaluteEventi(now = Date.now()) {
       docker: { desktop: 'Docker Desktop 4.48.0', motore: 'docker-desktop', vm_mem_gb: vm - 0.3, vm_mem_impostata_gb: vm, vm_mem_obiettivo_gb: obiettivo, vm_cpu: 6 },
       vm: { oom_kill: 0, mem_disponibile_gb: r1(base - 1.8 * c) },
       app_mb: { backend: Math.round(900 + 300 * c), frontend: Math.round(700 + 200 * c), altro: 500 },
+      app: {
+        backend: { mb: Math.round(900 + 300 * c), processi: 4, categorie: { avvio: { n: 2, mb: 60 }, reload: { n: 1, mb: 380 }, uvicorn: { n: 1, mb: Math.round(460 + 300 * c) } } },
+        frontend: { mb: Math.round(700 + 200 * c), processi: 3, categorie: { avvio: { n: 2, mb: 110 }, node: { n: 1, mb: Math.round(590 + 200 * c) } } },
+      },
+      lanciatore: { servizi: ['backend', 'frontend'], copie: 0, copie_servizi: {}, reload: null },
       container: {
         uccisi_per_memoria: [],
         uso: {
@@ -1393,7 +1423,7 @@ export function demoFlotta(now = Date.now()) {
   return {
     ...componiFlotta(
       { heartbeat, salute },
-      { adesso: now, soglie: SOGLIE_DEV_ENV, comandi: { aggiorna: './dev-env update', doctor: './dev-env doctor', salute: null, dentro: './dev-env shell' } },
+      { adesso: now, soglie: SOGLIE_DEV_ENV, comandi: { aggiorna: './dev-env update', doctor: './dev-env doctor', salute: null, dentro: './dev-env shell', spegniCopia: './dev-env down {n}' } },
     ),
     sshCommand: 'tsh ssh dev@{macchina}',
     auditNodeUrl: 'https://teleport.example.com/web/audit?node={macchina}',

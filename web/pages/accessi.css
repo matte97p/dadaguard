@@ -394,6 +394,41 @@
 .fl-cont-barra i.fl-pesante {
   background: var(--warn);
 }
+/* «Cosa gira»: la barra di un'app a pezzi, uno per categoria di processi. Due pixel di fondo fra un
+   pezzo e l'altro, e i capi arrotondati solo alle estremita' della barra. I colori sono quelli fissi
+   delle categorie (`GRUPPI_CATEGORIE` in web/flotta.js), e solo sulla barra: il testo resta grigio. */
+.fl-proc-barra {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--off-soft);
+  overflow: hidden;
+}
+.fl-proc-barra i {
+  display: block;
+  height: 100%;
+  flex: none;
+  min-width: 4px;
+  box-sizing: border-box;
+}
+.fl-proc-barra i:not(:last-child) {
+  border-right: 2px solid var(--panel);
+}
+.fl-proc-barra i:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.fl-proc-barra i:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.fl-proc-barra i:only-child {
+  border-radius: 4px;
+}
+.fl-proc-run {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--mute);
+  overflow-wrap: anywhere;
+}
 .fl-cont-v {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -651,6 +686,11 @@
   }
   .fl-cont-v small {
     display: none;
+  }
+  /* In «Cosa gira» il numero di processi e' meta' della notizia: resta anche sul telefono. */
+  .fl-proc .fl-cont-v small {
+    display: inline;
+    margin-left: 6px;
   }
 }
 @media (max-width: 480px) {

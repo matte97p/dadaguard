@@ -40,8 +40,28 @@ export const TIPI_AZIONE = [
   'riavviaContainer',
   'cambiaMotore',
   'togliOptOut',
+  'aspettaTest',
+  'senzaReload',
+  'spegniCopie',
   'guarda',
 ]
+
+// Le parole di UNA causa dell'app pesante (`diagnosiApp` in shared/devEnv.js): «pesa uvicorn: il
+// server stesso cresce», «test in corso», «il reload», «2 copie accese».
+export function fraseCausa(c, t = (k) => k, lang = 'it') {
+  switch (c?.k) {
+    case 'categoria':
+      return t('flotta.causa.categoria', { cat: c.cat, spiega: t(`flotta.cat.spiega.${c.cat}`) })
+    case 'test':
+      return t('flotta.causa.test', { gb: num(c.gb, lang), n: c.n ?? 0 })
+    case 'reload':
+      return t('flotta.causa.reload', { gb: num(c.gb, lang) })
+    case 'copie':
+      return t('flotta.causa.copie', { n: c.n ?? 0 })
+    default:
+      return ''
+  }
+}
 
 export function fraseProblema(p, t = (k) => k, lang = 'it') {
   if (!p) return ''
@@ -67,8 +87,13 @@ export function fraseProblema(p, t = (k) => k, lang = 'it') {
       return t(k, { n: p.oreZitta ?? 24 })
     case 'tool-mancanti':
       return p.nomi?.length ? `${t(k, { n: p.quante ?? p.nomi.length })}: ${elenco(p.nomi)}` : t(k, { n: p.quante ?? 0 })
-    case 'app-pesante':
-      return t(k, { app: p.app, gb: num(p.gb, lang), soglia: num(p.sogliaGb, lang) })
+    case 'app-pesante': {
+      const base = t(k, { app: p.app, gb: num(p.gb, lang), soglia: num(p.sogliaGb, lang) })
+      const cause = (p.cause ?? []).map((c) => fraseCausa(c, t, lang)).filter(Boolean)
+      if (!cause.length) return base
+      const testo = cause.join('; ')
+      return `${base}. ${testo.charAt(0).toUpperCase()}${testo.slice(1)}`
+    }
     case 'avvio-storto':
       return t(k, { esito: p.esito ?? '?' })
     case 'guasto':
@@ -95,6 +120,12 @@ export function fraseAzione(a, t = (k) => k, lang = 'it') {
       return t(k, { ammessi: elenco(a.ammessi) })
     case 'togliOptOut':
       return t(k, { nomi: elenco(a.nomi) })
+    case 'aspettaTest':
+      return t(k, { app: a.app })
+    case 'senzaReload':
+      return t(k, { app: a.app, gb: num(a.gb, lang) })
+    case 'spegniCopie':
+      return a.quali?.length ? t('flotta.a.spegniCopie.quali', { n: a.n ?? a.quali.length, quali: elenco(a.quali) }) : t(k, { n: a.n ?? 0 })
     default:
       return t(TIPI_AZIONE.includes(a.k) ? k : 'flotta.a.guarda')
   }
@@ -252,13 +283,20 @@ export function celleMac(m, t = (k) => k, lang = 'it', adesso = Date.now()) {
     else if (ps[0]?.tipo === 'opt-out-attivi') valore = t('flotta.c.optOut', { n: ps[0].nomi?.length ?? 0 })
     fuori.push(cella('sulMac', { livello: valore != null ? 'ok' : null, valore }))
   }
-  // L'app piu' pesante dentro al container.
+  // L'app piu' pesante dentro al container. Sopra la soglia, e quando il Mac manda le categorie, la
+  // cella dice anche QUALE processo la tiene («backend 9,9 GB · uvicorn 9,2»); il titolo le elenca.
   {
     const a = (m?.app ?? [])[0]
     const pesante = (m?.problemi ?? []).find((p) => p.tipo === 'app-pesante')
     const nome = pesante?.app ?? a?.nome
     const gb = pesante?.gb ?? a?.gb
-    fuori.push(cella('app', { livello: nome ? 'ok' : null, valore: nome ? `${nome} ${num(gb, lang)} GB` : null }))
+    const voce = (m?.app ?? []).find((x) => x.nome === nome)
+    const top = pesante && voce?.categorie?.length ? [...voce.categorie].sort((x, y) => y.mb - x.mb)[0] : null
+    const valore = nome ? `${nome} ${num(gb, lang)} GB${top ? ` · ${top.cat} ${num(top.mb / 1024, lang)}` : ''}` : null
+    const c = cella('app', { livello: nome ? 'ok' : null, valore })
+    const cat = voce?.categorie?.length ? elencoCategorie(voce, t, lang) : null
+    if (cat) c.titolo = [cat, c.problemi ? c.titolo : null].filter(Boolean).join('\n')
+    fuori.push(c)
   }
   return fuori
 }
@@ -276,4 +314,85 @@ export function azioniFlotta(macchine = []) {
     perAzione.get(a.k).macchine.push(m.macchina)
   }
   return [...perAzione.values()]
+}
+
+// ── Cosa gira dentro alle app (dal 08/10/2026) ─────────────────────────────────────────────────────
+//
+// Il COLORE di ogni categoria di processi, uguale ovunque (la barra del dettaglio, la legenda). La
+// palette dei grafici ha quattro colori e le categorie sono nove: un colore generato in piu' sarebbe
+// indistinguibile dagli altri, quindi le categorie si raggruppano per quello che dicono di una app
+// che cresce, e il resto va nel grigio di contesto:
+//   · il server (uvicorn per Python, node per vite e next: un servizio ne ha uno solo dei due);
+//   · il reload, i worker e i test, che sono le tre cause che la diagnosi nomina;
+//   · build, python, avvio e altro in grigio: ci sono, ma non sono la notizia.
+// Ogni pezzo della barra porta comunque il nome della sua categoria nel titolo.
+export const GRUPPI_CATEGORIE = Object.freeze([
+  { k: 'server', cat: ['uvicorn', 'node'], colore: 'var(--chart-1)' },
+  { k: 'reload', cat: ['reload'], colore: 'var(--chart-2)' },
+  { k: 'test', cat: ['test'], colore: 'var(--chart-3)' },
+  { k: 'worker', cat: ['worker'], colore: 'var(--chart-4)' },
+  { k: 'resto', cat: ['build', 'python', 'avvio', 'altro'], colore: 'var(--chart-neutro)' },
+])
+export const COLORE_CATEGORIA = Object.freeze(Object.fromEntries(GRUPPI_CATEGORIE.flatMap((g) => g.cat.map((c) => [c, g.colore]))))
+export const coloreCategoria = (cat) => COLORE_CATEGORIA[cat] ?? 'var(--chart-neutro)'
+
+// «uvicorn 9,2 GB · reload 0,4 GB · test 0,1 GB (2)»: le categorie di un'app dalla piu' pesante, per
+// il titolo della cella e della barra. Il numero di processi solo quando e' piu' di uno.
+export function elencoCategorie(a, t = (k) => k, lang = 'it') {
+  return [...(a?.categorie ?? [])]
+    .sort((x, y) => y.mb - x.mb)
+    .map((c) => `${c.cat} ${pesoMb(c.mb, lang)}${c.n > 1 ? ` (${c.n})` : ''}`)
+    .join(' · ')
+}
+
+// Un peso in MB detto come si legge: sotto i 100 MB in MB («40 MB», non «0 GB»), sopra in GB.
+export const pesoMb = (mb, lang = 'it') => (mb == null ? '-' : mb < 100 ? `${Math.round(mb)} MB` : `${num(mb / 1024, lang)} GB`)
+
+// Le righe della sezione «Cosa gira»: per ogni app il totale, i processi e i pezzi della barra, larghi
+// in proporzione a `scalaMb` (la memoria della VM, come la sezione dei container sopra; senza, l'app
+// piu' pesante). Un'app senza categorie (`app_mb` soltanto) ha un pezzo solo, grigio, e i processi a
+// `null`: il totale si sa, la composizione no.
+export function righeProcessi(app = [], scalaMb = null) {
+  const voci = (app ?? []).filter((a) => a && (a.mb ?? a.gb * 1024) > 0)
+  if (!voci.length) return []
+  const mbDi = (a) => a.mb ?? Math.round(a.gb * 1024)
+  const scala = Math.max(scalaMb ?? 0, ...voci.map(mbDi))
+  return voci.map((a) => {
+    const tot = mbDi(a)
+    const conCat = a.categorie?.length > 0
+    const pezzi = conCat
+      ? a.categorie.filter((c) => c.mb > 0).map((c) => ({ cat: c.cat, n: c.n, mb: c.mb, colore: coloreCategoria(c.cat), pct: (c.mb / scala) * 100 }))
+      : [{ cat: null, n: null, mb: tot, colore: 'var(--chart-neutro)', pct: (tot / scala) * 100 }]
+    return { nome: a.nome, mb: tot, gb: a.gb, processi: a.processi ?? null, conCategorie: conCat, pezzi }
+  })
+}
+
+// La legenda della sezione, una volta sola: i gruppi che compaiono in almeno una barra, con le
+// categorie vere fra parentesi quando il gruppo ne ha piu' d'una.
+export function legendaProcessi(righe = [], t = (k) => k) {
+  const viste = new Set(righe.flatMap((r) => r.pezzi.map((p) => p.cat).filter(Boolean)))
+  return GRUPPI_CATEGORIE.filter((g) => g.cat.some((c) => viste.has(c))).map((g) => {
+    const dentro = g.cat.filter((c) => viste.has(c))
+    const nome = t(`flotta.gruppo.${g.k}`)
+    return { k: g.k, colore: g.colore, etichetta: g.cat.length > 1 ? `${nome} (${dentro.join(', ')})` : nome }
+  })
+}
+
+// La riga del lanciatore delle app: servizi accesi, copie e il reload delle copie. «non lo so» resta
+// fuori: senza il blocco la riga non c'e', e un reload `null` non si dice.
+export function rigaCopie(c, t = (k) => k) {
+  if (!c) return null
+  const pezzi = []
+  if (c.servizi) pezzi.push(c.servizi.length ? t('flotta.run.servizi', { nomi: elenco(c.servizi) }) : t('flotta.run.nessunServizio'))
+  if (c.copie != null) {
+    if (c.copie === 0) pezzi.push(t('flotta.run.nessunaCopia'))
+    else {
+      const quali = Object.entries(c.copieServizi ?? {})
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(([n, xs]) => t('flotta.run.copia', { n, nomi: xs.length ? elenco(xs) : '-' }))
+      pezzi.push(quali.length ? `${t('flotta.run.copie', { n: c.copie })} (${quali.join('; ')})` : t('flotta.run.copie', { n: c.copie }))
+      if (c.reload != null) pezzi.push(t(c.reload ? 'flotta.run.reloadSi' : 'flotta.run.reloadNo'))
+    }
+  }
+  return pezzi.length ? pezzi.join(' · ') : null
 }
