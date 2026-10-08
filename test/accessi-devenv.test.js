@@ -393,7 +393,7 @@ test('messaggi: una riga sola, la persona, il numero e il link al Mac nella Flot
   assert.match(tutti[4], /VM DEL DEV-ENV SOTTO L'OBIETTIVO \(tizio\): 11\.9 circa GB su 14/)
   // Un backtick che arriva da un'altra macchina non apre un code span.
   assert.match(tutti[5], /`X_NO_MIGRATE`, `X_'BAD'`/)
-  assert.match(tutti[6], /14 in 24 ore \(11 bloccati, 3 forzati\)/)
+  assert.match(tutti[6], /SUL MAC INVECE CHE NEL CONTAINER \(tizio\): 14 volte in 24 ore, 11 fermate prima di partire, 3 eseguite lo stesso sul Mac · di solito/)
   assert.match(tutti[7], /DOCTOR DEL DEV-ENV KO \(tizio\): 2 controlli falliti · `docker, doppler`/)
 })
 
