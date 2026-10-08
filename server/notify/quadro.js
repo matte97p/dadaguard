@@ -5,6 +5,7 @@ import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 import { postSlack } from './slack.js'
 import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.js'
+import { applicaEventi, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js'
 
 // Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
 // posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla fine), ogni
@@ -86,6 +87,8 @@ import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.
 //                               dall'IaC) e le Lambda fatte dall'IaC. Vale per servizi e cron ECS,
 //                               componenti esterni e Lambda, cron comprese. Il repository vince sul
 //                               glob, e fra due squadre dello stesso tipo vince la prima scritta
+//   DADAGUARD_QUADRO_CODA       la coda SQS degli eventi di rilascio (vedi server/notify/eventi.js):
+//                               con lei un 🧪 o un ⏳ arriva in secondi invece che al giro dopo
 //   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
 //                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
@@ -1295,7 +1298,12 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
   // Lo stato dei test non ferma mai il giro (`leggi` non lancia): senza GitHub il quadro dice tutto
   // il resto, come prima che ci fosse.
-  if (deps.github) applicaTest(q, await deps.github.leggi(repoDelQuadro(q, { org: deps.github.org ?? null }), { ora }))
+  const daGithub = deps.github ? await deps.github.leggi(repoDelQuadro(q, { org: deps.github.org ?? null }), { ora }) : null
+  // Gli eventi arrivati dalla coda (vedi server/notify/eventi.js) anticipano quello che il giro saprà
+  // dopo: i test della CI si uniscono a quelli di GitHub, i deploy cambiano i dati delle righe.
+  const ev = deps.eventi?.attivi(ora) ?? null
+  applicaTest(q, ev ? unisciTest(daGithub, ev.test, { lettoAlle: deps.github?.lettoAlle?.() ?? null }) : daGithub)
+  if (ev) applicaEventi(q, ev.deploy)
   // Le schede di un canale si chiedono una volta per giro: i canvas sono più d'uno nello stesso canale.
   const infoDi = new Map()
   const info = async (canale) => {
@@ -1799,49 +1807,99 @@ export function startQuadro(leggiDati, env = process.env) {
   // dice qui, una volta, invece che a ogni giro.
   const github = nuovoGithub(githubConfig(env))
   if (!github) log.warn('quadro: nessuna GitHub App (DADAGUARD_GITHUB_APP_ID e DADAGUARD_GITHUB_APP_KEY), righe senza stato dei test')
-  // Un giro alla volta. Il primo, a cache fredde, dura più dell'intervallo (26 secondi misurati contro
-  // 15): due giri insieme cercherebbero lo stesso canvas, non lo troverebbero tutti e due e ne
-  // creerebbero due, cioè il doppione che il giro di prova del 04/10/2026 ha già fatto una volta.
-  let inCorso = false
-  const giro = () =>
-    // `people` si rilegge a ogni giro, come la config del resto: un alias aggiunto vale dal giro dopo.
-    aggiornaQuadri(cfg, { leggiDati, persone: loadConfig().people ?? null, ultimi, liste, github })
-      // Un giro che muore prima dei canali (AWS che non si legge) è un errore per OGNI ambiente: per
-      // la guardia conta quanto è vecchio il canvas, non dove si è rotto il giro.
+  // Gli eventi dalla coda (vedi server/notify/eventi.js): senza la coda il quadro va avanti coi soli giri.
+  const eventi = nuoviEventi()
+  const coda = String(env.DADAGUARD_QUADRO_CODA ?? '').trim() || null
+  // Quello che dicono gli avvisi e gli allarmi dopo ogni scrittura, che venga da un giro o da un evento.
+  const dopo = async (esiti) => {
+    const errori = esiti.filter((e) => e.azione === 'errore')
+    if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
+    // Ogni 15 secondi un log per giro sarebbero 5.760 righe al giorno: si scrive solo se qualcosa è cambiato.
+    if (esiti.some((e) => e.azione !== 'invariato')) log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
+    const g = guardiaQuadro(guardia, esiti, { avvio })
+    guardia = g.stato
+    for (const a of g.avvisi) {
+      const testo = testoAvviso(a, { url: cfg.publicUrl })
+      log.warn('quadro: avviso', { testo })
+      // Un avviso «fermo» non partito si riprova al giro dopo: si torna a «non avvisato».
+      if (webhook && !(await postSlack(webhook, { text: testo })) && a.tipo === 'fermo') guardia[a.ambiente].avvisato = false
+    }
+    for (const e of esiti) {
+      // Senza dati (il giro è morto prima) non si apre e non si chiude niente.
+      if (!e.allarmi) continue
+      const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: !visti.has(e.ambiente) })
+      visti.add(e.ambiente)
+      if (piano.azioni.length) log.info('quadro: allarmi', { ambiente: e.ambiente, azioni: piano.azioni.map((z) => `${z.tipo}:${z.nome}`) })
+      allarmi[e.ambiente] = await eseguiAllarmi(api, cfg.canali[e.ambiente], piano)
+    }
+  }
+  // Il giro è diviso in due, e le due metà non si aspettano:
+  //   LETTURA    AWS e GitHub, la parte lenta (fino a minuti). Una alla volta
+  //   SCRITTURA  canvas, List e allarmi, dall'ultima lettura più gli eventi arrivati. Una alla volta:
+  //              due scritture insieme cercherebbero lo stesso canvas, non lo troverebbero tutti e due e
+  //              ne creerebbero due, cioè il doppione che il giro di prova del 04/10/2026 ha già fatto
+  // Un evento chiede solo una scrittura, che parte subito invece di aspettare la lettura in corso: è
+  // tutto il guadagno della coda. Le richieste che arrivano mentre si scrive diventano UNA scrittura
+  // dopo, non una per evento.
+  let letti = null // { dati, stati }: l'ultima lettura riuscita
+  let leggendo = false
+  let scrivendo = false
+  let ancora = false
+  const scrivi = async () => {
+    if (!letti) return
+    if (scrivendo) {
+      ancora = true
+      return
+    }
+    scrivendo = true
+    try {
+      do {
+        ancora = false
+        const { dati, stati } = letti
+        const esiti = await aggiornaQuadri(cfg, {
+          leggiDati: async () => dati,
+          // `people` si rilegge a ogni scrittura, come la config del resto: un alias aggiunto vale subito.
+          persone: loadConfig().people ?? null,
+          ultimi,
+          liste,
+          // Gli stati di GitHub li ha già letti la lettura: qui si riusano, senza chiamate.
+          github: github && { org: github.org, leggi: async () => stati, lettoAlle: github.lettoAlle },
+          eventi,
+        }).catch((err) => {
+          log.error('quadro: scrittura fallita', { err: err.message })
+          return Object.keys(cfg.canali).map((ambiente) => ({ ambiente, azione: 'errore', errore: err.message }))
+        })
+        await dopo(esiti)
+      } while (ancora)
+    } catch (err) {
+      log.error('quadro: guardia fallita', { err: err.message })
+    } finally {
+      scrivendo = false
+    }
+  }
+  const leggi = async () => {
+    const dati = await leggiDati()
+    const stati = github ? await github.leggi(repoDelQuadro(quadro({ ...dati, persone: null }, cfg.ambienti), { org: github.org ?? null }), { ora: Date.now() }) : null
+    letti = { dati, stati }
+  }
+  const tick = () => {
+    if (leggendo) return
+    leggendo = true
+    leggi()
+      .then(scrivi)
+      // Una lettura che muore (AWS che non si legge) è un errore per OGNI ambiente: per la guardia conta
+      // quanto è vecchio il canvas, non dove si è rotto il giro.
       .catch((err) => {
         log.error('quadro: giro fallito', { err: err.message })
-        return Object.keys(cfg.canali).map((ambiente) => ({ ambiente, azione: 'errore', errore: err.message }))
-      })
-      .then(async (esiti) => {
-        const errori = esiti.filter((e) => e.azione === 'errore')
-        if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
-        // Ogni 15 secondi un log per giro sarebbero 5.760 righe al giorno: si scrive solo se qualcosa è cambiato.
-        if (esiti.some((e) => e.azione !== 'invariato')) log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
-        const g = guardiaQuadro(guardia, esiti, { avvio })
-        guardia = g.stato
-        for (const a of g.avvisi) {
-          const testo = testoAvviso(a, { url: cfg.publicUrl })
-          log.warn('quadro: avviso', { testo })
-          // Un avviso «fermo» non partito si riprova al giro dopo: si torna a «non avvisato».
-          if (webhook && !(await postSlack(webhook, { text: testo })) && a.tipo === 'fermo') guardia[a.ambiente].avvisato = false
-        }
-        for (const e of esiti) {
-          // Senza dati (il giro è morto prima) non si apre e non si chiude niente.
-          if (!e.allarmi) continue
-          const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: !visti.has(e.ambiente) })
-          visti.add(e.ambiente)
-          if (piano.azioni.length) log.info('quadro: allarmi', { ambiente: e.ambiente, azioni: piano.azioni.map((z) => `${z.tipo}:${z.nome}`) })
-          allarmi[e.ambiente] = await eseguiAllarmi(api, cfg.canali[e.ambiente], piano)
-        }
+        return dopo(Object.keys(cfg.canali).map((ambiente) => ({ ambiente, azione: 'errore', errore: err.message })))
       })
       .catch((err) => log.error('quadro: guardia fallita', { err: err.message }))
-  const tick = () => {
-    if (inCorso) return
-    inCorso = true
-    giro().finally(() => {
-      inCorso = false
-    })
+      .finally(() => {
+        leggendo = false
+      })
   }
+  if (coda) ascoltaCoda(coda, eventi, () => scrivi())
+  else log.info('quadro: nessuna DADAGUARD_QUADRO_CODA, il quadro si aggiorna solo coi giri')
   tick()
   const timer = setInterval(tick, cfg.intervalMs)
   timer.unref?.()
