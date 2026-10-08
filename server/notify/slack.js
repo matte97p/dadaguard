@@ -1,4 +1,5 @@
 import { log } from '../log.js'
+import { suoLogin, vociLogin } from '../loginPersonali.js'
 
 // Il messaggio Slack di una transizione. La composizione è PURA (testabile senza rete); l'invio è
 // una fetch sola, senza SDK.
@@ -221,21 +222,8 @@ function sommarioOggetti(oggetti = []) {
   return ` su ${oggetti.slice(0, 2).join(', ')}${resto > 0 ? ` e altri ${resto}` : ''}`
 }
 
-// L'utente di database di una persona, quando il login e' il suo nome. Tre prefissi, uno per
-// perimetro, e sono i tre modi in cui oggi un login porta dentro il nome di chi lo usa:
-// `dev_<utente github>` (scrittura), `adm_<utente github>` (amministrazione, ENG-2389) e
-// `data_<utente github>` (il team data). Il confronto e' senza maiuscole perche' GitHub le tiene e
-// Postgres no.
-// ⚠️ Un prefisso che manca qui non fa sbagliare il conto, fa RUMORE: quel login finisce fra gli
-// «estranei» e la riga torna a dire fra parentesi un nome che il messaggio ha gia' detto per intero
-// («da tizio … (adm_tizio su writer)»), cioe' proprio la ripetizione per cui questa funzione esiste.
-// E' successo il 16/09/2026, il giorno in cui l'amministrazione e' passata al login per persona:
-// chi aggiunge un perimetro nuovo aggiunge il prefisso qui.
-const PREFISSI_PERSONALI = ['dev_', 'adm_', 'data_']
-const suoLogin = (utenteDb, chi = []) => {
-  const u = String(utenteDb ?? '').toLowerCase()
-  return chi.some((c) => PREFISSI_PERSONALI.some((p) => `${p}${String(c).toLowerCase()}` === u))
-}
+// Quali login sono il nome di chi ha scritto lo decide server/loginPersonali.js, che e' la stessa
+// risposta con cui `segnali()` sceglie il colore della riga: vedi il commento li'.
 
 // CON CHE COSA hanno scritto, tolto quello che il messaggio ha gia' detto. Tre cose, in quest'ordine
 // di importanza per chi legge:
@@ -249,9 +237,7 @@ const suoLogin = (utenteDb, chi = []) => {
 // due volte gli stessi nomi, e nasconde in fondo l'unica riga che vale: qualcuno ha scritto passando
 // da `dev_readonly`.
 function sommarioLogin(utentiDb = [], chi = []) {
-  // La forma vecchia era una frase gia' scritta (`"tizio su writer"`): si legge ancora, perche' uno
-  // stato o un payload di ieri non deve far sparire la riga.
-  const voci = utentiDb.map((u) => (typeof u === 'string' ? { utente: u, endpoint: null } : u)).filter((u) => u?.utente)
+  const voci = vociLogin(utentiDb)
   if (!voci.length) return ''
   const endpoint = [...new Set(voci.map((u) => u.endpoint).filter(Boolean))]
   const estranei = [...new Set(voci.filter((u) => !suoLogin(u.utente, chi)).map((u) => u.utente))]
@@ -296,9 +282,10 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     const stima = segnale.stima ? `${segnale.stima} ` : ''
     const titolo = segnale.natura === 'struttura' ? 'STRUTTURA' : 'SCRITTURE'
     const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
-    // Le tabelle solo sotto al rosso: sono i bersagli delle scritture sui DATI, e accanto a un elenco
-    // di DDL si leggerebbero come la tabella che le DDL hanno toccato, che non e' quello che dicono.
-    // Sotto al giallo ci vanno invece i nomi degli OGGETTI delle DDL, che sono un'altra cosa.
+    // Le tabelle solo sulla riga dei DATI (🚨 o ℹ️, vedi `segnali()`): sono i bersagli di quelle
+    // scritture, e accanto a un elenco di DDL si leggerebbero come la tabella che le DDL hanno
+    // toccato, che non e' quello che dicono. Sotto al giallo ci vanno invece i nomi degli OGGETTI
+    // delle DDL, che sono un'altra cosa.
     const su = segnale.natura === 'struttura' ? sommarioOggetti(segnale.oggetti) : sommarioTabelle(segnale.tabelle)
     // ⚠️ `chiTutti` e non `chi`: i nomi nella riga sono quelli del delta, ma per capire quali login
     // sono il nome di una persona servono TUTTI quelli che hanno scritto nella finestra. Con `chi`,

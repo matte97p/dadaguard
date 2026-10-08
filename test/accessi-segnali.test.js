@@ -153,7 +153,8 @@ test('daAnnunciare: se il totale della finestra SCENDE il delta non va sotto zer
 })
 
 // I due livelli: i dati dei clienti chiamano, la struttura si legge. Finche' erano la stessa riga
-// gialla, la seconda ha insegnato a ignorare la prima.
+// gialla, la seconda ha insegnato a ignorare la prima. Qui i login non si conoscono (niente
+// `utentiDb`), e non sapere con che cosa si e' scritto tiene la riga dei dati rossa.
 test('segnali: le scritture sui DATI sono un allarme, quelle sulla STRUTTURA un avviso', () => {
   const db = (dentro) => base({ audit: { database: [{ servizio: 's', nome: 'n', ambiente: 'prod', scriventi: ['tizio'], ultimaScrittura: 9000, ...dentro }] } })
   const dati = segnali(db({ scritture: 2, scrittureDati: 2, scrittureStruttura: 0 }))[0]
@@ -167,6 +168,58 @@ test('segnali: le scritture sui DATI sono un allarme, quelle sulla STRUTTURA un 
 test('segnali: senza la divisione dati/struttura NON si scende di livello', () => {
   const out = segnali(base({ audit: { database: [{ servizio: 's', nome: 'n', ambiente: 'prod', scritture: 4, scriventi: ['tizio'], ultimaScrittura: 9000 }] } }))
   assert.deepEqual([out[0].livello, out[0].natura], ['allarme', 'dati'])
+})
+
+// ── Il colore della riga dei DATI dipende dai login (08/10/2026) ───────────────────────────────────
+//
+// Nel canale 🚨 vuol dire «un allarme e' acceso». Una persona che scrive col SUO login, firmato e a
+// log, e' un fatto d'audit: con la sirena sembrava un'interruzione, e insegnava a ignorare il rosso.
+const dbDati = (dentro = {}) =>
+  base({
+    audit: {
+      database: [
+        {
+          servizio: 'prod-db', nome: 'postgres', ambiente: 'prod',
+          scritture: 2, scrittureDati: 2, scrittureStruttura: 0,
+          azioni: [{ etichetta: 'INSERT', quante: 2, tipo: 'dati' }],
+          bersagli: ['ordini'], scriventi: ['Tizio'], ultimaScrittura: 9000,
+          utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }],
+          ...dentro,
+        },
+      ],
+    },
+  })
+
+test('segnali: dati scritti SOLO con login personali sono ℹ️, e il messaggio lo dice senza sirena', () => {
+  const [riga] = segnali(dbDati())
+  assert.deepEqual([riga.livello, riga.natura], ['info', 'dati'])
+  // I tre perimetri, e il confronto senza maiuscole (GitHub le tiene, Postgres no).
+  const tre = segnali(dbDati({
+    scriventi: ['Tizio', 'caio', 'sempronio'],
+    utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }, { utente: 'adm_caio', endpoint: 'writer' }, { utente: 'data_sempronio', endpoint: 'writer' }],
+  }))[0]
+  assert.equal(tre.livello, 'info')
+  const testo = messaggioAccessi({ ...riga, nuove: 2 })
+  assert.match(testo, /^ℹ️ `prod-db\/postgres` \[PROD\] SCRITTURE — \+2 INSERT su ordini da Tizio \(su writer\)/)
+  assert.doesNotMatch(testo, /🚨/)
+})
+
+test('segnali: un login che non e il nome di nessuno tiene la riga dei dati 🚨', () => {
+  // Un login condiviso accanto a quello personale: basta uno.
+  const condiviso = segnali(dbDati({ utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }, { utente: 'postgres', endpoint: 'writer' }] }))[0]
+  assert.equal(condiviso.livello, 'allarme')
+  assert.match(messaggioAccessi(condiviso), /^🚨 .*\(postgres su writer\)/)
+  // Il login personale di qualcuno che NON ha scritto: e' il nome sbagliato accanto alla scrittura.
+  assert.equal(segnali(dbDati({ utentiDb: [{ utente: 'dev_caio', endpoint: 'writer' }] }))[0].livello, 'allarme')
+  // Login sconosciuti (lista vuota): non sapere non e' sapere che era personale.
+  assert.equal(segnali(dbDati({ utentiDb: [] }))[0].livello, 'allarme')
+})
+
+test('segnali: la STRUTTURA resta ⚠️ e il payload senza divisione resta 🚨, anche con login personali', () => {
+  const struttura = segnali(dbDati({ scritture: 3, scrittureDati: 0, scrittureStruttura: 3, azioni: [{ etichetta: 'CREATE INDEX', quante: 3, tipo: 'struttura' }] }))[0]
+  assert.deepEqual([struttura.natura, struttura.livello], ['struttura', 'attenzione'])
+  const vecchio = segnali(dbDati({ scritture: 2, scrittureDati: undefined, scrittureStruttura: undefined }))
+  assert.deepEqual(vecchio.map((r) => [r.chiave, r.livello]), [['scrittura:prod-db/postgres', 'allarme']])
 })
 
 // ── La CALMA ────────────────────────────────────────────────────────────────────────────────────────
@@ -186,6 +239,19 @@ const SCRITTURA = (dentro = {}) => ({
   tabelle: [],
   azioni: [{ etichetta: 'CREATE INDEX', quante: 10, tipo: 'struttura' }],
   ...dentro,
+})
+
+// ⚠️ La stessa riga che passa da ℹ️ a 🚨 non aspetta la calma: un login estraneo comparso dopo un
+// messaggio che diceva «tutto firmato» e' l'anomalia vera, e mezz'ora di silenzio la nasconderebbe.
+// Il verso opposto aspetta come tutto il resto.
+test('daAnnunciare: da ℹ️ a 🚨 la calma si rompe, da 🚨 a ℹ️ no', () => {
+  const prec = (livello) => ({ 'scrittura-dati:s/n': { quando: 1_000, quante: 2, detto: 1_000, azioni: { INSERT: 2 }, tabelle: ['ordini'], chi: ['tizio'], livello } })
+  const ora = (livello) =>
+    SCRITTURA({ chiave: 'scrittura-dati:s/n', natura: 'dati', livello, quando: 2_000, quante: 3, chi: ['tizio'], tabelle: ['ordini'], azioni: [{ etichetta: 'INSERT', quante: 3, tipo: 'dati' }] })
+  const dentroAllaCalma = { adesso: 1_000 + 5 * 60_000 }
+  assert.deepEqual(daAnnunciare([ora('allarme')], prec('info'), dentroAllaCalma).nuovi.map((n) => [n.livello, n.nuove]), [['allarme', 1]])
+  assert.deepEqual(daAnnunciare([ora('info')], prec('allarme'), dentroAllaCalma).nuovi, [])
+  assert.deepEqual(daAnnunciare([ora('allarme')], prec('allarme'), dentroAllaCalma).nuovi, [])
 })
 
 test('daAnnunciare: dentro alla calma un segnale che continua NON si ridice', () => {

@@ -341,8 +341,8 @@ services:
 #   # senza calma una sessione di migration di mezz'ora sono sei messaggi che dicono la stessa cosa con
 #   # una cifra diversa. Niente si perde: quello che succede nel silenzio finisce nel messaggio dopo,
 #   # perche' il delta si misura dall'ultimo messaggio MANDATO. Una cosa non aspetta mai: una persona
-#   # che prima non scriveva. E la riga rossa dei dati dei clienti ha una chiave sua, quindi non la
-#   # zittisce la calma dei DDL.
+#   # che prima non scriveva, o un login che non e' il nome di nessuno sulla riga dei dati (da ℹ️ a
+#   # 🚨). E la riga dei dati dei clienti ha una chiave sua, quindi non la zittisce la calma dei DDL.
 #   # `0` = un messaggio a ogni giro, cioe' il comportamento di prima.
 #   calmaMinuti: 30                               # default
 #

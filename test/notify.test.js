@@ -742,6 +742,29 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
   assert.match(testo, /esempio\.test\/accessi#scritture\|Accessi/)
 })
 
+// ⚠️ La riga ℹ️ (08/10/2026: dati scritti solo con login personali) cambia faccia, non strada: va nel
+// webhook di sempre anche quando c'e' il canale della flotta, perche' il routing guarda il TIPO e non
+// il livello. Una scrittura in produzione che finisse fra la salute dei Mac non la leggerebbe nessuno.
+test('giroAccessi: dati scritti col login personale escono ℹ️ e nello stesso canale delle altre scritture', async () => {
+  const webhook = []
+  const personale = structuredClone(DATI)
+  personale.audit.database[0].utentiDb = [{ utente: 'dev_tizio', endpoint: 'writer' }]
+  const out = await giroAccessi(
+    { ...CFG_ACCESSI, botToken: 'xoxb-test' },
+    {
+      loadConfig: () => ({ teleport: { slackWebhook: 'https://hooks.example/x', canaleFlotta: 'C0FLOTTA' } }),
+      statoAccessi: async () => personale,
+      postSlack: async (_hook, p) => (webhook.push(p.text), true),
+      postBot: async () => assert.fail('una scrittura non va nel canale della flotta'),
+    },
+    { accessi: { 'scrittura-dati:orders-prod-db-ro/orders': { quando: 8000, quante: 1 } } },
+  )
+  assert.equal(out.sent, true)
+  assert.equal(webhook.length, 1)
+  assert.match(webhook[0], /^ℹ️ `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(su writer\)/)
+  assert.equal(out.stato['scrittura-dati:orders-prod-db-ro/orders'].livello, 'info')
+})
+
 // La riga dell'altro caso vero: tanti DDL su una matview di reportistica. Colore diverso, parola
 // diversa, e le due azioni che contano invece di «15 statement».
 test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con le azioni', async () => {

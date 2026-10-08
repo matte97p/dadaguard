@@ -164,6 +164,18 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **Una persona che scrive sui dati di produzione col suo login non accende più la sirena** (08/10/2026).
+  La riga «SCRITTURE» dei dati usciva sempre con 🚨, anche per due `INSERT` fatti da una persona col
+  suo login personale, cioè firmati e a log. Nel canale 🚨 vuol dire «un allarme è acceso, il servizio
+  è ridotto»: la riga sembrava un'interruzione, e insegnava a ignorare il rosso. Ora la riga dei dati è
+  ℹ️ quando tutti i login con cui si è scritto sono il nome di chi ha scritto (`dev_`, `adm_`, `data_`
+  seguiti dall'utente), e resta 🚨 appena ce n'è uno che non lo è (`postgres`, un login condiviso, il
+  login di un altro) o quando i login non si conoscono. Il riconoscimento è quello che il messaggio già
+  usava per non ridire i login fra parentesi, spostato in `server/loginPersonali.js`, così colore e
+  testo non possono divergere. La stessa riga che passa da ℹ️ a 🚨 rompe la calma e parla subito; il
+  verso opposto aspetta come prima. Restano come prima la riga «STRUTTURA» (⚠️), la riga unica e rossa
+  dei payload senza la divisione dati/struttura, il canale e la calma. I login l'audit li dà per
+  database: un DDL fatto come `postgres` tiene rossa anche la riga dei dati.
 - **Un allarme CloudWatch che ha già il suo notifier non arriva più due volte su Slack** (08/10/2026).
   `acme-production-alb-5xx` è scattato alle 14:52: il suo notifier (allarme → SNS → Lambda → Slack)
   l'ha detto alle 14:52 e richiuso alle 15:01, e alle 15:01 Dadaguard ha mandato il suo «1 allarme
