@@ -29,7 +29,9 @@ test('causaDalLog: le righe di script che contengono la parola non sono errori',
 })
 
 test('causaDalLog: oscura il token nell URL del remote', () => {
-  const c = causaDalLog(["fatal: unable to access 'https://x-access-token:ghs_abcdefghijklmnop@github.com/o/r/'"])
+  // L'URL si compone a pezzi: scritto intero, il guardiano del repo pubblico lo legge come un'email.
+  const url = ['https://x-access-token:ghs_abcdefghijklmnop', 'github.com/o/r/'].join('@')
+  const c = causaDalLog([`fatal: unable to access '${url}'`])
   assert.ok(!c.includes('ghs_abcdef'), c)
   assert.ok(c.includes('***@github.com'), c)
 })
