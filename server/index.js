@@ -669,6 +669,8 @@ app.get('/api/runs', async (req, res) => {
       minutes: entroLimiti('runs', req.query.minutes ? Number(req.query.minutes) / 60 : undefined) * 60,
       limit: num(req.query.limit, req.query.cron ? 25 : 6, 50),
       only: req.query.cron || null,
+      // Ricerca per nome fatta dal server, PRIMA del tetto dei cron letti: vedi scegliCron.
+      q: typeof req.query.q === 'string' ? req.query.q : '',
       t: makeT(req.query.lang),
     })
     conEta(res, overview.generatedAt).json(conDurataTipica(overview))

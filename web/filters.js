@@ -110,3 +110,13 @@ export function filtriInUrl(search, f = {}) {
   metti('problems', f.problemsOnly ? '1' : '')
   return p.toString().replace(/%2C/gi, ',')
 }
+
+// La ricerca della pagina dei cron, come pezzo di URL per `/api/runs`. Va al server perche' il server
+// legge al massimo 40 cron per giro, e filtrare solo nel browser cercava fra quei 40: un cron vero oltre
+// il tetto risultava «Nessuna esecuzione». Sotto i due caratteri non si chiede niente: «t» corrisponde a
+// quasi tutto e costerebbe un giro intero per la stessa lista di prima.
+export const MIN_CERCA_RUNS = 2
+export function queryCerca(testo) {
+  const q = String(testo ?? '').trim()
+  return q.length >= MIN_CERCA_RUNS ? `&q=${encodeURIComponent(q)}` : ''
+}

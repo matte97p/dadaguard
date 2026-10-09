@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, filtriDaUrl, filtriInUrl } from '../web/filters.js'
+import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, filtriDaUrl, filtriInUrl, queryCerca } from '../web/filters.js'
 
 // Il modello dei filtri: ELENCO VUOTO = TUTTI. Sembra una sciocchezza, ma prima ogni pagina scriveva a
 // mano `x === 'all' || y === x`, in sei file, e ognuno poteva sbagliarlo a modo suo. Qui si fissa il
@@ -104,4 +104,12 @@ test('filtriInUrl scrive i filtri scelti, toglie quelli al default e tiene gli a
 test('filtriInUrl e filtriDaUrl fanno andata e ritorno', () => {
   const f = { typeFilter: ['bedrock'], statusFilter: ['down', 'degraded'], regionFilter: ['us-east-1'], scheduleFilter: 'ondemand', managedFilter: 'unmanaged', problemsOnly: true }
   assert.deepEqual(filtriDaUrl(`?${filtriInUrl('', f)}`), f)
+})
+
+test('queryCerca: la ricerca dei cron va al server solo da due caratteri, codificata', () => {
+  assert.equal(queryCerca(''), '')
+  assert.equal(queryCerca('  t '), '')
+  assert.equal(queryCerca(null), '')
+  assert.equal(queryCerca(' tender-updates '), '&q=tender-updates')
+  assert.equal(queryCerca('a&b c'), '&q=a%26b%20c')
 })
