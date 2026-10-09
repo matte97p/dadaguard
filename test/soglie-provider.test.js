@@ -121,3 +121,35 @@ test('lambda on-demand: il throttling è capacità, non un errore visto dall ute
   const tanti = await lambdaRuntime({ function: 'f' }, {}, { metricValues: metriche({ inv: 100, thr: 5 }), t })
   assert.equal(tanti.status, 'degraded')
 })
+
+// --- concorrenza riservata: il throttle è la coda di un tetto voluto ---------------------------
+// Il caso vero (09/10/2026): lo scale-up dei runner GitHub su staging, concorrenza riservata 1,
+// 33 throttle su 21 chiamate e zero errori, ha chiamato il canale con un «ATTENZIONE».
+const ondemand = (m, opts = {}) =>
+  lambdaRuntime({ function: 'f' }, {}, { metricValues: metriche(m), t, ...opts })
+
+test('on-demand: con concorrenza riservata il throttle non cambia lo stato, ma resta scritto', async () => {
+  const r = await ondemand({ inv: 21, thr: 33 }, { lambdaReservedConcurrency: async () => 1 })
+  assert.equal(r.status, 'up')
+  assert.match(r.summary, /33 in coda \(concorrenza riservata 1, voluta\)/)
+})
+
+test('on-demand: con concorrenza riservata gli errori allarmano come prima', async () => {
+  const r = await ondemand({ inv: 21, err: 2, thr: 33 }, { lambdaReservedConcurrency: async () => 1 })
+  assert.equal(r.status, 'degraded')
+})
+
+test('on-demand: senza concorrenza riservata (o se non si sa) il throttle allarma come prima', async () => {
+  const senza = await ondemand({ inv: 21, thr: 33 }, { lambdaReservedConcurrency: async () => null })
+  assert.equal(senza.status, 'degraded')
+  // Riservata a 0 è la funzione SPENTA: ogni chiamata rifiutata, e quello va detto.
+  const spenta = await ondemand({ inv: 21, thr: 33 }, { lambdaReservedConcurrency: async () => 0 })
+  assert.equal(spenta.status, 'degraded')
+})
+
+test('on-demand: un allarme di soli throttle stampa la regola di `capacita`, non quella degli errori', async () => {
+  const r = await ondemand({ inv: 21, thr: 33 }, { lambdaReservedConcurrency: async () => null })
+  const capacita = risolviProfilo('capacita', null)
+  assert.match(r.alert, new RegExp(`≥${capacita.min}`))
+  assert.doesNotMatch(r.alert, /almeno 20/)
+})

@@ -1,4 +1,4 @@
-import { LambdaClient, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
+import { LambdaClient, GetFunctionCommand, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
 import { clientOpts } from './awsClient.js'
 import { cachedCall } from '../util/cache.js'
 
@@ -15,4 +15,17 @@ export function getLambdaConfig(functionName, aws) {
   return cachedCall(key, TTL, () =>
     new LambdaClient(clientOpts(aws)).send(new GetFunctionConfigurationCommand({ FunctionName: functionName })),
   )
+}
+
+// La concorrenza RISERVATA della funzione (`null` se non c'è): sta in GetFunction e non in
+// GetFunctionConfiguration, e il ruolo read-only ha già `lambda:GetFunction`. Stessa cache e stessa
+// chiave per account della config. Un errore vale `null`, cioè «non lo so»: il check resta quello di
+// prima, non sparisce.
+export function getLambdaReservedConcurrency(functionName, aws) {
+  const acct = aws.roleArn || aws.profile || 'default'
+  const key = `lambdaConc:${acct}:${aws.region || ''}:${functionName}`
+  return cachedCall(key, TTL, async () => {
+    const r = await new LambdaClient(clientOpts(aws)).send(new GetFunctionCommand({ FunctionName: functionName }))
+    return r.Concurrency?.ReservedConcurrentExecutions ?? null
+  }).catch(() => null)
 }

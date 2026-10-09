@@ -164,6 +164,15 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **Una lambda con concorrenza riservata non è più in ATTENZIONE per i throttle che il suo tetto
+  produce** (09/10/2026). Lo scale-up dei runner GitHub su staging gira a concorrenza 1 apposta (due
+  copie in parallelo contano i runner insieme e sforano il massimo): una raffica di CI ha dato 33
+  throttle su 21 chiamate, zero errori, tutte le istanze create, e il canale ha avuto un allarme. Ora
+  il ramo on-demand legge la concorrenza riservata (`GetFunction`, già nel ruolo read-only) e, se c'è,
+  il throttle resta scritto nel riepilogo («33 in coda (concorrenza riservata 1, voluta)») senza
+  cambiare lo stato, che decidono gli errori. Riservata a 0 (funzione spenta) o non leggibile: si
+  allarma come prima. Il ramo cron non cambia. Corretta anche la regola stampata quando scatta il
+  solo throttle: diceva quella degli errori («≥1% su almeno 20 chiamate») invece di `capacita`.
 - **Una persona che scrive sui dati di produzione col suo login non accende più la sirena** (08/10/2026).
   La riga «SCRITTURE» dei dati usciva sempre con 🚨, anche per due `INSERT` fatti da una persona col
   suo login personale, cioè firmati e a log. Nel canale 🚨 vuol dire «un allarme è acceso, il servizio
