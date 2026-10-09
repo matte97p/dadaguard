@@ -29,3 +29,22 @@ export function getLambdaReservedConcurrency(functionName, aws) {
     return r.Concurrency?.ReservedConcurrentExecutions ?? null
   }).catch(() => null)
 }
+
+// I TAG di una funzione, per il Codice dei cron Lambda (server/codice.js). Da `GetFunction`, che il
+// ruolo read-only ha già: la risposta porta `Tags` SOLO se il ruolo ha anche `lambda:ListTags`
+// (regola di AWS, non nostra). Senza quel permesso la chiamata riesce lo stesso e i tag arrivano
+// vuoti, quindi il cron tiene il nome di oggi invece di rompersi.
+// TTL lungo, un'ora: i tag li muove un apply, non il traffico, e su ~75 cron rileggerli a ogni giro
+// della pagina sarebbero ~75 chiamate per sapere una cosa che non è cambiata. Override:
+// DADAGUARD_LAMBDA_TAGS_TTL_MS. Un errore NON si mette in cache (lo fa `cachedCall`): al giro dopo
+// si riprova, e chi chiama lo tratta come «nessun tag».
+const TTL_TAG = Number(process.env.DADAGUARD_LAMBDA_TAGS_TTL_MS) || 3600_000
+
+export function getLambdaTags(functionName, aws) {
+  const acct = aws.roleArn || aws.profile || 'default'
+  const key = `lambdaTags:${acct}:${aws.region || ''}:${functionName}`
+  return cachedCall(key, TTL_TAG, async () => {
+    const r = await new LambdaClient(clientOpts(aws)).send(new GetFunctionCommand({ FunctionName: functionName }))
+    return r.Tags ?? {}
+  })
+}

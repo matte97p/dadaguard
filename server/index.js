@@ -44,7 +44,7 @@ import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statoLeggero } from './quadroStato.js'
-import { startCorse } from './notify/corse.js'
+import { startCorse, corseConfig, conInfra } from './notify/corse.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -706,7 +706,9 @@ app.get('/api/runs', async (req, res) => {
       q: typeof req.query.q === 'string' ? req.query.q : '',
       t: makeT(req.query.lang),
     })
-    conEta(res, overview.generatedAt).json(conDurataTipica(overview))
+    // `infra: true` sui cron della squadra infra (DADAGUARD_CORSE_INFRA): la pagina li mette in fondo,
+    // in una sezione loro, come il canvas delle corse. Le squadre le conosce solo il server.
+    conEta(res, overview.generatedAt).json(conDurataTipica(conInfra(overview, corseConfig())))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

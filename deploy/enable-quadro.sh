@@ -20,6 +20,8 @@
 #   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image,worker-*' \
 #   DADAGUARD_ALLARMI_DATA_CANALE=C0456 \
 #   DADAGUARD_CORSE_CANALI='tutti=C0789,data=C0456' \
+#   DADAGUARD_GITHUB_ORG=<organizzazione GitHub, facoltativa> \
+#   DADAGUARD_GITHUB_REF=<ramo dei link al codice, default main> \
 #   bash deploy/enable-quadro.sh
 # Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron. Un
 # elemento senza `*` è un repository, uno con `*` un glob sul nome breve della risorsa (per i
@@ -28,6 +30,14 @@
 # corse.js): un canvas per canale, `tutti` con ogni cron o il nome di una squadra di
 # `DADAGUARD_QUADRO_SQUADRE` con i soli suoi (la stessa definizione del quadro). Una squadra che lì non
 # c'è si dice nel log e il suo canale resta senza canvas. Nessun permesso Slack nuovo. Senza, spento.
+# Se `DADAGUARD_QUADRO_SQUADRE` definisce una squadra `infra` (o quella in `DADAGUARD_CORSE_INFRA`), i
+# suoi cron vanno in sezioni «Infra» in fondo al canvas `tutti` e alla pagina Cron.
+# Il nome di un cron è il percorso del suo codice, dal tag AWS `Codice` della risorsa (`<repo>/<percorso>`
+# o un indirizzo intero; vedi shared/codice.js), e ha accanto il link al codice:
+# `DADAGUARD_GITHUB_ORG` è l'organizzazione dei `<repo>/<percorso>` (la stessa variabile della GitHub
+# App dei test) e `DADAGUARD_GITHUB_REF` il ramo (default `main`). Senza org il percorso si vede senza
+# link. Per i cron Lambda il ruolo read-only vuole `lambda:ListTags` (deploy/dadaguard-readonly-policy.json):
+# senza, i cron Lambda tengono il nome dello schedule.
 # `FORCE=1` riscrive un token già presente in SSM e riavvia il servizio perché lo rilegga.
 # Lo stato dei test (GitHub Actions) si accende a parte, con deploy/enable-github-test.sh.
 set -euo pipefail
@@ -46,6 +56,9 @@ PUBLIC_URL=${DADAGUARD_PUBLIC_URL:-}
 SQUADRE=${DADAGUARD_QUADRO_SQUADRE:-}
 CANALE_DATA=${DADAGUARD_ALLARMI_DATA_CANALE:-}
 CORSE=${DADAGUARD_CORSE_CANALI:-}
+INFRA=${DADAGUARD_CORSE_INFRA:-}
+GH_ORG=${DADAGUARD_GITHUB_ORG:-}
+GH_REF=${DADAGUARD_GITHUB_REF:-}
 
 ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
 ARN_TOKEN="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_TOKEN"
@@ -96,7 +109,7 @@ fi
 step "task definition"
 TD=$(payer ecs describe-services --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
 payer ecs describe-task-definition --region "$REGION" --task-definition "$TD" --query taskDefinition >"$TMP/td.json"
-jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" --arg CO "$CORSE" '
+jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" --arg CO "$CORSE" --arg IN "$INFRA" --arg GO "$GH_ORG" --arg GR "$GH_REF" '
   def metti(lista; nome; campo; valore): [lista[]? | select(.name != nome)] + [{name: nome, (campo): valore}];
   .containerDefinitions |= map(
     if .name == $C then
@@ -106,6 +119,9 @@ jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$
       | (if $SQ != "" then .environment = metti(.environment; "DADAGUARD_QUADRO_SQUADRE"; "value"; $SQ) else . end)
       | (if $CD != "" then .environment = metti(.environment; "DADAGUARD_ALLARMI_DATA_CANALE"; "value"; $CD) else . end)
       | (if $CO != "" then .environment = metti(.environment; "DADAGUARD_CORSE_CANALI"; "value"; $CO) else . end)
+      | (if $IN != "" then .environment = metti(.environment; "DADAGUARD_CORSE_INFRA"; "value"; $IN) else . end)
+      | (if $GO != "" then .environment = metti(.environment; "DADAGUARD_GITHUB_ORG"; "value"; $GO) else . end)
+      | (if $GR != "" then .environment = metti(.environment; "DADAGUARD_GITHUB_REF"; "value"; $GR) else . end)
     else . end)
   | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
      requiresCompatibilities, cpu, memory}

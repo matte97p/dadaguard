@@ -3,6 +3,8 @@ import { Drawer, Rimedio, ListaLink, Lista, Sezione, Pill } from '../ui/index.js
 import { LogLines } from '../logline.jsx'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, comandoCron, linkCron } from '../rilasci.js'
+import { statoReaper } from '../../shared/cron.js'
+import { etichettaCodice } from '../../shared/codice.js'
 
 // Il pannello di UN cron, e dentro i log di UNA sua corsa, non «gli ultimi log di quel job».
 //
@@ -76,8 +78,16 @@ export default function RunLogsDrawer({ open, onClose, cron, run, t = (k) => k, 
       onChiudi={onClose}
       etichettaChiudi={t('ui.chiudi')}
       sopra={corsa ? <Pill livello={livello}>{t(`runs.outcome.${corsa.outcome}`)}</Pill> : null}
-      titolo={cron?.name ?? corsa?.cron ?? ''}
-      sotto={[cron?.accountLabel, cron?.scheduleMinutes ? fmtSchedule(`${cron.scheduleMinutes}m`, t) : null].filter(Boolean).join(' · ')}
+      // Il titolo è il percorso del codice (vedi shared/codice.js); il nome dello schedule scende nella
+      // riga sotto, perché è quello che si cerca nella console AWS e nei log.
+      titolo={cron?.etichetta ?? cron?.name ?? corsa?.cron ?? ''}
+      sotto={[
+        cron?.etichetta && cron.etichetta !== cron.name ? cron.name : null,
+        cron?.accountLabel,
+        cron?.scheduleMinutes ? fmtSchedule(`${cron.scheduleMinutes}m`, t) : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
     >
       {/* Il motivo prima di tutto: «uscita 137, memoria esaurita» chiude la domanda senza aprire i
           log, e il comando accanto e' il passo dopo se non basta. */}
@@ -93,6 +103,35 @@ export default function RunLogsDrawer({ open, onClose, cron, run, t = (k) => k, 
       {corsa?.running && <Rimedio livello="info" titolo={t('runs.live')} testo={t('runs.logs.live')} t={t} />}
 
       <dl className="rl-kv">
+        {/* Dove sta il codice: il link se il server sa comporlo (DADAGUARD_GITHUB_ORG, o un indirizzo
+            intero nel tag), altrimenti il percorso da cercare a mano. Senza tag, la riga non c'è. */}
+        {cron?.codice && (
+          <>
+            <dt>{t('rilasci.cron.kv.codice')}</dt>
+            <dd className="ui-mono">
+              {cron.codiceUrl ? (
+                <a href={cron.codiceUrl} target="_blank" rel="noreferrer">
+                  {etichettaCodice(cron.codice)} ↗
+                </a>
+              ) : (
+                etichettaCodice(cron.codice)
+              )}
+            </dd>
+          </>
+        )}
+        {/* Il reaper del job sta dentro la sua riga (shared/codice.js): qui si dice com'è messo. */}
+        {cron?.reaper && (
+          <>
+            <dt>{t('rilasci.cron.kv.reaper')}</dt>
+            <dd>
+              <Pill livello={statoReaper(cron)}>{t(`rilasci.cron.stato.${statoReaper(cron)}`)}</Pill>{' '}
+              <span className="ui-mono">{cron.reaper.name}</span>
+              {motivoCorsa((cron.reaper.runs ?? []).find((r) => !r.running), t) && (
+                <span className="ui-hint"> · {motivoCorsa((cron.reaper.runs ?? []).find((r) => !r.running), t)}</span>
+              )}
+            </dd>
+          </>
+        )}
         <dt>{t('rilasci.cron.kv.tipo')}</dt>
         <dd>{t(cron?.type === 'lambda' ? 'runs.type.lambda' : cron?.type === 'prefect' ? 'runs.type.prefect' : 'runs.type.ecs')}</dd>
         <dt>{t('rilasci.cron.kv.prossima')}</dt>

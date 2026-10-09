@@ -13,6 +13,7 @@
         "lambda:GetFunction",
         "lambda:GetFunctionConfiguration",
         "lambda:GetAlias",
+        "lambda:ListTags",
         "autoscaling:DescribeAutoScalingGroups",
         "rds:DescribeDBClusters",
         "rds:DescribeDBInstances",

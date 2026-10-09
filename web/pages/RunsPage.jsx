@@ -4,7 +4,7 @@ import { usePoll } from '../usePoll.js'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { matchesAny, isFiltering, queryCerca } from '../filters.js'
 import { rangoLivello } from '../adattatori.js'
-import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron } from '../rilasci.js'
+import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron, nomeCron, avvisoReaper } from '../rilasci.js'
 import { contaCron, verdettoCron } from '../../shared/cron.js'
 import { useTick } from '../components/runBits.jsx'
 import RunTimeline from '../components/RunTimeline.jsx'
@@ -42,11 +42,14 @@ const COLONNE_IN_CORSO_M = 'minmax(0,1fr)'
 const ATTESA_CERCA_MS = 400
 
 // Le run di tutti i cron, appiattite in righe: una riga = una esecuzione. Pura.
+// Le corse del REAPER di un job (piegato nella sua riga, vedi `piegaReaper`) restano nella lista delle
+// corse, col nome del job e `reaper` accanto: in una lista per orario una corsa è una corsa, e una
+// fallita del reaper deve vedersi qui come quella di qualunque altro cron.
 export function flattenRuns(crons = [], prefect = null) {
   const righe = []
-  for (const c of crons) {
+  for (const c of crons.flatMap((x) => (x.reaper ? [x, { ...x.reaper, accountLabel: x.reaper.accountLabel ?? x.accountLabel }] : [x]))) {
     for (const r of c.runs ?? []) {
-      righe.push({ ...r, key: `${c.key}#${r.id ?? r.startedAt}`, cronKey: c.key, cronName: c.name, cronType: c.type, account: c.account, accountLabel: c.accountLabel })
+      righe.push({ ...r, key: `${c.key}#${r.id ?? r.startedAt}`, cronKey: c.key, cronName: nomeCron(c), cronType: c.type, account: c.account, accountLabel: c.accountLabel })
     }
   }
   for (const r of prefect?.runs ?? []) {
@@ -179,8 +182,10 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   // deve sparire qui perche' il nome dello schedule e' un altro.
   const trovati = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const corrisponde = (c) => !q || [c.name, c.key, c.family, c.function].some((v) => String(v ?? '').toLowerCase().includes(q))
-    return new Set(tutti.filter(corrisponde).map((c) => c.key))
+    // Anche sull'etichetta e sul Codice: si cerca quello che si VEDE, e il nome in vista è il percorso.
+    const corrisponde = (c) => !q || [c.name, c.key, c.family, c.function, c.etichetta, c.codice].some((v) => String(v ?? '').toLowerCase().includes(q))
+    // Il reaper segue il suo job: le sue corse stanno nella lista delle corse se il job è stato trovato.
+    return new Set(tutti.filter(corrisponde).flatMap((c) => (c.reaper ? [c.key, c.reaper.key] : [c.key])))
   }, [tutti, query])
   const problema = (l) => l === 'crit' || l === 'warn'
 
@@ -192,9 +197,14 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
       tutti
         .map((c) => ({ c, stato: statoCron(c) }))
         .filter(({ c, stato }) => trovati.has(c.key) && (!soloProblemi || problema(stato)))
-        .sort((a, b) => rangoLivello(a.stato) - rangoLivello(b.stato) || String(a.c.name).localeCompare(String(b.c.name))),
+        .sort((a, b) => rangoLivello(a.stato) - rangoLivello(b.stato) || nomeCron(a.c).localeCompare(nomeCron(b.c))),
     [tutti, trovati, soloProblemi],
   )
+  // I cron della squadra infra (`infra: true`, lo decide il server con DADAGUARD_CORSE_INFRA) vanno
+  // dopo quelli del prodotto, in una sezione loro: chi apre la pagina cerca prima i cron del prodotto.
+  // Il verdetto qui sopra li conta lo stesso.
+  const listaProdotto = useMemo(() => listaCron.filter(({ c }) => !c.infra), [listaCron])
+  const listaInfra = useMemo(() => listaCron.filter(({ c }) => c.infra), [listaCron])
   const listaCorse = useMemo(
     () => righe.filter((r) => trovati.has(r.cronKey) && (!soloProblemi || problema(livelloCorsa(r)))),
     [righe, trovati, soloProblemi],
@@ -204,10 +214,53 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   const { falliti, nonPartiti } = contaCron(tutti)
   const corseFallite = righe.filter((r) => r.outcome === 'failed').length
   const prossima = useMemo(() => crons.filter((c) => c.nextRunAt).sort((a, b) => a.nextRunAt - b.nextRunAt)[0] ?? null, [crons])
-  const cronOf = (riga) => tutti.find((c) => c.key === riga.cronKey) ?? { key: riga.cronKey, name: riga.cronName, runs: [riga] }
+  // Una corsa del reaper apre il pannello del reaper: sta dentro la riga del job, non nella lista.
+  const cronOf = (riga) =>
+    tutti.find((c) => c.key === riga.cronKey) ??
+    tutti.find((c) => c.reaper?.key === riga.cronKey)?.reaper ?? { key: riga.cronKey, name: riga.cronName, runs: [riga] }
   const finestra = WINDOWS.find((w) => w.key === minutes)?.label ?? ''
 
   const v = verdettoCron({ falliti, nonPartiti, inCorso: inCorso.length })
+
+  const rigaCron = ({ c, stato }) => {
+    const { cosa, hint: hintCorsa } = cosaCron(c, stato, t, now)
+    const hint = avvisoReaper(c, t) ?? hintCorsa
+    const ultima = (c.runs ?? []).find((r) => !r.running) ?? c.runs?.[0] ?? null
+    return (
+      <button
+        key={c.key}
+        type="button"
+        className="ui-row ui-row-btn"
+        // data-cron: ancora per il video demo, come data-build sulla pagina Deploy.
+        data-cron={c.name}
+        onClick={() => setAperta({ cron: c, run: ultima })}
+      >
+        <span className="ui-nm">
+          <span className="ui-kicon">⏱</span>
+          <span className="ui-name" title={nomeCron(c) !== c.name ? c.name : undefined}>
+            {nomeCron(c)}
+            <small>
+              {[
+                c.accountLabel,
+                c.scheduleMinutes ? fmtSchedule(`${c.scheduleMinutes}m`, t) : t(`runs.type.${c.type === 'lambda' ? 'lambda' : c.type === 'prefect' ? 'prefect' : 'ecs'}`),
+                c.reaper ? t('rilasci.cron.conReaper') : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </small>
+          </span>
+        </span>
+        <Pill livello={stato}>{t(`rilasci.cron.stato.${stato}`)}</Pill>
+        <span className="ui-what">
+          {cosa}
+          {hint && <span className="ui-hint">{hint}</span>}
+        </span>
+        <RunTimeline runs={c.runs ?? []} t={t} now={now} />
+        <span className="ui-go">›</span>
+      </button>
+    )
+  }
+  const colonneCron = [t('rilasci.cron.col.cron'), t('rilasci.cron.col.ultima'), t('rilasci.cron.col.cosa'), t('rilasci.cron.col.corse'), '']
   const verdetto = { livello: v.livello, forte: t(...v.forte), resto: v.resto ? t(...v.resto) : '' }
 
   return (
@@ -251,7 +304,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
         )}
         {prossima && (
           <span className="ui-faint" style={{ marginLeft: 'auto', fontSize: 12.5 }}>
-            {t('rilasci.cron.prossimaFlotta', { ora: hhmm(prossima.nextRunAt), nome: prossima.name })}
+            {t('rilasci.cron.prossimaFlotta', { ora: hhmm(prossima.nextRunAt), nome: nomeCron(prossima) })}
           </span>
         )}
       </div>
@@ -276,7 +329,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
                   <span className="ui-nm">
                     <span className="ui-kicon">⏱</span>
                     <span className="ui-name">
-                      {c.name}
+                      {nomeCron(c)}
                       <small>{c.accountLabel}</small>
                     </span>
                   </span>
@@ -307,46 +360,20 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
       {loading && !data ? (
         <p className="ui-mute">{t('rilasci.cron.v.attesa')}</p>
       ) : vista === 'cron' ? (
-        <Lista
-          colonne={[t('rilasci.cron.col.cron'), t('rilasci.cron.col.ultima'), t('rilasci.cron.col.cosa'), t('rilasci.cron.col.corse'), '']}
-          griglia={COLONNE_CRON}
-          grigliaMobile={COLONNE_CRON_M}
-          vuoto={vuoto}
-        >
-          {listaCron.map(({ c, stato }) => {
-            const { cosa, hint } = cosaCron(c, stato, t, now)
-            const ultima = (c.runs ?? []).find((r) => !r.running) ?? c.runs?.[0] ?? null
-            return (
-              <button
-                key={c.key}
-                type="button"
-                className="ui-row ui-row-btn"
-                // data-cron: ancora per il video demo, come data-build sulla pagina Deploy.
-                data-cron={c.name}
-                onClick={() => setAperta({ cron: c, run: ultima })}
-              >
-                <span className="ui-nm">
-                  <span className="ui-kicon">⏱</span>
-                  <span className="ui-name">
-                    {c.name}
-                    <small>
-                      {[c.accountLabel, c.scheduleMinutes ? fmtSchedule(`${c.scheduleMinutes}m`, t) : t(`runs.type.${c.type === 'lambda' ? 'lambda' : c.type === 'prefect' ? 'prefect' : 'ecs'}`)]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </small>
-                  </span>
-                </span>
-                <Pill livello={stato}>{t(`rilasci.cron.stato.${stato}`)}</Pill>
-                <span className="ui-what">
-                  {cosa}
-                  {hint && <span className="ui-hint">{hint}</span>}
-                </span>
-                <RunTimeline runs={c.runs ?? []} t={t} now={now} />
-                <span className="ui-go">›</span>
-              </button>
-            )
-          })}
-        </Lista>
+        <>
+          {(listaProdotto.length > 0 || listaInfra.length === 0) && (
+            <Lista colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M} vuoto={vuoto}>
+              {listaProdotto.map(rigaCron)}
+            </Lista>
+          )}
+          {listaInfra.length > 0 && (
+            <Sezione titolo={t('rilasci.cron.infra')} sotto={t('rilasci.cron.infraSotto')}>
+              <Lista colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M}>
+                {listaInfra.map(rigaCron)}
+              </Lista>
+            </Sezione>
+          )}
+        </>
       ) : (
         <Lista
           colonne={[t('rilasci.cron.col.esito'), t('rilasci.cron.col.cron'), t('rilasci.cron.col.cosa'), t('runs.col.duration'), '']}

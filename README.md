@@ -43,6 +43,10 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
   singola corsa, e i **log della singola esecuzione** invece dell'ultima ora del job. Cron su ECS RunTask
   (due sorgenti: API ECS per le run vive e l'exit code, log per lo storico) · cron Lambda (coppie
   `START`/`REPORT`) · opzionale un orchestratore **Prefect**, per i job lunghi che girano fuori da AWS
+  Ogni cron si chiama col **percorso del suo codice**, dal tag AWS `Codice` della task definition o della
+  funzione (`<repo>/<percorso>`, o un indirizzo intero per il codice di altri), con il link al sorgente:
+  `DADAGUARD_GITHUB_ORG` è l'organizzazione dei `<repo>/<percorso>`, `DADAGUARD_GITHUB_REF` il ramo
+  (default `main`). Senza tag resta il nome dello schedule; per i cron Lambda serve `lambda:ListTags`
 - **Liveness** + latenza
 - **Versione** deployata vs attesa
 - **Runtime** AWS reale: ECS · ASG · Lambda (con dead-man switch per le cron) · RDS/Aurora · ALB · EC2

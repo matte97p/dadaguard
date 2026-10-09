@@ -49,6 +49,7 @@ data "aws_iam_policy_document" "readonly" {
       "ecs:ListTasks", "ecs:DescribeTasks",
       "lambda:ListFunctions", "lambda:GetFunction", "lambda:GetFunctionConfiguration",
       "lambda:GetAlias", # #2 build: versione dietro l'alias Lambda
+      "lambda:ListTags", # tag `Codice` dei cron Lambda: GetFunction li restituisce solo con questo
       "autoscaling:DescribeAutoScalingGroups",
       "rds:DescribeDBClusters", "rds:DescribeDBInstances",
       "rds:DescribeDBClusterSnapshots", "rds:DescribeDBSnapshots", # recency backup
