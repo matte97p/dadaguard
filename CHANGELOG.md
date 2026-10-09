@@ -6,6 +6,17 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Le corse dei cron in un canvas di Slack, uno per canale** (09/10/2026). Con
+  `DADAGUARD_CORSE_CANALI='tutti=C0123,data=C0456'` Dadaguard tiene in ogni canale un canvas «Corse
+  cron TUTTI» / «Corse cron DATA» con il verdetto della pagina Cron («1 cron fallito, 3 in corso»)
+  calcolato sui soli cron di quel canale, un paragrafo «Da guardare» (falliti, non partiti, in corso,
+  produzione prima di staging) e una tabella per account con stato, ultima corsa, prossima corsa e il
+  link al cron su Dadaguard (`/cron?cron=<account>/<nome>`, che ora apre la pagina su quel cron).
+  `tutti` ha ogni cron; una squadra ha i suoi secondo `DADAGUARD_QUADRO_SQUADRE`, la stessa definizione
+  del quadro dei deploy; una squadra non definita si dice nel log e si salta. Tutti i cron e non i
+  primi 40, letti una volta ogni 5 minuti per tutti i canali con due corse per cron, concorrenza 3 e la
+  ricerca degli errori nella sola ultima corsa. Si riscrivono solo le celle cambiate, un canvas
+  cancellato a mano si ricrea. Nessun permesso Slack nuovo; senza la variabile resta spento.
 - **Il quadro dei deploy si aggiorna appena succede qualcosa, non al giro dopo** (08/10/2026). Il giro
   legge CodeBuild, ECS e GitHub da sé, e dura fra 25 secondi e 14 minuti: un 🧪 arrivava sul quadro
   minuti dopo la riga in canale. Ora il quadro ascolta una coda SQS (`DADAGUARD_QUADRO_CODA`, accesa

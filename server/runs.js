@@ -44,6 +44,7 @@ import { awslogsFromTaskDef, readWindow } from './logs.js'
 import { FAILURE_PATTERN } from './runtime/ecsScheduled.js'
 import { mapLimit } from './util/pool.js'
 import { cached } from './util/ttlcache.js'
+import { imageRepo } from './checks/version.js'
 
 // Family dalla task-def (ARN o `family:rev`): serve a `ListTasks`, che filtra per family e non per ARN.
 export function familyOfTaskDef(taskDefinition) {
@@ -228,6 +229,10 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
   )
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cfg.container)
   const family = familyOfTaskDef(cfg.taskDefinition)
+  // Il repository dell'immagine del container principale, dalla stessa task definition già in mano:
+  // il canvas delle corse in Slack (server/notify/corse.js) ci riconosce di quale squadra è un cron,
+  // con le stesse regole del quadro dei deploy. Zero chiamate in più.
+  const immagine = imageRepo(td?.containerDefinitions?.find((c) => c.name === container)?.image ?? td?.containerDefinitions?.[0]?.image)
 
   // API ECS: le run vive e quelle finite nell'ultima ora, con l'esito esatto. Best-effort, senza
   // `ecs:ListTasks` restano le run dal log, che è la maggior parte della lista.
@@ -253,7 +258,7 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
     const runs = apiRuns
       .filter((r) => r.running || (r.startedAt ?? 0) >= since)
       .map((r) => ({ ...r, outcome: classifyRun(r) }))
-    return { logGroup: null, runs: runs.slice(0, limit), apiOnly: true }
+    return { logGroup: null, immagine, runs: runs.slice(0, limit), apiOnly: true }
   }
 
   const logs = new CloudWatchLogsClient(clientOpts(aws))
@@ -271,7 +276,7 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
     )
     logRuns = runsFromStreams(out.logStreams ?? [], { streamPrefix, container, since })
   } catch (err) {
-    if (!isDenied(err)) return { logGroup, runs: [], error: cleanAwsReason(err, t) }
+    if (!isDenied(err)) return { logGroup, immagine, runs: [], error: cleanAwsReason(err, t) }
     // `logs:DescribeLogStreams` negato: si resta sull'ora dell'API. Meglio poco e vero.
   }
 
@@ -300,6 +305,7 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
     logGroup,
     streamPrefix,
     container,
+    immagine,
     runs: merged.map((r) => {
       const failed = failedById.get(r.id)
       return {
