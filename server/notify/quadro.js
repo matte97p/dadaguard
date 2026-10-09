@@ -505,6 +505,16 @@ export function regoleSquadre(squadre = {}) {
   }))
 }
 
+// La squadra di una risorsa, dalle regole di `regoleSquadre`: il primo repository che una squadra
+// possiede, poi il primo nome che un suo glob prende. È la stessa decisione per il quadro dei deploy
+// (`dividi`) e per il canvas delle corse (server/notify/corse.js): una riga sola di configurazione
+// decide tutte e due. `undefined` se non è di nessuno. Puro/testabile.
+export function squadraDiRegole(regole, repo = [], nomi = []) {
+  const r = repo.filter(Boolean).map((x) => String(x).toLowerCase())
+  const n = nomi.filter(Boolean).map(String)
+  return (regole.find((s) => r.some((x) => s.repo.includes(x))) ?? regole.find((s) => n.some((x) => s.glob.some((g) => g.test(x)))))?.nome
+}
+
 // Un ambiente diviso nelle schede: la PRINCIPALE, CRON e una per ogni squadra. Puro/testabile.
 //   squadra    una risorsa il cui repository (sorgente della build o repo dell'immagine) è di quella
 //              squadra, o il cui NOME risponde a un suo glob: vince su tutto, perché è la domanda
@@ -519,12 +529,7 @@ export function dividi(qa, { squadre = {} } = {}) {
   if (!qa) return null
   const vuoto = () => ({ ...qa, app: [], esterni: [], lambda: [], lambdaSenzaData: 0, lambdaTutte: [], infra: null })
   const regole = regoleSquadre(squadre)
-  // Il primo repository che una squadra possiede, poi il primo nome che un suo glob prende.
-  const squadraDi = (repo = [], nomi = []) => {
-    const r = repo.filter(Boolean).map((x) => String(x).toLowerCase())
-    const n = nomi.filter(Boolean).map(String)
-    return (regole.find((s) => r.some((x) => s.repo.includes(x))) ?? regole.find((s) => n.some((x) => s.glob.some((g) => g.test(x)))))?.nome
-  }
+  const squadraDi = (repo, nomi) => squadraDiRegole(regole, repo, nomi)
   // Le Lambda si dividono una per una (`lambdaTutte`, le righe della tabella), e i giri della sintesi
   // (`lambda`, vedi `lottiLambda`) si rifanno su quelle rimaste: un giro di venti Lambda di cui tre
   // sono di una squadra diventa due giri, uno per scheda. Se nessuna se ne va, i giri restano quelli
@@ -1259,7 +1264,10 @@ export function pianoCelle(modello, blocchi) {
     if (s.righe.length || (s.tollera && b[i]?.tipo === 'table')) {
       const t = b[i++]
       if (t?.tipo !== 'table' || t.righe.length < 1) return null
-      if (t.righe[0].length !== INTESTAZIONE.length || t.righe[0].some((c, k) => !uguale(INTESTAZIONE[k], c.testo))) return null
+      // L'intestazione è quella del quadro, o quella che la sezione porta con sé (il canvas delle
+      // corse ha colonne sue, vedi server/notify/corse.js).
+      const intestazione = s.intestazione ?? INTESTAZIONE
+      if (t.righe[0].length !== intestazione.length || t.righe[0].some((c, k) => !uguale(intestazione[k], c.testo))) return null
       // Le righe si appaiano per nome, nello stesso ordine. Una riga del canvas che il modello non ha
       // vuol dire una risorsa sparita, cioè un'altra forma; ma con le build o la discovery non lette
       // (`tollera`) vuol dire solo «non letta»: un sito statico o l'IaC, che si conoscono dalle build,
@@ -1304,18 +1312,7 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   const ev = deps.eventi?.attivi(ora) ?? null
   applicaTest(q, ev ? unisciTest(daGithub, ev.test, { lettoAlle: deps.github?.lettoAlle?.() ?? null }) : daGithub)
   if (ev) applicaEventi(q, ev.deploy)
-  // Le schede di un canale si chiedono una volta per giro: i canvas sono più d'uno nello stesso canale.
-  const infoDi = new Map()
-  const info = async (canale) => {
-    if (!infoDi.has(canale)) infoDi.set(canale, await api('conversations.info', { channel: canale }))
-    return infoDi.get(canale)
-  }
-  const leggiHtml = async (id) => {
-    const f = await api('files.info', { file: id })
-    const url = f?.file?.url_private_download ?? f?.file?.url_private
-    if (!url) throw new Error('files.info senza indirizzo del contenuto')
-    return scarica(url)
-  }
+  const { info, leggiHtml } = lettoreCanali(api, scarica)
   // Prima le List e poi i canvas: ogni canvas porta in fondo il link alla List della sua area, e
   // l'indirizzo si sa solo dopo averla ritrovata o creata.
   const esitiListe = []
@@ -1357,64 +1354,88 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     // canvas che non si riesce a scrivere non tace anche un servizio giù.
     const allarmi = AMBIENTI[c.chiave] ? { allarmi: datiAllarmi(q[c.chiave], { ora, url: cfg.publicUrl, ore: cfg.ore }) } : {}
     try {
-      const document_content = { type: 'markdown', markdown: c.markdown }
-      const { id, doppioni } = canvasDelCanale(await info(c.canale), c.titolo)
-      if (doppioni.length) log.warn('quadro: il canale ha più canvas con lo stesso titolo, aggiorno il più recente', { canvas: c.chiave, doppioni })
-      // `ultimi` dice già che quel canvas è stato allineato in questo processo, quindi controllato.
-      if (id && !titoli.has(id) && !ultimi.has(id)) {
-        // Rinominato sul posto, non ricreato: chi l'ha nei preferiti o ne ha il link lo ritrova. ⚠️
-        // L'etichetta della SCHEDA del canale non segue il rename (provato il 05/10/2026: resta quella
-        // di quando il canvas è stato condiviso), e un'API per cambiarla non c'è.
-        const attuale = (await api('files.info', { file: id }))?.file?.title
-        if (attuale !== c.titolo) await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'rename', title_content: { type: 'markdown', markdown: c.titolo } }] })
-        titoli.add(id)
-      }
-      if (id && ultimi.get(id) === c.markdown) {
-        esiti.push({ ambiente: c.chiave, azione: 'invariato', canvas: id, ...allarmi })
-        continue
-      }
-      if (!id) {
-        const r = await api('conversations.canvases.create', { channel_id: c.canale, title: c.titolo, document_content })
-        // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
-        // l'ha fatta. Se non riesce il quadro funziona lo stesso, quindi lo si dice e si va avanti.
-        await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [c.canale] }).catch((err) =>
-          log.warn('quadro: canvas non messo in sola lettura', { canvas: c.chiave, err: err.message }),
-        )
-        ultimi.set(r.canvas_id, c.markdown)
-        esiti.push({ ambiente: c.chiave, azione: 'creato', canvas: r.canvas_id, ...allarmi })
-        continue
-      }
-      // Un canvas che non si riesce a leggere si riscrive intero, come prima di questa lettura: meglio
-      // lo sdoppio nel client aperto che un quadro fermo.
-      const piano = await leggiHtml(id)
-        .then((html) => pianoCelle(c.modello, leggiCanvasHtml(html)))
-        .catch((err) => {
-          log.warn('quadro: canvas non letto, lo riscrivo intero', { canvas: c.chiave, err: err.message })
-          return null
-        })
-      if (!piano) {
-        // `replace` senza sezione riscrive il canvas intero: la forma è cambiata, e la tabella non ha
-        // un id con cui rifarla da sola.
-        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
-        ultimi.set(id, c.markdown)
-        esiti.push({ ambiente: c.chiave, azione: 'riscritto', canvas: id, ...allarmi })
-        continue
-      }
-      const adesso = piano.slice(0, Math.max(0, budget))
-      for (const m of adesso) {
-        // Una modifica per chiamata: `canvases.edit` ne accetta una sola.
-        await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', section_id: m.id, document_content: { type: 'markdown', markdown: m.markdown } }] })
-        budget--
-      }
-      const restano = piano.length - adesso.length
-      // Allineato solo se è stato scritto tutto: quello che avanza, il giro dopo lo ritrova rileggendo.
-      if (!restano) ultimi.set(id, c.markdown)
-      esiti.push({ ambiente: c.chiave, azione: piano.length ? 'celle' : 'invariato', canvas: id, celle: adesso.length, restano, ...allarmi })
+      const e = await allineaCanvas(api, c, { info, leggiHtml, ultimi, titoli, budget })
+      budget -= e.celle ?? 0
+      esiti.push({ ambiente: c.chiave, ...e, ...allarmi })
     } catch (err) {
       esiti.push({ ambiente: c.chiave, azione: 'errore', errore: err.message, ...allarmi })
     }
   }
   return [...esiti, ...esitiListe]
+}
+
+// Le due letture di un giro: le schede di un canale (chieste una volta per giro, perché i canvas sono
+// più d'uno nello stesso canale) e l'HTML di un canvas. Nuove a ogni giro: le schede cambiano.
+export function lettoreCanali(api, scarica) {
+  const infoDi = new Map()
+  const info = async (canale) => {
+    if (!infoDi.has(canale)) infoDi.set(canale, await api('conversations.info', { channel: canale }))
+    return infoDi.get(canale)
+  }
+  const leggiHtml = async (id) => {
+    const f = await api('files.info', { file: id })
+    const url = f?.file?.url_private_download ?? f?.file?.url_private
+    if (!url) throw new Error('files.info senza indirizzo del contenuto')
+    return scarica(url)
+  }
+  return { info, leggiHtml }
+}
+
+// Allinea UN canvas al suo markdown: lo ritrova fra le schede del canale (o lo crea), lo rinomina se
+// ha il titolo di prima, poi riscrive le sole celle cambiate (al massimo `budget`) o, se la forma è
+// cambiata, il canvas intero. `c` è `{ chiave, canale, titolo, markdown, modello }`; `info` e
+// `leggiHtml` leggono il canale e il canvas, `ultimi` e `titoli` sono la memoria fra un giro e
+// l'altro. Esce l'esito, con `celle` = le modifiche spese. Lo usa anche il canvas delle corse
+// (server/notify/corse.js): un canvas cancellato a mano, un titolo vecchio, una forma cambiata si
+// trattano allo stesso modo nei due.
+export async function allineaCanvas(api, c, { info, leggiHtml, ultimi = new Map(), titoli = new Set(), budget = MAX_MODIFICHE_GIRO, nome = 'quadro' }) {
+  const document_content = { type: 'markdown', markdown: c.markdown }
+  const { id, doppioni } = canvasDelCanale(await info(c.canale), c.titolo)
+  if (doppioni.length) log.warn(`${nome}: il canale ha più canvas con lo stesso titolo, aggiorno il più recente`, { canvas: c.chiave, doppioni })
+  // `ultimi` dice già che quel canvas è stato allineato in questo processo, quindi controllato.
+  if (id && !titoli.has(id) && !ultimi.has(id)) {
+    // Rinominato sul posto, non ricreato: chi l'ha nei preferiti o ne ha il link lo ritrova. ⚠️
+    // L'etichetta della SCHEDA del canale non segue il rename (provato il 05/10/2026: resta quella
+    // di quando il canvas è stato condiviso), e un'API per cambiarla non c'è.
+    const attuale = (await api('files.info', { file: id }))?.file?.title
+    if (attuale !== c.titolo) await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'rename', title_content: { type: 'markdown', markdown: c.titolo } }] })
+    titoli.add(id)
+  }
+  if (id && ultimi.get(id) === c.markdown) return { azione: 'invariato', canvas: id }
+  if (!id) {
+    const r = await api('conversations.canvases.create', { channel_id: c.canale, title: c.titolo, document_content })
+    // In sola lettura per il canale: una modifica a mano sparirebbe al giro dopo, senza dirlo a chi
+    // l'ha fatta. Se non riesce il quadro funziona lo stesso, quindi lo si dice e si va avanti.
+    await api('canvases.access.set', { canvas_id: r.canvas_id, access_level: 'read', channel_ids: [c.canale] }).catch((err) =>
+      log.warn(`${nome}: canvas non messo in sola lettura`, { canvas: c.chiave, err: err.message }),
+    )
+    ultimi.set(r.canvas_id, c.markdown)
+    return { azione: 'creato', canvas: r.canvas_id }
+  }
+  // Un canvas che non si riesce a leggere si riscrive intero, come prima di questa lettura: meglio
+  // lo sdoppio nel client aperto che un quadro fermo.
+  const piano = await leggiHtml(id)
+    .then((html) => pianoCelle(c.modello, leggiCanvasHtml(html)))
+    .catch((err) => {
+      log.warn(`${nome}: canvas non letto, lo riscrivo intero`, { canvas: c.chiave, err: err.message })
+      return null
+    })
+  if (!piano) {
+    // `replace` senza sezione riscrive il canvas intero: la forma è cambiata, e la tabella non ha
+    // un id con cui rifarla da sola.
+    await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', document_content }] })
+    ultimi.set(id, c.markdown)
+    return { azione: 'riscritto', canvas: id }
+  }
+  const adesso = piano.slice(0, Math.max(0, budget))
+  for (const m of adesso) {
+    // Una modifica per chiamata: `canvases.edit` ne accetta una sola.
+    await api('canvases.edit', { canvas_id: id, changes: [{ operation: 'replace', section_id: m.id, document_content: { type: 'markdown', markdown: m.markdown } }] })
+  }
+  const restano = piano.length - adesso.length
+  // Allineato solo se è stato scritto tutto: quello che avanza, il giro dopo lo ritrova rileggendo.
+  if (!restano) ultimi.set(id, c.markdown)
+  return { azione: piano.length ? 'celle' : 'invariato', canvas: id, celle: adesso.length, restano }
 }
 
 // ── La Slack List ────────────────────────────────────────────────────────────────────────────────

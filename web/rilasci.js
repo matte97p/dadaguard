@@ -73,10 +73,9 @@ export function linkBuild(b, t = (k) => k) {
 
 // ── Cron ────────────────────────────────────────────────────────────────────────────────────────
 
-// Esito di una corsa → livello dell'interfaccia. `unknown` e' arancio e non verde: una corsa di cui non
-// sappiamo com'e' finita non e' andata bene, e' solo non letta.
-const LIVELLO_ESITO = { running: 'info', ok: 'ok', failed: 'crit', cancelled: 'off', unknown: 'warn', scheduled: 'off' }
-export const livelloCorsa = (r) => LIVELLO_ESITO[r?.outcome] ?? 'off'
+// Esito di una corsa, stato di un cron e motivo di un fallimento: in shared/cron.js, perché li usa
+// anche il canvas delle corse in Slack (server/notify/corse.js), e due copie dicono due cose.
+export { livelloCorsa, statoCron, motivoCorsa } from '../shared/cron.js'
 
 // Durata di una corsa: quella vera se e' finita, quella maturata finora se gira.
 export function durataCorsa(run, now = Date.now()) {
@@ -94,23 +93,6 @@ export function durataTipica(cron) {
   return Number.isFinite(cron?.durataTipicaMs) ? cron.durataTipicaMs : null
 }
 
-// Perche' una corsa e' fallita, in una frase. In ordine di quanto il motivo e' certo: l'uccisione per
-// memoria la dice ECS, il timeout la dice Lambda, l'exit code il container. Un fallimento con uscita 0
-// vuol dire che il job ha scritto errori nei log pur finendo «bene», ed e' il caso che la card verde
-// non avrebbe mai mostrato.
-export function motivoCorsa(run, t = (k) => k) {
-  if (!run || run.outcome !== 'failed') {
-    if (run?.outcome === 'unknown') return t('rilasci.cron.motivo.ignoto')
-    return null
-  }
-  if (run.stopReason && /OutOfMemory|OOMKilled/i.test(run.stopReason)) return t('runs.oom')
-  if (run.timedOut) return t('runs.timedOut')
-  if (run.exitCode != null && run.exitCode !== 0) return t('runs.exit', { code: run.exitCode })
-  if (run.state && run.source === 'prefect') return run.state
-  if (run.stopReason) return run.stopReason
-  return t('rilasci.cron.motivo.erroriNeiLog')
-}
-
 // Il comando per leggere i log da terminale. Si compone solo quando il log group e' certo: lo dichiara
 // il cron (ECS), o e' quello che AWS da' per convenzione a ogni Lambda. Altrimenti niente: un comando
 // inventato si copia, fallisce, e insegna a non fidarsi degli altri.
@@ -120,18 +102,6 @@ export function comandoCron(cron) {
   if (!gruppo) return null
   const regione = cron.region ? ` --region ${cron.region}` : ''
   return `aws logs tail ${gruppo} --since 1h${regione}`
-}
-
-// Lo stato di un cron nella lista, dal piu' grave: l'ultima corsa fallita, una in corso, nessuna corsa
-// pur essendo acceso (non e' partito), spento di proposito, tutto a posto.
-export function statoCron(cron) {
-  const runs = cron?.runs ?? []
-  if (runs.some((r) => r.running)) {
-    const finita = runs.find((r) => !r.running)
-    return finita?.outcome === 'failed' ? 'crit' : 'info'
-  }
-  if (!runs.length) return cron?.enabled === false ? 'off' : 'warn'
-  return livelloCorsa(runs.find((r) => !r.running) ?? runs[0])
 }
 
 // I link «Apri altrove» di un cron. Arriveranno dal server in `altrove`; quello che si sa gia' e' il log

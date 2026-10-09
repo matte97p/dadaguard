@@ -5,6 +5,7 @@ import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { matchesAny, isFiltering, queryCerca } from '../filters.js'
 import { rangoLivello } from '../adattatori.js'
 import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron } from '../rilasci.js'
+import { contaCron, verdettoCron } from '../../shared/cron.js'
 import { useTick } from '../components/runBits.jsx'
 import RunTimeline from '../components/RunTimeline.jsx'
 import RunLogsDrawer from '../components/RunLogsDrawer.jsx'
@@ -128,7 +129,16 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   const [aperta, setAperta] = useState(null) // { cron, run } del pannello aperto
   // Cron scelto: la vista passa da «le ultime di tutti» a «tutte le sue». E' il server a leggere piu' a
   // fondo: filtrare qui non aggiungerebbe le corse che non sono state chieste.
-  const [soloCron, setSoloCron] = useState(null)
+  // Parte da `?cron=<account>/<nome>`: e' il link di ogni riga del canvas delle corse in Slack
+  // (server/notify/corse.js), e il redirect da `/esecuzioni` lo tiene gia'. Senza, il link atterrava
+  // sull'elenco di tutti i cron, da cercare a mano.
+  const [soloCron, setSoloCron] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('cron') || null
+    } catch {
+      return null
+    }
+  })
 
   const scegliVista = (v) => {
     setVista(v)
@@ -190,25 +200,15 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
     [righe, trovati, soloProblemi],
   )
 
-  const stati = tutti.map(statoCron)
-  const falliti = stati.filter((s) => s === 'crit').length
-  const nonPartiti = stati.filter((s) => s === 'warn').length
+  // I conti e il verdetto vengono da shared/cron.js: sono gli stessi del canvas delle corse in Slack.
+  const { falliti, nonPartiti } = contaCron(tutti)
   const corseFallite = righe.filter((r) => r.outcome === 'failed').length
   const prossima = useMemo(() => crons.filter((c) => c.nextRunAt).sort((a, b) => a.nextRunAt - b.nextRunAt)[0] ?? null, [crons])
   const cronOf = (riga) => tutti.find((c) => c.key === riga.cronKey) ?? { key: riga.cronKey, name: riga.cronName, runs: [riga] }
   const finestra = WINDOWS.find((w) => w.key === minutes)?.label ?? ''
 
-  const verdetto = falliti
-    ? {
-        livello: 'crit',
-        forte: t('rilasci.cron.v.falliti', { n: falliti }),
-        resto: inCorso.length ? t('rilasci.cron.v.eInCorso', { n: inCorso.length }) : nonPartiti ? t('rilasci.cron.v.eNonPartiti', { n: nonPartiti }) : '',
-      }
-    : nonPartiti
-      ? { livello: 'warn', forte: t('rilasci.cron.v.nonPartiti', { n: nonPartiti }), resto: inCorso.length ? t('rilasci.cron.v.eInCorso', { n: inCorso.length }) : '' }
-      : inCorso.length
-        ? { livello: 'info', forte: t('rilasci.cron.v.inCorso', { n: inCorso.length }), resto: t('rilasci.cron.v.restoOk') }
-        : { livello: 'ok', forte: t('rilasci.cron.v.ok'), resto: '' }
+  const v = verdettoCron({ falliti, nonPartiti, inCorso: inCorso.length })
+  const verdetto = { livello: v.livello, forte: t(...v.forte), resto: v.resto ? t(...v.resto) : '' }
 
   return (
     <div className="rl-pagina">
