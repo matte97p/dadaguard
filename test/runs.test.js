@@ -12,7 +12,7 @@ import {
   windowForRuns,
   pickRecentStreams,
 } from '../server/runs.js'
-import { summarize, sortCrons } from '../server/runsOverview.js'
+import { summarize, sortCrons, scegliCron, normQuery } from '../server/runsOverview.js'
 import { ecsCron, lambdaCron, withNextRun, cronKey } from '../server/crons.js'
 
 // Le esecuzioni non si leggono da un'unica API: ECS le dimentica dopo un'ora, Lambda non le elenca
@@ -299,4 +299,72 @@ test('sortCrons: prima chi gira adesso, poi chi ha appena fallito, poi per ultim
     lista.map((c) => c.name),
     ['in-corso', 'fallito', 'ok-nuovo', 'ok-vecchio'],
   )
+})
+
+// Il tetto dei cron letti per giro esiste per il costo (CloudWatch Logs, ~21 s a giro). Questi test
+// fissano che la ricerca passi PRIMA del tetto, e che il taglio dica quanti ne lascia fuori.
+const cronFinti = (n, extra = {}) =>
+  Array.from({ length: n }, (_, i) => ({
+    key: `prod/cron-${String(i).padStart(3, '0')}`,
+    name: `cron-${String(i).padStart(3, '0')}`,
+    enabled: true,
+    ...extra,
+  }))
+
+test('normQuery: minuscola, senza spazi ai bordi, al massimo 64 caratteri', () => {
+  assert.equal(normQuery('  Tender-Updates '), 'tender-updates')
+  assert.equal(normQuery(null), '')
+  assert.equal(normQuery('x'.repeat(100)).length, 64)
+})
+
+test('scegliCron: un cron oltre il tetto si trova cercandolo, perché la ricerca viene prima del taglio', () => {
+  const crons = [...cronFinti(50), { key: 'prod/zz-tender-updates', name: 'zz-tender-updates', enabled: true }]
+  const senza = scegliCron(crons, { max: 40 })
+  assert.equal(senza.troncata, true)
+  assert.equal(senza.totale, 51)
+  assert.equal(senza.lista.length, 40)
+  assert.ok(!senza.lista.some((c) => c.name === 'zz-tender-updates'))
+
+  const con = scegliCron(crons, { q: 'TENDER-updates', max: 40 })
+  assert.equal(con.troncata, false)
+  assert.equal(con.totale, 1)
+  assert.deepEqual(
+    con.lista.map((c) => c.name),
+    ['zz-tender-updates'],
+  )
+})
+
+test('scegliCron: la ricerca guarda anche family e funzione, non solo il nome dello schedule', () => {
+  const crons = [
+    { key: 'prod/sched-1', name: 'sched-1', family: 'acme-production-cron-tender-updates', enabled: true },
+    { key: 'prod/sched-2', name: 'sched-2', function: 'report-settimanale', enabled: true },
+    { key: 'prod/altro', name: 'altro', enabled: true },
+  ]
+  assert.deepEqual(
+    scegliCron(crons, { q: 'tender-updates' }).lista.map((c) => c.key),
+    ['prod/sched-1'],
+  )
+  assert.deepEqual(
+    scegliCron(crons, { q: 'settimanale' }).lista.map((c) => c.key),
+    ['prod/sched-2'],
+  )
+})
+
+test('scegliCron: gli spenti non contano nel tetto (non costano chiamate) e restano in elenco', () => {
+  const crons = [...cronFinti(3, { enabled: false }).map((c) => ({ ...c, key: `${c.key}-off`, name: `${c.name}-off` })), ...cronFinti(5)]
+  const { lista, totale, troncata } = scegliCron(crons, { max: 4 })
+  assert.equal(troncata, true)
+  assert.equal(totale, 8)
+  assert.equal(lista.filter((c) => c.enabled).length, 4)
+  assert.equal(lista.filter((c) => !c.enabled).length, 3)
+})
+
+test('scegliCron: con `only` resta quel cron solo, e la ricerca non lo toglie se corrisponde', () => {
+  const crons = cronFinti(5)
+  assert.deepEqual(
+    scegliCron(crons, { only: 'prod/cron-003' }).lista.map((c) => c.key),
+    ['prod/cron-003'],
+  )
+  assert.equal(scegliCron(crons, { only: 'prod/cron-003', q: 'cron-004' }).lista.length, 0)
+  assert.equal(scegliCron(crons).troncata, false)
 })
