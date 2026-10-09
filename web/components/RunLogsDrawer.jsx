@@ -159,8 +159,10 @@ export default function RunLogsDrawer({ open, onClose, cron, run, t = (k) => k, 
               <button type="button" className="rl-chip" aria-pressed={errorsOnly} onClick={() => setErrorsOnly((v) => !v)}>
                 {t('logs.errorsOnly')}
               </button>
-              <button type="button" className="rl-chip" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
-                {loading ? t('logs.loading') : t('logs.refresh')}
+              {/* L'etichetta resta «Aggiorna» anche mentre legge: cambiarla in «Leggo i log da
+                  CloudWatch…» allargava il bottone e ripeteva la riga che c'e' gia' sotto. */}
+              <button type="button" className="rl-chip" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} aria-busy={loading}>
+                {t('logs.refresh')}
               </button>
             </span>
           }

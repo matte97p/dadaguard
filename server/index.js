@@ -681,6 +681,7 @@ app.get('/api/runs', async (req, res) => {
 
 // I log di UNA esecuzione. Il log group lo risolve il server dal cron: il client passa solo QUALE run.
 app.get('/api/runs/logs', async (req, res) => {
+  const t0 = Date.now()
   try {
     if (isDemo) return res.json(demoRunLogs(req.query))
     // Sorgente orchestratore: i log non stanno su CloudWatch (quel job può girare fuori da AWS).
@@ -695,19 +696,21 @@ app.get('/api/runs/logs', async (req, res) => {
     const a = accounts[cron.account] ?? {}
     const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: cron.region ?? a.region }
     const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
-    res.json(
-      await cronRunLogs(cron, aws, {
-        runId: req.query.run || null,
-        stream: req.query.stream || null,
-        // Senza `from` si leggerebbe dall'epoca: la finestra di una run la conosce chi ha la riga, e
-        // in mancanza si ricade sull'ultima ora: non su «tutto».
-        from: num(req.query.from) ?? Date.now() - 3600_000,
-        to: num(req.query.to),
-        limit: num(req.query.limit) ?? 300,
-        errorsOnly: req.query.errorsOnly === 'true',
-        t: makeT(req.query.lang),
-      }),
-    )
+    const out = await cronRunLogs(cron, aws, {
+      runId: req.query.run || null,
+      stream: req.query.stream || null,
+      // Senza `from` si leggerebbe dall'epoca: la finestra di una run la conosce chi ha la riga, e
+      // in mancanza si ricade sull'ultima ora: non su «tutto».
+      from: num(req.query.from) ?? Date.now() - 3600_000,
+      to: num(req.query.to),
+      limit: num(req.query.limit) ?? 300,
+      errorsOnly: req.query.errorsOnly === 'true',
+      t: makeT(req.query.lang),
+    })
+    // Quanto costa leggere i log di una corsa, e dove: senza questa riga «il pannello è lento» non
+    // aveva un numero (09/10/2026), e AWS da solo risponde in meno di un secondo.
+    log.info('runs: log di una corsa', { cron: cron.key, ms: Date.now() - t0, righe: out.events?.length ?? 0 })
+    res.json(out)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
