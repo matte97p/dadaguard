@@ -15,12 +15,22 @@ import { nextRun } from './util/nextrun.js'
 import { familyOfTaskDef } from './runs.js'
 import { queryableAccounts } from './accounts.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
-import { cached } from './util/ttlcache.js'
+import { swrMemo } from './util/swr.js'
+import { log } from './log.js'
 import { mapLimit } from './util/pool.js'
 
 // Gli schedule cambiano di rado (li muove un apply Terraform, non il traffico): TTL generoso, così
 // aprire la pagina dieci volte non rifà dieci volte `ListSchedules` + una `GetSchedule` per cron.
 const SCHED_TTL_MS = Number(process.env.DADAGUARD_CRONS_TTL_MS) || 120_000
+// Scaduto il TTL si serve lo schedule di prima e si rilegge dietro (stale-while-revalidate, vedi
+// util/swr.js). Con la cache che BLOCCAVA, ogni due minuti la prima richiesta pagava `ListSchedules`
+// più una `GetSchedule` per ognuno dei ~75 cron prima di rispondere, e la pagava anche chi apriva solo
+// i log di una corsa, che degli schedule usa una riga. Uno schedule vecchio di due minuti non sbaglia
+// niente: lo muove un apply, non il traffico.
+const memoSched = swrMemo({
+  ttlMs: SCHED_TTL_MS,
+  onError: (err, key) => log.error('crons: rinfresco degli schedule fallito', { key, err: err.message }),
+})
 
 // Nome "umano" di un cron ECS: gli schedule si chiamano come il job, spesso con un prefisso di
 // ambiente. Si tiene il nome dello schedule, che è l'identità con cui il job è conosciuto. Puro.
@@ -77,7 +87,7 @@ export async function listCrons(accounts, { t = (k) => k } = {}) {
   await mapLimit(queryableAccounts(accounts), 4, async ([key, a]) => {
     const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region }
     try {
-      const sched = await cached(`crons:${key}:${a.region ?? ''}`, SCHED_TTL_MS, () => discoverSchedules(aws))
+      const { value: sched } = await memoSched(`crons:${key}:${a.region ?? ''}`, () => discoverSchedules(aws))
       for (const s of sched.ecs ?? []) crons.push(ecsCron(s, key, a.region))
       for (const [name, s] of sched.lambdas ?? []) crons.push(lambdaCron(name, s, key, a.region))
     } catch (err) {

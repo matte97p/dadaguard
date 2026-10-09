@@ -532,7 +532,13 @@ export async function cronRunLogs(cron, aws, { runId = null, stream = null, from
     logGroup = `/aws/lambda/${cron.function}`
   } else if (cron.type === 'ecs-scheduled') {
     const ecs = new ECSClient(clientOpts(aws))
-    const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cron.taskDefinition }))).taskDefinition
+    // Stessa cache (e stessa chiave) della lista delle corse: una revisione di task definition non
+    // cambia mai, e chi apre i log di una corsa ha appena caricato la pagina che l'ha già letta.
+    const td = await cached(
+      `taskdef:${aws.roleArn ?? aws.profile ?? 'default'}:${cron.taskDefinition}`,
+      3600_000,
+      async () => (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cron.taskDefinition }))).taskDefinition,
+    )
     const cfg = awslogsFromTaskDef(td, cron.container)
     logGroup = cfg.logGroup
     // Su RunTask lo stream della run si COMPONE dall'id del task: non serve chiederlo né cercarlo.
