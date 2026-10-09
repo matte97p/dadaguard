@@ -1,7 +1,7 @@
 import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
 import { metricValues } from './cw.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
-import { getLambdaConfig } from './lambdaConfig.js'
+import { getLambdaConfig, getLambdaReservedConcurrency } from './lambdaConfig.js'
 import { lastModifier } from './lastModifier.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
@@ -207,7 +207,18 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
   // Il throttling di una lambda ON-DEMAND è capacità che finisce, non un errore visto dall'utente:
   // profilo suo, come ovunque altrove. È il ramo cron a fare eccezione, perché lì una run rifiutata
   // per quota è una run che non è avvenuta.
-  const sforoThr = valuta(throttles, invocations, risolviProfilo(PROFILO.throttleOndemand, sogliaDi(cfg, opts, 'throttle')))
+  //
+  // ⚠️ Con una concorrenza RISERVATA il tetto lo abbiamo messo noi, e il throttle è la coda che quel
+  // tetto produce, non capacità che finisce. Il caso che l'ha mostrato (09/10/2026): lo scale-up dei
+  // runner GitHub su staging gira a concorrenza 1 apposta, perché due copie in parallelo contano i
+  // runner insieme e sforano il massimo; una raffica di CI ha dato 33 throttle su 21 chiamate, zero
+  // errori, tutte le istanze create, e il canale ha avuto un «ATTENZIONE». Il conto resta nel
+  // riepilogo; lo stato lo decidono gli errori, che è dove finisce un evento che la coda non riesce
+  // più a consegnare.
+  const riservata = await (opts.lambdaReservedConcurrency ?? getLambdaReservedConcurrency)(cfg.function, aws)
+  const thrVoluto = riservata !== null && riservata > 0
+  const profiloThr = risolviProfilo(PROFILO.throttleOndemand, sogliaDi(cfg, opts, 'throttle'))
+  const sforoThr = thrVoluto ? null : valuta(throttles, invocations, profiloThr)
   const sforo = valuta(errors, invocations, soglia)
   // 100% di errori = il servizio non funziona mai → GIÙ; errori parziali → ATTENZIONE.
   const status = sforo?.tuttoFallito ? 'down' : sforo || sforoThr || nearTimeout ? 'degraded' : 'up'
@@ -217,7 +228,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     t('lambda.errpct', { p: errRate < 0.05 ? '0' : errRate.toFixed(1) }),
     p95 ? t('lambda.p95', { d: fmtMs(Math.round(p95)) }) : null,
     nearTimeout ? t('lambda.neartimeout', { d: fmtMs(timeoutSec * 1000) }) : null,
-    throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
+    throttles > 0 ? t(thrVoluto ? 'lambda.throttledRiservata' : 'lambda.throttled', { n: throttles, c: riservata }) : null,
   ].filter(Boolean)
 
   const metrics = [
@@ -234,7 +245,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       spark: m.series?.dur,
       sparkUnit: 'ms',
     })
-  if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: 'warning' })
+  if (throttles > 0) metrics.push({ label: t('m.throttle'), value: String(throttles), tone: thrVoluto ? undefined : 'warning' })
 
   // Dettaglio per la chat: "10,7% errori" non dice quanti sono (3 su 28), su quanto tempo (60 min, che
   // il ramo cron scriveva e questo no) né se è sopra soglia. La regola sta nel messaggio, come su
@@ -245,7 +256,7 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
       ? undefined
       : [
           errors > 0 ? t('lambda.alerterr', { err: errors, n: fmtCount(invocations), p: errRate < 0.05 ? '0' : errRate.toFixed(1), window: win }) : null,
-          throttles > 0 ? t('lambda.throttled', { n: throttles }) : null,
+          throttles > 0 ? t(thrVoluto ? 'lambda.throttledRiservata' : 'lambda.throttled', { n: throttles, c: riservata }) : null,
           nearTimeout ? t('lambda.neartimeout', { d: fmtMs(timeoutSec * 1000) }) : null,
           p95 ? t('lambda.p95', { d: fmtMs(Math.round(p95)) }) : null,
         ]
@@ -254,8 +265,15 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
         // La regola citata deve essere QUELLA che è scattata: un p95 vicino al timeout non è un
         // errore. E quando è una soglia, la frase la compone `soglie.js`, cioè lo stesso posto che
         // ha deciso: un testo ricopiato qui mentirebbe al primo cambio di taratura.
+        // ⚠️ Scattato il solo throttle, la regola è quella di `capacita` e non quella degli errori:
+        // il 09/10/2026 un allarme di soli throttle stampava «≥1% su almeno 20 chiamate», che è la
+        // soglia degli errori, e chi tarava leggendo il canale avrebbe toccato quella sbagliata.
         t('rule.fires', {
-          regola: sforo || sforoThr ? testoRegola(soglia, t, t('soglia.unita.chiamate')) : t('lambda.regolatimeout'),
+          regola: sforo
+            ? testoRegola(soglia, t, t('soglia.unita.chiamate'))
+            : sforoThr
+              ? testoRegola(profiloThr, t, t('soglia.unita.chiamate'))
+              : t('lambda.regolatimeout'),
         })
 
   return {
