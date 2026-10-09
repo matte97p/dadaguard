@@ -209,24 +209,44 @@ async function tasksPerCluster(ecs, cluster, aws) {
   })
 }
 
+// La task definition di un cron ECS, coi suoi TAG, in cache. Chiave unica per lista delle corse, log di
+// una corsa e Codice del cron (server/codice.js): sono la stessa lettura, e tre chiavi sarebbero tre
+// chiamate per lo stesso oggetto.
+//
+// ⚠️ IN CACHE, e a lungo: una revisione di task definition e' IMMUTABILE, quindi rileggerla non
+// puo' dare una risposta diversa. Senza, la pagina Esecuzioni ne chiedeva una PER CRON a ogni
+// apertura (fino a quaranta chiamate che tornano sempre lo stesso oggetto), dentro un ventaglio
+// che gia' fa cinque o sei chiamate AWS per cron: e' la parte del costo che si toglie senza
+// cambiare cosa la pagina mostra.
+// La chiave porta il ruolo oltre al nome: lo stesso ARN letto da due account e' la stessa cosa,
+// ma le credenziali no, e mescolarle vorrebbe dire servire a uno la risposta ottenuta con l'altro.
+//
+// I tag (`include: ['TAGS']`) portano il Codice del cron: `DescribeTaskDefinition` li restituisce solo
+// se li si chiede, e chiederli nella STESSA chiamata non costa niente in più. Se un ruolo li vedesse
+// negati, si rilegge senza: le corse valgono più dell'etichetta, e senza tag il cron tiene il nome
+// di oggi.
+export function leggiTaskDef(aws, taskDefinition) {
+  return cached(`taskdef:${aws?.roleArn ?? aws?.profile ?? 'default'}:${taskDefinition}`, 3600_000, async () => {
+    const ecs = new ECSClient(clientOpts(aws))
+    try {
+      const r = await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition, include: ['TAGS'] }))
+      return { td: r.taskDefinition, tags: r.tags ?? [] }
+    } catch (err) {
+      if (!isDenied(err)) throw err
+      const r = await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition }))
+      return { td: r.taskDefinition, tags: [] }
+    }
+  })
+}
+
 // Run di un cron su ECS RunTask. `scanFailures` = per quante run (le più recenti) si va a cercare
 // l'errore nei log: è una chiamata a testa, e su una lista lunga non serve saperlo per tutte subito.
 export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailures = 6, t = (k) => k } = {}) {
   const since = Date.now() - minutes * 60 * 1000
   const ecs = new ECSClient(clientOpts(aws))
 
-  // ⚠️ IN CACHE, e a lungo: una revisione di task definition e' IMMUTABILE, quindi rileggerla non
-  // puo' dare una risposta diversa. Senza, la pagina Esecuzioni ne chiedeva una PER CRON a ogni
-  // apertura (fino a quaranta chiamate che tornano sempre lo stesso oggetto), dentro un ventaglio
-  // che gia' fa cinque o sei chiamate AWS per cron: e' la parte del costo che si toglie senza
-  // cambiare cosa la pagina mostra.
-  // La chiave porta il ruolo oltre al nome: lo stesso ARN letto da due account e' la stessa cosa,
-  // ma le credenziali no, e mescolarle vorrebbe dire servire a uno la risposta ottenuta con l'altro.
-  const td = await cached(
-    `taskdef:${aws.roleArn ?? aws.profile ?? 'default'}:${cfg.taskDefinition}`,
-    3600_000,
-    async () => (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cfg.taskDefinition }))).taskDefinition,
-  )
+  // In cache e a lungo, coi tag: vedi `leggiTaskDef`.
+  const { td } = await leggiTaskDef(aws, cfg.taskDefinition)
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cfg.container)
   const family = familyOfTaskDef(cfg.taskDefinition)
   // Il repository dell'immagine del container principale, dalla stessa task definition già in mano:
@@ -537,14 +557,9 @@ export async function cronRunLogs(cron, aws, { runId = null, stream = null, from
   if (cron.type === 'lambda') {
     logGroup = `/aws/lambda/${cron.function}`
   } else if (cron.type === 'ecs-scheduled') {
-    const ecs = new ECSClient(clientOpts(aws))
     // Stessa cache (e stessa chiave) della lista delle corse: una revisione di task definition non
     // cambia mai, e chi apre i log di una corsa ha appena caricato la pagina che l'ha già letta.
-    const td = await cached(
-      `taskdef:${aws.roleArn ?? aws.profile ?? 'default'}:${cron.taskDefinition}`,
-      3600_000,
-      async () => (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: cron.taskDefinition }))).taskDefinition,
-    )
+    const { td } = await leggiTaskDef(aws, cron.taskDefinition)
     const cfg = awslogsFromTaskDef(td, cron.container)
     logGroup = cfg.logGroup
     // Su RunTask lo stream della run si COMPONE dall'id del task: non serve chiederlo né cercarlo.

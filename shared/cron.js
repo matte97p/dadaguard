@@ -15,7 +15,7 @@ export const livelloCorsa = (r) => LIVELLO_ESITO[r?.outcome] ?? 'off'
 
 // Lo stato di un cron nella lista, dal più grave: l'ultima corsa fallita, una in corso, nessuna corsa
 // pur essendo acceso (non è partito), spento di proposito, tutto a posto.
-export function statoCron(cron) {
+function statoProprio(cron) {
   const runs = cron?.runs ?? []
   if (runs.some((r) => r.running)) {
     const finita = runs.find((r) => !r.running)
@@ -23,6 +23,23 @@ export function statoCron(cron) {
   }
   if (!runs.length) return cron?.enabled === false ? 'off' : 'warn'
   return livelloCorsa(runs.find((r) => !r.running) ?? runs[0])
+}
+
+const RANGO = { crit: 0, warn: 1, info: 2, ok: 3, off: 4 }
+
+// Un job col suo reaper dentro la riga (`piegaReaper` in shared/codice.js) prende lo stato del reaper
+// quando quello è un PROBLEMA (fallito, non partito) ed è più grave del suo: piegare il reaper nella
+// riga del job non deve voler dire nasconderne il guasto. Un reaper in corso o a posto non cambia
+// niente, la riga resta quella del job. Nemmeno un job SPENTO lo prende: non ha corse da fermare, e
+// il suo reaper fermo o vuoto è la conseguenza, non un guasto.
+export function statoReaper(cron) {
+  return cron?.reaper ? statoProprio(cron.reaper) : null
+}
+
+export function statoCron(cron) {
+  const proprio = statoProprio(cron)
+  const reaper = statoReaper(cron)
+  return proprio !== 'off' && (reaper === 'crit' || reaper === 'warn') && RANGO[reaper] < RANGO[proprio] ? reaper : proprio
 }
 
 // Perché una corsa è fallita, in una frase. In ordine di quanto il motivo è certo: l'uccisione per

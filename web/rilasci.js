@@ -3,6 +3,7 @@
 // solito un cron, perche' una corsa e' fallita). Tutto puro.
 import { esitoBuild } from './adattatori.js'
 import { isByHand } from './deployKinds.js'
+import { statoCron, motivoCorsa, statoReaper } from '../shared/cron.js'
 
 // ── Deploy ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,20 @@ export function linkBuild(b, t = (k) => k) {
 // Esito di una corsa, stato di un cron e motivo di un fallimento: in shared/cron.js, perché li usa
 // anche il canvas delle corse in Slack (server/notify/corse.js), e due copie dicono due cose.
 export { livelloCorsa, statoCron, motivoCorsa } from '../shared/cron.js'
+
+// Il nome da leggere di un cron: il percorso del suo codice (il tag `Codice`, vedi shared/codice.js),
+// che il server mette in `etichetta`; senza tag, lo schedule di sempre. Pura.
+export const nomeCron = (c) => c?.etichetta ?? c?.name ?? ''
+
+// Il reaper di un job, quando è un PROBLEMA: la riga prende il suo stato (`statoCron`), e il
+// suggerimento deve dire perché, altrimenti un job «Ok 3 h fa» con la pillola rossa è un indovinello.
+// A posto, il reaper non dice niente. Pura.
+export function avvisoReaper(c, t = (k) => k) {
+  const sr = statoReaper(c)
+  if (!(sr === 'crit' || sr === 'warn') || statoCron(c) === 'off') return null
+  const ultima = (c.reaper.runs ?? []).find((r) => !r.running)
+  return t('rilasci.cron.reaperGuasto', { stato: t(`rilasci.cron.stato.${sr}`), motivo: motivoCorsa(ultima, t) ?? '' }).replace(/\s*·\s*$/, '')
+}
 
 // Durata di una corsa: quella vera se e' finita, quella maturata finora se gira.
 export function durataCorsa(run, now = Date.now()) {

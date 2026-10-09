@@ -16,6 +16,7 @@ import { cleanAwsReason } from './runtime/awsClient.js'
 import { swrMemo } from './util/swr.js'
 import { log } from './log.js'
 import { mapLimit } from './util/pool.js'
+import { cronCodice, vestiCron } from './codice.js'
 
 const TTL_MS = Number(process.env.DADAGUARD_RUNS_TTL_MS) || 45_000
 const memo = swrMemo({
@@ -104,13 +105,8 @@ export async function runsOverview(
     const { crons, problems } = await listCrons(accounts, { t })
     const { lista, totale, troncata } = scegliCron(crons, { only, q: cerca, max })
 
-    // Concorrenza 6, non 8: la quota di CloudWatch Logs è ~10 richieste al secondo per account, e sopra
-    // quel tetto ogni chiamata in più non è più veloce: è un retry con attesa (misurato: la stessa query
-    // passa da 600ms a 4,8s con ventisei richieste insieme).
-    const righe = await mapLimit(lista, concorrenza, async (cron) => {
-      const a = accounts[cron.account] ?? {}
-      const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: cron.region ?? a.region }
-      const label = a.label ?? cron.account
+    // Le corse di UN cron, già riassunte. Non lancia: un errore diventa la riga con `error`.
+    async function rigaCron(cron, aws, a, label) {
       try {
         // Uno schedule DISABLED non si interroga: le sue run sono finite quando è stato spento, e
         // chiedere i log di un cron fermo è un giro di chiamate per una lista vuota. Resta in elenco,
@@ -140,6 +136,21 @@ export async function runsOverview(
       } catch (err) {
         return { ...summarize({ ...cron, accountLabel: label, color: a.color ?? null }, []), error: cleanAwsReason(err, t) }
       }
+    }
+
+    // Concorrenza 6, non 8: la quota di CloudWatch Logs è ~10 richieste al secondo per account, e sopra
+    // quel tetto ogni chiamata in più non è più veloce: è un retry con attesa (misurato: la stessa query
+    // passa da 600ms a 4,8s con ventisei richieste insieme).
+    const righe = await mapLimit(lista, concorrenza, async (cron) => {
+      const a = accounts[cron.account] ?? {}
+      const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: cron.region ?? a.region }
+      const label = a.label ?? cron.account
+      // Il Codice si legge in parallelo alle corse e da cache (vedi server/codice.js): per un cron ECS è
+      // la stessa task definition che le corse leggono, e le due richieste condividono la promessa.
+      // Non lancia: senza tag il cron tiene il nome di oggi.
+      const codice = cronCodice(cron, aws)
+      const riga = await rigaCron(cron, aws, a, label)
+      return { ...riga, codice: await codice }
     })
 
     return {
@@ -148,7 +159,8 @@ export async function runsOverview(
       // Quanti cron corrispondono in tutto: la pagina dice «letti X di N», non solo «troncata».
       total: totale,
       query: cerca,
-      crons: righe.sort(sortCrons),
+      // Reaper dentro la riga del loro job, etichetta e link al codice: vedi server/codice.js.
+      crons: vestiCron(righe).sort(sortCrons),
       problems,
       // Sorgente non configurata → `null`, e la UI non mostra la sezione (non è un errore: è spenta).
       prefect: prefect ? await prefectRuns({ minutes }) : null,
