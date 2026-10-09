@@ -44,6 +44,7 @@ import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
 import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statoLeggero } from './quadroStato.js'
+import { startCorse } from './notify/corse.js'
 import { statusFor, warmStatus } from './statusCache.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -398,6 +399,38 @@ app.get('/api/rilasci', async (req, res) => {
 async function datiQuadro() {
   const [deploys, servizi] = await Promise.all([deploysCached('it').then((r) => r.value), statoLeggero()])
   return { deploys, servizi }
+}
+
+// La lettura del canvas delle corse in Slack (vedi notify/corse.js): TUTTI i cron, non i primi 40 della
+// pagina, ma a buon mercato. Il conto, per un giro:
+//   · i cron sono ~75. Ognuno acceso costa sui log una `DescribeLogStreams` più una `FilterLogEvents`
+//     (una Lambda con finestra corta salta la prima; un ECS cerca gli errori solo nell'ULTIMA corsa,
+//     `scan: 1`, invece che nelle ultime 4). La task definition (1 h) e i task del cluster (30 s) sono
+//     già in cache in runs.js, e gli schedule in crons.js. Uno spento non costa niente
+//   · due corse per cron (`limit: 2`) e non sei: basta a dire com'è finita l'ultima e se ce n'è una in
+//     corso, ed è quello che decide lo stato (`statoCron`). Per una Lambda la finestra letta si accorcia
+//     di conseguenza (`windowForRuns`: cadenza × 3 invece che × 7)
+//   · quindi ~150 chiamate a CloudWatch Logs ogni 5 minuti, mezza al secondo in media, e nessuna metrica
+//     (quelle si pagano, vedi quadroStato.js). Concorrenza 3 e non 6: un giro dura qualche decina di
+//     secondi in più ma resta sotto metà della quota (~10 richieste al secondo per account), e la pagina
+//     aperta da qualcuno nello stesso momento non rallenta
+// La cache è la stessa della pagina (runsOverview.js) con una chiave sua: il giro del canvas non sposta
+// quello che la pagina vede. `fresh` perché la cache consegnerebbe il giro di 5 minuti prima.
+// La finestra è quella della pagina (`finestre.conf`), così «non è partito» vuol dire la stessa cosa.
+async function datiCorse() {
+  const { accounts } = await resolveServices()
+  const overview = await runsOverview(accounts, {
+    minutes: entroLimiti('runs') * 60,
+    limit: 2,
+    max: Infinity,
+    scan: 1,
+    concorrenza: 3,
+    fresh: true,
+    prefect: false,
+    t: makeT('it'),
+  })
+  const etichette = Object.fromEntries(Object.entries(accounts ?? {}).map(([k, a]) => [k, a?.label ?? k]))
+  return { overview, etichette }
 }
 
 // Il quadro dei deploy per Slack (vedi notify/quadro.js), SENZA mandarlo: lo stesso canvas che il giro
@@ -923,6 +956,8 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // Il quadro dei deploy in Slack: parte solo con token di un'app e i canali. Legge la stessa cache
   // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
   if (!isDemo) startQuadro(datiQuadro)
+  // Il canvas delle corse dei cron: spento finché non c'è `DADAGUARD_CORSE_CANALI` (vedi notify/corse.js).
+  if (!isDemo) startCorse(datiCorse)
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.

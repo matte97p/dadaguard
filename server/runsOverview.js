@@ -78,19 +78,36 @@ export function summarize(cron, runs = []) {
   }
 }
 
-export async function runsOverview(accounts, { minutes = 1440, limit = 6, only = null, q = '', t = (k) => k } = {}) {
+// Le opzioni oltre a quelle della pagina servono al canvas delle corse in Slack (server/notify/corse.js),
+// che vuole TUTTI i cron e non i primi 40, ma costando poco:
+//   max          il tetto dei cron accesi letti (default `MAX_CRONS`, quello della pagina)
+//   scan         per quante corse di ogni cron si cercano gli errori nei log (default 4 nella vista
+//                d'insieme): al canvas serve solo l'ultima finita
+//   concorrenza  quanti cron si leggono insieme (default 6): il canvas ne usa meno, per lasciare la
+//                quota di CloudWatch Logs alla pagina che qualcuno sta guardando
+//   fresh        aspetta un giro nuovo invece di servire quello in cache (vedi util/swr.js): il canvas
+//                si aggiorna ogni pochi minuti, e con la cache che consegna il dato vecchio sarebbe
+//                sempre indietro di un giro
+//   prefect      `false` per non leggere l'orchestratore, che il canvas non mostra
+// Tutte stanno nella chiave della cache, quindi il giro del canvas non tocca quello della pagina.
+export async function runsOverview(
+  accounts,
+  { minutes = 1440, limit = 6, only = null, q = '', t = (k) => k, max = MAX_CRONS, scan = null, concorrenza = 6, fresh = false, prefect = true } = {},
+) {
   const cerca = normQuery(q)
   // La ricerca è nella chiave: due ricerche diverse leggono cron diversi, e la stessa cache le
   // confonderebbe. Senza ricerca la chiave termina con `:` vuoto, la stessa della scaldata all'avvio.
-  const key = `runs:${only ?? 'all'}:${minutes}:${limit}:${cerca}`
+  // Le opzioni del canvas si aggiungono solo quando ci sono: la chiave della pagina resta quella di prima.
+  const extra = max !== MAX_CRONS || scan != null || !prefect ? `:${max}:${scan ?? ''}:${prefect ? 1 : 0}` : ''
+  const key = `runs:${only ?? 'all'}:${minutes}:${limit}:${cerca}${extra}`
   const { value } = await memo(key, async () => {
     const { crons, problems } = await listCrons(accounts, { t })
-    const { lista, totale, troncata } = scegliCron(crons, { only, q: cerca })
+    const { lista, totale, troncata } = scegliCron(crons, { only, q: cerca, max })
 
     // Concorrenza 6, non 8: la quota di CloudWatch Logs è ~10 richieste al secondo per account, e sopra
     // quel tetto ogni chiamata in più non è più veloce: è un retry con attesa (misurato: la stessa query
     // passa da 600ms a 4,8s con ventisei richieste insieme).
-    const righe = await mapLimit(lista, 6, async (cron) => {
+    const righe = await mapLimit(lista, concorrenza, async (cron) => {
       const a = accounts[cron.account] ?? {}
       const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: cron.region ?? a.region }
       const label = a.label ?? cron.account
@@ -105,7 +122,7 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
         const out = await cronRuns(cron, aws, {
           minutes,
           limit,
-          scanFailures: only ? limit : 4,
+          scanFailures: scan ?? (only ? limit : 4),
           ...(only ? { maxPages: 120 } : {}),
           t,
         })
@@ -114,6 +131,8 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
           logGroup: out.logGroup ?? null,
           streamPrefix: out.streamPrefix ?? null,
           container: out.container ?? null,
+          // Il repository dell'immagine (solo ECS): serve al canvas delle corse per le squadre.
+          immagine: out.immagine ?? null,
           apiOnly: out.apiOnly ?? false,
           truncated: out.truncated ?? false,
           error: out.error ?? null,
@@ -132,9 +151,9 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
       crons: righe.sort(sortCrons),
       problems,
       // Sorgente non configurata → `null`, e la UI non mostra la sezione (non è un errore: è spenta).
-      prefect: await prefectRuns({ minutes }),
+      prefect: prefect ? await prefectRuns({ minutes }) : null,
       generatedAt: Date.now(),
     }
-  })
+  }, { fresh })
   return value
 }

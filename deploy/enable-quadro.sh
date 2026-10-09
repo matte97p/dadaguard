@@ -19,10 +19,15 @@
 #   DADAGUARD_PUBLIC_URL=https://dadaguard.example.com \
 #   DADAGUARD_QUADRO_SQUADRE='data=Scraper,scraper-image,worker-*' \
 #   DADAGUARD_ALLARMI_DATA_CANALE=C0456 \
+#   DADAGUARD_CORSE_CANALI='tutti=C0789,data=C0456' \
 #   bash deploy/enable-quadro.sh
 # Le squadre sono facoltative: senza, il canale ha le schede degli ambienti e quella dei cron. Un
 # elemento senza `*` è un repository, uno con `*` un glob sul nome breve della risorsa (per i
 # componenti esterni e le Lambda dell'IaC, che un repository nostro non ce l'hanno).
+# `DADAGUARD_CORSE_CANALI` è facoltativa e accende il canvas delle CORSE dei cron (server/notify/
+# corse.js): un canvas per canale, `tutti` con ogni cron o il nome di una squadra di
+# `DADAGUARD_QUADRO_SQUADRE` con i soli suoi (la stessa definizione del quadro). Una squadra che lì non
+# c'è si dice nel log e il suo canale resta senza canvas. Nessun permesso Slack nuovo. Senza, spento.
 # `FORCE=1` riscrive un token già presente in SSM e riavvia il servizio perché lo rilegga.
 # Lo stato dei test (GitHub Actions) si accende a parte, con deploy/enable-github-test.sh.
 set -euo pipefail
@@ -40,6 +45,7 @@ CANALI=${DADAGUARD_QUADRO_CANALI:?serve DADAGUARD_QUADRO_CANALI, es. produzione=
 PUBLIC_URL=${DADAGUARD_PUBLIC_URL:-}
 SQUADRE=${DADAGUARD_QUADRO_SQUADRE:-}
 CANALE_DATA=${DADAGUARD_ALLARMI_DATA_CANALE:-}
+CORSE=${DADAGUARD_CORSE_CANALI:-}
 
 ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
 ARN_TOKEN="arn:aws:ssm:$REGION:$ACCOUNT:parameter$P_TOKEN"
@@ -90,7 +96,7 @@ fi
 step "task definition"
 TD=$(payer ecs describe-services --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
 payer ecs describe-task-definition --region "$REGION" --task-definition "$TD" --query taskDefinition >"$TMP/td.json"
-jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" '
+jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$PUBLIC_URL" --arg SQ "$SQUADRE" --arg CD "$CANALE_DATA" --arg CO "$CORSE" '
   def metti(lista; nome; campo; valore): [lista[]? | select(.name != nome)] + [{name: nome, (campo): valore}];
   .containerDefinitions |= map(
     if .name == $C then
@@ -99,6 +105,7 @@ jq --arg C "$CONTAINER" --arg T "$ARN_TOKEN" --arg CANALI "$CANALI" --arg URL "$
       | (if $URL != "" then .environment = metti(.environment; "DADAGUARD_PUBLIC_URL"; "value"; $URL) else . end)
       | (if $SQ != "" then .environment = metti(.environment; "DADAGUARD_QUADRO_SQUADRE"; "value"; $SQ) else . end)
       | (if $CD != "" then .environment = metti(.environment; "DADAGUARD_ALLARMI_DATA_CANALE"; "value"; $CD) else . end)
+      | (if $CO != "" then .environment = metti(.environment; "DADAGUARD_CORSE_CANALI"; "value"; $CO) else . end)
     else . end)
   | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
      requiresCompatibilities, cpu, memory}
@@ -131,6 +138,8 @@ una Slack List per area (PRODOTTO, CRON, una per squadra) nel canale del primo a
 (`DADAGUARD_QUADRO_LISTE=0` per i soli canvas). Permessi nuovi nel manifest vogliono
 l'app REINSTALLATA, o la List risponde `missing_scope`.
 Il bot dev'essere nei canali (`/invite @Dadaguard`), o il giro risponde `not_in_channel`.
+Con DADAGUARD_CORSE_CANALI il canvas delle corse dei cron parte un minuto e mezzo dopo l'avvio e si
+aggiorna ogni 5 minuti (DADAGUARD_CORSE_INTERVAL), anche lui solo nei canali dove il bot è invitato.
 Il primo giro degli allarmi è SILENZIOSO per costruzione: prende nota di cosa è già rotto e non lo
 annuncia, altrimenti a ogni rilascio di Dadaguard ripeterebbe tutti i rossi.
 NOTE
