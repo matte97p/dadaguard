@@ -22,6 +22,16 @@ test('scheduleExpressionToMinutes: cron() — stima best-effort (nel dubbio sovr
   assert.equal(scheduleExpressionToMinutes('cron(0 2 * * ? *)'), 1440) // giornaliera alle 2 → fallback
 })
 
+// Il caso del 09/10/2026: un job alle 7, alle 11 e alle 16 si leggeva «ogni 1g».
+test('scheduleExpressionToMinutes: liste di ore o minuti fissi → N corse al giorno', () => {
+  assert.equal(scheduleExpressionToMinutes('cron(0 7,11,16 * * ? *)'), 480) // tre al giorno
+  assert.equal(scheduleExpressionToMinutes('cron(0 2,4,9,14 * * ? *)'), 360) // quattro al giorno
+  assert.equal(scheduleExpressionToMinutes('cron(0,30 9 * * ? *)'), 720) // due al giorno
+  assert.equal(scheduleExpressionToMinutes('cron(0,30 * * * ? *)'), 30) // due all'ora
+  // Ore in lista ma solo in certi giorni: non e' «N al giorno», resta la stima di prima.
+  assert.equal(scheduleExpressionToMinutes('cron(0 8,20 ? * MON *)'), 10080)
+})
+
 // Il caso preso in faccia il 25/08/2026 su un cron `…-production-cron-db-restore-test`: la prova di
 // ripristino del database gira il PRIMO DI OGNI MESE e il pannello scriveva «ogni 1g», perché la
 // cadenza si deduceva dai soli minuti/ore. La finestra del dead man's switch arriva da

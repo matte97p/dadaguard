@@ -147,6 +147,13 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
     { intervalMs: 30_000 },
   )
 
+  // La risposta che c'e' e' ancora quella di PRIMA della ricerca (si aspetta che chi scrive si fermi, poi
+  // il server): filtrarla qui darebbe «Nessuna esecuzione» per un cron che esiste ed e' solo oltre il
+  // tetto. Si dice che si sta cercando. `data.query` assente = server che non cerca (demo): niente attesa.
+  const cercato = queryCerca(query) ? query.trim().toLowerCase().slice(0, 64) : ''
+  const inAttesa = !soloCron && data?.query !== undefined && data.query !== cercato
+  const vuoto = inAttesa ? t('runs.cerco', { q: query.trim() }) : t('runs.empty')
+
   const crons = useMemo(() => (data?.crons ?? []).filter((c) => matchesAny(c.account, accountFilter)), [data, accountFilter])
   // L'orchestratore non ha account AWS: con un filtro per account attivo le sue run non appartengono a
   // nessuno dei selezionati e sparirebbero. Si nasconde tutta la sorgente, invece di mostrarla a meta'.
@@ -304,7 +311,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
           colonne={[t('rilasci.cron.col.cron'), t('rilasci.cron.col.ultima'), t('rilasci.cron.col.cosa'), t('rilasci.cron.col.corse'), '']}
           griglia={COLONNE_CRON}
           grigliaMobile={COLONNE_CRON_M}
-          vuoto={t('runs.empty')}
+          vuoto={vuoto}
         >
           {listaCron.map(({ c, stato }) => {
             const { cosa, hint } = cosaCron(c, stato, t, now)
@@ -345,7 +352,7 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
           colonne={[t('rilasci.cron.col.esito'), t('rilasci.cron.col.cron'), t('rilasci.cron.col.cosa'), t('runs.col.duration'), '']}
           griglia={COLONNE_CORSE}
           grigliaMobile={COLONNE_CORSE_M}
-          vuoto={t('runs.empty')}
+          vuoto={vuoto}
         >
           {listaCorse.map((r) => {
             const d = durataCorsa(r, now)

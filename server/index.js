@@ -911,7 +911,7 @@ if (existsSync(DIST)) {
 
 // Bind esplicito su IPv4 0.0.0.0: in container il default di Node può fare bind su
 // :: (IPv6) non-dual-stack → un sidecar che chiama 127.0.0.1 non raggiunge l'app.
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   log.info('dadaguard up', { port: Number(PORT), mode: MODE })
   // Watchdog: guarda la flotta a intervalli e avvisa su Slack quando qualcosa attraversa il confine
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
@@ -942,3 +942,12 @@ app.listen(PORT, '0.0.0.0', () => {
     }, 60_000).unref()
   }
 })
+
+// Keep-alive SOPRA quello del proxy davanti. Il default di Node chiude una connessione inattiva dopo 5
+// secondi; cloudflared (il sidecar che porta il traffico qui) la tiene buona per 90 e la riusa. Quando
+// la riusa nell'istante in cui Node l'ha chiusa, riceve un reset e al browser arriva un 502 senza che
+// l'app abbia mai visto la richiesta: «read: connection reset by peer» nei log di cloudflared, a
+// processo vivo (09/10/2026, sul pannello dei log di una corsa). `headersTimeout` deve stare sopra
+// `keepAliveTimeout`, sennò Node taglia la richiesta successiva mentre ne aspetta ancora gli header.
+server.keepAliveTimeout = 120_000
+server.headersTimeout = 125_000
