@@ -34,7 +34,18 @@ export function scheduleExpressionToMinutes(expr) {
   if (min === '*') return 1 // ogni minuto
   const stepHour = /^(?:\*|\d+)\/(\d+)$/.exec(hour)
   if (stepHour) return Number(stepHour[1]) * 60 // ogni N ore
+  // Liste di minuti o di ore fisse (`0,30 * …`, `0 7,11,16 …`) tutti i giorni: N corse al giorno, e la
+  // cadenza scritta è la media, 1440/N. Fino al 09/10/2026 cadevano nel fallback giornaliero, e un job
+  // che gira alle 7, alle 11 e alle 16 si leggeva «ogni 1g» proprio sulla pagina dove si cercava di
+  // capire perché ne era partita una sola. La media non dice a che ora (quello lo dice la prossima
+  // corsa), ma dice quante: è la domanda che uno si fa guardando la riga.
+  const lista = (f) => (/^\d+(,\d+)*$/.test(f) ? f.split(',').length : null)
+  const ogniGiorno = month === '*' && (dom === '*' || dom === '?') && (dow === '*' || dow === '?')
+  const nMin = lista(min)
+  if (nMin && hour === '*') return Math.round(60 / nMin)
   if (/^\d/.test(min) && hour === '*') return 60 // minuto fisso, ogni ora
+  const nOre = lista(hour)
+  if (ogniGiorno && nMin && nOre && nMin * nOre > 1) return Math.round(1440 / (nMin * nOre))
   // Ora fissa: la cadenza NON è per forza giornaliera, e il fallback "1g" era la bugia più visibile
   // del pannello — un cron MENSILE (`cron(0 5 1 * ? *)`, il primo del mese) si leggeva «ogni 1g».
   // La finestra del dead man's switch NON dipende da qui (arriva da missedWindow, che legge
