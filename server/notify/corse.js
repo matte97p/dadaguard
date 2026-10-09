@@ -2,7 +2,8 @@ import { log } from '../log.js'
 import { ambienteDi } from '../rilasci.js'
 import { makeT } from '../i18n.js'
 import { postSlack } from './slack.js'
-import { statoCron, motivoCorsa, contaCron, verdettoCron } from '../../shared/cron.js'
+import { statoCron, statoReaper, motivoCorsa, contaCron, verdettoCron } from '../../shared/cron.js'
+import { etichetteCron, repoDelCodice } from '../../shared/codice.js'
 import {
   AMBIENTI,
   quadroConfig,
@@ -58,6 +59,18 @@ import {
 //                               suo posto sarebbe un canvas di squadra che mente
 //   DADAGUARD_CORSE_INTERVAL    secondi fra i giri (default 300, minimo 120)
 //   DADAGUARD_PUBLIC_URL        per i link alla pagina Cron (`/cron?cron=<account>/<nome>`)
+//   DADAGUARD_CORSE_INFRA       la squadra i cui cron vanno in fondo, in sezioni «Infra» loro, nel
+//                               canvas `tutti` e nella pagina Cron (default `infra`). Vale solo se
+//                               quella squadra è definita in `DADAGUARD_QUADRO_SQUADRE`: senza, niente
+//                               sezione a parte. I suoi cron contano nel verdetto come gli altri
+//   DADAGUARD_GITHUB_ORG/_REF   per il link al codice accanto al nome (vedi server/codice.js)
+//
+// IL NOME di una riga è il percorso del codice (il tag `Codice` della risorsa, vedi shared/codice.js),
+// non lo schedule: `acme-crons/email-clienti` dice dove guardare, `email-clienti` no. Senza tag resta il
+// nome breve di oggi. Il link del nome resta quello alla pagina Cron di Dadaguard (la cosa che si fa
+// da una riga rossa è aprirne le corse e i log), e il codice ha il SUO link accanto, ` · codice`: in
+// una cella di tabella di Slack due link distinti si leggono meglio di un nome che porta in un posto e
+// di un'icona da indovinare.
 
 // Ogni 5 minuti, e non ogni 15 secondi come il quadro: le letture del quadro sono API gratuite e
 // veloci, queste sono i log delle corse (vedi `datiCorse` in server/index.js per quanto costano). E un
@@ -69,6 +82,7 @@ const MIN_INTERVAL_S = 120
 // restano poche, e ogni 5 minuti bastano. Quello che avanza va al giro dopo.
 export const MAX_MODIFICHE_CORSE = 8
 export const TUTTI = 'tutti'
+export const SQUADRA_INFRA = 'infra'
 export const INTESTAZIONE_CORSE = ['Cron', 'Stato', 'Ultima corsa', 'Prossima']
 // Quanti cron il paragrafo «Da guardare» nomina: oltre, li conta.
 const MAX_DA_GUARDARE = 12
@@ -87,10 +101,14 @@ export function corseConfig(env = process.env) {
     .filter(([k, id]) => k && id)
     .map(([k, id]) => ({ chiave: k.toLowerCase(), canale: id }))
   const nota = (k) => k === TUTTI || Object.hasOwn(q.squadre, k)
+  const infra = String(env.DADAGUARD_CORSE_INFRA ?? '').trim().toLowerCase() || SQUADRA_INFRA
   return {
     token: q.token,
     publicUrl: q.publicUrl,
     squadre: q.squadre,
+    // La squadra delle sezioni «Infra», solo se esiste: una sezione per una squadra che nessuno ha
+    // definito sarebbe sempre vuota, e un default che pesca cron a caso non è generico.
+    infra: Object.hasOwn(q.squadre, infra) ? infra : null,
     canali: voci.filter((v) => nota(v.chiave)),
     // Le chiavi che non sono `tutti` né una squadra conosciuta: si dicono una volta all'avvio.
     ignote: voci.filter((v) => !nota(v.chiave)).map((v) => v.chiave),
@@ -105,11 +123,36 @@ export function corseConfig(env = process.env) {
 // breve. Il nome breve si prova su quello dello schedule, della famiglia della task definition e della
 // funzione: lo schedule può chiamarsi diverso dalla risorsa che il quadro conosce, e un glob scritto
 // per una delle due deve prendere il cron lo stesso.
-// ⚠️ Un cron ECS SPENTO non legge la task definition (non costa chiamate, vedi runsOverview), quindi
-// senza repository: entra in una squadra solo se un glob lo prende. Puro/testabile.
+// Il repository del CODICE (il tag `Codice`, vedi shared/codice.js) vale come quello dell'immagine: è
+// il sorgente di quello che gira, cioè la stessa cosa che il quadro chiama «repository» per un servizio
+// (il sorgente della build). È anche l'unico repository che un cron Lambda ha.
+// ⚠️ Un cron ECS SPENTO non legge le corse (vedi runsOverview), quindi senza repository dell'immagine:
+// entra in una squadra dal Codice, se ce l'ha, o se un glob lo prende. Puro/testabile.
 export function squadraCron(cron, regole) {
   const nomi = [cron?.name, cron?.family, cron?.function].filter(Boolean).map((n) => nomeBreve(n))
-  return squadraDiRegole(regole, [cron?.immagine], nomi)
+  return squadraDiRegole(regole, [cron?.immagine, repoDelCodice(cron?.codice)], nomi)
+}
+
+// La lista divisa fra i cron del prodotto e quelli della squadra `infra` (vedi `corseConfig`): i secondi
+// vanno in fondo, in una parte loro, perché chi apre il canvas o la pagina cerca prima i cron del
+// prodotto, e un giro di housekeeping dell'infrastruttura in mezzo li allontana. Senza squadra infra
+// tutto è prodotto. Puro/testabile.
+export function divideInfra(crons = [], squadre = {}, infra = null) {
+  if (!infra) return { prodotto: crons, infra: [] }
+  const regole = regoleSquadre(squadre)
+  const prodotto = []
+  const suoi = []
+  for (const c of crons) (squadraCron(c, regole) === infra ? suoi : prodotto).push(c)
+  return { prodotto, infra: suoi }
+}
+
+// `infra: true` sui cron della squadra infra, per la pagina Cron (che le squadre non le conosce: stanno
+// nella configurazione del server). Non toglie e non sposta niente. Puro/testabile.
+export function conInfra(overview = {}, cfg = {}) {
+  if (!Array.isArray(overview.crons) || !cfg.infra) return overview
+  const { infra } = divideInfra(overview.crons, cfg.squadre ?? {}, cfg.infra)
+  const suoi = new Set(infra.map((c) => c.key))
+  return { ...overview, crons: overview.crons.map((c) => (suoi.has(c.key) ? { ...c, infra: true } : c)) }
 }
 
 // I cron che vanno nel canvas di una chiave: tutti, o quelli della squadra. Puro/testabile.
@@ -177,17 +220,24 @@ export function ultimaCorsaTesto(c, stato, { ora = Date.now(), t = makeT('it') }
 // Puro/testabile.
 export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('it') } = {}) {
   const stato = statoCron(c)
-  const nome = nomeBreve(c.name)
+  // L'etichetta la decide `canvasCorse` sulla lista del canvas (percorso del codice, distinto se due
+  // job lanciano lo stesso script); chiamata da sola, la riga ha il nome breve di oggi.
+  const nome = c.etichetta ?? nomeBreve(c.name)
   const link = linkCron(c, url)
   const prossima = c.enabled === false ? t('rilasci.cron.spento') : c.nextRunAt ? quandoBreve(c.nextRunAt, ora) : (ogni(c.scheduleMinutes) ?? VUOTO)
-  const ultima = ultimaCorsaTesto(c, stato, { ora, t }) || VUOTO
+  // Il reaper dentro la riga (shared/codice.js) si NOMINA solo quando è un problema: a posto non ha
+  // niente da dire, e una cella che lo ripete su ogni job lungo è rumore.
+  const sr = statoReaper(c)
+  const reaper = sr && stato !== 'off' && (sr === 'crit' || sr === 'warn') ? `reaper: ${ultimaCorsaTesto(c.reaper, sr, { ora, t })}` : null
+  const ultima = [ultimaCorsaTesto(c, stato, { ora, t }), reaper].filter(Boolean).join(SEP) || VUOTO
+  const nomeCella = link ? `[**${nome}**](${link})` : `**${nome}**`
   return {
     nome,
     stato,
     account: c.account ?? null,
     link,
     celle: [
-      cella(link ? `[**${nome}**](${link})` : `**${nome}**`),
+      cella(c.codiceUrl ? `${nomeCella}${SEP}[codice](${c.codiceUrl})` : nomeCella),
       cella(`${EMOJI_LIVELLO[stato]} ${t(`rilasci.cron.stato.${stato}`)}`),
       cella(ultima),
       cella(prossima),
@@ -254,8 +304,25 @@ export function daGuardare(sezioni = [], { max = MAX_DA_GUARDARE } = {}) {
 // il markdown (per crearlo o riscriverlo intero) e il MODELLO che `pianoCelle` confronta con quello che
 // legge nel canvas. La forma è fissa come quella del quadro: quello che va e viene cambia il testo di un
 // paragrafo che c'è sempre. Niente «aggiornato alle»: cambierebbe a ogni giro. Puro/testabile.
-export function canvasCorse(chiave, crons = [], { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('it') } = {}) {
-  const sezioni = sezioniCorse(crons, { etichette, problemi, ora, url, t })
+//
+// Le ETICHETTE delle righe si decidono qui, sulla lista di QUESTO canvas: due job con lo stesso Codice
+// si distinguono solo se stanno nello stesso canvas (vedi `etichetteCron`). Senza Codice, il nome breve.
+// Con `infra` (solo nel canvas `tutti`, vedi `canvasCorseDaScrivere`) i cron di quella squadra vanno in
+// sezioni loro IN FONDO, «Infra · <ambiente>», dopo quelle del prodotto: il riepilogo in cima li conta
+// lo stesso, e un loro guasto sta in «Da guardare» come gli altri.
+export function canvasCorse(
+  chiave,
+  crons = [],
+  { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('it'), squadre = {}, infra = null } = {},
+) {
+  const breve = (c) => nomeBreve(c.name)
+  const nomi = etichetteCron(crons, { nome: breve, breve })
+  const conNome = crons.map((c) => ({ ...c, etichetta: nomi.get(c.key) }))
+  const parti = divideInfra(conNome, squadre, infra)
+  const sezioni = [
+    ...sezioniCorse(parti.prodotto, { etichette, problemi, ora, url, t }),
+    ...sezioniCorse(parti.infra, { etichette, ora, url, t }).map((s) => ({ ...s, titolo: `Infra${SEP}${s.titolo}` })),
+  ]
   const verdetto = verdettoTesto(crons, { t })
   const dadaguard = url ? `${SEP}[Cron su Dadaguard](${url}/cron)` : ''
   // «Tutti i cron sono a posto» su zero cron sarebbe vero e inutile, e con un account non letto non lo
@@ -274,14 +341,14 @@ export function canvasCorse(chiave, crons = [], { etichette = {}, problemi = [],
       ...sezioni.map((s) => ({ titolo: s.titolo, sintesi: s.sintesi, righe: s.righe.map((r) => r.celle), fondo: null, tollera: s.tollera, intestazione: INTESTAZIONE_CORSE })),
     ],
   }
-  const parti = []
+  const md = []
   for (const s of modello.sezioni) {
-    parti.push(`## ${s.titolo}`, s.sintesi)
+    md.push(`## ${s.titolo}`, s.sintesi)
     if (s.righe.length)
-      parti.push([`| ${INTESTAZIONE_CORSE.join(' | ')} |`, `|${INTESTAZIONE_CORSE.map(() => '---').join('|')}|`, ...s.righe.map((c) => `| ${c.join(' | ')} |`)].join('\n'))
-    if (s.fondo) parti.push(s.fondo)
+      md.push([`| ${INTESTAZIONE_CORSE.join(' | ')} |`, `|${INTESTAZIONE_CORSE.map(() => '---').join('|')}|`, ...s.righe.map((c) => `| ${c.join(' | ')} |`)].join('\n'))
+    if (s.fondo) md.push(s.fondo)
   }
-  return { chiave, titolo: titoloCorse(chiave), markdown: parti.join('\n\n'), modello, livello: verdetto.livello, conti: verdetto.conti }
+  return { chiave, titolo: titoloCorse(chiave), markdown: md.join('\n\n'), modello, livello: verdetto.livello, conti: verdetto.conti }
 }
 
 // Tutti i canvas di un giro, uno per canale, dalla STESSA lettura: i cron si leggono una volta e si
@@ -300,6 +367,10 @@ export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('
       url: cfg.publicUrl ?? null,
       finestraOre,
       t,
+      // Le sezioni «Infra» solo nel canvas di tutti: in quello di una squadra i cron sono già i suoi, e
+      // in quello della squadra infra sarebbero tutti in fondo a un canvas senza nient'altro sopra.
+      squadre: cfg.squadre ?? {},
+      infra: chiave === TUTTI ? (cfg.infra ?? null) : null,
     }),
   }))
 }

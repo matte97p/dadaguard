@@ -1694,6 +1694,11 @@ export function demoRuns() {
     cluster: 'arn:aws:ecs:eu-west-1:000000000000:cluster/demo-cluster',
     family: 'demo-cron-catalog-crawler',
     logGroup: '/ecs/demo/cron-catalog-crawler',
+    // Il percorso del codice dal tag `Codice` (vedi shared/codice.js): nella demo l'organizzazione non
+    // c'è, quindi il percorso si vede senza link, come su un'istanza senza DADAGUARD_GITHUB_ORG.
+    codice: 'demo-backend/jobs/catalog_crawler.py',
+    etichetta: 'demo-backend/jobs/catalog_crawler.py',
+    codiceUrl: null,
     scheduleExpr: 'cron(0 3 * * ? *)',
     scheduleMinutes: 1440,
     scheduleTz: 'Europe/Rome',
@@ -1721,6 +1726,10 @@ export function demoRuns() {
     region: 'eu-west-1',
     function: 'daily-digest',
     logGroup: '/aws/lambda/daily-digest',
+    // Un indirizzo intero nel tag è codice di altri: il link è quello, l'etichetta la sua forma breve.
+    codice: 'https://github.com/example/digest-lambda/tree/v1.2.0/src/handler',
+    etichetta: 'example/digest-lambda/src/handler',
+    codiceUrl: 'https://github.com/example/digest-lambda/tree/v1.2.0/src/handler',
     scheduleExpr: 'cron(0 6 * * ? *)',
     scheduleMinutes: 1440,
     scheduleTz: 'Europe/Rome',
