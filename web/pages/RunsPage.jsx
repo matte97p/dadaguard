@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Verdetto, Lista, Sezione, Pill, Tabs, Meter } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
-import { matchesAny, isFiltering } from '../filters.js'
+import { matchesAny, isFiltering, queryCerca } from '../filters.js'
 import { rangoLivello } from '../adattatori.js'
 import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron } from '../rilasci.js'
 import { useTick } from '../components/runBits.jsx'
@@ -37,6 +37,8 @@ const COLONNE_IN_CORSO = 'minmax(0,1.1fr) minmax(0,1.6fr) 150px 24px'
 const COLONNE_CRON_M = 'minmax(0,1fr) auto'
 const COLONNE_CORSE_M = 'auto minmax(0,1fr) auto'
 const COLONNE_IN_CORSO_M = 'minmax(0,1fr)'
+// La ricerca va anche al server (vedi `queryCerca`): si aspetta che chi scrive si fermi.
+const ATTESA_CERCA_MS = 400
 
 // Le run di tutti i cron, appiattite in righe: una riga = una esecuzione. Pura.
 export function flattenRuns(crons = [], prefect = null) {
@@ -118,6 +120,11 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   })
   const [soloProblemi, setSoloProblemi] = useState(false)
   const [query, setQuery] = useState('')
+  const [cercaServer, setCercaServer] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setCercaServer(query), ATTESA_CERCA_MS)
+    return () => clearTimeout(timer)
+  }, [query])
   const [aperta, setAperta] = useState(null) // { cron, run } del pannello aperto
   // Cron scelto: la vista passa da «le ultime di tutti» a «tutte le sue». E' il server a leggere piu' a
   // fondo: filtrare qui non aggiungerebbe le corse che non sono state chieste.
@@ -134,8 +141,9 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
 
   // Polling educato (in pausa a tab nascosto, rinfresca al rientro): una corsa in corso va vista
   // avanzare, ma senza chiamare AWS quando nessuno guarda. `refreshKey` = il tasto Aggiorna globale.
+  // Con un cron scelto la ricerca non va al server: quel cron e' gia' l'unico chiesto.
   const { data, loading, error } = usePoll(
-    `/api/runs?minutes=${minutes}&lang=${lang}${soloCron ? `&cron=${encodeURIComponent(soloCron)}&limit=25` : ''}&k=${refreshKey ?? 0}`,
+    `/api/runs?minutes=${minutes}&lang=${lang}${soloCron ? `&cron=${encodeURIComponent(soloCron)}&limit=25` : queryCerca(cercaServer)}&k=${refreshKey ?? 0}`,
     { intervalMs: 30_000 },
   )
 
@@ -150,10 +158,13 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   useTick(inCorso.length > 0)
   const now = Date.now()
 
-  const cercato = (nome) => {
+  // Gli stessi campi della ricerca del server (scegliCron): un cron trovato per family dal server non
+  // deve sparire qui perche' il nome dello schedule e' un altro.
+  const trovati = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return !q || String(nome ?? '').toLowerCase().includes(q)
-  }
+    const corrisponde = (c) => !q || [c.name, c.key, c.family, c.function].some((v) => String(v ?? '').toLowerCase().includes(q))
+    return new Set(tutti.filter(corrisponde).map((c) => c.key))
+  }, [tutti, query])
   const problema = (l) => l === 'crit' || l === 'warn'
 
   // Per cron: dal piu' grave, poi per nome. Il problema e' lo STATO del cron (ultima corsa fallita,
@@ -163,13 +174,13 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
     () =>
       tutti
         .map((c) => ({ c, stato: statoCron(c) }))
-        .filter(({ c, stato }) => cercato(c.name) && (!soloProblemi || problema(stato)))
+        .filter(({ c, stato }) => trovati.has(c.key) && (!soloProblemi || problema(stato)))
         .sort((a, b) => rangoLivello(a.stato) - rangoLivello(b.stato) || String(a.c.name).localeCompare(String(b.c.name))),
-    [tutti, query, soloProblemi],
+    [tutti, trovati, soloProblemi],
   )
   const listaCorse = useMemo(
-    () => righe.filter((r) => cercato(r.cronName) && (!soloProblemi || problema(livelloCorsa(r)))),
-    [righe, query, soloProblemi],
+    () => righe.filter((r) => trovati.has(r.cronKey) && (!soloProblemi || problema(livelloCorsa(r)))),
+    [righe, trovati, soloProblemi],
   )
 
   const stati = tutti.map(statoCron)
@@ -210,7 +221,9 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
       {/* Sorgente configurata ma non raggiungibile: dirlo, altrimenti «nessun job dell'orchestratore»
           si legge come «nessuno sta girando», che e' la bugia peggiore su questa pagina. */}
       {data?.prefect?.error && <div className="ui-readwarn">{t('rilasci.nonLeggibile', { conto: 'Prefect', errore: data.prefect.error })}</div>}
-      {data?.truncated && <div className="ui-readwarn">{t('runs.tooMany')}</div>}
+      {/* Troncata: quanti ne restano fuori, e che il verdetto qui sopra vale solo per quelli letti.
+          Un cron fallito oltre il tetto non si vede, e la pagina deve dirlo invece di dire «tutto ok». */}
+      {data?.truncated && <div className="ui-readwarn">{t('runs.tooMany', { n: data.crons?.length ?? 0, tot: data.total ?? '?' })}</div>}
 
       <div className="rl-tools">
         <input className="rl-cerca" type="search" placeholder={t('runs.search')} aria-label={t('runs.search')} value={query} onChange={(e) => setQuery(e.target.value)} />

@@ -22,7 +22,35 @@ const memo = swrMemo({
   ttlMs: TTL_MS,
   onError: (err, key) => log.error('runs: rinfresco in background fallito', { key, err: err.message }),
 })
-const MAX_CRONS = 40 // oltre, non è una pagina: è una scansione. Si dice che è troncata.
+const MAX_CRONS = 40 // oltre, non è una pagina: è una scansione. Si dice che è troncata, e di quanto.
+
+// La ricerca arriva dalla casella della pagina: minuscola, senza spazi ai bordi, e corta. Ogni testo
+// diverso è una chiave della cache, quindi una stringa lunga a piacere sarebbe memoria a piacere. Pura.
+export function normQuery(q) {
+  return String(q ?? '').trim().toLowerCase().slice(0, 64)
+}
+
+// QUALI cron leggere in questo giro, prima di spendere una sola chiamata ai log. Pura/testabile.
+//
+// Il filtro di ricerca sta QUI e non nella pagina: filtrare nel browser cercava solo fra i cron già
+// letti, e oltre il tetto un cron vero (girato tre volte al giorno) risultava «Nessuna esecuzione».
+// Si cerca anche su chiave, family e funzione, perché il nome che uno conosce è spesso quello del job
+// e non quello dello schedule.
+//
+// Il tetto vale solo per i cron ACCESI: uno spento non costa chiamate (runsOverview non lo interroga),
+// quindi tagliarlo non risparmiava niente e toglieva solo una riga vera. Fra gli accesi l'ordine resta
+// quello per nome di listCrons: `nextRunAt` è disponibile ma non dice quale conta di più, e ordinare
+// per «parte prima» farebbe entrare e uscire cron diversi a ogni giro, con la lista che cambia sotto
+// gli occhi di chi la guarda. Un taglio fisso e dichiarato si capisce, uno che ruota no.
+export function scegliCron(crons = [], { only = null, q = '', max = MAX_CRONS } = {}) {
+  const cerca = normQuery(q)
+  const trovato = (c) => !cerca || [c.name, c.key, c.family, c.function].some((v) => String(v ?? '').toLowerCase().includes(cerca))
+  const wanted = crons.filter((c) => (!only || c.key === only) && trovato(c))
+  const accesi = wanted.filter((c) => c.enabled)
+  const spenti = wanted.filter((c) => !c.enabled)
+  const lista = [...accesi.slice(0, max), ...spenti]
+  return { lista, totale: wanted.length, troncata: accesi.length > max }
+}
 
 // Ordine della lista: prima chi sta girando ADESSO, poi chi ha appena fallito, poi per ultima run.
 // È l'ordine in cui si cercano le cose in questa pagina. Puro/testabile.
@@ -50,13 +78,14 @@ export function summarize(cron, runs = []) {
   }
 }
 
-export async function runsOverview(accounts, { minutes = 1440, limit = 6, only = null, t = (k) => k } = {}) {
-  const key = `runs:${only ?? 'all'}:${minutes}:${limit}`
+export async function runsOverview(accounts, { minutes = 1440, limit = 6, only = null, q = '', t = (k) => k } = {}) {
+  const cerca = normQuery(q)
+  // La ricerca è nella chiave: due ricerche diverse leggono cron diversi, e la stessa cache le
+  // confonderebbe. Senza ricerca la chiave termina con `:` vuoto, la stessa della scaldata all'avvio.
+  const key = `runs:${only ?? 'all'}:${minutes}:${limit}:${cerca}`
   const { value } = await memo(key, async () => {
     const { crons, problems } = await listCrons(accounts, { t })
-    const wanted = only ? crons.filter((c) => c.key === only) : crons
-    const troncata = wanted.length > MAX_CRONS
-    const lista = wanted.slice(0, MAX_CRONS)
+    const { lista, totale, troncata } = scegliCron(crons, { only, q: cerca })
 
     // Concorrenza 6, non 8: la quota di CloudWatch Logs è ~10 richieste al secondo per account, e sopra
     // quel tetto ogni chiamata in più non è più veloce: è un retry con attesa (misurato: la stessa query
@@ -97,6 +126,9 @@ export async function runsOverview(accounts, { minutes = 1440, limit = 6, only =
     return {
       window: minutes,
       truncated: troncata,
+      // Quanti cron corrispondono in tutto: la pagina dice «letti X di N», non solo «troncata».
+      total: totale,
+      query: cerca,
       crons: righe.sort(sortCrons),
       problems,
       // Sorgente non configurata → `null`, e la UI non mostra la sezione (non è un errore: è spenta).
