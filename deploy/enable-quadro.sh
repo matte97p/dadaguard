@@ -30,6 +30,11 @@
 # corse.js): un canvas per canale, `tutti` con ogni cron o il nome di una squadra di
 # `DADAGUARD_QUADRO_SQUADRE` con i soli suoi (la stessa definizione del quadro). Una squadra che lì non
 # c'è si dice nel log e il suo canale resta senza canvas. Nessun permesso Slack nuovo. Senza, spento.
+# Accanto a ogni canvas delle corse c'è una Slack List «Lista corse cron <CHIAVE>», una riga per cron
+# da filtrare e ordinare (Ambiente, Stato, Sezione), e il canvas si riduce al riepilogo col link alla
+# List. Accese di default come quelle del quadro; `DADAGUARD_CORSE_LISTE=0` (da mettere a mano nella
+# task definition, come `DADAGUARD_QUADRO_LISTE`) le spegne e riporta le tabelle nel canvas. Gli scope
+# `lists:read` e `lists:write` sono quelli delle List del quadro: niente da reinstallare.
 # Se `DADAGUARD_QUADRO_SQUADRE` definisce una squadra `infra` (o quella in `DADAGUARD_CORSE_INFRA`), i
 # suoi cron vanno in sezioni «Infra» in fondo al canvas `tutti` e alla pagina Cron.
 # Il nome di un cron è il percorso del suo codice, dal tag AWS `Codice` della risorsa (`<repo>/<percorso>`
@@ -156,6 +161,8 @@ l'app REINSTALLATA, o la List risponde `missing_scope`.
 Il bot dev'essere nei canali (`/invite @Dadaguard`), o il giro risponde `not_in_channel`.
 Con DADAGUARD_CORSE_CANALI il canvas delle corse dei cron parte un minuto e mezzo dopo l'avvio e si
 aggiorna ogni 5 minuti (DADAGUARD_CORSE_INTERVAL), anche lui solo nei canali dove il bot è invitato.
+Con lui una Slack List per canale (`DADAGUARD_CORSE_LISTE=0` per il solo canvas, con le tabelle): al
+primo giro le righe nascono 30 per giro, quindi la List si riempie in qualche giro.
 Il primo giro degli allarmi è SILENZIOSO per costruzione: prende nota di cosa è già rotto e non lo
 annuncia, altrimenti a ogni rilascio di Dadaguard ripeterebbe tutti i rossi.
 NOTE

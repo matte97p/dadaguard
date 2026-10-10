@@ -19,6 +19,12 @@ import {
   allineaCanvas,
   guardiaQuadro,
   eta,
+  scelte,
+  testoLista,
+  testoConLink,
+  selectLista,
+  sincronizzaLista,
+  nuovaMemoriaListe,
 } from './quadro.js'
 
 // Il canvas delle CORSE dei cron: com'è andata l'ultima esecuzione di ogni cron, letto in Slack senza
@@ -52,7 +58,8 @@ import {
 //
 // Configurazione (spento se manca una delle due):
 //   DADAGUARD_SLACK_BOT_TOKEN   lo stesso token del quadro: nessun permesso nuovo (canvases:write,
-//                               canvases:read, files:read, channels:read, groups:read ci sono già)
+//                               canvases:read, files:read, channels:read, groups:read, e per le List
+//                               lists:write e lists:read, ci sono già)
 //   DADAGUARD_CORSE_CANALI      un canale per canvas, `tutti=C0123,data=C0456`: la chiave è `tutti`
 //                               (ogni cron) o il nome di una squadra di `DADAGUARD_QUADRO_SQUADRE`. Una
 //                               squadra che lì non c'è si dice nel log e si salta: mostrare tutto al
@@ -64,6 +71,18 @@ import {
 //                               quella squadra è definita in `DADAGUARD_QUADRO_SQUADRE`: senza, niente
 //                               sezione a parte. I suoi cron contano nel verdetto come gli altri
 //   DADAGUARD_GITHUB_ORG/_REF   per il link al codice accanto al nome (vedi server/codice.js)
+//   DADAGUARD_CORSE_LISTE       `0` per non tenere le Slack List delle corse (default: accese). Senza
+//                               List il canvas torna ad avere le tabelle per account, perché il
+//                               dettaglio di ogni cron deve stare da qualche parte in Slack
+//
+// Accanto a ogni canvas c'è una Slack LIST, «Lista corse cron <CHIAVE>», condivisa col suo canale: una
+// riga per cron, con gli stessi cron del canvas (squadre, reaper dentro il loro job, sezione infra), e
+// colonne da filtrare e ordinare (Ambiente, Stato, Sezione). È la stessa scelta del quadro dei deploy
+// (le sue «Lista deploy …»): la tabella del canvas non si filtra, non si ordina e con ~75 cron è lunga.
+// Quindi il canvas si riduce al RIEPILOGO (verdetto, «Da guardare», link alla List) e il dettaglio sta
+// nella List. La parte che parla con Slack è quella del quadro (`sincronizzaLista`, con la forma delle
+// corse, vedi `formaCorse`): ritrovare la List dopo un riavvio dal titolo fra i file del bot, ricrearla
+// se l'hanno cancellata a mano, scrivere le sole celle cambiate.
 //
 // IL NOME di una riga è il percorso del codice (il tag `Codice` della risorsa, vedi shared/codice.js),
 // non lo schedule: `acme-crons/email-clienti` dice dove guardare, `email-clienti` no. Senza tag resta il
@@ -81,6 +100,15 @@ const MIN_INTERVAL_S = 120
 // ogni 15 secondi (40 al minuto) sulle ~50 modifiche di canvas al minuto che Slack regge: qui ne
 // restano poche, e ogni 5 minuti bastano. Quello che avanza va al giro dopo.
 export const MAX_MODIFICHE_CORSE = 8
+// Le righe NUOVE delle List delle corse in un giro, in tutte le List insieme: `slackLists.items.create`
+// ne crea una per chiamata. Il quadro dei deploy ne spende fino a 20 ogni 15 secondi, ma solo quando
+// nasce una sua List; qui il giro è ogni 5 minuti, quindi 30 chiamate in un colpo restano dentro i
+// limiti al minuto di Slack anche se capitano insieme a quelle del quadro (stesso token). Il primo giro
+// dopo il rilascio ha TUTTE le righe nuove (~75 cron nella List di tutti, più quelle delle squadre):
+// si riempiono in qualche giro, e quello che avanza va al giro dopo. Le altre scritture non hanno
+// bisogno di un tetto: le celle cambiate sono UNA chiamata ogni 100 celle per List, e una riga si
+// cancella solo quando un cron sparisce, che è raro.
+export const MAX_RIGHE_NUOVE_CORSE = 30
 export const TUTTI = 'tutti'
 export const SQUADRA_INFRA = 'infra'
 export const INTESTAZIONE_CORSE = ['Cron', 'Stato', 'Ultima corsa', 'Prossima']
@@ -91,6 +119,9 @@ const VUOTO = 'n/d'
 const SEP = ' · '
 
 export const titoloCorse = (chiave) => `Corse cron ${String(chiave).toUpperCase()}`
+// La List ha un titolo suo, come quelle del quadro («Lista deploy …» accanto a «Quadro deploy …»): nel
+// canale, fra le schede e nella ricerca, canvas e List con lo stesso nome non si distinguerebbero.
+export const titoloListaCorse = (chiave) => `Lista corse cron ${String(chiave).toUpperCase()}`
 
 export function corseConfig(env = process.env) {
   const q = quadroConfig(env)
@@ -113,6 +144,8 @@ export function corseConfig(env = process.env) {
     // Le chiavi che non sono `tutti` né una squadra conosciuta: si dicono una volta all'avvio.
     ignote: voci.filter((v) => !nota(v.chiave)).map((v) => v.chiave),
     intervalMs: Math.max(MIN_INTERVAL_S, Number(env.DADAGUARD_CORSE_INTERVAL) || DEFAULT_INTERVAL_S) * 1000,
+    // Accese di default, come le List del quadro (`DADAGUARD_QUADRO_LISTE`), con la stessa grammatica.
+    liste: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_CORSE_LISTE ?? '').trim()),
   }
 }
 
@@ -192,6 +225,12 @@ function ogni(minuti) {
 
 const durataDi = (r) => (r?.durationMs != null ? r.durationMs : r?.startedAt && r?.endedAt ? r.endedAt - r.startedAt : null)
 
+// Quando gira la prossima volta: l'ora fissa, o la cadenza se l'ora non si sa. Puro.
+function prossimaTesto(c, ora, t) {
+  if (c.enabled === false) return t('rilasci.cron.spento')
+  return c.nextRunAt ? quandoBreve(c.nextRunAt, ora) : (ogni(c.scheduleMinutes) ?? VUOTO)
+}
+
 // Il link a UN cron sulla pagina Cron: `?cron=` la apre già filtrata su quel cron (web/pages/RunsPage.jsx).
 export const linkCron = (cron, url) => (url && cron?.key ? `${url}/cron?cron=${encodeURIComponent(cron.key)}` : null)
 
@@ -224,7 +263,7 @@ export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('it') } =
   // job lanciano lo stesso script); chiamata da sola, la riga ha il nome breve di oggi.
   const nome = c.etichetta ?? nomeBreve(c.name)
   const link = linkCron(c, url)
-  const prossima = c.enabled === false ? t('rilasci.cron.spento') : c.nextRunAt ? quandoBreve(c.nextRunAt, ora) : (ogni(c.scheduleMinutes) ?? VUOTO)
+  const prossima = prossimaTesto(c, ora, t)
   // Il reaper dentro la riga (shared/codice.js) si NOMINA solo quando è un problema: a posto non ha
   // niente da dire, e una cella che lo ripete su ogni job lungo è rumore.
   const sr = statoReaper(c)
@@ -300,8 +339,8 @@ export function daGuardare(sezioni = [], { max = MAX_DA_GUARDARE } = {}) {
   return `**Da guardare**: ${nomi.join(SEP)}${altri}`
 }
 
-// Il canvas di una chiave: il riepilogo (verdetto e «Da guardare»), poi una sezione per account. Esce
-// il markdown (per crearlo o riscriverlo intero) e il MODELLO che `pianoCelle` confronta con quello che
+// Il canvas di una chiave: il riepilogo (verdetto, «Da guardare» e il link alla List del canale) e,
+// solo con le List spente (`tabelle`), una sezione per account con la tabella dei cron. Esce il markdown (per crearlo o riscriverlo intero) e il MODELLO che `pianoCelle` confronta con quello che
 // legge nel canvas. La forma è fissa come quella del quadro: quello che va e viene cambia il testo di un
 // paragrafo che c'è sempre. Niente «aggiornato alle»: cambierebbe a ogni giro. Puro/testabile.
 //
@@ -310,10 +349,13 @@ export function daGuardare(sezioni = [], { max = MAX_DA_GUARDARE } = {}) {
 // Con `infra` (solo nel canvas `tutti`, vedi `canvasCorseDaScrivere`) i cron di quella squadra vanno in
 // sezioni loro IN FONDO, «Infra · <ambiente>», dopo quelle del prodotto: il riepilogo in cima li conta
 // lo stesso, e un loro guasto sta in «Da guardare» come gli altri.
+// Le sezioni per account si calcolano anche senza tabelle: «Da guardare» le usa per l'ordine e i tag.
+// ⚠️ Il primo giro dopo il passaggio dalle tabelle al riepilogo cambia la forma del canvas, quindi lo
+// riscrive intero una volta (lo sdoppio a canvas aperto, vedi in testa): poi torna cella per cella.
 export function canvasCorse(
   chiave,
   crons = [],
-  { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('it'), squadre = {}, infra = null } = {},
+  { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('it'), squadre = {}, infra = null, lista = null, tabelle = false } = {},
 ) {
   const breve = (c) => nomeBreve(c.name)
   const nomi = etichetteCron(crons, { nome: breve, breve })
@@ -324,7 +366,9 @@ export function canvasCorse(
     ...sezioniCorse(parti.infra, { etichette, ora, url, t }).map((s) => ({ ...s, titolo: `Infra${SEP}${s.titolo}` })),
   ]
   const verdetto = verdettoTesto(crons, { t })
-  const dadaguard = url ? `${SEP}[Cron su Dadaguard](${url}/cron)` : ''
+  // La List prima del link a Dadaguard: è il dettaglio di questo canvas, e un'API per metterla fra le
+  // schede del canale non c'è (vedi `creaLista` in quadro.js), quindi da qui la si apre a un clic.
+  const link = [lista?.url && `[${titoloListaCorse(chiave)}](${lista.url})`, url && `[Cron su Dadaguard](${url}/cron)`].filter(Boolean)
   // «Tutti i cron sono a posto» su zero cron sarebbe vero e inutile, e con un account non letto non lo
   // si sa: lo si dice accanto al verdetto, che vale solo per i cron letti.
   const nonLetti = sezioni.filter((s) => s.tollera).map((s) => s.titolo)
@@ -333,12 +377,12 @@ export function canvasCorse(
     titolo: 'Riepilogo',
     sintesi: nonLetti.length ? `${sintesi}${SEP}⚠️ non letti: ${nonLetti.join(', ')}` : sintesi,
     righe: [],
-    fondo: `${daGuardare(sezioni)}  |  ultime ${finestraOre} h${dadaguard}`,
+    fondo: `${daGuardare(sezioni)}  |  ultime ${finestraOre} h${link.length ? `${SEP}${link.join(SEP)}` : ''}`,
   }
   const modello = {
     sezioni: [
       riepilogo,
-      ...sezioni.map((s) => ({ titolo: s.titolo, sintesi: s.sintesi, righe: s.righe.map((r) => r.celle), fondo: null, tollera: s.tollera, intestazione: INTESTAZIONE_CORSE })),
+      ...(tabelle ? sezioni : []).map((s) => ({ titolo: s.titolo, sintesi: s.sintesi, righe: s.righe.map((r) => r.celle), fondo: null, tollera: s.tollera, intestazione: INTESTAZIONE_CORSE })),
     ],
   }
   const md = []
@@ -353,7 +397,8 @@ export function canvasCorse(
 
 // Tutti i canvas di un giro, uno per canale, dalla STESSA lettura: i cron si leggono una volta e si
 // filtrano per canale, quindi tre canali non sono tre giri sui log. Puro/testabile.
-export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('it') } = {}) {
+// `liste`: chiave → indirizzo della List del canale, per il link in fondo al riepilogo.
+export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('it'), liste = {} } = {}) {
   const ov = dati?.overview ?? {}
   // Solo i cron di AWS: l'orchestratore non ha un account, e la sua lista non la legge questo giro.
   const crons = (ov.crons ?? []).filter((c) => c.type !== 'prefect')
@@ -371,26 +416,234 @@ export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('
       // in quello della squadra infra sarebbero tutti in fondo a un canvas senza nient'altro sopra.
       squadre: cfg.squadre ?? {},
       infra: chiave === TUTTI ? (cfg.infra ?? null) : null,
+      lista: liste[chiave] ? { url: liste[chiave] } : null,
+      // Le tabelle solo senza List: con la List il dettaglio sta lì, e due copie dello stesso dettaglio
+      // sono due cose da tenere allineate per chi legge.
+      tabelle: cfg.liste === false,
     }),
   }))
 }
 
+// ── La Slack List ────────────────────────────────────────────────────────────────────────────────
+//
+// Una riga per cron, con gli stessi stati e le stesse parole del canvas e della pagina (`statoCron`,
+// `motivoCorsa`, le chiavi di server/i18n.js). Le colonne nell'ordine del quadro: prima il nome, poi
+// quelle da filtrare (Ambiente, Stato, e Sezione nella List di tutti), poi i tempi, i Dettagli e il
+// Codice in fondo, che è un link come la Versione del quadro. L'ordine e le scelte si fissano alla
+// creazione della List e l'API non li cambia più (vedi `listaVecchia` in quadro.js): cambiarli vuol
+// dire cancellare la List a mano e lasciare che il giro dopo ne crei una nuova.
+
+const T_IT = makeT('it')
+const COLORE_LIVELLO = { crit: 'red', warn: 'yellow', info: 'blue', ok: 'green', off: 'gray' }
+// Le scelte della colonna Stato: i `value` sono i livelli di `statoCron`, dal più grave, le etichette
+// le parole della pagina («❌ Fallito», «⚠️ Non partito», «⏳ In corso», «✅ Ok», «➖ Spento»).
+export const STATI_CORSE = Object.fromEntries(
+  Object.keys(RANGO_LIVELLO).map((l) => [l, { emoji: EMOJI_LIVELLO[l], etichetta: T_IT(`rilasci.cron.stato.${l}`), colore: COLORE_LIVELLO[l] }]),
+)
+// L'ambiente dell'account, coi colori del quadro. Un account che non è né produzione né staging (uno
+// di servizio) è `altro`, e il suo nome va accanto a quello del cron (vedi `nomiLista`).
+export const AMBIENTE_ALTRO = 'altro'
+const AMBIENTI_CORSE = {
+  produzione: { etichetta: 'produzione', colore: 'red' },
+  staging: { etichetta: 'staging', colore: 'yellow' },
+  [AMBIENTE_ALTRO]: { etichetta: 'altro', colore: 'gray' },
+}
+const SEZIONI_CORSE = { prodotto: { etichetta: 'prodotto', colore: 'blue' }, infra: { etichetta: 'infra', colore: 'purple' } }
+export const ambienteLista = (account) => ambienteDi(account ?? '') ?? AMBIENTE_ALTRO
+
+// Lo schema di una List delle corse. La colonna Sezione c'è solo nella List di tutti, e solo con una
+// squadra infra (vedi `corseConfig`): è lì che i cron dell'infrastruttura stanno in mezzo a quelli del
+// prodotto e servono da filtrare, mentre in una List di squadra avrebbe lo stesso valore su ogni riga.
+export function schemaCorse({ sezione = false } = {}) {
+  return [
+    { key: 'cron', name: 'Cron', type: 'text', is_primary_column: true },
+    { key: 'ambiente', name: 'Ambiente', type: 'select', options: scelte(AMBIENTI_CORSE) },
+    { key: 'stato', name: 'Stato', type: 'select', options: scelte(STATI_CORSE) },
+    ...(sezione ? [{ key: 'sezione', name: 'Sezione', type: 'select', options: scelte(SEZIONI_CORSE) }] : []),
+    { key: 'ultima', name: 'Ultima corsa', type: 'text' },
+    { key: 'prossima', name: 'Prossima', type: 'text' },
+    { key: 'dettagli', name: 'Dettagli', type: 'text' },
+    { key: 'codice', name: 'Codice', type: 'text' },
+  ]
+}
+
+// Le celle di una riga (da `voceLista`), con la FIRMA che `sincronizzaLista` confronta con quella
+// riletta dalla List dopo un riavvio. Il nome e il Codice sono testi con dentro un link: la List li
+// rilegge col solo testo, quindi la firma è il testo (un indirizzo cambiato senza che cambi il nome
+// non riscrive la cella, ed è raro: cambia solo con `DADAGUARD_PUBLIC_URL` o `DADAGUARD_GITHUB_*`).
+// Il testo su una riga sola: un motivo che arriva da AWS con un a capo dentro, riletto dalla List,
+// potrebbe tornare con gli spazi cambiati e sembrare una cella da riscrivere a ogni riavvio.
+// Puro/testabile.
+export function celleCorsa(r, { sezione = false } = {}) {
+  const testo = (v, link) => {
+    const t = String(v ?? '').replace(/\s+/g, ' ').trim() || VUOTO
+    return { firma: t, valore: link ? testoConLink(link, t) : testoLista(t) }
+  }
+  return {
+    cron: testo(r.nome, r.link),
+    ambiente: selectLista(r.ambiente),
+    stato: selectLista(r.stato),
+    ...(sezione ? { sezione: selectLista(r.sezione) } : {}),
+    ultima: testo(r.ultima),
+    prossima: testo(r.prossima),
+    dettagli: testo(r.dettagli),
+    codice: testo(r.codice, r.codiceUrl),
+  }
+}
+
+// La forma per `sincronizzaLista` (vedi `FORMA_DEPLOY` in quadro.js): una riga è un cron in un
+// ambiente, riconosciuto dal nome che la List mostra. Il nome è unico dentro una List (`nomiLista`).
+export function formaCorse({ sezione = false } = {}) {
+  return {
+    schema: schemaCorse({ sezione }),
+    celle: (r) => celleCorsa(r, { sezione }),
+    chiaveDi: (r) => `${r.ambiente}|${r.nome}`,
+    chiaveFirme: (f) => (f.cron ? `${f.ambiente}|${f.cron}` : null),
+    nome: 'corse',
+  }
+}
+
+const DETTAGLI_BREVI = 150
+
+// L'ultima corsa a orario fisso, come nel canvas: «oggi 03:10 · 45 s», «In corso dalle 08:41». Com'è
+// finita lo dice la colonna Stato, il perché i Dettagli. Puro/testabile.
+export function ultimaCorsaLista(c, { ora = Date.now(), t = makeT('it') } = {}) {
+  const runs = c.runs ?? []
+  const viva = runs.find((r) => r.running)
+  if (viva) return `${t('rilasci.cron.stato.info')} ${viva.startedAt ? dalle(viva.startedAt, ora) : ''}`.trim()
+  const ultima = runs.find((r) => !r.running)
+  if (!ultima) return VUOTO
+  return [quandoBreve(ultima.startedAt, ora) ?? '?', durataCorsaTesto(durataDi(ultima))].filter(Boolean).join(SEP)
+}
+
+// Il perché dello stato, in una frase: il motivo del fallimento, il fallimento di prima sotto una
+// corsa in corso, «non è partito», «spento di proposito», il reaper quando è un problema. Niente da
+// dire (una corsa andata bene) è `n/d`, perché una cella di testo vuota la List la disegna con
+// un'icona segnaposto. Puro/testabile.
+export function dettagliCorsa(c, stato, { ora = Date.now(), t = makeT('it') } = {}) {
+  const runs = c.runs ?? []
+  const viva = runs.find((r) => r.running)
+  const ultima = runs.find((r) => !r.running)
+  let proprio = null
+  if (viva) proprio = ultima?.outcome === 'failed' ? `prima: ${motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit')}` : null
+  else if (!runs.length) proprio = stato === 'off' ? t('rilasci.cron.spentoHint') : [t('rilasci.cron.nonPartito'), c.error && `errore: ${c.error}`].filter(Boolean).join(SEP)
+  else proprio = motivoCorsa(ultima, t)
+  const sr = statoReaper(c)
+  const reaper = sr && stato !== 'off' && (sr === 'crit' || sr === 'warn') ? `reaper: ${ultimaCorsaTesto(c.reaper, sr, { ora, t })}` : null
+  return [proprio && tronca(proprio, DETTAGLI_BREVI), reaper && tronca(reaper, DETTAGLI_BREVI)].filter(Boolean).join(SEP) || VUOTO
+}
+
+// I nomi delle righe di UNA List, chiave del cron → nome. Puro/testabile.
+//
+// Il nome è quello del canvas (il percorso del codice, distinto se due job lanciano lo stesso script,
+// vedi `etichetteCron`) ed è anche quello che riconosce la riga dopo un riavvio, insieme all'Ambiente.
+// Quindi dev'essere unico per ambiente: con più account nello stesso ambiente, o con account che non
+// sono né produzione né staging (tutti `altro`), lo stesso cron in due account avrebbe la stessa
+// chiave. Lì al nome si aggiunge quello dell'account. Gli account contati sono quelli di TUTTI i cron
+// letti (`tutti`, non solo quelli di questa List) e quelli non letti (`problemi`): un account che non si
+// legge per un giro, o un cron che entra in una squadra da un altro account, non deve cambiare i nomi
+// delle righe che ci sono, cioè cancellarle e ricrearle.
+export function nomiLista(crons = [], { etichette = {}, problemi = [], tutti = crons } = {}) {
+  const breve = (c) => nomeBreve(c.name)
+  const base = etichetteCron(crons, { nome: breve, breve })
+  const account = new Set([...[...crons, ...tutti].map((c) => c.account ?? '?'), ...problemi.filter((p) => p?.account).map((p) => p.account)])
+  const perAmbiente = new Map()
+  for (const a of account) perAmbiente.set(ambienteLista(a), (perAmbiente.get(ambienteLista(a)) ?? 0) + 1)
+  const conAccount = (a) => ambienteLista(a) === AMBIENTE_ALTRO || perAmbiente.get(ambienteLista(a)) > 1
+  return new Map(crons.map((c) => [c.key, conAccount(c.account ?? '?') ? `${base.get(c.key)}${SEP}${etichette[c.account] ?? c.account ?? '?'}` : base.get(c.key)]))
+}
+
+// Una riga della List, coi valori pronti per `celleCorsa`. Puro/testabile.
+export function voceLista(c, { nome, ora = Date.now(), url = null, t = makeT('it'), sezione = null } = {}) {
+  const stato = statoCron(c)
+  return {
+    nome: nome ?? nomeBreve(c.name),
+    link: linkCron(c, url),
+    ambiente: ambienteLista(c.account),
+    stato,
+    sezione,
+    ultima: ultimaCorsaLista(c, { ora, t }),
+    prossima: prossimaTesto(c, ora, t),
+    dettagli: dettagliCorsa(c, stato, { ora, t }),
+    // Il repository del codice come testo, col link al percorso: si ordina e si filtra per repository,
+    // e il percorso intero è già il nome della riga. Senza org il repository resta senza link.
+    codice: repoDelCodice(c.codice) ?? (c.codiceUrl ? 'codice' : VUOTO),
+    codiceUrl: c.codiceUrl ?? null,
+  }
+}
+
+// Le List di un giro, una per canale, dalla STESSA lettura dei canvas e con gli stessi cron
+// (`cronDelCanale`). Le righe in ordine di ambiente e di nome: è l'ordine in cui nascono, e una List
+// appena creata si legge così finché nessuno la ordina. Puro/testabile.
+//
+// `tieni`: gli ambienti in cui una riga che manca NON si cancella, perché manca la lettura e non il
+// cron. Sono quelli di un account non letto (`problemi`) e quelli che nel giro non hanno nessun cron
+// pur avendo un account (`etichette`): un ambiente intero vuoto è quasi sempre una lettura andata
+// male, e allinearsi vorrebbe dire cancellare tutte le sue righe per ricrearle al giro dopo. Lo stesso
+// criterio delle List del quadro (`listeDaScrivere`).
+export function listeCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('it') } = {}) {
+  const ov = dati?.overview ?? {}
+  const crons = (ov.crons ?? []).filter((c) => c.type !== 'prefect')
+  const etichette = dati?.etichette ?? {}
+  const problemi = ov.problems ?? []
+  const conCron = new Set(crons.map((c) => ambienteLista(c.account)))
+  const tieni = new Set([
+    ...problemi.filter((p) => p?.account).map((p) => ambienteLista(p.account)),
+    ...Object.keys(etichette)
+      .map(ambienteLista)
+      .filter((a) => !conCron.has(a)),
+  ])
+  return (cfg.canali ?? []).map(({ chiave, canale }) => {
+    const suoi = cronDelCanale(crons, chiave, cfg.squadre ?? {})
+    const sezione = chiave === TUTTI && Boolean(cfg.infra)
+    const diInfra = sezione ? new Set(divideInfra(suoi, cfg.squadre ?? {}, cfg.infra).infra.map((c) => c.key)) : null
+    const nomi = nomiLista(suoi, { etichette, problemi, tutti: crons })
+    const righe = suoi
+      .map((c) => voceLista(c, { nome: nomi.get(c.key), ora, url: cfg.publicUrl ?? null, t, sezione: diInfra ? (diInfra.has(c.key) ? 'infra' : 'prodotto') : null }))
+      .sort((a, b) => (RANGO_AMBIENTE[a.ambiente] ?? 2) - (RANGO_AMBIENTE[b.ambiente] ?? 2) || perNome(a.nome, b.nome))
+    return { chiave, canale, canali: [canale], titolo: titoloListaCorse(chiave), righe, tieni, forma: formaCorse({ sezione }) }
+  })
+}
+
 // ── Il giro ──────────────────────────────────────────────────────────────────────────────────────
 
-// Un giro: legge una volta, poi allinea ogni canvas al suo canale. Un canvas che fallisce non ferma gli
-// altri. `deps` per le prove: `leggiDati` ({ overview, etichette }), `api`, `scarica`, `ultimi` e
-// `titoli` (la memoria fra un giro e l'altro), `maxModifiche`.
+// Un giro: legge UNA volta, poi allinea la List e il canvas di ogni canale, dagli stessi dati. Una List o
+// un canvas che fallisce non ferma gli altri. `deps` per le prove: `leggiDati` ({ overview, etichette }),
+// `api`, `scarica`, `ultimi`, `titoli` e `liste` (la memoria fra un giro e l'altro), `maxModifiche`,
+// `maxRigheNuove`.
 export async function aggiornaCorse(cfg, deps = {}) {
   const api = deps.api ?? ((m, c) => chiamaSlack(m, c, cfg.token))
   const scarica = deps.scarica ?? ((url) => scaricaSlack(url, cfg.token))
   const dati = await deps.leggiDati()
   const ora = deps.ora ?? Date.now()
+  // Prima le List e poi i canvas, come nel quadro: il canvas porta il link alla List del suo canale, e
+  // l'indirizzo si sa solo dopo averla ritrovata o creata.
+  const esitiListe = []
+  const linkListe = {}
+  if (cfg.liste) {
+    const memoria = deps.liste ?? nuovaMemoriaListe()
+    let budgetRighe = deps.maxRigheNuove ?? MAX_RIGHE_NUOVE_CORSE
+    for (const l of listeCorseDaScrivere(dati, cfg, { ora })) {
+      try {
+        memoria.bot ??= (await api('auth.test', {})).user_id
+        const e = await sincronizzaLista(api, l, memoria.aree, { bot: memoria.bot, maxNuove: Math.max(0, budgetRighe) })
+        budgetRighe -= e.nuove ?? 0
+        if (e.permalink) linkListe[l.chiave] = e.permalink
+        esitiListe.push({ ambiente: `corse-lista-${l.chiave}`, ...e })
+      } catch (err) {
+        // Al giro dopo si riparte dal ritrovarla, come nel quadro: una List cancellata a mano non si
+        // aggiusta insistendo con gli id che si avevano.
+        memoria.aree.delete(l.chiave)
+        esitiListe.push({ ambiente: `corse-lista-${l.chiave}`, azione: 'errore', errore: err.message })
+      }
+    }
+  }
   const { info, leggiHtml } = lettoreCanali(api, scarica)
   const ultimi = deps.ultimi ?? new Map()
   const titoli = deps.titoli ?? new Set()
   let budget = deps.maxModifiche ?? MAX_MODIFICHE_CORSE
   const esiti = []
-  for (const c of canvasCorseDaScrivere(dati, cfg, { ora })) {
+  for (const c of canvasCorseDaScrivere(dati, cfg, { ora, liste: linkListe })) {
     try {
       const e = await allineaCanvas(api, c, { info, leggiHtml, ultimi, titoli, budget, nome: 'corse' })
       budget -= e.celle ?? 0
@@ -399,16 +652,18 @@ export async function aggiornaCorse(cfg, deps = {}) {
       esiti.push({ ambiente: `corse-${c.chiave}`, azione: 'errore', errore: err.message })
     }
   }
-  return esiti
+  return [...esiti, ...esitiListe]
 }
 
-// La riga per il canale degli allarmi quando un canvas delle corse è fermo (stessa guardia del quadro,
-// `guardiaQuadro`, e stessa grammatica). Puro/testabile.
+// La riga per il canale degli allarmi quando un canvas o una List delle corse è fermo (stessa guardia
+// del quadro, `guardiaQuadro`, e stessa grammatica). La List ha la sua guardia (`corse-lista-<chiave>`):
+// si dice «la List», non «il canvas». Puro/testabile.
 export function testoAvvisoCorse(a, { ora = Date.now(), url = null } = {}) {
-  const tag = String(a.ambiente).replace(/^corse-/, '').toUpperCase()
+  const lista = String(a.ambiente).startsWith('corse-lista-')
+  const tag = `${lista ? 'LISTA ' : ''}${String(a.ambiente).replace(/^corse-(lista-)?/, '').toUpperCase()}`
   if (a.tipo === 'rientrato') return `✅ \`corse cron\` [${tag}] rientrato · di nuovo aggiornato dopo ${eta(a.fermoDa, ora)} fermo`
   const link = url ? `${SEP}<${url}/cron|cron su Dadaguard>` : ''
-  return `⚠️ \`corse cron\` [${tag}] FERMO · il canvas non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
+  return `⚠️ \`corse cron\` [${tag}] FERMO · ${lista ? 'la List' : 'il canvas'} non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
 }
 
 export function startCorse(leggiDati, env = process.env) {
@@ -422,15 +677,16 @@ export function startCorse(leggiDati, env = process.env) {
     log.info('corse: nessun DADAGUARD_SLACK_BOT_TOKEN o DADAGUARD_CORSE_CANALI valido, canvas delle corse spento')
     return null
   }
-  log.info('corse: attivo', { ogni: `${cfg.intervalMs / 1000}s`, canali: cfg.canali.map((c) => c.chiave) })
+  log.info('corse: attivo', { ogni: `${cfg.intervalMs / 1000}s`, canali: cfg.canali.map((c) => c.chiave), liste: cfg.liste })
   const webhook = env.DADAGUARD_SLACK_WEBHOOK || null
   const avvio = Date.now()
   const ultimi = new Map()
   const titoli = new Set()
+  const liste = nuovaMemoriaListe()
   let guardia = {}
   let inCorso = false
   const giro = async () => {
-    const esiti = await aggiornaCorse(cfg, { leggiDati, ultimi, titoli }).catch((err) => {
+    const esiti = await aggiornaCorse(cfg, { leggiDati, ultimi, titoli, liste }).catch((err) => {
       log.error('corse: giro fallito', { err: err.message })
       return cfg.canali.map((c) => ({ ambiente: `corse-${c.chiave}`, azione: 'errore', errore: err.message }))
     })
