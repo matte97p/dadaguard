@@ -1460,7 +1460,7 @@ export async function allineaCanvas(api, c, { info, leggiHtml, ultimi = new Map(
 // link: una cella link vuota mostrava comunque l'icona del link, vuota.
 // ⚠️ Una cella di TESTO vuota Slack la disegna con un'icona segnaposto (06/10/2026): dove non c'è niente
 // da dire si scrive `n/d`, come nel canvas (`VUOTO`).
-const scelte = (voci) => ({ format: 'single_select', choices: Object.entries(voci).map(([value, s]) => ({ value, label: s.emoji ? `${s.emoji} ${s.etichetta}` : s.etichetta, color: s.colore })) })
+export const scelte = (voci) => ({ format: 'single_select', choices: Object.entries(voci).map(([value, s]) => ({ value, label: s.emoji ? `${s.emoji} ${s.etichetta}` : s.etichetta, color: s.colore })) })
 // L'ambiente col suo colore di sempre: rosso la produzione, giallo staging, come i quadrati che i
 // titoli avevano fino al 05/10/2026.
 const AMBIENTI_LISTA = { produzione: { etichetta: 'produzione', colore: 'red' }, staging: { etichetta: 'staging', colore: 'yellow' } }
@@ -1476,15 +1476,29 @@ export const SCHEMA_LISTA = [
 ]
 const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
 
+// La FORMA di una List: le sue colonne, le celle di una riga e la chiave che la riconosce, sia da
+// quello che si vuole scrivere (`chiaveDi`) sia da quello che si rilegge dopo un riavvio
+// (`chiaveFirme`, `null` se la riga non ha il nome). Il resto (ritrovarla, crearla, allinearne le
+// righe) è lo stesso per ogni List: questa è quella del quadro, e le corse dei cron hanno la loro
+// (server/notify/corse.js). Una List senza `forma` è del quadro, come prima che ce ne fossero due.
+export const FORMA_DEPLOY = {
+  schema: SCHEMA_LISTA,
+  celle: (r) => celleLista(r),
+  chiaveDi: (r) => chiaveRiga(r.ambiente, r.nome),
+  chiaveFirme: (f) => (f.risorsa ? chiaveRiga(f.ambiente, f.risorsa) : null),
+  nome: 'quadro',
+}
+const formaDi = (l) => l?.forma ?? FORMA_DEPLOY
+
 export const nuovaMemoriaListe = () => ({ bot: null, aree: new Map() })
 
 // ⚠️ Un testo vuoto la List lo rifiuta (`must be more than 0 characters`): per svuotare una cella si
 // manda l'elenco vuoto (provato il 05/10/2026). Le celle di testo non sono mai vuote (`n/d`); il link sì.
-const testoLista = (t) => ({ rich_text: t ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: t }] }] }] : [] })
+export const testoLista = (t) => ({ rich_text: t ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: t }] }] }] : [] })
 // Un testo che è un link (`text` torna il testo del link, provato il 05/10/2026).
-const testoConLink = (url, t) => ({ rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'link', url, text: t }] }] }] })
+export const testoConLink = (url, t) => ({ rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'link', url, text: t }] }] }] })
 const linkLista = (url, nome) => ({ link: url ? [{ original_url: url, display_as_url: false, display_name: nome }] : [] })
-const selectLista = (v) => ({ firma: v ?? '', valore: { select: v ? [v] : [] } })
+export const selectLista = (v) => ({ firma: v ?? '', valore: { select: v ? [v] : [] } })
 
 // Le celle di una riga per la List: per ogni colonna la FIRMA (una stringa da confrontare con quella
 // riletta, vedi `firmeDaItem`) e il valore da mandare. La Versione è il link al commit quando c'è,
@@ -1535,12 +1549,12 @@ const tipiDa = (schema) => Object.fromEntries((schema ?? []).filter((c) => c?.ke
 // nuova la si cancella a mano in Slack, e al giro dopo il quadro ne crea una. Il quadro non la ricrea
 // da sé: due List con lo stesso titolo nel canale sarebbero peggio di una con le etichette vecchie.
 // Puro.
-export function listaVecchia(schema) {
+export function listaVecchia(schema, atteso = SCHEMA_LISTA) {
   const etichette = (c) => (c?.options?.choices ?? []).map((x) => `${x.value}=${x.label}`).join()
   const perChiave = new Map((schema ?? []).map((c) => [c.key, c]))
   return (
-    SCHEMA_LISTA.map((c) => c.key).join() !== (schema ?? []).map((c) => c.key).join() ||
-    SCHEMA_LISTA.some((c) => c.type !== perChiave.get(c.key)?.type || (c.type === 'select' && etichette(c) !== etichette(perChiave.get(c.key))))
+    atteso.map((c) => c.key).join() !== (schema ?? []).map((c) => c.key).join() ||
+    atteso.some((c) => c.type !== perChiave.get(c.key)?.type || (c.type === 'select' && etichette(c) !== etichette(perChiave.get(c.key))))
   )
 }
 
@@ -1549,6 +1563,7 @@ export function listaVecchia(schema) {
 // titolo giusto ma mai condivisa con nessun canale vale come ripiego: è quella di un giro morto prima
 // di condividerla. Un titolo di prima (con l'emoji davanti) si riconosce e si corregge sul posto.
 export async function ritrovaLista(api, l, { bot }) {
+  const forma = formaDi(l)
   const r = await api('files.list', { user: bot, types: 'lists', count: 100 })
   const conTitolo = (r.files ?? []).filter((f) => stessoTitolo(f.title ?? f.name, l.titolo)).sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
   const nelCanale = (f) => [...(f.channels ?? []), ...(f.groups ?? [])].includes(l.canale)
@@ -1559,27 +1574,28 @@ export async function ritrovaLista(api, l, { bot }) {
   const colonne = colonneDa(schema)
   // Una List col titolo giusto ma senza le nostre colonne non è nostra (o è di prima delle colonne
   // Ambiente e Tipo): scriverci darebbe `invalid_arguments` a ogni giro.
-  const mancano = SCHEMA_LISTA.filter((c) => !colonne[c.key] || tipiDa(schema)[c.key] !== c.type).map((c) => c.key)
+  const mancano = forma.schema.filter((c) => !colonne[c.key] || tipiDa(schema)[c.key] !== c.type).map((c) => c.key)
   if (mancano.length) {
-    log.warn('quadro: la List trovata non ha le colonne attese, ne creo una nuova', { lista: f.id, mancano })
+    log.warn(`${forma.nome}: la List trovata non ha le colonne attese, ne creo una nuova`, { lista: f.id, mancano })
     return null
   }
-  if (listaVecchia(schema))
-    log.warn('quadro: la List ha uno schema di prima (etichette o ordine delle colonne); per averla nuova cancellala a mano, al giro dopo se ne crea una', { lista: f.id, titolo: l.titolo })
+  if (listaVecchia(schema, forma.schema))
+    log.warn(`${forma.nome}: la List ha uno schema di prima (etichette o ordine delle colonne); per averla nuova cancellala a mano, al giro dopo se ne crea una`, { lista: f.id, titolo: l.titolo })
   if ((f.title ?? f.name) !== l.titolo)
-    await api('slackLists.update', { id: f.id, name: l.titolo }).catch((err) => log.warn('quadro: List non rinominata', { lista: f.id, err: err.message }))
+    await api('slackLists.update', { id: f.id, name: l.titolo }).catch((err) => log.warn(`${forma.nome}: List non rinominata`, { lista: f.id, err: err.message }))
+  const tipi = tipiDa(forma.schema)
   const righe = new Map()
   const doppie = []
   let cursor = null
   for (let pagina = 0; pagina < 50; pagina++) {
     const it = await api('slackLists.items.list', { list_id: f.id, limit: 100, ...(cursor ? { cursor } : {}) })
     for (const item of it.items ?? []) {
-      const firme = firmeDaItem(item, colonne)
-      const chiave = chiaveRiga(firme.ambiente, firme.risorsa)
+      const firme = firmeDaItem(item, colonne, tipi)
+      const chiave = forma.chiaveFirme(firme)
       // Due righe con lo stesso nome nello stesso ambiente (un giro morto fra la creazione e la
       // memoria): una si tiene, l'altra si toglie, o la List mostrerebbe la stessa risorsa due volte
       // con due stati.
-      if (!firme.risorsa || righe.has(chiave)) doppie.push(item.id)
+      if (!chiave || righe.has(chiave)) doppie.push(item.id)
       else righe.set(chiave, { id: item.id, firme })
     }
     cursor = it.response_metadata?.next_cursor || null
@@ -1595,13 +1611,14 @@ export async function ritrovaLista(api, l, { bot }) {
 // (05/10/2026), e un'API per aggiungere una List come scheda del canale, come si fa coi canvas, non
 // c'è. Il link alla List sta in fondo ai canvas della sua area, e la scheda la aggiunge una persona.
 export async function creaLista(api, l) {
-  const r = await api('slackLists.create', { name: l.titolo, schema: SCHEMA_LISTA })
+  const forma = formaDi(l)
+  const r = await api('slackLists.create', { name: l.titolo, schema: forma.schema })
   await api('slackLists.access.set', { list_id: r.list_id, access_level: 'read', channel_ids: l.canali?.length ? l.canali : [l.canale] }).catch((err) =>
-    log.warn('quadro: List non messa in sola lettura', { lista: l.chiave, err: err.message }),
+    log.warn(`${forma.nome}: List non messa in sola lettura`, { lista: l.chiave, err: err.message }),
   )
   const info = await api('files.info', { file: r.list_id }).catch(() => null)
   let schema = r.list_metadata?.schema
-  if (SCHEMA_LISTA.some((c) => !colonneDa(schema)[c.key])) schema = info?.file?.list_metadata?.schema
+  if (forma.schema.some((c) => !colonneDa(schema)[c.key])) schema = info?.file?.list_metadata?.schema
   return { id: r.list_id, colonne: colonneDa(schema), permalink: info?.file?.permalink ?? null, righe: new Map(), doppie: [] }
 }
 
@@ -1625,10 +1642,11 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
     }
     memoria.set(l.chiave, st)
   }
+  const forma = formaDi(l)
   const voluti = new Map()
   for (const r of l.righe) {
-    const k = chiaveRiga(r.ambiente, r.nome)
-    if (!voluti.has(k)) voluti.set(k, celleLista(r))
+    const k = forma.chiaveDi(r)
+    if (!voluti.has(k)) voluti.set(k, forma.celle(r))
   }
   let tolte = 0
   for (const id of st.doppie ?? []) {

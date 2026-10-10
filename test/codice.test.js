@@ -239,7 +239,8 @@ test('canvasCorse: etichette del SUO elenco, e i cron infra in sezioni «Infra»
     cron('staging', 'acme-staging-ssm-housekeeper'),
   ]
   const squadre = { infra: ['terraform-acme-runner', 'ssm-*'] }
-  const c = canvasCorse(TUTTI, crons, { ora: ORA, t, squadre, infra: 'infra' })
+  // Con le tabelle (List spente): è lì che si vedono le etichette e le sezioni.
+  const c = canvasCorse(TUTTI, crons, { ora: ORA, t, squadre, infra: 'infra', tabelle: true })
   assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Infra · Produzione', 'Infra · Staging'])
   // Due job sullo stesso script: distinti col nome breve del job.
   assert.deepEqual(
@@ -254,13 +255,17 @@ test('canvasCorse: etichette del SUO elenco, e i cron infra in sezioni «Infra»
   assert.match(c.modello.sezioni[0].fondo, /❌ ssm-housekeeper \(PROD\)/)
 
   // Senza squadra infra, nessuna sezione a parte.
-  assert.deepEqual(canvasCorse(TUTTI, crons, { ora: ORA, t }).modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Staging'])
+  assert.deepEqual(canvasCorse(TUTTI, crons, { ora: ORA, t, tabelle: true }).modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Staging'])
 })
 
-test('canvasCorseDaScrivere: le sezioni «Infra» solo nel canvas di tutti', () => {
+test('canvasCorseDaScrivere: le sezioni «Infra» solo nel canvas di tutti; con le List, solo il riepilogo', () => {
   const overview = { window: 1440, problems: [], crons: [cron('production', 'acme-production-ssm-housekeeper'), cron('production', 'acme-production-email-clienti')] }
-  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI,infra=C0INFRA', DADAGUARD_QUADRO_SQUADRE: 'infra=ssm-*' })
-  const [tutti, infra] = canvasCorseDaScrivere({ overview, etichette: {} }, cfg, { ora: ORA })
+  const env = { DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI,infra=C0INFRA', DADAGUARD_QUADRO_SQUADRE: 'infra=ssm-*' }
+  const [tutti, infra] = canvasCorseDaScrivere({ overview, etichette: {} }, corseConfig({ ...env, DADAGUARD_CORSE_LISTE: '0' }), { ora: ORA })
   assert.deepEqual(tutti.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Infra · Produzione'])
   assert.deepEqual(infra.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione'])
+  const conListe = canvasCorseDaScrivere({ overview, etichette: {} }, corseConfig(env), { ora: ORA, liste: { tutti: 'https://x.slack.com/lists/T1/FL1' } })
+  assert.deepEqual(conListe.map((c) => c.modello.sezioni.map((s) => s.titolo)), [['Riepilogo'], ['Riepilogo']])
+  assert.match(conListe[0].markdown, /\[Lista corse cron TUTTI\]\(https:\/\/x\.slack\.com\/lists\/T1\/FL1\)/)
+  assert.doesNotMatch(conListe[1].markdown, /Lista corse/, 'la List di un altro canale non si linka')
 })

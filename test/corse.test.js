@@ -22,8 +22,16 @@ import {
   titoloCorse,
   testoAvvisoCorse,
   TUTTI,
+  STATI_CORSE,
+  schemaCorse,
+  celleCorsa,
+  voceLista,
+  nomiLista,
+  listeCorseDaScrivere,
+  titoloListaCorse,
+  MAX_RIGHE_NUOVE_CORSE,
 } from '../server/notify/corse.js'
-import { regoleSquadre, leggiCanvasHtml, pianoCelle } from '../server/notify/quadro.js'
+import { regoleSquadre, leggiCanvasHtml, pianoCelle, nuovaMemoriaListe } from '../server/notify/quadro.js'
 import { contaCron, verdettoCron, statoCron } from '../shared/cron.js'
 import { makeT, hasKey } from '../server/i18n.js'
 
@@ -61,6 +69,10 @@ test('corseConfig: un canale per chiave, `tutti` o una squadra del quadro; una s
   assert.deepEqual(corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto' }).canali, [])
   // Il minimo regge: un giro ogni 10 secondi sui log non si accetta.
   assert.equal(corseConfig({ DADAGUARD_CORSE_INTERVAL: '10' }).intervalMs, 120_000)
+  // Le List accese di default, spente con `0` come quelle del quadro.
+  assert.equal(corseConfig({}).liste, true)
+  assert.equal(corseConfig({ DADAGUARD_CORSE_LISTE: '0' }).liste, false)
+  assert.equal(corseConfig({ DADAGUARD_CORSE_LISTE: 'off' }).liste, false)
 })
 
 // ── Squadre ──────────────────────────────────────────────────────────────────────────────────────
@@ -220,9 +232,9 @@ test('daGuardare: falliti, poi non partiti, poi in corso; produzione prima di st
 
 // ── Canvas ───────────────────────────────────────────────────────────────────────────────────────
 
-test('canvasCorse: riepilogo col verdetto del SUO sottoinsieme, poi una tabella per account', () => {
+test('canvasCorse con le List spente: riepilogo col verdetto del SUO sottoinsieme, poi una tabella per account', () => {
   const crons = [cron('production', 'acme-production-cron-a'), cron('staging', 'acme-staging-cron-a', { runs: [] })]
-  const c = canvasCorse('data', crons, { ora: ORA, url: DG, t })
+  const c = canvasCorse('data', crons, { ora: ORA, url: DG, t, tabelle: true })
   assert.equal(c.titolo, titoloCorse('data'))
   assert.equal(c.titolo, 'Corse cron DATA')
   assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Staging'])
@@ -232,6 +244,23 @@ test('canvasCorse: riepilogo col verdetto del SUO sottoinsieme, poi una tabella 
   assert.match(c.markdown, /\[Cron su Dadaguard\]\(https:\/\/dg\.example\.com\/cron\)/)
   // Un canvas di squadra senza cron non dice «tutti a posto».
   assert.match(canvasCorse('plat', [], { ora: ORA, t }).markdown, /nessun cron/)
+})
+
+test('canvasCorse con le List: solo il riepilogo, cioè verdetto, «Da guardare» e il link alla List', () => {
+  const crons = [cron('production', 'acme-production-cron-a', { runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 1000 }] }), cron('staging', 'acme-staging-cron-a')]
+  const c = canvasCorse('tutti', crons, { ora: ORA, url: DG, t, lista: { url: 'https://x.slack.com/lists/T1/FL1' } })
+  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo'])
+  assert.doesNotMatch(c.markdown, /\| Cron \|/, 'niente tabelle: il dettaglio sta nella List')
+  assert.equal(
+    c.markdown,
+    [
+      '## Riepilogo',
+      '❌ **1 cron fallito** · 2 cron',
+      `**Da guardare**: ❌ [a](${DG}/cron?cron=production%2Facme-production-cron-a) (PROD)  |  ultime 24 h · [Lista corse cron TUTTI](https://x.slack.com/lists/T1/FL1) · [Cron su Dadaguard](${DG}/cron)`,
+    ].join('\n\n'),
+  )
+  // Senza List (non ancora creata, o un errore) il riepilogo resta, senza il link.
+  assert.doesNotMatch(canvasCorse('tutti', crons, { ora: ORA, url: DG, t }).markdown, /Lista corse/)
 })
 
 test('canvasCorseDaScrivere: UNA lettura, un canvas per canale, ognuno col verdetto dei soli suoi cron', () => {
@@ -258,15 +287,123 @@ test('canvasCorseDaScrivere: UNA lettura, un canvas per canale, ognuno col verde
   ])
 })
 
+// ── La List ──────────────────────────────────────────────────────────────────────────────────────
+
+test('la List delle corse: colonne da filtrare dopo il nome, Stato con le parole e i colori della pagina', () => {
+  assert.deepEqual(schemaCorse().map((c) => `${c.name}:${c.type}`), ['Cron:text', 'Ambiente:select', 'Stato:select', 'Ultima corsa:text', 'Prossima:text', 'Dettagli:text', 'Codice:text'])
+  assert.deepEqual(schemaCorse({ sezione: true }).map((c) => c.key), ['cron', 'ambiente', 'stato', 'sezione', 'ultima', 'prossima', 'dettagli', 'codice'])
+  const stato = schemaCorse().find((c) => c.key === 'stato').options.choices
+  // I `value` sono i livelli di `statoCron`, dal più grave; le etichette le parole della pagina.
+  assert.deepEqual(stato.map((c) => `${c.value}:${c.label}:${c.color}`), ['crit:❌ Fallito:red', 'warn:⚠️ Non partito:yellow', 'info:⏳ In corso:blue', 'ok:✅ Ok:green', 'off:➖ Spento:gray'])
+  assert.deepEqual(Object.keys(STATI_CORSE), ['crit', 'warn', 'info', 'ok', 'off'])
+  assert.deepEqual(schemaCorse().find((c) => c.key === 'ambiente').options.choices.map((c) => c.value), ['produzione', 'staging', 'altro'])
+  assert.equal(titoloListaCorse('data'), 'Lista corse cron DATA')
+})
+
+test('voceLista: stato, ultima corsa a orario fisso con la durata, prossima, il perché nei Dettagli, il repository del codice', () => {
+  const codice = { codice: 'acme-crons/report', codiceUrl: 'https://github.com/acme/acme-crons/tree/main/report' }
+  const ok = voceLista(cron('production', 'acme-production-cron-report', codice), { nome: 'acme-crons/report', ora: ORA, url: DG, t })
+  assert.deepEqual(ok, {
+    nome: 'acme-crons/report',
+    link: `${DG}/cron?cron=production%2Facme-production-cron-report`,
+    ambiente: 'produzione',
+    stato: 'ok',
+    sezione: null,
+    ultima: 'oggi 13:00 · 4 min',
+    prossima: 'oggi 15:00',
+    dettagli: 'n/d',
+    codice: 'acme-crons',
+    codiceUrl: codice.codiceUrl,
+  })
+  const c = celleCorsa(ok)
+  assert.deepEqual(Object.keys(c), ['cron', 'ambiente', 'stato', 'ultima', 'prossima', 'dettagli', 'codice'])
+  assert.deepEqual(c.stato, { firma: 'ok', valore: { select: ['ok'] } })
+  // Nome e Codice sono testi col link dentro; la firma è il testo, l'unica cosa che la List rilegge.
+  assert.equal(c.cron.firma, 'acme-crons/report')
+  assert.equal(c.cron.valore.rich_text[0].elements[0].elements[0].url, ok.link)
+  assert.equal(c.codice.valore.rich_text[0].elements[0].elements[0].url, codice.codiceUrl)
+  assert.equal(c.dettagli.valore.rich_text[0].elements[0].elements[0].type, 'text')
+
+  const oom = voceLista(cron('staging', 'x', { runs: [{ outcome: 'failed', exitCode: 137, stopReason: 'OutOfMemoryError: killed', startedAt: Date.parse('2026-10-02T21:10:00Z'), durationMs: 45_000 }] }), { ora: ORA, t })
+  assert.deepEqual([oom.ambiente, oom.stato, oom.ultima, oom.dettagli, oom.codice], ['staging', 'crit', 'ieri 23:10 · 45 s', 'memoria esaurita', 'n/d'])
+
+  const ripartito = voceLista(cron('production', 'x', { runs: [{ running: true, startedAt: Date.parse('2026-10-03T11:41:00Z') }, { outcome: 'failed', exitCode: 2, startedAt: ORA - 7_200_000 }] }), { ora: ORA, t })
+  assert.deepEqual([ripartito.stato, ripartito.ultima, ripartito.dettagli], ['crit', 'In corso dalle 13:41', 'prima: exit 2'])
+
+  const spento = voceLista(cron('management', 'y', { enabled: false, runs: [], nextRunAt: null }), { ora: ORA, t })
+  assert.deepEqual([spento.ambiente, spento.stato, spento.ultima, spento.prossima, spento.dettagli], ['altro', 'off', 'n/d', 'Spento', 'Spento di proposito: non è un guasto'])
+
+  const fermo = voceLista(cron('staging', 'z', { runs: [], nextRunAt: null, scheduleMinutes: 5 }), { ora: ORA, t })
+  assert.deepEqual([fermo.stato, fermo.prossima, fermo.dettagli], ['warn', 'ogni 5 min', 'Non è partito in questa finestra'])
+
+  // Il reaper piegato nel job: il suo guasto sta nello stato e nei Dettagli del job.
+  const conReaper = voceLista(cron('production', 'job', { reaper: cron('production', 'job-reaper', { runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 60_000 }] }) }), { ora: ORA, t })
+  assert.equal(conReaper.stato, 'crit')
+  assert.match(conReaper.dettagli, /^reaper: Fallito oggi 13:59/)
+})
+
+test('nomiLista: il nome del canvas, con l’account accanto solo dove lo stesso ambiente ne ha più d’uno', () => {
+  const crons = [cron('production', 'acme-production-cron-a', { codice: 'acme-crons/a' }), cron('staging', 'acme-staging-cron-a', { codice: 'acme-crons/a' })]
+  assert.deepEqual([...nomiLista(crons).values()], ['acme-crons/a', 'acme-crons/a'], 'ambienti diversi: la colonna Ambiente li distingue')
+  const due = [...crons, cron('prod-data', 'acme-prod-data-cron-a', { codice: 'acme-crons/a' }), cron('management', 'acme-management-cron-b')]
+  assert.deepEqual([...nomiLista(due, { etichette: { production: 'principale', 'prod-data': 'dati', management: 'gestione' } }).values()], [
+    'acme-crons/a · principale',
+    'acme-crons/a',
+    'acme-crons/a · dati',
+    'b · gestione',
+  ])
+  // Un account non letto conta lo stesso: i nomi degli altri non cambiano per un giro andato male.
+  assert.equal(nomiLista([crons[0]], { problemi: [{ account: 'prod-data' }] }).get(crons[0].key), 'acme-crons/a · production')
+  // E conta chi sta in un'altra List: la stessa squadra non rinomina le sue righe quando un cron entra.
+  assert.equal(nomiLista([crons[0]], { tutti: due }).get(crons[0].key), 'acme-crons/a · production')
+})
+
+test('listeCorseDaScrivere: una List per canale con gli stessi cron del canvas, la Sezione solo in quella di tutti', () => {
+  const overview = {
+    window: 1440,
+    crons: [
+      cron('production', 'acme-production-cron-worker-a'),
+      cron('production', 'acme-production-cron-report'),
+      cron('staging', 'acme-staging-cron-report'),
+      cron('production', 'acme-production-cron-ssm-housekeeper'),
+      { key: 'prefect/x', name: 'x', type: 'prefect', runs: [] },
+    ],
+    problems: [],
+  }
+  const cfg = corseConfig({
+    DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI,data=C0DATA',
+    DADAGUARD_QUADRO_SQUADRE: 'data=worker-*;infra=ssm-*',
+    DADAGUARD_PUBLIC_URL: DG,
+  })
+  const [tutti, data] = listeCorseDaScrivere({ overview, etichette: { production: 'production', staging: 'staging' } }, cfg, { ora: ORA })
+  assert.equal(tutti.titolo, 'Lista corse cron TUTTI')
+  assert.deepEqual(tutti.canali, ['C0TUTTI'])
+  assert.deepEqual(tutti.righe.map((r) => `${r.ambiente}|${r.nome}|${r.sezione}`), [
+    'produzione|report|prodotto',
+    'produzione|ssm-housekeeper|infra',
+    'produzione|worker-a|prodotto',
+    'staging|report|prodotto',
+  ])
+  assert.deepEqual(tutti.forma.schema.map((c) => c.key).includes('sezione'), true)
+  assert.deepEqual(data.righe.map((r) => r.nome), ['worker-a'])
+  assert.equal(data.forma.schema.some((c) => c.key === 'sezione'), false)
+  assert.deepEqual([...tutti.tieni], [])
+
+  // Un account non letto, o un ambiente senza nessun cron: le sue righe non si cancellano.
+  const buco = listeCorseDaScrivere({ overview: { crons: overview.crons.slice(0, 2), problems: [{ account: 'management', error: 'x' }] }, etichette: { production: 'p', staging: 's' } }, cfg, { ora: ORA })
+  assert.deepEqual([...buco[0].tieni].sort(), ['altro', 'staging'])
+})
+
 // ── Il giro ──────────────────────────────────────────────────────────────────────────────────────
 
 // Un Slack finto, solo canvas: il markdown diventa blocchi con un id ciascuno (una cella di tabella è
 // un paragrafo), l'HTML scaricato ha la forma di quello vero, un `replace` con `section_id` cambia il
 // solo blocco. Come quello di test/quadro.test.js, ridotto ai canvas.
-function slackFinto() {
+function slackFinto({ bot = 'UBOT' } = {}) {
   let n = 0
   const nuovoId = () => `temp:C:${++n}`
   const canvas = new Map()
+  const liste = new Map()
   const chiamate = []
   const mdInHtml = (md) =>
     String(md)
@@ -321,16 +458,62 @@ function slackFinto() {
       else trova(c.blocchi, m.section_id).md = m.document_content.markdown
       return {}
     }
-    if (metodo === 'files.info') return { file: { id: corpo.file, title: canvas.get(corpo.file).titolo, url_private_download: `mem://${corpo.file}` } }
+    if (metodo === 'files.info') {
+      if (canvas.has(corpo.file)) return { file: { id: corpo.file, title: canvas.get(corpo.file).titolo, url_private_download: `mem://${corpo.file}` } }
+      const l = liste.get(corpo.file)
+      if (!l) throw new Error('slack files.info: file_not_found')
+      return { file: { id: l.id, title: l.titolo, permalink: `https://x.slack.com/lists/T1/${l.id}`, list_metadata: { schema: l.schema } } }
+    }
+    // Le List, come in test/quadro.test.js: righe, celle, testo riletto in `text`.
+    if (metodo === 'auth.test') return { user_id: bot }
+    if (metodo === 'files.list') return { files: [...liste.values()].filter((l) => l.user === corpo.user).map((l) => ({ id: l.id, title: l.titolo, created: l.creata, channels: l.canali })) }
+    if (metodo === 'slackLists.create') {
+      const id = `FL${++n}`
+      const schema = corpo.schema.map((c, i) => ({ ...c, id: `Col${i}` }))
+      liste.set(id, { id, titolo: corpo.name, user: bot, creata: n, canali: [], schema, righe: new Map() })
+      return { list_id: id, list_metadata: { schema } }
+    }
+    if (metodo === 'slackLists.access.set') {
+      liste.get(corpo.list_id).canali.push(...corpo.channel_ids)
+      return {}
+    }
+    const l = liste.get(corpo.list_id)
+    if (metodo.startsWith('slackLists.') && !l) throw new Error(`slack ${metodo}: list_not_found`)
+    if (metodo === 'slackLists.items.create') {
+      const id = `Rec${++n}`
+      l.righe.set(id, new Map(corpo.initial_fields.map((f) => [f.column_id, f])))
+      return { item: { id } }
+    }
+    if (metodo === 'slackLists.items.update') {
+      for (const c of corpo.cells) l.righe.get(c.row_id).set(c.column_id, c)
+      return {}
+    }
+    if (metodo === 'slackLists.items.delete') {
+      l.righe.delete(corpo.id)
+      return {}
+    }
+    if (metodo === 'slackLists.items.list')
+      return {
+        items: [...l.righe.entries()].map(([id, riga]) => ({
+          id,
+          fields: [...riga.values()].map((c) => ({
+            column_id: c.column_id,
+            ...(c.rich_text ? { text: c.rich_text.flatMap((r) => r.elements.flatMap((x) => x.elements.map((e) => e.text))).join('') } : {}),
+            ...(c.select ? { select: c.select } : {}),
+          })),
+        })),
+        response_metadata: { next_cursor: '' },
+      }
     throw new Error(`metodo non previsto: ${metodo}`)
   }
   const scarica = async (url) => html(canvas.get(url.replace('mem://', '')).blocchi)
-  return { api, scarica, canvas, chiamate, html }
+  return { api, scarica, canvas, liste, chiamate, html }
 }
 
 test('aggiornaCorse: crea il canvas, poi riscrive solo le celle cambiate; uno cancellato a mano si ricrea', async () => {
   const s = slackFinto()
-  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI', DADAGUARD_PUBLIC_URL: DG })
+  // Con le List spente il canvas ha le tabelle: è la forma che mette alla prova le celle.
+  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI', DADAGUARD_PUBLIC_URL: DG, DADAGUARD_CORSE_LISTE: '0' })
   const crons = [cron('production', 'acme-production-cron-a'), cron('production', 'acme-production-cron-b'), cron('staging', 'acme-staging-cron-a')]
   const leggi = (lista) => async () => ({ overview: { window: 1440, crons: lista, problems: [] }, etichette: {} })
   const ultimi = new Map()
@@ -374,7 +557,7 @@ test('aggiornaCorse: crea il canvas, poi riscrive solo le celle cambiate; uno ca
 
 test('aggiornaCorse: il tetto di modifiche vale per giro, il resto va al giro dopo', async () => {
   const s = slackFinto()
-  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI' })
+  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI', DADAGUARD_CORSE_LISTE: '0' })
   const crons = ['a', 'b', 'c', 'd'].map((n) => cron('production', `acme-production-cron-${n}`))
   const leggi = (lista) => async () => ({ overview: { window: 1440, crons: lista, problems: [] }, etichette: {} })
   const ultimi = new Map()
@@ -387,7 +570,8 @@ test('aggiornaCorse: il tetto di modifiche vale per giro, il resto va al giro do
   assert.equal(poi.restano, 0)
 })
 
-test('testoAvvisoCorse: fermo e rientrato, con la grammatica del canale', () => {
+test('testoAvvisoCorse: fermo e rientrato, con la grammatica del canale; la List si chiama per nome', () => {
+  assert.match(testoAvvisoCorse({ ambiente: 'corse-lista-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'x' }, { ora: ORA }), /^⚠️ `corse cron` \[LISTA DATA\] FERMO · la List non si aggiorna da 20 min/)
   assert.match(testoAvvisoCorse({ ambiente: 'corse-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'not_in_channel' }, { ora: ORA, url: DG }), /^⚠️ `corse cron` \[DATA\] FERMO · il canvas non si aggiorna da 20 min · ultimo errore: not_in_channel/)
   assert.match(testoAvvisoCorse({ ambiente: 'corse-tutti', tipo: 'rientrato', fermoDa: ORA - 60 * 60_000 }, { ora: ORA }), /^✅ `corse cron` \[TUTTI\] rientrato/)
 })
@@ -395,4 +579,96 @@ test('testoAvvisoCorse: fermo e rientrato, con la grammatica del canale', () => 
 test('statoCron condiviso: la pagina e il canvas usano la stessa funzione', async () => {
   const web = await import('../web/rilasci.js')
   assert.equal(web.statoCron, statoCron)
+})
+
+// Le righe di una List dello Slack finto come si leggono: per colonna, il testo o la scelta.
+const righeLista = (l) =>
+  [...l.righe.values()].map((riga) => Object.fromEntries(l.schema.map((c) => {
+    const f = riga.get(c.id)
+    return [c.key, f?.select?.[0] ?? f?.rich_text?.flatMap((r) => r.elements.flatMap((x) => x.elements.map((e) => e.text))).join('') ?? null]
+  })))
+const scritture = (s) => s.chiamate.filter(([m]) => /^slackLists\.(create|items\.(create|update|delete))$/.test(m))
+
+test('aggiornaCorse con le List: una List per canale, poi solo le celle cambiate, i cron nuovi e quelli spariti', async () => {
+  const s = slackFinto()
+  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI', DADAGUARD_PUBLIC_URL: DG })
+  const crons = [cron('production', 'acme-production-cron-a'), cron('production', 'acme-production-cron-b'), cron('staging', 'acme-staging-cron-a')]
+  let letture = 0
+  const leggi = (lista) => async () => {
+    letture++
+    return { overview: { window: 1440, crons: lista, problems: [] }, etichette: { production: 'production', staging: 'staging' } }
+  }
+  const memoria = { ultimi: new Map(), titoli: new Set(), liste: nuovaMemoriaListe() }
+  const giro = (lista, extra = {}) => aggiornaCorse(cfg, { api: s.api, scarica: s.scarica, leggiDati: leggi(lista), ora: ORA, ...memoria, ...extra })
+
+  const primo = await giro(crons)
+  assert.equal(letture, 1, 'una lettura sola per canvas e List')
+  assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.azione}`), ['corse-tutti:creato', 'corse-lista-tutti:creata'])
+  const lista = [...s.liste.values()][0]
+  assert.equal(lista.titolo, 'Lista corse cron TUTTI')
+  assert.deepEqual(lista.canali, ['C0TUTTI'], 'in sola lettura per il suo canale')
+  assert.deepEqual(righeLista(lista).map((r) => `${r.cron}|${r.ambiente}|${r.stato}|${r.ultima}`), ['a|produzione|ok|oggi 13:00 · 4 min', 'b|produzione|ok|oggi 13:00 · 4 min', 'a|staging|ok|oggi 13:00 · 4 min'])
+  // Il canvas è il riepilogo, col link alla List appena creata.
+  const canvasMd = s.chiamate.find(([m]) => m === 'conversations.canvases.create')[1].document_content.markdown
+  assert.match(canvasMd, new RegExp(`\\[Lista corse cron TUTTI\\]\\(https://x\\.slack\\.com/lists/T1/${lista.id}\\)`))
+  assert.doesNotMatch(canvasMd, /\| Cron \|/)
+
+  // Niente di cambiato: nessuna scrittura, e nemmeno una rilettura della List.
+  s.chiamate.length = 0
+  assert.deepEqual((await giro(crons)).map((e) => e.azione), ['invariato', 'invariato'])
+  assert.equal(s.chiamate.filter(([m]) => m.startsWith('slackLists') || m === 'files.list').length, 0)
+
+  // Un cron fallisce: UNA chiamata con le sole celle cambiate (stato e dettagli; l'ora è la stessa).
+  const rotto = crons.map((c, i) => (i === 1 ? { ...c, runs: [{ outcome: 'failed', exitCode: 3, startedAt: Date.parse('2026-10-03T11:00:00Z'), durationMs: 240_000 }] } : c))
+  s.chiamate.length = 0
+  const [, el] = await giro(rotto)
+  assert.equal(el.azione, 'aggiornata')
+  assert.deepEqual(scritture(s).map(([m]) => m), ['slackLists.items.update'])
+  assert.deepEqual(scritture(s)[0][1].cells.map((c) => c.select?.[0] ?? c.rich_text?.[0]?.elements[0].elements[0].text), ['crit', 'exit 3'])
+
+  // Un cron nuovo e uno sparito: una riga creata, una tolta, le altre ferme.
+  s.chiamate.length = 0
+  await giro([rotto[1], rotto[2], cron('production', 'acme-production-cron-c')])
+  assert.deepEqual(scritture(s).map(([m]) => m).sort(), ['slackLists.items.create', 'slackLists.items.delete'])
+  assert.deepEqual(righeLista(lista).map((r) => `${r.cron}|${r.ambiente}`), ['b|produzione', 'a|staging', 'c|produzione'])
+
+  // Un ambiente senza nessun cron è una lettura andata male: le sue righe restano.
+  s.chiamate.length = 0
+  await giro([rotto[1], cron('production', 'acme-production-cron-c')])
+  assert.equal(scritture(s).length, 0)
+})
+
+test('aggiornaCorse con le List: dopo un riavvio la ritrova, cancellata a mano la ricrea, le righe nuove hanno un tetto per giro', async () => {
+  const s = slackFinto()
+  const cfg = corseConfig({ DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI,data=C0DATA', DADAGUARD_QUADRO_SQUADRE: 'data=worker-*' })
+  const crons = ['a', 'b', 'c', 'worker-d', 'worker-e'].map((n) => cron('production', `acme-production-cron-${n}`))
+  const leggi = async () => ({ overview: { window: 1440, crons: [...crons], problems: [] }, etichette: { production: 'production' } })
+  const giro = (liste, maxRigheNuove) => aggiornaCorse(cfg, { api: s.api, scarica: s.scarica, leggiDati: leggi, ora: ORA, liste, maxRigheNuove })
+
+  // Il tetto vale per giro in tutte le List insieme: la prima si prende il budget, la seconda aspetta.
+  const memoria = nuovaMemoriaListe()
+  const primo = (await giro(memoria, 4)).filter((e) => e.ambiente.startsWith('corse-lista-'))
+  assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.nuove}+${e.restano}`), ['corse-lista-tutti:4+1', 'corse-lista-data:0+2'])
+  await giro(memoria, 4)
+  assert.deepEqual([...s.liste.values()].map((l) => `${l.titolo}:${l.righe.size}`), ['Lista corse cron TUTTI:5', 'Lista corse cron DATA:2'])
+  assert.ok(MAX_RIGHE_NUOVE_CORSE >= 20)
+
+  // Riavvio: memoria vuota. Le List si ritrovano dal titolo e dal canale, nessuna riga nuova né cella.
+  s.chiamate.length = 0
+  const dopo = (await giro(nuovaMemoriaListe())).filter((e) => e.ambiente.startsWith('corse-lista-'))
+  assert.deepEqual(dopo.map((e) => e.azione), ['invariato', 'invariato'])
+  assert.equal(scritture(s).length, 0, 'le firme rilette tornano con quelle calcolate')
+
+  // Cancellata a mano: il primo giro che ci scrive sbaglia sull'id che aveva e butta la memoria, il
+  // secondo non la ritrova fra i file del bot e la ricrea, con tutte le righe.
+  const vecchia = [...s.liste.values()].find((l) => l.titolo === 'Lista corse cron DATA')
+  s.liste.delete(vecchia.id)
+  crons[4] = { ...crons[4], runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 1000 }] }
+  const rotta = (await giro(memoria)).find((e) => e.ambiente === 'corse-lista-data')
+  assert.equal(rotta.azione, 'errore')
+  const rifatta = (await giro(memoria)).find((e) => e.ambiente === 'corse-lista-data')
+  assert.equal(rifatta.azione, 'creata')
+  const rinata = [...s.liste.values()].find((l) => l.titolo === 'Lista corse cron DATA')
+  assert.notEqual(rinata.id, vecchia.id)
+  assert.deepEqual(righeLista(rinata).map((r) => `${r.cron}|${r.stato}`), ['worker-d|ok', 'worker-e|crit'])
 })

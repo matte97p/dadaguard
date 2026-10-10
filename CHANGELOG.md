@@ -6,6 +6,17 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Le corse dei cron in una Slack List, una per canale** (10/10/2026). Accanto a ogni canvas delle
+  corse c'è la List «Lista corse cron <CHIAVE>», condivisa in sola lettura col suo canale: una riga per
+  cron, con gli stessi cron del canvas (squadre, reaper dentro il loro job), e le colonne Cron (col
+  link al cron su Dadaguard), Ambiente, Stato (❌ Fallito, ⚠️ Non partito, ⏳ In corso, ✅ Ok, ➖ Spento,
+  le parole della pagina), Sezione (prodotto o infra, solo nella List di tutti), Ultima corsa (ora
+  fissa e durata), Prossima, Dettagli (il perché) e Codice (il repository, col link al sorgente). Come
+  le List del quadro: si scrivono solo le celle cambiate, i cron nuovi nascono al massimo 30 per giro,
+  quelli spariti si tolgono, dopo un riavvio la List si ritrova e una cancellata a mano si ricrea. Il
+  canvas si riduce al riepilogo: verdetto, «Da guardare» e il link alla List. Stessa lettura dei log
+  per canvas e List. `DADAGUARD_CORSE_LISTE=0` le spegne e riporta le tabelle nel canvas. Nessun
+  permesso Slack nuovo (`lists:read`, `lists:write` ci sono già).
 - **Le corse dei cron in un canvas di Slack, uno per canale** (09/10/2026). Con
   `DADAGUARD_CORSE_CANALI='tutti=C0123,data=C0456'` Dadaguard tiene in ogni canale un canvas «Corse
   cron TUTTI» / «Corse cron DATA» con il verdetto della pagina Cron («1 cron fallito, 3 in corso»)
