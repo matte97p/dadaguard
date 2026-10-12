@@ -66,6 +66,21 @@ export const dataImmagine = (m) => {
   return Number.isFinite(t) ? t : null
 }
 
+// La data che conta per «indietro» in una riga del heartbeat: la PIÙ VECCHIA fra l'immagine del
+// container (`creata`) e quella da cui vengono i file della root (`file_creata`, dal 10/10/2026). Il
+// container da solo mentiva: `docker compose up` lo porta all'ultima immagine scaricata anche senza
+// update, e la pagina dava aggiornati Mac con script e config fermi a giorni prima. Senza `file_creata`
+// (dev-env di prima) resta `creata`, come sempre.
+export function creataEffettiva(r) {
+  const c = r?.creata ?? null
+  const f = r?.file_creata ?? null
+  const tc = Date.parse(String(c ?? ''))
+  const tf = Date.parse(String(f ?? ''))
+  if (!Number.isFinite(tf)) return c
+  if (!Number.isFinite(tc)) return f
+  return tf < tc ? f : c
+}
+
 // La data più recente vista: è un massimo su un insieme ordinato, non una scelta fra pari.
 export function dataRiferimento(macchine = []) {
   let max = null

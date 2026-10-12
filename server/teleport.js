@@ -15,7 +15,7 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, StartQueryCommand, GetQueryResultsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts } from './runtime/awsClient.js'
 import { annotaIdentita, fonteUtente, idMacchina } from './identitaMacchine.js'
-import { bloccoLanciatore, processiPerApp, statoCopie } from '../shared/devEnv.js'
+import { bloccoLanciatore, creataEffettiva, processiPerApp, statoCopie } from '../shared/devEnv.js'
 
 export const key = 'teleport'
 
@@ -918,7 +918,8 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
       lato: r.lato ?? null,
       passo: r.passo ?? null,
       immagine: r.immagine ?? null,
-      creata: r.creata ?? null,
+      creata: creataEffettiva(r) ?? null,
+      fileCreata: r.file_creata ?? null,
       durata: r.durata != null ? Number(r.durata) : null,
       macchinaId: idMacchina(r),
     })
@@ -936,7 +937,10 @@ export async function heartbeat(aws, { logGroup, giorni = 7, immagineAttesa = nu
         // QUANDO e' stata costruita quell'immagine, se l'avvio l'ha mandata: e' il campo con cui
         // «indietro» diventa un ordine invece di una stima, perche' fra due digest diversi non si sa
         // quale sia il piu' nuovo mentre due date si confrontano.
-        creata: r.creata ?? null,
+        // ⚠️ La piu' vecchia fra container e file della root (`creataEffettiva`): il container da solo
+        // si aggiorna con un `compose up`, i file solo con l'update del dev-env.
+        creata: creataEffettiva(r) ?? null,
+        fileCreata: r.file_creata ?? null,
         esito: r.esito ?? null,
         toolMancanti: Number(r.tool_mancanti ?? 0),
         // ⚠️ I NOMI dei tool che mancano, quando l'avvio li manda: «2» non dice cosa installare, e la
