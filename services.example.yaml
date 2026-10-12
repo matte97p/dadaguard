@@ -32,6 +32,9 @@ accounts:
     #  • cloud:  roleArn + externalId → il task role assume un ruolo read-only
     #            cross-account. Niente chiavi custodite. Vedi deploy/README.md.
     profile: my-staging-profile
+    # cliProfile: dev-staging # il profilo AWS CLI di chi legge la dashboard, scritto nei comandi
+    #                         # suggeriti («Da dove cominciare»). Serve in cloud, dove c'e' roleArn
+    #                         # e non profile: senza, il comando esce senza --profile.
     # accountId: '111122223333' # consigliato in consolidated billing: filtra costi e stima a QUESTO
     #                           # account. Senza, un account payer mostra i costi di TUTTA l'org (doppioni).
     # roleArn: arn:aws:iam::111122223333:role/dadaguard-readonly

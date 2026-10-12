@@ -143,6 +143,15 @@ export function overallPerNotifica(checks) {
 // quei campi sparivano e i controlli di drift smettevano di funzionare senza dire niente — il tipo di
 // guasto che si scopre settimane dopo, quando serve.
 // Gli account scoperti che nessuno ha dichiarato entrano così come sono. Pura/testabile.
+// Il profilo da scrivere nel comando suggerito: quello di chi LEGGE la dashboard, non quello con cui
+// Dadaguard legge AWS. In cloud l'accesso e' un `roleArn` e `profile` non c'e': il comando usciva
+// senza `--profile`, e sul Mac di chi lo incollava `aws` cadeva sul profilo `default`, vuoto
+// («Unable to locate credentials», 12/10/2026). `cliProfile` e' il nome del profilo che hanno le
+// persone; senza, vale `profile`, che in locale e' gia' il loro.
+export function profiloPerComando(acct) {
+  return acct?.cliProfile ?? acct?.profile ?? null
+}
+
 export function mergeAccounts(discovered = {}, declared = {}) {
   const out = { ...discovered }
   for (const [key, dec] of Object.entries(declared ?? {})) {
@@ -521,7 +530,7 @@ export async function getStatus(lang) {
         // assente quando nessun check e' detto da altri.
         ...(perNotifica ? { perNotifica } : {}),
         checks,
-      }, { aws: service.aws, profile: acct?.profile ?? null, region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
+      }, { aws: service.aws, profile: profiloPerComando(acct), region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
   }
 
   // `flat()` e non un accumulatore: dentro un account `mapLimit` preserva l'ordine, e fra account non
