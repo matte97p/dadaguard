@@ -66,6 +66,28 @@ test('swr: due richieste insieme su un dato scaduto fanno UN ricalcolo, non due'
   sblocca()
 })
 
+// Il watchdog chiede `fresh` mentre una pagina aperta sta gia' rinfrescando: deve accodarsi a quel
+// giro, non lanciarne un secondo. Due giri completi insieme il 12/10/2026 hanno saturato la CPU e
+// prodotto un falso «giu'» su Slack.
+test('swr: fresh durante un rinfresco in corso si accoda, non ricalcola', async () => {
+  let giri = 0
+  let sblocca
+  const { cache, avanza } = conOrologio(async () => {
+    giri += 1
+    if (giri > 1) await new Promise((r) => (sblocca = r))
+    return `giro-${giri}`
+  })
+  await cache.get('it')
+  avanza(2000)
+  const vecchio = await cache.get('it') // scaduto: consegna il vecchio e rinfresca dietro
+  assert.equal(vecchio.value, 'giro-1')
+  const watchdog = cache.get('it', { fresh: true })
+  sblocca()
+  const out = await watchdog
+  assert.equal(giri, 2, 'un solo ricalcolo per pagina e watchdog insieme')
+  assert.equal(out.value, 'giro-2')
+})
+
 test('swr: fresh aspetta il giro nuovo, perché «Aggiorna» deve dire la verita', async () => {
   let giri = 0
   const { cache } = conOrologio(async () => `giro-${++giri}`)

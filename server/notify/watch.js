@@ -1,7 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { getStatus } from '../status.js'
-import { publishStatus } from '../statusCache.js'
+import { publishStatus, statusFor } from '../statusCache.js'
 import { makeT } from '../i18n.js'
 import { log } from '../log.js'
 import { diffStates, snapshot } from './diff.js'
@@ -88,8 +87,15 @@ const postBot = (cfg) => (canale, payload) =>
 
 // Un giro: leggi lo stato del mondo, confronta col precedente, annuncia le transizioni, salva.
 // Esportato perché è la cosa da testare (e da invocare a mano, in un futuro `/api/watch/run`).
+// Lo stato per il giro passa dalla cache condivisa con la dashboard, e con `fresh` aspetta un giro
+// nuovo: se ce n'e' gia' uno in corso (una pagina aperta che rinfresca) si accoda a quello invece di
+// lanciarne un secondo. Il 12/10/2026 due giri completi insieme saturavano la CPU del task: il timer
+// della sonda da 5 s scattava a 9 s e frontend di staging e' finito su Slack come «giu'» mentre
+// rispondeva in 0,1 s. Il risultato finisce in cache da solo, quindi qui non c'e' niente da pubblicare.
+const statoCondiviso = async (lang) => (await statusFor(lang, { fresh: true })).value
+
 export async function runOnce(cfg, deps = {}) {
-  const fetchStatus = deps.getStatus ?? getStatus
+  const fetchStatus = deps.getStatus ?? statoCondiviso
   // Il giro del watchdog costa quanto quello della dashboard, e finiva solo in un confronto con lo
   // stato precedente: regalarlo alla cache che serve le pagine vuol dire che ogni 300 secondi la UI ha
   // un dato fresco senza che nessuno abbia aspettato. Iniettabile perché `runOnce` è la cosa provata.
@@ -101,7 +107,7 @@ export async function runOnce(cfg, deps = {}) {
   const t = makeT(cfg.lang)
 
   const status = await fetchStatus(cfg.lang)
-  pubblica(cfg.lang, status)
+  if (fetchStatus !== statoCondiviso) pubblica(cfg.lang, status)
   const prev = await readState(cfg.stateFile)
   const { transitions, next } = diffStates(prev, snapshot(status.services ?? []), {
     confirmations: cfg.confirmations,
