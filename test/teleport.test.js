@@ -442,6 +442,23 @@ test('heartbeat: tiene la riga PIU RECENTE per macchina e per lato', async () =>
   assert.equal(host.toolMancanti, 0)
 })
 
+// Dal 10/10/2026: `compose up` porta il container all'ultima immagine anche senza update, e i file della
+// root restano vecchi. La data che conta e' la piu' vecchia delle due, e una riga senza `file_creata`
+// (dev-env di prima) resta com'era.
+test('heartbeat: «indietro» guarda anche i file della root (file_creata)', async () => {
+  const { heartbeat } = await conEventi([
+    riga({ macchina: 'uno', lato: 'host', immagine: 'sha256:nuova', creata: '2026-10-09T21:35:06.359Z', file_creata: '2026-10-08T09:01:34.123Z', esito: 'ok' }, 3000),
+    riga({ macchina: 'due', lato: 'host', immagine: 'sha256:nuova', creata: '2026-10-09T21:35:06.359Z', esito: 'ok' }, 2000),
+    riga({ macchina: 'tre', lato: 'host', immagine: 'sha256:nuova', creata: '2026-10-08T09:01:34.123Z', file_creata: '2026-10-09T21:35:06.359Z', esito: 'ok' }, 1000),
+  ])
+  const out = await heartbeat({}, { logGroup: '/finto' })
+  const di = (n) => out.macchine.find((m) => m.macchina === n)
+  assert.equal(di('uno').creata, '2026-10-08T09:01:34.123Z', 'file piu vecchi del container: contano i file')
+  assert.equal(di('uno').fileCreata, '2026-10-08T09:01:34.123Z')
+  assert.equal(di('due').creata, '2026-10-09T21:35:06.359Z', 'senza file_creata resta creata')
+  assert.equal(di('tre').creata, '2026-10-08T09:01:34.123Z', 'container piu vecchio dei file: conta il container')
+})
+
 // Digest VERI nella forma: con fixture tipo 'sha256:nuova' la prova passava e il codice contava come
 // versione anche la parola «sconosciuta», che e' come l'heartbeat dichiara di non sapere.
 const IMG_A = 'sha256:45486f792f3f0f2a7d8ad363b7b72528945a2868c0316ca3079e8bb2ee970c7c'
