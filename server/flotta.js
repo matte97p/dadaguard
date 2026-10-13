@@ -23,7 +23,7 @@ import { cached } from './util/ttlcache.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import * as teleport from './teleport.js'
 import { AVVII_IN_STORIA } from './teleport.js'
-import { annotaIdentita, fondiIdentita, personaDi, raggruppaMacchine, NON_VISTA_MS } from './identitaMacchine.js'
+import { macchineDelDevEnv, personaDi, NON_VISTA_MS } from './identitaMacchine.js'
 import { conto, configSalute, leggiHeartbeat, segnali, soglieDevEnv, SOGLIE_DEV_ENV } from './accessi.js'
 import {
   appPiuPesanti,
@@ -368,25 +368,6 @@ export function fondiSerie(lista = []) {
   return fuori
 }
 
-// L'identita' per nome quando la fonte non la porta (la demo, o una risposta in cache di prima del
-// rilascio): dalle righe per lato e dalla storia degli avvii dell'heartbeat, e dalle macchine e dalle
-// ultime righe della salute. Meno precisa (la storia ha un tetto), ma della stessa forma.
-function identitaDiRiserva(battito, sal) {
-  const m = {}
-  for (const r of battito.macchine ?? []) {
-    if (!r?.macchina || !Number.isFinite(r.quando)) continue
-    annotaIdentita(m, { macchina: r.macchina, macchina_id: r.macchinaId, utente: r.utente, utente_da: r.utenteDa }, r.quando)
-    for (const u of r.utenti ?? []) if (u !== r.utente) annotaIdentita(m, { macchina: r.macchina, utente: u }, r.quando)
-  }
-  for (const [nome, avvii] of Object.entries(battito.storia ?? {})) {
-    for (const a of avvii ?? []) if (Number.isFinite(a?.quando)) annotaIdentita(m, { macchina: nome, macchina_id: a.macchinaId }, a.quando)
-  }
-  const s = {}
-  for (const x of sal?.macchine ?? []) if (x?.macchina && Number.isFinite(x.quando)) annotaIdentita(s, { macchina: x.macchina, utente: x.utente }, x.quando)
-  for (const [nome, t] of Object.entries(sal?.ultime ?? {})) if (Number.isFinite(Number(t))) annotaIdentita(s, { macchina: nome }, Number(t))
-  return [m, s]
-}
-
 // La risposta di `/api/flotta`, da heartbeat e salute gia' letti. Puro, per le prove.
 //
 // ⚠️ Ogni campo e' facoltativo: le macchine che non hanno ancora aggiornato il dev-env non mandano i
@@ -415,7 +396,7 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
   const nomi = new Set([...lati.keys(), ...salutePer.keys(), ...Object.keys(sal?.ultime ?? {})])
 
   const perMacchina = new Map()
-  for (const s of segnali({ configurato: true, audit: {}, heartbeat: battito, salute: sal ?? {} }, { adesso, soglie: sg })) {
+  for (const s of segnali({ configurato: true, audit: {}, heartbeat: battito, salute: sal ?? {} }, { adesso, soglie: sg, persone })) {
     const nome = macchinaDel(s)
     const p = nome && problemaDaSegnale(s)
     if (!p) continue
@@ -426,9 +407,7 @@ export function componiFlotta({ heartbeat = {}, salute = null } = {}, { adesso =
   const dataRif = dataRiferimento(righe)
 
   // I nomi in Mac. Un nome senza nessun istante (non dovrebbe succedere) resta un Mac da solo.
-  const [riservaBattito, riservaSalute] = identitaDiRiserva(battito, sal)
-  const identita = fondiIdentita(battito.identita ?? riservaBattito, sal?.identita ?? riservaSalute)
-  const gruppi = raggruppaMacchine(identita, { adesso, persone })
+  const gruppi = macchineDelDevEnv(battito, sal, { adesso, persone })
   const inGruppo = new Set(gruppi.flatMap((g) => g.nomi))
   for (const nome of nomi) if (!inGruppo.has(nome)) gruppi.push({ nomi: [nome], ids: [], utenti: [], come: null })
 

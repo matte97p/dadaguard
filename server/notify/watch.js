@@ -224,7 +224,7 @@ export async function giroAccessi(cfg, deps = {}, prev = null) {
   const dati = await stato({ ore: 3 })
   // Le soglie degli avvisi sul dev-env (`teleport.soglieDevEnv`): un valore che non e' un numero tiene
   // il default, come `calmaMinuti` qui sopra.
-  const ora = (deps.segnali ?? segnali)(dati, { soglie: soglieDevEnv(cfgTeleport) })
+  const ora = (deps.segnali ?? segnali)(dati, { soglie: soglieDevEnv(cfgTeleport), persone: leggiConfig().people ?? null })
   const { nuovi, stato: statoNuovo } = daAnnunciare(ora, prev?.accessi ?? null, { calmaMs })
   if (!nuovi.length) return { spento: false, nuovi: [], sent: null, stato: statoNuovo }
 
