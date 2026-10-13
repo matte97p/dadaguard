@@ -133,13 +133,48 @@ test('immagine-vecchia: piu di N giorni dietro la piu nuova in giro parla, per m
 
 test('immagine-vecchia: la soglia si cambia, e l host e il container della stessa macchina sono una riga', () => {
   const macchine = [
-    hb('nuovo', '2026-10-07T11:54:30Z'),
+    hb('nuovo', '2026-10-07T11:54:30Z', { utente: 'caio', utenti: ['caio'] }),
     hb('pari', '2026-10-01T12:00:00Z'),
     hb('pari', '2026-10-01T12:00:00Z', { lato: 'container', quando: ADESSO - 2 * ORA_MS }),
   ]
   assert.deepEqual(di('immagine-vecchia', segnali(base({ heartbeat: { macchine } }), { adesso: ADESSO })), [])
   const tre = di('immagine-vecchia', segnali(base({ heartbeat: { macchine } }), { adesso: ADESSO, soglie: { giorniIndietro: 3 } }))
   assert.deepEqual(tre.map((s) => s.chiave), ['immagine-vecchia:pari'])
+})
+
+// Il 13/10/2026 un Mac rinominato da macOS (`MacBook-Pro-di-Tizio`, `MacBook-di-Tizio`, `192`) dava tre
+// righe su Slack mentre la pagina Flotta ne mostrava una: l'avviso conta i Mac, non i nomi.
+test('immagine-vecchia: i nomi dello stesso Mac (stesso id) sono un avviso solo, col nome piu recente', () => {
+  const id = 'ab12cd34ef56'
+  const macchine = [
+    hb('nuovo', '2026-10-07T11:54:30Z', { utente: 'caio', utenti: ['caio'] }),
+    hb('MacBook-Pro-di-Tizio', '2026-09-01T12:00:00Z', { macchinaId: id, quando: ADESSO - 3 * GIORNO_MS }),
+    hb('192', '2026-09-20T12:00:00Z', { macchinaId: id, quando: ADESSO - 2 * ORA_MS }),
+  ]
+  const out = di('immagine-vecchia', segnali(base({ heartbeat: { macchine } }), { adesso: ADESSO }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].chiave, `immagine-vecchia:${id}`)
+  assert.equal(out[0].bersaglio, '192')
+  assert.equal(out[0].giorni, 16)
+  assert.deepEqual(out[0].chi, ['tizio'])
+})
+
+test('immagine-vecchia: senza id unisce un Mac rinominato, non due Mac usati insieme', () => {
+  const nuovo = { primo: ADESSO - 5 * GIORNO_MS, ultimo: ADESSO - ORA_MS, ids: [], utenti: [{ utente: 'caio', da: 'teleport', quando: ADESSO - ORA_MS }] }
+  const voce = (primo, ultimo) => ({ primo, ultimo, ids: [], utenti: [{ utente: 'tizio', da: 'teleport', quando: ultimo }] })
+  const macchine = [
+    hb('nuovo', '2026-10-07T11:54:30Z', { utente: 'caio', utenti: ['caio'] }),
+    hb('MacBook-di-Tizio', '2026-08-27T12:00:00Z', { quando: ADESSO - 4 * GIORNO_MS }),
+    hb('192', '2026-08-27T12:00:00Z', { quando: ADESSO - 2 * ORA_MS }),
+  ]
+  // Rinominato: il nome vecchio smette prima che parta il nuovo.
+  const rinominato = { nuovo, 'MacBook-di-Tizio': voce(ADESSO - 6 * GIORNO_MS, ADESSO - 4 * GIORNO_MS), 192: voce(ADESSO - 3 * GIORNO_MS, ADESSO - 2 * ORA_MS) }
+  const uno = di('immagine-vecchia', segnali(base({ heartbeat: { macchine, identita: rinominato } }), { adesso: ADESSO }))
+  assert.deepEqual(uno.map((s) => s.bersaglio), ['192'])
+  // Due Mac veri della stessa persona: parlano nelle stesse ore, restano due avvisi.
+  const insieme = { nuovo, 'MacBook-di-Tizio': voce(ADESSO - 6 * GIORNO_MS, ADESSO - 4 * GIORNO_MS), 192: voce(ADESSO - 5 * GIORNO_MS, ADESSO - 2 * ORA_MS) }
+  const due = di('immagine-vecchia', segnali(base({ heartbeat: { macchine, identita: insieme } }), { adesso: ADESSO }))
+  assert.deepEqual(due.map((s) => s.bersaglio).sort(), ['192', 'MacBook-di-Tizio'])
 })
 
 test('immagine-vecchia: senza creata non si accusa nessuno', () => {

@@ -16,6 +16,7 @@ import { entroLimiti, tetto } from './finestre.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import * as teleport from './teleport.js'
 import { soloLoginPersonali } from './loginPersonali.js'
+import { macchineDelDevEnv } from './identitaMacchine.js'
 
 // ⚠️ Le credenziali di un account si compongono dai suoi CAMPI (`roleArn` + `externalId` in cloud,
 // `profile` in locale), come fa `awsForAccount` in iam.js.
@@ -188,7 +189,7 @@ function chiDiNatura(d, natura) {
   return Object.keys(suoi).sort()
 }
 
-export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_ENV } = {}) {
+export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_ENV, persone = null } = {}) {
   if (!dati.configurato) return []
   const sg = { ...SOGLIE_DEV_ENV, ...soglie }
   const audit = dati.audit ?? {}
@@ -335,27 +336,36 @@ export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_EN
   //     senza `immagineAttesa` in config tace; questo non ha bisogno della config, perche' due date si
   //     ordinano da sole (vedi `dataImmagine` in web/accessi.js, che fa lo stesso conto sulla pagina).
   //     Il riferimento e' la `creata` piu' nuova vista nei sette giorni del heartbeat. Una macchina
-  //     senza `creata` (dev-env vecchio) non si accusa. Una volta alla settimana per macchina.
+  //     senza `creata` (dev-env vecchio) non si accusa. Una volta alla settimana per MAC, non per nome:
+  //     i nomi dello stesso Mac (macOS lo rinomina quando cambia rete) sono un Mac solo, come nella
+  //     pagina Flotta (server/identitaMacchine.js). Il Mac lo racconta la sua riga piu' recente, e la
+  //     chiave e' il suo id, o il primo dei suoi nomi in ordine alfabetico per le righe senza id.
   const creataDi = (m) => {
     const t = Date.parse(String(m?.creata ?? ''))
     return Number.isFinite(t) ? t : null
   }
-  const ultimaPerMacchina = new Map()
+  const macDelNome = new Map()
+  for (const g of macchineDelDevEnv(battito, dati.salute, { adesso, persone })) {
+    const mac = { chiave: g.ids[0] ?? [...g.nomi].sort()[0], nomi: g.nomi }
+    for (const n of g.nomi) macDelNome.set(n, mac)
+  }
+  const ultimaPerMac = new Map()
   for (const m of battito.macchine ?? []) {
     if (!m?.macchina || creataDi(m) == null) continue
-    const gia = ultimaPerMacchina.get(m.macchina)
-    if (!gia || (m.quando ?? 0) > (gia.quando ?? 0)) ultimaPerMacchina.set(m.macchina, m)
+    const mac = macDelNome.get(m.macchina) ?? { chiave: m.macchina, nomi: [m.macchina] }
+    const gia = ultimaPerMac.get(mac.chiave)
+    if (!gia || (m.quando ?? 0) > (gia.riga.quando ?? 0)) ultimaPerMac.set(mac.chiave, { mac, riga: m })
   }
-  const creataPiuNuova = Math.max(-Infinity, ...[...ultimaPerMacchina.values()].map(creataDi))
-  for (const m of ultimaPerMacchina.values()) {
+  const creataPiuNuova = Math.max(-Infinity, ...[...ultimaPerMac.values()].map((x) => creataDi(x.riga)))
+  for (const { mac, riga: m } of ultimaPerMac.values()) {
     const dietroMs = creataPiuNuova - creataDi(m)
     if (!(dietroMs > sg.giorniIndietro * GIORNO_MS)) continue
     fuori.push({
-      chiave: `immagine-vecchia:${m.macchina}`,
+      chiave: `immagine-vecchia:${mac.chiave}`,
       tipo: 'immagine-vecchia',
       livello: 'attenzione',
       bersaglio: m.macchina,
-      chi: [...(chiLaAvvia.get(m.macchina) ?? [])],
+      chi: [...new Set(mac.nomi.flatMap((n) => [...(chiLaAvvia.get(n) ?? [])]))],
       giorni: Math.floor(dietroMs / GIORNO_MS),
       creata: m.creata,
       quando: inizioPeriodo(adesso, SETTIMANA_MS),
