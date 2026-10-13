@@ -186,6 +186,11 @@ All notable changes to Dadaguard are documented here. Format based on
   riscrivono intere una volta.
 
 ### Fixed
+- **«Immagine del dev-env vecchia» una volta per Mac, non per nome** (13/10/2026). macOS rinomina il Mac
+  quando cambia rete, e l'avviso contava i nomi: un Mac solo arrivava su Slack come
+  `MacBook-Pro-di-Tizio`, `MacBook-di-Tizio` e `192`, tre righe per una persona. Ora i nomi si
+  raggruppano come nella pagina Flotta (stesso `macchina_id`, o l'euristica per le righe senza), il
+  Mac lo racconta la sua riga più recente e la chiave dell'avviso è il suo id.
 - **Una lambda con concorrenza riservata non è più in ATTENZIONE per i throttle che il suo tetto
   produce** (09/10/2026). Lo scale-up dei runner GitHub su staging gira a concorrenza 1 apposta (due
   copie in parallelo contano i runner insieme e sforano il massimo): una raffica di CI ha dato 33

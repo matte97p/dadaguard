@@ -243,3 +243,32 @@ export function raggruppaMacchine(identita = {}, { adesso = Date.now(), persone 
     }
   })
 }
+
+// L'identita' per nome quando la fonte non la porta (la demo, o una risposta in cache di prima del
+// rilascio): dalle righe per lato e dalla storia degli avvii dell'heartbeat, e dalle macchine e dalle
+// ultime righe della salute. Meno precisa (la storia ha un tetto), ma della stessa forma.
+function identitaDiRiserva(battito, sal) {
+  const m = {}
+  for (const r of battito?.macchine ?? []) {
+    if (!r?.macchina || !Number.isFinite(r.quando)) continue
+    annotaIdentita(m, { macchina: r.macchina, macchina_id: r.macchinaId, utente: r.utente, utente_da: r.utenteDa }, r.quando)
+    for (const u of r.utenti ?? []) if (u !== r.utente) annotaIdentita(m, { macchina: r.macchina, utente: u }, r.quando)
+  }
+  for (const [nome, avvii] of Object.entries(battito?.storia ?? {})) {
+    for (const a of avvii ?? []) if (Number.isFinite(a?.quando)) annotaIdentita(m, { macchina: nome, macchina_id: a.macchinaId }, a.quando)
+  }
+  const s = {}
+  for (const x of sal?.macchine ?? []) if (x?.macchina && Number.isFinite(x.quando)) annotaIdentita(s, { macchina: x.macchina, utente: x.utente }, x.quando)
+  for (const [nome, t] of Object.entries(sal?.ultime ?? {})) if (Number.isFinite(Number(t))) annotaIdentita(s, { macchina: nome }, Number(t))
+  return [m, s]
+}
+
+// I Mac del dev-env, da heartbeat e salute gia' letti: l'identita' che porta la fonte (o quella di
+// riserva) raggruppata da `raggruppaMacchine`. La usano la pagina Flotta e gli avvisi su Slack, che
+// cosi' contano gli stessi Mac: dal 13/10/2026, prima Slack contava i NOMI e un Mac rinominato
+// (`MacBook-Pro-di-Tizio`, `MacBook-di-Tizio`, `192`) dava tre righe di «immagine vecchia».
+export function macchineDelDevEnv(battito = {}, sal = null, { adesso = Date.now(), persone = null } = {}) {
+  const [riservaBattito, riservaSalute] = identitaDiRiserva(battito, sal)
+  const identita = fondiIdentita(battito?.identita ?? riservaBattito, sal?.identita ?? riservaSalute)
+  return raggruppaMacchine(identita, { adesso, persone })
+}
