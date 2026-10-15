@@ -1118,6 +1118,9 @@ test('lo stato dei test è predisposto: vale solo se più recente dell’ultimo 
   assert.equal(avviati.quandoTesto, 'oggi 13:00')
   assert.equal(avviati.dettagli[0], '[run](https://github.com/x/api/actions/runs/1)')
   assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T11:00:00Z' }, { ora: ORA }).stato, 'test_falliti')
+  const migr = conTest(ok, { stato: 'fallito', da: '2026-10-03T11:00:00Z', url: 'https://github.com/x/api/actions/runs/1/job/2', causa: 'migration', file: '20261016_00_x.sql' }, { ora: ORA })
+  assert.equal(migr.stato, 'test_falliti', 'lo stato resta una scelta fissa della List')
+  assert.deepEqual(migr.dettagli, ['[migration](https://github.com/x/api/actions/runs/1/job/2)', '`20261016_00_x.sql`'], 'il dettaglio dice migration e il file, col link al job')
   assert.equal(conTest(ok, { stato: 'fallito', da: '2026-10-03T09:00:00Z' }, { ora: ORA }), ok, 'un test più vecchio del rilascio non lo racconta')
   const inCorso = { ...ok, stato: 'deploy_avviato' }
   assert.equal(conTest(inCorso, { stato: 'in_corso', da: '2026-10-03T11:00:00Z' }, { ora: ORA }), inCorso, 'un deploy in corso dice di più')

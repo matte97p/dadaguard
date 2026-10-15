@@ -207,3 +207,17 @@ test('il lettore della coda registra, cancella tutto quello che ha letto e avvis
   assert.equal(avvisi, 1)
   assert.equal(eventi.attivi().test.size, 1)
 })
+
+test('migration_fallita (PLA-733): un check rosso col job delle migration e il file, e nient altro di libero', () => {
+  const ev = normalizza(ci({ evento: 'migration_fallita', motivo: 'migration fallita: 20261016_00_x.sql', run: 'https://github.com/Acme/agentic-chat/actions/runs/123/job/456' }))
+  assert.equal(ev.stato, 'fallito')
+  assert.equal(ev.causa, 'migration')
+  assert.equal(ev.file, '20261016_00_x.sql')
+  assert.equal(ev.url, 'https://github.com/Acme/agentic-chat/actions/runs/123/job/456', 'il link al job passa')
+  assert.equal(normalizza(ci({ evento: 'migration_fallita', motivo: 'migration fallita: <!channel> x.sql' })).file, null, 'un motivo che non e un nome di file non passa')
+  assert.equal(normalizza(ci({ evento: 'migration_fallita', motivo: 'migration fallita' })).file, null, 'senza file resta la causa')
+  assert.equal(normalizza(ci({ evento: 'test_falliti' })).causa, undefined, 'i test rossi restano come erano')
+  const uniti = unisciTest(new Map(), [['staging|acme/agentic-chat', { ...ev, ricevuto: ORA }]], { lettoAlle: ORA })
+  assert.equal(uniti.get('staging|acme/agentic-chat').causa, 'migration')
+  assert.equal(uniti.get('staging|acme/agentic-chat').file, '20261016_00_x.sql')
+})

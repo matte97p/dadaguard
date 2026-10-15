@@ -8,9 +8,11 @@ import { stripOrgEnv } from '../util/envToken.js'
 // (fra 25 secondi e 14 minuti misurati l'08/10/2026, con CloudTrail e GitHub dentro), e il 🧪 di un
 // push arrivava minuti dopo il messaggio in canale. Qui arrivano tre cose, tutte in una coda SQS:
 //
-//   la CI          `{ fonte: 'ci', evento: 'test_avviati' | 'test_falliti', progetto, repo, commit,
-//                  run, quando }`, dalle azioni `notifica-test-avviati` e `notifica-check-rossi`
-//                  della CI, nello stesso momento della riga su Slack
+//   la CI          `{ fonte: 'ci', evento: 'test_avviati' | 'test_falliti' | 'migration_fallita',
+//                  progetto, repo, commit, run, quando, motivo? }`, dalle azioni `notifica-test-avviati`
+//                  e `notifica-check-rossi` della CI, nello stesso momento della riga su Slack.
+//                  `migration_fallita` (PLA-733) e' un check rosso anche lui, ma il job fallito e' quello
+//                  delle migration del database: `run` porta a quel job e `motivo` nomina il file
 //   CodeBuild      l'evento EventBridge `CodeBuild Build State Change` dei progetti `*-deploy`
 //   ECS            l'evento EventBridge `ECS Deployment State Change`
 //
@@ -50,7 +52,13 @@ const SHA = /^[0-9a-f]{7,40}$/i
 const REPO = /^[a-z0-9][a-z0-9_.-]{0,99}\/[a-z0-9_.-]{1,100}$/i
 const quandoValido = (x) => (x && Number.isFinite(Date.parse(x)) ? new Date(x).toISOString() : null)
 const soloSe = (re, x) => (typeof x === 'string' && re.test(x) ? x : null)
-const linkGithub = (x) => (typeof x === 'string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(actions\/runs\/\d+|commit\/[0-9a-f]{7,40})$/i.test(x) ? x : null)
+const linkGithub = (x) => (typeof x === 'string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(actions\/runs\/\d+(\/job\/\d+)?|commit\/[0-9a-f]{7,40})$/i.test(x) ? x : null)
+// Il file di una migration fallita, dal `motivo` della CI (`migration fallita: 20261016_00_x.sql`).
+// Solo il nome di un file .sql: il resto del motivo e' testo libero e sul canvas non ci va.
+const fileMigration = (x) => {
+  const m = typeof x === 'string' && /^migration fallita: ([\w.-]{1,120}\.sql)$/.exec(x)
+  return m ? m[1] : null
+}
 const linkConsole = (x) => (typeof x === 'string' && /^https:\/\/([a-z0-9-]+\.)?console\.aws\.amazon\.com\/[^\s()[\]<>]*$/i.test(x) ? x : null)
 // Il servizio di un progetto `<org>-<env>-<servizio>-deploy`, col nome breve che usano le righe. Puro.
 const servizioDaProgetto = (p) => stripOrgEnv(p).replace(/-deploy$/, '').replace(/^cron-/, '')
@@ -73,10 +81,12 @@ export function normalizza(corpo) {
     const progetto = soloSe(NOME, m.progetto)
     const ambiente = ambienteDaNome(progetto)
     const repo = soloSe(REPO, m.repo)
-    const stato = m.evento === 'test_avviati' ? 'in_corso' : m.evento === 'test_falliti' ? 'fallito' : null
+    const stato = m.evento === 'test_avviati' ? 'in_corso' : m.evento === 'test_falliti' || m.evento === 'migration_fallita' ? 'fallito' : null
     const da = quandoValido(m.quando)
     if (!progetto || !progetto.endsWith('-deploy') || !ambiente || !repo || !stato || !da) return null
-    return { tipo: 'test', fonte: 'ci', ambiente, servizio: servizioDaProgetto(progetto), repo: repo.toLowerCase(), stato, da, sha: soloSe(SHA, m.commit), url: linkGithub(m.run) }
+    const ev = { tipo: 'test', fonte: 'ci', ambiente, servizio: servizioDaProgetto(progetto), repo: repo.toLowerCase(), stato, da, sha: soloSe(SHA, m.commit), url: linkGithub(m.run) }
+    if (m.evento === 'migration_fallita') Object.assign(ev, { causa: 'migration', file: fileMigration(m.motivo) })
+    return ev
   }
 
   if (m.source === 'aws.codebuild' && m['detail-type'] === 'CodeBuild Build State Change') {
@@ -171,7 +181,7 @@ export function unisciTest(daGithub, eventiTest, { lettoAlle = null } = {}) {
     if (g && stesso(g.sha, ev.sha) && ev.stato !== 'fallito') continue
     if (g && !stesso(g.sha, ev.sha) && Date.parse(g.da) >= Date.parse(ev.da)) continue
     if (!g && lettoAlle && lettoAlle - ev.ricevuto > RITARDO_GITHUB_MS) continue
-    out.set(k, { stato: ev.stato, da: ev.da, url: ev.url ?? null, sha: ev.sha ?? null })
+    out.set(k, { stato: ev.stato, da: ev.da, url: ev.url ?? null, sha: ev.sha ?? null, ...(ev.causa ? { causa: ev.causa, file: ev.file ?? null } : {}) })
   }
   return out
 }
