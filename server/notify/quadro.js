@@ -887,6 +887,12 @@ export function quandoBreve(iso, ora = Date.now()) {
 export function conTest(riga, test, { ora = Date.now() } = {}) {
   if (!test?.da || !['deploy_ok', 'invariato'].includes(riga.stato) || tempo(test.da) <= tempo(riga.quando)) return riga
   const stato = test.stato === 'fallito' ? 'test_falliti' : 'test_avviati'
+  // Una migration fallita (PLA-733) resta nello stato ❌ dei test, che e' una scelta fissa della List,
+  // ma il dettaglio dice cosa e' successo davvero: il job delle migration e il file, al posto della run.
+  if (test.causa === 'migration') {
+    const job = test.url ? `[migration](${test.url})` : 'migration'
+    return { ...riga, stato, quando: test.da, quandoTesto: quandoBreve(test.da, ora), suffisso: null, dettagli: [job, test.file ? `\`${test.file}\`` : riga.dettagli.find(Boolean)] }
+  }
   const run = test.url ? `[run](${test.url})` : null
   return { ...riga, stato, quando: test.da, quandoTesto: quandoBreve(test.da, ora), suffisso: null, dettagli: [run ?? 'run', riga.dettagli.find(Boolean)] }
 }
