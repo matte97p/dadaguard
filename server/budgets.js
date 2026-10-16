@@ -76,6 +76,7 @@ export function mapAnomaly(a = {}) {
     service: a.RootCauses?.[0]?.Service ?? null,
     region: a.RootCauses?.[0]?.Region ?? null,
     account: a.RootCauses?.[0]?.LinkedAccountName ?? a.RootCauses?.[0]?.LinkedAccount ?? null,
+    accountId: a.RootCauses?.[0]?.LinkedAccount ?? null,
     usageType: a.RootCauses?.[0]?.UsageType ?? null,
     impact: total,
     expected,
@@ -145,7 +146,10 @@ export async function budgetsOverview(accounts = {}, { orgCreds = null, isQuerya
     let anomalies = []
     let anomaliesError = null
     try {
-      anomalies = await listAnomalies(orgCreds ?? {})
+      // La chiave di config dell'account, dal suo ID: senza, la UI non sa a che ambiente appartiene
+      // l'anomalia e la mostra sotto qualunque filtro (la Bedrock di produzione dentro «Staging»).
+      const chiavePerId = new Map(Object.entries(accounts).filter(([, a]) => a?.accountId).map(([key, a]) => [String(a.accountId), key]))
+      anomalies = (await listAnomalies(orgCreds ?? {})).map((x) => ({ ...x, accountKey: chiavePerId.get(String(x.accountId)) ?? null }))
     } catch (err) {
       anomaliesError = cleanReason(err)
     }
