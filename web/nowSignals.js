@@ -196,7 +196,9 @@ function budgetSignals(budgets, t) {
       detail: t('now.anomalyDetail', { amount: Math.round(a.impact ?? 0), pct: a.impactPct ?? '?' }),
       when: a.start ?? null,
       to: '/spesa',
-      accountKey: null, // l'anomalia porta il NOME dell'account, non la sua chiave di config
+      // La chiave la mette il server dall'ID dell'account; null = account fuori dalla config, e allora
+      // l'anomalia resta visibile sotto ogni filtro piuttosto che sparire.
+      accountKey: a.accountKey ?? null,
       accountLabel: a.account ?? null,
     })
   }

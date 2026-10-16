@@ -111,7 +111,7 @@ export function segnaliBuild(builds = []) {
 }
 
 // I secchi: `ore * 2` intervalli da 30 minuti che finiscono ADESSO. Un secchio è `crit` se un guasto
-// (intervallo d'allarme) lo tocca anche per un minuto, `warn` se ci cade un segnale puntuale, `ok`
+// (intervallo d'allarme di un servizio) lo tocca anche per un minuto, `warn` se ci cade un segnale puntuale, `ok`
 // altrimenti. «Anche per un minuto» è voluto: la domanda è «è successo qualcosa in quella mezz'ora?»,
 // e un guasto di cinque minuti che sparisce dal grafico è il guasto di cui nessuno saprà mai. Pura.
 export function secchi({ intervalli = [], segnali = [], ora = Date.now(), ore = 24 } = {}) {
@@ -126,7 +126,11 @@ export function secchi({ intervalli = [], segnali = [], ora = Date.now(), ore = 
     for (const g of intervalli) {
       const gFine = g.fine ?? fine
       if (g.inizio < a && gFine >= da) {
-        livello = 'crit'
+        // Rosso solo se l'allarme e' di un SERVIZIO. Uno senza servizio (un controllo di permessi, un
+        // metric filter) suona ma non dice che qualcosa e' giu': contato rosso, un GRANT mancante su
+        // staging da tre giorni portava la disponibilita' a 0% con zero servizi rotti (16/10/2026).
+        // Resta visibile come attenzione, lo stesso gradino che gli da' la lista «Da sistemare».
+        livello = peggiore(livello, g.servizio ? 'crit' : 'warn')
         motivi.add('allarme')
       }
     }

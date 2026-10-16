@@ -132,6 +132,13 @@ test('anomalie: grosse warn, piccole info, già marcate come attese sempre info'
   assert.equal(byId['anom:known'], 'info')
 })
 
+test('anomalie: portano la chiave dell\'account, così il filtro per ambiente le tiene fuori', () => {
+  const budgets = { accounts: {}, anomalies: [{ id: 'prod', service: 'Bedrock', impact: 166, accountKey: 'production' }, { id: 'ignoto', service: 'S3', impact: 50 }] }
+  const byId = Object.fromEntries(buildSignals({ budgets, now: NOW, t }).map((s) => [s.id, s.accountKey]))
+  assert.equal(byId['anom:prod'], 'production')
+  assert.equal(byId['anom:ignoto'], null)
+})
+
 test('ordine: per gravità, e a pari gravità gli stati in corso prima degli eventi datati', () => {
   const services = [{ name: 'giù', overall: 'down', account: { key: 'p' } }]
   const deploys = {
