@@ -56,3 +56,9 @@ test('mapAnomaly: senza RootCauses non inventa la causa', () => {
   assert.equal(out.account, null)
   assert.equal(out.impactPct, null)
 })
+
+test('mapAnomaly: tiene l\'ID dell\'account, che serve a trovarne la chiave di config', () => {
+  const out = mapAnomaly({ AnomalyId: 'a', RootCauses: [{ Service: 'Amazon Bedrock', LinkedAccount: '123456789012', LinkedAccountName: 'Production' }] })
+  assert.equal(out.account, 'Production')
+  assert.equal(out.accountId, '123456789012')
+})

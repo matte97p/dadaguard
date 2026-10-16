@@ -10,7 +10,7 @@ const min = (n) => n * 60_000
 const voce = (nome, t, da, a) => ({ AlarmName: nome, HistoryItemType: 'StateUpdate', Timestamp: new Date(t).toISOString(), HistoryData: JSON.stringify({ oldState: { stateValue: da }, newState: { stateValue: a } }) })
 
 test('secchi: 48 da mezz\'ora, un guasto di pochi minuti colora il suo secchio', () => {
-  const s = secchi({ intervalli: [{ inizio: ORA - min(40), fine: ORA - min(35) }], ora: ORA, ore: 24 })
+  const s = secchi({ intervalli: [{ inizio: ORA - min(40), fine: ORA - min(35), servizio: 'backend' }], ora: ORA, ore: 24 })
   assert.equal(s.length, 48)
   assert.equal(s[46].livello, 'crit')
   assert.equal(s.filter((x) => x.livello === 'crit').length, 1)
@@ -18,8 +18,17 @@ test('secchi: 48 da mezz\'ora, un guasto di pochi minuti colora il suo secchio',
 })
 
 test('secchi: un guasto ancora in corso arriva fino all\'ultimo secchio', () => {
-  const s = secchi({ intervalli: [{ inizio: ORA - min(70), fine: null }], ora: ORA, ore: 24 })
+  const s = secchi({ intervalli: [{ inizio: ORA - min(70), fine: null, servizio: 'backend' }], ora: ORA, ore: 24 })
   assert.deepEqual(s.slice(-3).map((x) => x.livello), ['crit', 'crit', 'crit'])
+})
+
+test('secchi: un allarme senza servizio è attenzione, non guasto, anche acceso da giorni', () => {
+  // Il GRANT mancante su staging (16/10/2026): acceso da tre giorni, nessun servizio giù, e la
+  // disponibilità a 0%.
+  const s = secchi({ intervalli: [{ allarme: 'acme-staging-postgres-grant-agent-mancante', servizio: null, inizio: ORA - min(5000), fine: null }], ora: ORA })
+  assert.ok(s.every((x) => x.livello === 'warn'))
+  assert.deepEqual(s.at(-1).motivi, ['allarme'])
+  assert.equal(disponibilita(s), 100)
 })
 
 test('secchi: una build fallita è attenzione, non guasto, e non abbassa la disponibilità', () => {
