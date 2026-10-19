@@ -9,6 +9,7 @@ import { loadConfig } from '../config.js'
 import { statoAccessi, segnali, daAnnunciare, CALMA_MS, soglieDevEnv } from '../accessi.js'
 import { splitByRoute } from './route.js'
 import { chiamaSlack, quadroConfig } from './quadro.js'
+import { linearConfig, giroTicket } from './linear.js'
 
 // Il watchdog vero e proprio: guarda la flotta a intervalli, e quando qualcosa ATTRAVERSA il confine
 // problema/non-problema lo dice su Slack. Finché questo non esisteva, Dadaguard era una dashboard —
@@ -35,6 +36,7 @@ import { chiamaSlack, quadroConfig } from './quadro.js'
 //   DADAGUARD_WATCH_CONFIRM   letture consecutive perché una transizione conti (default 2)
 //   DADAGUARD_STATE_FILE      dove ricordare lo stato (default .dadaguard-state.json nel cwd)
 //   DADAGUARD_PUBLIC_URL      link messo in fondo al messaggio
+//   DADAGUARD_LINEAR_*        ticket Linear per i rossi confermati: vedi linear.js
 const DEFAULT_INTERVAL_S = 300
 const DEFAULT_CONFIRMATIONS = 2
 
@@ -51,6 +53,7 @@ export function watchConfig(env = process.env) {
     stateFile: env.DADAGUARD_STATE_FILE || '.dadaguard-state.json',
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
     lang: env.DADAGUARD_LANG || 'it',
+    linear: linearConfig(env),
   }
 }
 
@@ -109,7 +112,8 @@ export async function runOnce(cfg, deps = {}) {
   const status = await fetchStatus(cfg.lang)
   if (fetchStatus !== statoCondiviso) pubblica(cfg.lang, status)
   const prev = await readState(cfg.stateFile)
-  const { transitions, next } = diffStates(prev, snapshot(status.services ?? []), {
+  const ora = snapshot(status.services ?? [])
+  const { transitions, next } = diffStates(prev, ora, {
     confirmations: cfg.confirmations,
   })
   // Memoria della destinazione usata per ogni allarme aperto: il rientro torna dove è stato aperto.
@@ -173,9 +177,18 @@ export async function runOnce(cfg, deps = {}) {
   } catch (err) {
     log.error('watch: giro accessi fallito', { err: err.message })
   }
-  if (!ok) return { transitions, sent: false, groups: gruppi, accessi }
+  // I ticket vengono DOPO Slack: si aprono solo per i rossi che il canale ha già detto (`alerted`,
+  // scritto qui sopra a invio riuscito). Girano anche se un invio è fallito, per la stessa ragione
+  // degli accessi, e senza la chiave Linear non fanno niente.
+  let ticket = { spento: true }
+  try {
+    ticket = await (deps.giroTicket ?? giroTicket)(cfg.linear, next.services, ora, { t })
+  } catch (err) {
+    log.error('watch: giro ticket fallito', { err: err.message })
+  }
+  if (!ok) return { transitions, sent: false, groups: gruppi, accessi, ticket }
   await writeState(cfg.stateFile, next)
-  return { transitions, sent: true, groups: gruppi, accessi }
+  return { transitions, sent: true, groups: gruppi, accessi, ticket }
 }
 
 // ── Il giro degli ACCESSI ──────────────────────────────────────────────────────────────────────────
