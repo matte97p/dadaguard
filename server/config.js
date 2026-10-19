@@ -91,6 +91,11 @@ export function validateConfig(doc) {
     //         DOVREBBERO avere. Senza, «indietro» si calcola sulla piu' recente che qualcuno ha visto,
     //         che non sa vedere il caso in cui sono indietro tutti (nessuno ha ancora aggiornato).
     teleport: doc?.teleport ?? null,
+    // Come chi legge arriva ad AWS dai comandi e dai link (vedi shared/accessoAws.js). Con Teleport
+    // (`teleport.proxy`, o l'host di `teleport.webUrl`) e, per account, `teleportApp` + `teleportRole`,
+    // il comando e' `tsh aws` e il link passa dal launcher di Teleport. Senza, `cliProfile` nel
+    // comando e, con `sso: { startUrl }` e `ssoRole` per account, il link passa dal portale SSO.
+    sso: doc?.sso?.startUrl ? { startUrl: String(doc.sso.startUrl) } : null,
     // Link «Apri altrove» verso i log di PostHog filtrati sul servizio: `posthog: { host, projectId }`,
     // piu' il tag `dadaguard:posthog` sulla risorsa col nome che il servizio usa nei log. Senza l'uno
     // o l'altro quel link non compare: un progetto o un nome indovinato apre la pagina sbagliata.

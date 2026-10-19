@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Lista, Sezione, Pill, Drawer, Rimedio, ListaLink, BloccoComando } from '../ui/index.js'
 import { soldi } from './spesaKit.js'
+import { comandoAws, linkAws } from '../../shared/accessoAws.js'
+import { accessoPer } from '../accesso.js'
 
 // Costruisce le voci con MOTIVO + livello: 'spreco' (quasi certo) o 'verifica' (costo fisso che
 // è spreco solo in certe condizioni). Senza il motivo, un numero da solo non dice niente.
@@ -107,7 +109,7 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, risposta 
   const entries = Object.entries(risposta.dati ?? {}).filter(([, v]) => !accountLabels || accountLabels.has(v.label))
   const total = entries.reduce((s, [, v]) => s + (v.estMonthlyUsd || 0), 0)
   const righe = entries
-    .flatMap(([key, v]) => (v.error ? [] : buildItems(v, t).map((it) => ({ ...it, conto: v.label, region: v.region, chiave: `${key}/${it.key}` }))))
+    .flatMap(([key, v]) => (v.error ? [] : buildItems(v, t).map((it) => ({ ...it, conto: v.label, contoChiave: key, region: v.region, chiave: `${key}/${it.key}` }))))
     // Prima lo spreco certo, poi quello da verificare: e' l'ordine in cui conviene leggerli.
     .sort((a, b) => (a.level === b.level ? 0 : a.level === 'spreco' ? -1 : 1))
   const errori = entries.filter(([, v]) => v.error)
@@ -163,12 +165,15 @@ export default function WastePage({ accountLabels, t = (k) => k, lang, risposta 
               testo={aperta.level === 'spreco' ? t('spend.sprechi.fare.spreco') : t('spend.sprechi.fare.verifica')}
               t={t}
             />
-            <BloccoComando comando={aperta.comando(aperta.names.map((n) => n.id))} t={t} />
+            <BloccoComando
+              comando={comandoAws(aperta.comando(aperta.names.map((n) => n.id)), accessoPer(aperta.contoChiave, aperta.conto), { region: aperta.region ?? null })}
+              t={t}
+            />
             <ListaLink
               link={[
                 {
                   label: t('spend.link.console'),
-                  href: linkConsole(aperta.key, aperta.region),
+                  href: linkAws(linkConsole(aperta.key, aperta.region), accessoPer(aperta.contoChiave, aperta.conto)),
                   nota: t('spend.link.nota', { conto: aperta.conto }),
                 },
               ]}

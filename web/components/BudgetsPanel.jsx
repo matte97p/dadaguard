@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Lista, Sezione, Pill, Meter, Drawer, Rimedio, ListaLink } from '../ui/index.js'
 import { soldi, LIVELLO_BUDGET } from '../pages/spesaKit.js'
+import { comandoAws, linkAws } from '../../shared/accessoAws.js'
+import { accessoPer } from '../accesso.js'
 
 // "2026-08-06" → "06/08". Nel formato di chi legge, e senza l'anno: in una finestra di 30 giorni
 // l'anno è la stessa cifra su ogni riga. Puro.
@@ -17,6 +19,15 @@ const importo = (v, unit, lang) => (v == null ? '-' : unit && unit !== 'USD' ? `
 const LINK_BUDGET = 'https://console.aws.amazon.com/costmanagement/home#/budgets'
 const LINK_ANOMALIE = 'https://console.aws.amazon.com/costmanagement/home#/anomaly-detection/overview'
 const LINK_EXPLORER = 'https://console.aws.amazon.com/costmanagement/home#/cost-explorer'
+
+// L'account id scritto quando lo si sa; altrimenti chiesto ad AWS, sulla stessa strada del comando
+// (un `aws sts` annidato dentro un `tsh aws` cadrebbe di nuovo sul login SSO).
+export function comandoBudget(nome, accesso) {
+  const id = accesso?.accountId
+    ? `'${accesso.accountId}'`
+    : `"$(${comandoAws('aws sts get-caller-identity --query Account --output text', accesso)})"`
+  return comandoAws(`aws budgets describe-budget --account-id ${id} --budget-name "${nome}"`, accesso)
+}
 
 // Cosa c'è da guardare nella risposta di /api/budgets: i budget non verdi (dal peggiore) e le anomalie
 // non già marcate come attese. Serve anche a SpendPage per il verdetto e il numero sulla scheda, quindi
@@ -176,14 +187,14 @@ export default function BudgetsPanel({ accountLabels, t = (k) => k, lang, rispos
                 titolo={t('spend.cosaFare')}
                 testo={t(`spend.budget.fare.${b.level}`)}
                 // Il comando legge, non cambia niente: chi decide di alzare il budget lo fa in console.
-                comando={`aws budgets describe-budget --account-id "$(aws sts get-caller-identity --query Account --output text)" --budget-name "${b.name}"`}
+                comando={comandoBudget(b.name, accessoPer(b.account))}
                 t={t}
               />
             )}
             <ListaLink
               link={[
-                { label: t('spend.link.budget'), href: LINK_BUDGET, nota: t('spend.link.nota', { conto: b.account }) },
-                { label: t('spend.link.explorer'), href: LINK_EXPLORER },
+                { label: t('spend.link.budget'), href: linkAws(LINK_BUDGET, accessoPer(b.account)), nota: t('spend.link.nota', { conto: b.account }) },
+                { label: t('spend.link.explorer'), href: linkAws(LINK_EXPLORER, accessoPer(b.account)) },
               ]}
             />
           </>
@@ -225,13 +236,13 @@ export default function BudgetsPanel({ accountLabels, t = (k) => k, lang, rispos
               livello="warn"
               titolo={t('spend.cosaFare')}
               testo={t('spend.anom.fare')}
-              comando={`aws ce get-anomalies --date-interval StartDate=${String(an.start ?? '').slice(0, 10)} --query "Anomalies[?AnomalyId=='${an.id}']"`}
+              comando={comandoAws(`aws ce get-anomalies --date-interval StartDate=${String(an.start ?? '').slice(0, 10)} --query "Anomalies[?AnomalyId=='${an.id}']"`, accessoPer(an.account))}
               t={t}
             />
             <ListaLink
               link={[
-                { label: t('spend.link.anomalie'), href: LINK_ANOMALIE, nota: t('spend.link.nota', { conto: an.account ?? '-' }) },
-                { label: t('spend.link.explorer'), href: LINK_EXPLORER },
+                { label: t('spend.link.anomalie'), href: linkAws(LINK_ANOMALIE, accessoPer(an.account)), nota: t('spend.link.nota', { conto: an.account ?? '-' }) },
+                { label: t('spend.link.explorer'), href: linkAws(LINK_EXPLORER, accessoPer(an.account)) },
               ]}
             />
           </>
