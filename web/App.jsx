@@ -27,6 +27,7 @@ import IamPage from './pages/IamPage.jsx'
 import AccessiPage from './pages/AccessiPage.jsx'
 import FlottaPage from './pages/FlottaPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
+import { impostaAccessi } from './accesso.js'
 
 // Preset rapidi predefiniti: combinazioni comuni applicabili con un clic (oltre a quelli salvati).
 const QUICK_PRESETS = [
@@ -253,7 +254,10 @@ export default function App() {
       try {
         const res = await fetch(`/api/status?lang=${lang}${fresh ? '&fresh=1' : ''}`, { signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        setData(await res.json())
+        const stato = await res.json()
+        // Prima del render: i pannelli che compongono comandi e link la leggono gia' al primo giro.
+        impostaAccessi(stato?.accounts)
+        setData(stato)
         setAggiornato(Date.now())
       } catch (err) {
         if (err.name === 'AbortError') return // risposta stale (lingua cambiata): scartala

@@ -4,6 +4,8 @@
 import { esitoBuild } from './adattatori.js'
 import { isByHand } from './deployKinds.js'
 import { statoCron, motivoCorsa, statoReaper } from '../shared/cron.js'
+import { comandoAws, linkAws } from '../shared/accessoAws.js'
+import { accessoPer } from './accesso.js'
 
 // ── Deploy ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -111,21 +113,22 @@ export function durataTipica(cron) {
 // Il comando per leggere i log da terminale. Si compone solo quando il log group e' certo: lo dichiara
 // il cron (ECS), o e' quello che AWS da' per convenzione a ogni Lambda. Altrimenti niente: un comando
 // inventato si copia, fallisce, e insegna a non fidarsi degli altri.
+// Teleport o profilo SSO secondo l'installazione (vedi shared/accessoAws.js).
 export function comandoCron(cron) {
   if (typeof cron?.comando === 'string' && cron.comando) return cron.comando
   const gruppo = cron?.logGroup ?? (cron?.type === 'lambda' && cron?.function ? `/aws/lambda/${cron.function}` : null)
   if (!gruppo) return null
-  const regione = cron.region ? ` --region ${cron.region}` : ''
-  return `aws logs tail ${gruppo} --since 1h${regione}`
+  return comandoAws(`aws logs tail ${gruppo} --since 1h`, accessoPer(cron.account, cron.accountLabel), { region: cron.region ?? null })
 }
 
 // I link «Apri altrove» di un cron. Arriveranno dal server in `altrove`; quello che si sa gia' e' il log
 // group, e il link alla console CloudWatch si compone dal nome e dalla regione senza indovinare niente.
 export function linkCron(cron, t = (k) => k) {
   const out = []
+  const accesso = accessoPer(cron?.account, cron?.accountLabel)
   const etichetta = { 'cloudwatch-log': 'rilasci.link.cloudwatch', 'posthog-log': 'rilasci.link.posthogLog' }
   for (const a of Array.isArray(cron?.altrove) ? cron.altrove : []) {
-    if (a?.url) out.push({ label: t(etichetta[a.chiave] ?? 'rilasci.link.altro'), href: a.url, nota: a.filtro ?? null })
+    if (a?.url) out.push({ label: t(etichetta[a.chiave] ?? 'rilasci.link.altro'), href: linkAws(a.url, accesso), nota: a.filtro ?? null })
   }
   const gruppo = cron?.logGroup ?? (cron?.type === 'lambda' && cron?.function ? `/aws/lambda/${cron.function}` : null)
   if (gruppo && cron?.region && !out.some((l) => l.href.includes('cloudwatch'))) {
@@ -134,7 +137,7 @@ export function linkCron(cron, t = (k) => k) {
     const nome = encodeURIComponent(gruppo).replace(/%/g, '$25')
     out.push({
       label: t('rilasci.link.cloudwatch'),
-      href: `https://${cron.region}.console.aws.amazon.com/cloudwatch/home?region=${cron.region}#logsV2:log-groups/log-group/${nome}`,
+      href: linkAws(`https://${cron.region}.console.aws.amazon.com/cloudwatch/home?region=${cron.region}#logsV2:log-groups/log-group/${nome}`, accesso),
       nota: gruppo,
     })
   }

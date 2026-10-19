@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Lista, Pill, Meter, Drawer, Rimedio, BloccoComando, ListaLink } from '../ui/index.js'
 import { livelloTetto } from './spesaKit.js'
+import { comandoAws, linkAws } from '../../shared/accessoAws.js'
+import { accessoPer } from '../accesso.js'
 
 const GRIGLIA = '96px minmax(0,1.3fr) minmax(0,1.6fr) 60px'
 // Sul telefono: stato, offerta e percentuale in testa, la barra sotto.
@@ -72,8 +74,8 @@ export default function FreeTierPage({ t = (k) => k, risposta }) {
                 t={t}
               />
             )}
-            <BloccoComando comando="aws freetier get-free-tier-usage --region us-east-1" t={t} />
-            <ListaLink link={[{ label: t('lim.link.free'), href: 'https://console.aws.amazon.com/billing/home#/freetier' }]} />
+            <BloccoComando comando={comandoAws('aws freetier get-free-tier-usage', accessoPer(risposta.dati?.conto), { region: 'us-east-1' })} t={t} />
+            <ListaLink link={[{ label: t('lim.link.free'), href: linkAws('https://console.aws.amazon.com/billing/home#/freetier', accessoPer(risposta.dati?.conto)) }]} />
           </>
         )}
       </Drawer>

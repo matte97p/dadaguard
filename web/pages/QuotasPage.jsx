@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { Lista, Pill, Meter, Drawer, Rimedio, BloccoComando, ListaLink } from '../ui/index.js'
 import { livelloTetto } from './spesaKit.js'
+import { comandoAws, linkAws } from '../../shared/accessoAws.js'
+import { accessoPer } from '../accesso.js'
 
 // Le quote di tutti gli account visibili in una lista sola, dalla più vicina al tetto: la domanda è
 // «cosa sta per bloccarsi», e chiederla account per account la spezzava in tanti riquadri. Pura.
 export function quoteVisibili(dati, accountLabels) {
   return (dati?.accounts ?? [])
     .filter((a) => !a.error && (!accountLabels || accountLabels.has(a.label)))
-    .flatMap((a) => (a.quotas ?? []).map((q) => ({ ...q, conto: a.label })))
+    .flatMap((a) => (a.quotas ?? []).map((q) => ({ ...q, conto: a.label, contoChiave: a.key ?? null })))
     .sort((x, y) => y.pct - x.pct)
 }
 
@@ -85,14 +87,17 @@ export default function QuotasPage({ accountLabels, t = (k) => k, risposta }) {
             {/* Il comando legge la quota com'è adesso: la richiesta di aumento si fa da console, dove
                 AWS chiede il perché. */}
             <BloccoComando
-              comando={`aws service-quotas list-service-quotas --service-code ${aperta.service} --query "Quotas[?QuotaName=='${String(aperta.name).replace(/'/g, "''")}']"`}
+              comando={comandoAws(
+                `aws service-quotas list-service-quotas --service-code ${aperta.service} --query "Quotas[?QuotaName=='${String(aperta.name).replace(/'/g, "''")}']"`,
+                accessoPer(aperta.contoChiave, aperta.conto),
+              )}
               t={t}
             />
             <ListaLink
               link={[
                 {
                   label: t('lim.link.quote'),
-                  href: `https://console.aws.amazon.com/servicequotas/home/services/${encodeURIComponent(aperta.service)}/quotas`,
+                  href: linkAws(`https://console.aws.amazon.com/servicequotas/home/services/${encodeURIComponent(aperta.service)}/quotas`, accessoPer(aperta.contoChiave, aperta.conto)),
                   nota: t('spend.link.nota', { conto: aperta.conto }),
                 },
               ]}

@@ -9,7 +9,8 @@ import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
 import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCostByCategory, COMPONENT_TAG, COST_CATEGORY } from './costs.js'
 import { cached } from './util/ttlcache.js'
-import { isQueryable } from './accounts.js'
+import { isQueryable, accessoDi } from './accounts.js'
+import { linkAws } from '../shared/accessoAws.js'
 import { listDeploys } from './deploys.js'
 import { tabellaRilasci, daRilasciare, testoRilasci } from './rilasci.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
@@ -341,16 +342,24 @@ async function deploysPerAccount(t, ore = null) {
   // Account EFFETTIVI (config + org auto-discovery), come le altre viste per-account — così i
   // deploy coprono TUTTI gli account risolti (management/security inclusi), senza elencarli a mano.
   const { accounts } = await resolveServices()
+  const cfg = loadConfig()
   const out = {}
   await Promise.all(
     Object.entries(accounts).map(async ([key, a]) => {
       if (!isQueryable(a)) return
+      // I link della build (log, storico CodeBuild) sulla strada d'accesso dell'installazione.
+      const accesso = accessoDi(a, cfg)
+      const viaAccesso = (b) => ({
+        ...b,
+        logsUrl: linkAws(b.logsUrl, accesso),
+        altrove: (b.altrove ?? []).map((l) => ({ ...l, url: linkAws(l.url, accesso) })),
+      })
       try {
         const { builds, noProjects } = await listDeploys(
           { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region },
           { ore },
         )
-        out[key] = { label: a.label ?? key, color: a.color ?? null, builds, noProjects: !!noProjects }
+        out[key] = { label: a.label ?? key, color: a.color ?? null, builds: (builds ?? []).map(viaAccesso), noProjects: !!noProjects }
       } catch (err) {
         out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
       }
@@ -468,7 +477,8 @@ app.get('/api/freetier', async (req, res) => {
       : org
         ? { profile: org.profile, roleArn: org.callerRoleArn, externalId: org.externalId }
         : {}
-    res.json(await getFreeTierUsage(creds))
+    // `conto`: la pagina compone comando e link sulla strada d'accesso di quell'account.
+    res.json({ ...(await getFreeTierUsage(creds)), conto: freeTierAccount ?? null })
   } catch (err) {
     // errore leggibile in-body (200), come le card per-account: la pagina mostra il motivo, non "HTTP 500"
     res.json({ items: [], error: cleanAwsReason(err, t) })

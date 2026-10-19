@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js'
-import { accountsSummary } from './accounts.js'
+import { accountsSummary, accessoDi } from './accounts.js'
+import { linkAws } from '../shared/accessoAws.js'
 import { autoDiscoverServices, mergeServices, resourceId, qualifier } from './autodiscover.js'
 import { resolveOrgAccounts } from './org.js'
 import { discoverProfileAccounts } from './awsProfiles.js'
@@ -440,7 +441,8 @@ export async function getStatus(lang) {
       }
     }),
   )
-  const posthog = loadConfig().posthog ?? null
+  const cfgAccesso = loadConfig()
+  const posthog = cfgAccesso.posthog ?? null
 
   // Un servizio alla volta per slot, e gli slot sono PER ACCOUNT: gli account vanno in parallelo fra
   // loro (quote separate), dentro ognuno si resta sotto la sua quota.
@@ -480,7 +482,8 @@ export async function getStatus(lang) {
       ).filter(Boolean)
       const checks = Object.fromEntries(checkResults.map((r) => [r.key, r]))
 
-      const cu = consoleUrl(service, acct?.region) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
+      const accesso = accessoDi(acct, cfgAccesso)
+      const cu = linkAws(consoleUrl(service, acct?.region), accesso) // #5 deep-link alla risorsa AWS esatta (region dal servizio o, in fallback, dall'account)
       // Endpoint pubblico del servizio (link sulla card), in ordine di precedenza:
       //  1. mappa `urls` in config per nome (vince sempre: intento umano, dominio Cloudflare "vero");
       //  2. `url` dichiarato sulla singola entry di config;
@@ -496,7 +499,7 @@ export async function getStatus(lang) {
       return arricchisciServizio({
         ...meta,
         budgetErrore: meta.slo && conteggi ? budgetErrore({ slo: meta.slo, ...conteggi }) : null,
-        altrove: linkServizio({ aws: service.aws, region, posthog, servizioPosthog: meta.posthog }),
+        altrove: linkServizio({ aws: service.aws, region, posthog, servizioPosthog: meta.posthog }).map((l) => ({ ...l, url: linkAws(l.url, accesso) })),
         name: service.name,
         // Identità della RISORSA (account|tipo|cluster/arn/asg…), non del nome: due servizi ECS
         // omonimi in cluster diversi dello stesso account e della stessa region si distinguono solo
@@ -530,7 +533,7 @@ export async function getStatus(lang) {
         // assente quando nessun check e' detto da altri.
         ...(perNotifica ? { perNotifica } : {}),
         checks,
-      }, { aws: service.aws, profile: profiloPerComando(acct), region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
+      }, { aws: service.aws, accesso, profile: profiloPerComando(acct), region, ssmPath: service.ssm?.path ?? null, repoDir: acct?.terraform?.repoDir ?? null })
   }
 
   // `flat()` e non un accumulatore: dentro un account `mapLimit` preserva l'ordine, e fra account non
@@ -590,7 +593,7 @@ export async function getStatus(lang) {
     discovered, // != null quando i servizi sono stati auto-scoperti (nessun services.yaml)
     // Gli account RISOLTI, non solo quelli che hanno prodotto un servizio: le pagine per-account
     // (Costi, Sprechi, Quote) devono poter mostrare un account con spesa e zero servizi monitorati.
-    accounts: accountsSummary(accounts),
+    accounts: accountsSummary(accounts, loadConfig()),
     // Account in cui una lettura è FALLITA: il pannello lo dice, invece di mostrarli vuoti. Un account
     // "senza risorse" e un account "che non ho potuto leggere" sono due cose opposte.
     discoveryProblems,

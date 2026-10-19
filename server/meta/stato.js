@@ -1,3 +1,5 @@
+import { q, comandoAws } from '../../shared/accessoAws.js'
+
 // Metadati che la UI mostra accanto a ogni servizio e che i check non producono da soli: il livello
 // del semaforo in quattro parole, a chi tocca, il comando con cui si comincia a guardare. Tutto
 // DEDOTTO da quello che il giro di stato ha gia' in mano (chiave del check, tipo di risorsa, i suoi
@@ -38,11 +40,10 @@ export function dettaglioDi(check = {}) {
   return parti.length ? parti.join(' · ') : null
 }
 
-// Apici singoli per la shell: un nome con uno spazio o un `;` resta un argomento, non diventa un
-// secondo comando quando qualcuno incolla la riga.
-const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`
-const conAccount = (cmd, { profile, region } = {}) =>
-  [cmd, region ? `--region ${q(region)}` : null, profile ? `--profile ${q(profile)}` : null].filter(Boolean).join(' ')
+// Region e strada d'accesso (Teleport o profilo SSO) le aggiunge `comandoAws`, uguale per server e
+// pagina: vedi shared/accessoAws.js. Senza `accesso` (chiamate vecchie, test) vale il solo `profile`.
+const conAccount = (cmd, { accesso = null, profile = null, region = null } = {}) =>
+  comandoAws(cmd, accesso ?? { modo: 'sso', profile }, { region })
 
 // Il comando suggerito, per TIPO di problema (check + tipo di risorsa), mai per nome di risorsa:
 // gli argomenti arrivano dagli identificativi che la discovery ha gia' letto. Solo comandi di
@@ -77,9 +78,9 @@ const RANGO = { crit: 3, warn: 2, off: 1, ok: 0 }
 // Arricchisce il risultato di UN servizio: livello e owner per check, livello e owner del servizio
 // (quelli del check che lo rende rosso), il comando del problema principale. Non toglie niente:
 // `overall` e `cause` restano per chi li legge gia'.
-export function arricchisciServizio(r, { aws = {}, profile = null, region = null, ssmPath = null, repoDir = null, progetto = null } = {}) {
+export function arricchisciServizio(r, { aws = {}, accesso = null, profile = null, region = null, ssmPath = null, repoDir = null, progetto = null } = {}) {
   const tipo = r.type ?? aws?.type ?? null
-  const extra = { profile, region: region ?? r.region ?? null, ssmPath, repoDir, progetto }
+  const extra = { accesso, profile, region: region ?? r.region ?? null, ssmPath, repoDir, progetto }
   const checks = Object.fromEntries(
     Object.entries(r.checks ?? {}).map(([k, c]) => {
       const livello = livelloDi(c.status)

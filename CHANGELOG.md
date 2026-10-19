@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Comandi e link alla console passano da Teleport, dove l'installazione ce l'ha** (19/10/2026).
+  Con `teleport.webUrl` (o `teleport.proxy`) in config e, sull'account, `teleportApp` +
+  `teleportRole`, il comando suggerito è `tsh aws --app … --aws-role …` invece di
+  `aws … --profile …`, e ogni link alla console passa dal launcher di Teleport
+  (`/web/launch/…?path=`), che la apre già sul ruolo giusto. Senza Teleport resta `--profile
+  <cliProfile>`, e con `sso.startUrl` e `ssoRole` il link passa dal portale SSO invece di aprire
+  l'account in cui si è entrati per ultimi. Vale per le card dei servizi, i deploy, i cron, gli
+  sprechi, le quote, i budget e il free tier: una sola regola in `shared/accessoAws.js`, usata dal
+  server e dalla pagina. Prima un login SSO scaduto bastava a non poter leggere cinque eventi di un
+  servizio fermo.
 - **Le corse dei cron in una Slack List, una per canale** (10/10/2026). Accanto a ogni canvas delle
   corse c'è la List «Lista corse cron <CHIAVE>», condivisa in sola lettura col suo canale: una riga per
   cron, con gli stessi cron del canvas (squadre, reaper dentro il loro job), e le colonne Cron (col
