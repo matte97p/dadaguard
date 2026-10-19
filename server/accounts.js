@@ -1,3 +1,5 @@
+import { accessoAccount } from '../shared/accessoAws.js'
+
 // Quando un account è INTERROGABILE, e perché non basta che sia scritto in config.
 //
 // Per parlare con un account servono credenziali, e possono arrivare da tre strade:
@@ -21,12 +23,32 @@ export function queryableAccounts(accounts) {
 // le pagine per-account (Costi, Sprechi, Quote) perdono l'account — un account può avere spesa e zero
 // servizi monitorati (il payer, dove vivono Bedrock e CodeBuild; un account di sicurezza). Prima le
 // etichette si ricavavano dai SERVIZI, quindi quegli account sparivano senza dirlo. Puro/testabile.
-export function accountsSummary(accounts) {
+// Con `accesso` la pagina compone comandi e link sulla stessa strada del server (vedi
+// shared/accessoAws.js): nomi di app, ruoli e profili, nessun segreto.
+export function accountsSummary(accounts, cfg = {}) {
   return Object.entries(accounts ?? {}).map(([key, a]) => ({
     key,
     label: a?.label ?? key,
     color: a?.color ?? null,
     region: a?.region ?? null,
     queryable: isQueryable(a),
+    accesso: accessoDi(a, cfg),
   }))
+}
+
+// La strada verso AWS di un account, dalla config dell'installazione. Teleport c'e' quando la
+// config lo dice: `teleport.proxy`, oppure l'host di `teleport.webUrl`, che la superficie Accessi
+// usa gia'. Il portale SSO da `sso.startUrl`.
+export function accessoDi(acct, cfg = {}) {
+  const tp = cfg?.teleport ?? null
+  const proxy = tp?.proxy ?? (tp?.webUrl ? hostDi(tp.webUrl) : null)
+  return accessoAccount(acct, { teleport: proxy ? { proxy, cluster: tp?.cluster ?? null } : null, sso: cfg?.sso ?? null })
+}
+
+const hostDi = (url) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return null
+  }
 }

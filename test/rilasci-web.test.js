@@ -57,7 +57,7 @@ test('motivoCorsa: memoria, timeout, exit code, poi «errori nei log» per un fa
 })
 
 test('comandoCron e linkCron: solo da un log group certo, mai inventato', () => {
-  assert.equal(comandoCron({ type: 'lambda', function: 'job-a', region: 'eu-west-1' }), 'aws logs tail /aws/lambda/job-a --since 1h --region eu-west-1')
+  assert.equal(comandoCron({ type: 'lambda', function: 'job-a', region: 'eu-west-1' }), "aws logs tail /aws/lambda/job-a --since 1h --region 'eu-west-1'")
   assert.equal(comandoCron({ type: 'ecs-scheduled' }), null)
   const l = linkCron({ logGroup: '/ecs/demo/x', region: 'eu-west-1' })
   assert.equal(l.length, 1)

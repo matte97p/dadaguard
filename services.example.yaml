@@ -32,9 +32,18 @@ accounts:
     #  • cloud:  roleArn + externalId → il task role assume un ruolo read-only
     #            cross-account. Niente chiavi custodite. Vedi deploy/README.md.
     profile: my-staging-profile
-    # cliProfile: dev-staging # il profilo AWS CLI di chi legge la dashboard, scritto nei comandi
+    # cliProfile: ops-staging # il profilo AWS CLI di chi legge la dashboard, scritto nei comandi
     #                         # suggeriti («Da dove cominciare»). Serve in cloud, dove c'e' roleArn
     #                         # e non profile: senza, il comando esce senza --profile.
+    # Come chi legge arriva ad AWS dai comandi suggeriti e dai link alla console. Decide l'installazione:
+    #  • con `teleport.webUrl` (o `teleport.proxy`) in config e questi due campi, il comando e'
+    #    `tsh aws --app … --aws-role …` e il link passa dal launcher di Teleport (serve `accountId`
+    #    se `teleportRole` e' un nome e non un ARN);
+    #  • senza, il comando porta `--profile <cliProfile>` e, con `sso.startUrl` in config, il link
+    #    passa dal portale SSO col ruolo `ssoRole`.
+    # teleportApp: aws-staging
+    # teleportRole: dashboard-readonly
+    # ssoRole: ReadOnly
     # accountId: '111122223333' # consigliato in consolidated billing: filtra costi e stima a QUESTO
     #                           # account. Senza, un account payer mostra i costi di TUTTA l'org (doppioni).
     # roleArn: arn:aws:iam::111122223333:role/dadaguard-readonly
@@ -85,6 +94,12 @@ accounts:
 # posthog:
 #   host: https://eu.posthog.com
 #   projectId: 12345
+#
+# --- Portale SSO per i link alla console (opzionale, senza Teleport) ---
+# Con `startUrl` e `ssoRole` sull'account, ogni link alla console passa dal portale e apre l'account e
+# il ruolo giusti invece di quello in cui si e' entrati per ultimi.
+# sso:
+#   startUrl: https://d-1234567890.awsapps.com/start
 #
 # --- Team, canale, runbook e SLO: dai TAG AWS, non da qui ---
 # Dadaguard li legge dai tag della risorsa (tag:GetResources, sola lettura). Chiavi:
@@ -325,6 +340,9 @@ services:
 #   # quello accanto che finisce in `/salute`, nello stesso account.
 #   salute:    { account: management, logGroup: /dev-env/salute }
 #   webUrl: https://teleport.example.com          # il bottone «vai ad agire»
+#   # Con webUrl (o `proxy: teleport.example.com`) i comandi suggeriti e i link alla console passano da
+#   # Teleport per gli account con `teleportApp` + `teleportRole` (vedi `accounts` sopra).
+#   # cluster: teleport.example.com             # il nome del cluster, se non e' l'host del proxy
 #   sshCommand: tsh ssh dev@{macchina}
 #   auditUserUrl: https://teleport.example.com/web/audit?user={utente}
 #   auditNodeUrl: https://teleport.example.com/web/audit?node={macchina}

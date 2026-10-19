@@ -40,8 +40,8 @@ test('accountsSummary elenca TUTTI gli account, dicendo quali sono leggibili', (
     security: { accountId: '9' },
   })
   assert.deepEqual(out, [
-    { key: 'prod', label: 'Production', color: '#cf1322', region: 'eu-central-1', queryable: true },
-    { key: 'security', label: 'security', color: null, region: null, queryable: false },
+    { key: 'prod', label: 'Production', color: '#cf1322', region: 'eu-central-1', queryable: true, accesso: { modo: 'sso', accountId: null, region: 'eu-central-1', profile: null } },
+    { key: 'security', label: 'security', color: null, region: null, queryable: false, accesso: { modo: 'sso', accountId: '9', region: null, profile: null } },
   ])
 })
 
