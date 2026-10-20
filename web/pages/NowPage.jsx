@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Verdetto, Card, Dot, Lista, Sezione, RigaProblema, BarraUptime, Drawer, Rimedio, ListaLink, Pill } from '../ui/index.js'
-import { buildSignals } from '../nowSignals.js'
+import { buildSignals, AREE, areaDi, contaPerArea } from '../nowSignals.js'
 import { displayName } from '../serviceName.js'
 import { fmtAgo } from '../format.js'
 import { matchesAny } from '../filters.js'
@@ -84,8 +84,11 @@ export default function NowPage({
       return false
     }
   })
+  // In «Solo da sistemare» una tessera per area filtra la lista: «fammi vedere solo i cron».
+  const [area, setArea] = useState(null)
   const scegliSolo = (v) => {
     setSolo(v)
+    if (!v) setArea(null)
     try {
       localStorage.setItem('dadaguard-home-solo', v ? '1' : '0')
     } catch {
@@ -289,9 +292,11 @@ export default function NowPage({
         </>
       )}
 
+      {solo && <PannelloAree conta={contaPerArea(righe)} area={area} onArea={(a) => setArea((x) => (x === a ? null : a))} t={t} />}
+
       <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
         <Lista vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
-          {righe.map((r) => (
+          {righe.filter((r) => !solo || !area || areaDi(r) === area).map((r) => (
             <RigaProblema
               key={r.id}
               data-signal={r.kind}
@@ -304,6 +309,7 @@ export default function NowPage({
               cosa={r.detail || t(`now.kind.${r.kind}`)}
               owner={ownerLabel(r)}
               quando={r.when ? fmtAgo(r.when, t) : t('now.ongoing')}
+              serie={r.serie}
               azione={r.servizio || r.to || comandoServizio(r.servizio) ? t('home.cosaFare') : ''}
               onApri={() => apri(r)}
             />
@@ -425,4 +431,31 @@ export function righeCambiamenti({ build = [], storico = null, accountFilter = n
     commit: b.commit,
   }))
   return [...daStorico, ...daBuild].filter((r) => Number.isFinite(r.ts)).sort((a, b) => b.ts - a.ts)
+}
+
+// Le aree dei problemi, in cima a «Solo da sistemare»: per ognuna quanti, colorato dal piu' grave, e una
+// barretta che dice quanto pesano i rossi sui gialli. Un'area senza problemi resta, spenta: «zero cron
+// rotti» e' un'informazione, e le tessere che spariscono spostano le altre sotto il dito. Toccarne una
+// filtra la lista; toccarla di nuovo toglie il filtro.
+function PannelloAree({ conta, area, onArea, t }) {
+  return (
+    <div className="ui-aree" role="group" aria-label={t('home.aree.aria')}>
+      {AREE.map((a) => {
+        const { crit, warn } = conta[a]
+        const n = crit + warn
+        const livello = crit ? 'crit' : warn ? 'warn' : null
+        return (
+          <button key={a} type="button" className={`ui-area${n ? '' : ' ui-area-zero'}`} aria-pressed={area === a} onClick={() => onArea(a)} disabled={!n}>
+            <span className="ui-area-et">{t(`home.aree.${a}`)}</span>
+            <b className={livello ? `ui-t-${livello}` : undefined}>{n}</b>
+            <span className="ui-area-barra" aria-hidden="true">
+              {crit > 0 && <i className="ui-bg-crit" style={{ flex: crit }} />}
+              {warn > 0 && <i className="ui-bg-warn" style={{ flex: warn }} />}
+            </span>
+            <small>{n ? [crit ? t('home.aree.rotti', { n: crit }) : null, warn ? t('home.aree.guardare', { n: warn }) : null].filter(Boolean).join(' · ') : t('home.aree.niente')}</small>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
