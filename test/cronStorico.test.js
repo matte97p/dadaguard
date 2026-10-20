@@ -281,12 +281,13 @@ test('tabella e piccoli multipli: dal peggiore, stessa scala per tutti, il ralle
 })
 
 test('vista iniziale: andamento, tranne i link che portano un cron o una ricerca', () => {
-  assert.equal(vistaIniziale('', null), 'andamento')
+  assert.equal(vistaIniziale('', null), 'elenco')
+  assert.equal(vistaIniziale('', 'andamento'), 'andamento')
   assert.equal(vistaIniziale('?cron=prod/job', 'andamento'), 'elenco')
   assert.equal(vistaIniziale('?q=crawler', null), 'elenco')
   assert.equal(vistaIniziale('?vista=andamento&cron=prod/job', null), 'andamento')
   assert.equal(vistaIniziale('', 'elenco'), 'elenco')
-  assert.equal(vistaIniziale('', 'boh'), 'andamento')
+  assert.equal(vistaIniziale('', 'boh'), 'elenco')
 })
 
 test('demo: deterministica, passa dalle funzioni vere, con fallite, saltate e un job rallentato', () => {

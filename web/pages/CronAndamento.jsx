@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, PiccoliMultipli, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
+import { useSchermoPieno } from '../ui/useSchermoPieno.js'
 import { matchesAny } from '../filters.js'
 import { etichettaFascia, numero } from '../grafici.js'
 import { durata, fmtAgo } from '../format.js'
@@ -106,6 +107,7 @@ function TabellaCron({ righe, t, d, lang, passoMs, etichettaConto, onApri }) {
 export default function CronAndamento({ t = (k) => k, lang, refreshKey, accountFilter = [], onApriCron }) {
   const [giorni, setGiorni] = useState(7)
   const [scelto, setScelto] = useState('')
+  useSchermoPieno()
   const tz = useMemo(fusoBrowser, [])
   const { data, loading, error, refresh } = usePoll(`/api/runs/storico?giorni=${giorni}&tz=${encodeURIComponent(tz)}&lang=${lang}`, { intervalMs: 600_000 })
 

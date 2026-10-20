@@ -140,8 +140,8 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
     <div className={vista === 'andamento' ? 'rl-pagina tp-pagina' : 'rl-pagina'}>
       <Tabs
         voci={[
-          { key: 'andamento', label: t('cronStorico.vista.andamento') },
           { key: 'elenco', label: t('cronStorico.vista.elenco') },
+          { key: 'andamento', label: t('cronStorico.vista.andamento') },
         ]}
         attiva={vista}
         onCambia={scegli}
