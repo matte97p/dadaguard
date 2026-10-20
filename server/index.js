@@ -7,7 +7,7 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
-import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCostByCategory, COMPONENT_TAG, COST_CATEGORY } from './costs.js'
+import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCostByCategory, getCostDaily, giorniSpesa, COMPONENT_TAG, COST_CATEGORY } from './costs.js'
 import { cached } from './util/ttlcache.js'
 import { isQueryable, accessoDi } from './accounts.js'
 import { linkAws } from '../shared/accessoAws.js'
@@ -56,7 +56,7 @@ import { statoFlotta } from './flotta.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 import { storicoFlotta } from './storicoAws.js'
-import { demoHistory, demoStoricoDeploy, demoStoricoCron } from './demo.js'
+import { demoHistory, demoStoricoDeploy, demoStoricoCron, demoCostDaily } from './demo.js'
 // rd-server-meta: metadati della UI nuova
 import { spesaGiornaliera } from './meta/spesa.js'
 import { riepilogoLogin } from './meta/accessi.js'
@@ -315,6 +315,46 @@ app.get('/api/costs/categories', async (req, res) => {
       }),
     )
     res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Spesa giorno per giorno (scheda Andamento): un valore al giorno per servizio, 30 o 90 giorni, per
+// account. Una GetCostAndUsage per account copre la finestra (il conto dei costi e' in server/costs.js,
+// sopra getCostDaily). Sei ore di cache, e a scadenza si consegna il dato vecchio e si rinfresca dietro
+// (util/swr.js): Cost Explorer aggiorna la spesa poche volte al giorno, e rinfrescarla piu' spesso
+// ripagherebbe lo stesso numero. L'eta' vera la dice l'header, come per gli altri dati in cache.
+const spesaGiorniMemo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_SPESA_GIORNI_TTL_MS) || 6 * 60 * 60 * 1000,
+  onError: (err, key) => log.error('spesa giorno per giorno: rinfresco in background fallito', { key, err: err.message }),
+})
+
+app.get('/api/costs/daily', async (req, res) => {
+  try {
+    const giorni = giorniSpesa(req.query.giorni)
+    const type = req.query.type // filtro Livello, come per le altre viste dei costi
+    if (isDemo) return res.json(demoCostDaily(giorni, type))
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    const out = {}
+    const quando = []
+    await Promise.all(
+      Object.entries(accounts).map(async ([key, a]) => {
+        if (!isQueryable(a)) return
+        try {
+          const { value, at } = await spesaGiorniMemo(`daily:${key}:${giorni}:${type ?? 'all'}`, () =>
+            getCostDaily({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, accountId: a.accountId, type, giorni }),
+          )
+          quando.push(at)
+          out[key] = { label: a.label ?? key, color: a.color ?? null, ...value }
+        } catch (err) {
+          out[key] = { label: a.label ?? key, error: cleanAwsReason(err, t) }
+        }
+      }),
+    )
+    // L'eta' del dato piu' vecchio: e' quella che conta per dire quanto e' fresco quello che si vede.
+    conEta(res, quando.length ? Math.min(...quando) : null).json(out)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
