@@ -318,7 +318,7 @@ test('build più lenta del solito: giallo in «Da sistemare» solo se è dentro 
   assert.equal(s.length, 1, 'quella di tre giorni fa non è «adesso»')
   assert.equal(s[0].level, 'warn')
   assert.equal(s[0].owner, 'dev')
-  assert.equal(s[0].to, '/tempi?service=api')
+  assert.equal(s[0].to, '/deploy?vista=andamento&service=api')
   assert.match(s[0].detail, /now.slowBuildIn 9 min/)
   const coda = buildSignals({ tempi: { righe: [riga('2026-10-20T10:00:00Z', 'coda')] }, now, hours: 24 })
   assert.equal(coda[0].owner, 'ops')

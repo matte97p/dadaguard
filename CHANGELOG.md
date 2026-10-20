@@ -6,7 +6,8 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
-- **Quanto ci mette un rilascio: la pagina Tempi** (20/10/2026). Una dashboard in stile Grafana sugli
+- **Quanto ci mette un rilascio: la vista Andamento della pagina Deploy** (20/10/2026). Accanto
+  all'elenco dei deploy, una dashboard in stile Grafana a tutta larghezza (il vecchio link `/tempi` ci porta) sugli
   ultimi 7, 30 o 90 giorni (`GET /api/deploys/storico?giorni=`): le tessere della finestra (CI,
   attese, build, deploy, quota di falliti, rilasci al giorno), dove va il tempo fascia per fascia, la
   durata dal push a in produzione (o della sola build) con la fascia fino al p90, i rilasci riusciti e

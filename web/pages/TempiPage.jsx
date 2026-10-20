@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, PiccoliMultipli, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
+import { useSchermoPieno } from '../ui/useSchermoPieno.js'
 import { matchesAny, listaDaUrl } from '../filters.js'
 import { numero } from '../grafici.js'
 import { durata } from '../format.js'
 import { PEZZI, griglia, serieTempi, kpiTempi, perServizio } from '../../shared/tempiSerie.js'
 import './rilasci.css'
 
-// Pagina TEMPI: quanto ci mette un rilascio e dove perde tempo, nel tempo. Una dashboard nello stile
+// Vista ANDAMENTO della pagina Deploy: quanto ci mette un rilascio e dove perde tempo, nel tempo. Una dashboard nello stile
 // di Grafana, scritta per leggersi al volo: «di solito» e «nei giorni lenti» invece di mediana e p90,
 // durate arrotondate al minuto, titoli che sono la domanda a cui il pannello risponde. I punti (uno per
 // build) arrivano da /api/deploys/storico; le serie le fa shared/tempiSerie.js qui nel browser, cosi'
@@ -89,6 +90,7 @@ function TabellaTempi({ righe, t, d }) {
 
 export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   const [giorni, setGiorni] = useState(30)
+  useSchermoPieno()
   // Deep-link `?service=a,b`, come la pagina Deploy.
   const [servizi, setServizi] = useState(() => (typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service')))
   const { data, loading, error, refresh } = usePoll(`/api/deploys/storico?giorni=${giorni}&lang=${lang}`, { intervalMs: 600000 })

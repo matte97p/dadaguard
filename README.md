@@ -55,7 +55,7 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
 - **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
-- **Tempi dei rilasci**: la pagina **Tempi** è una dashboard sugli ultimi 7, 30 o 90 giorni, servizio per
+- **Tempi dei rilasci**: la vista **Andamento** della pagina Deploy è una dashboard sugli ultimi 7, 30 o 90 giorni, servizio per
   servizio: dove va il tempo (CI, attese, build, deploy), dal push a in produzione con la fascia fino al p90,
   rilasci riusciti e falliti, un piccolo grafico per servizio e la tabella con ripristino dopo un fallimento,
   attesa fra staging e produzione e i servizi **più lenti del solito**. Lo storico si rilegge da CodeBuild e

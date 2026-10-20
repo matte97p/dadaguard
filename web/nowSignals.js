@@ -253,7 +253,7 @@ function lenteSignals(tempi, opts, t) {
       title: r.servizio,
       detail: t(l.fase ? 'now.slowBuildIn' : 'now.slowBuild', { d: minuti(l.durationMs), solito: minuti(l.p50), fase: l.fase ? t(`tempi.fase.${l.fase}`) : '' }),
       when: l.quando,
-      to: `/tempi?service=${encodeURIComponent(r.servizio)}`,
+      to: `/deploy?vista=andamento&service=${encodeURIComponent(r.servizio)}`,
       accountKey: r.account,
       accountLabel: r.accountLabel ?? null,
     })

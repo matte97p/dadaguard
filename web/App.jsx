@@ -22,7 +22,6 @@ import RunsPage from './pages/RunsPage.jsx'
 import SpendPage from './pages/SpendPage.jsx'
 import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
-import TempiPage from './pages/TempiPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import AccessiPage from './pages/AccessiPage.jsx'
@@ -54,8 +53,6 @@ const NAV = [
   // barra generica: per questo qui non ne dichiara.
   { to: '/servizi', key: 'services', fields: [], surfaces: ['dashboard'] },
   { to: '/deploy', key: 'deploys', fields: [], surfaces: ['deploys'] },
-  // Tempi: la dashboard dei tempi dei rilasci. Stesse build della pagina Deploy, quindi stessa superficie.
-  { to: '/tempi', key: 'tempi', fields: [], surfaces: ['deploys'] },
   // Cron: la pagina delle esecuzioni. Il nome nuovo e' quello con cui la gente le chiama; il percorso
   // vecchio resta come redirect.
   { to: '/cron', key: 'cron', fields: [], surfaces: [] },
@@ -100,6 +97,8 @@ const REDIRECTS = {
   '/quote': '/limiti',
   '/freetier': '/limiti?tab=freetier',
   '/esecuzioni': '/cron',
+  // La pagina Tempi e' diventata la vista «Andamento» della pagina Deploy.
+  '/tempi': '/deploy?vista=andamento',
 }
 
 // Il redirect tiene la query del link vecchio (`/esecuzioni?cron=x` deve aprire quel cron, non
@@ -724,8 +723,7 @@ export default function App() {
         <div className="ui-body">
           <SideNav voci={vociNav} vociOps={vociOps} attiva={activeNav.to} onScegli={(to) => navigate(to)} mostraOps={ruolo === 'ops'} t={t} />
 
-          {/* Tempi e' una dashboard: prende tutto lo schermo, come Grafana, invece della misura delle liste. */}
-          <main className={`ui-main ${home ? '' : 'ui-main-largo'}${location.pathname === '/tempi' ? ' ui-main-pieno' : ''}`}>
+          <main className={`ui-main ${home ? '' : 'ui-main-largo'}`}>
             {/* La barra dei filtri ha bisogno dei dati (le opzioni vengono dagli account e dai servizi),
                 ma il suo SPAZIO no: senza riservarlo, quando lo stato della flotta arriva la barra
                 compare e spinge giu' l'intera pagina, facendo perdere il punto in cui si stava leggendo. */}
@@ -783,7 +781,6 @@ export default function App() {
                 element={<RunsPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />}
               />
               <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
-              <Route path="/tempi" element={<TempiPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
               <Route
                 path="/spesa"
                 element={<SpendPage accountLabels={aggregateLabels} tabs={tabsOf(NAV_ITEMS.find((n) => n.key === 'spend'))} t={t} lang={lang} />}
