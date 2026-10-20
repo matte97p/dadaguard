@@ -61,6 +61,9 @@ const IN_ATTESA = new Set(['action_required'])
 // salta da solo e si riprova di rado: gli altri continuano.
 const RIPROVA_NASCOSTO_MS = 30 * 60_000
 const FALLITI = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure'])
+// I job dei run finiti tenuti in memoria per i tempi dei deploy: qualche decina di repository per le
+// ultime build di ognuno sta largamente sotto.
+const MAX_RUN_IN_MEMORIA = 2000
 
 export function githubConfig(env = process.env) {
   const appId = String(env.DADAGUARD_GITHUB_APP_ID ?? '').trim()
@@ -163,7 +166,7 @@ class LimiteGithub extends Error {}
 export function nuovoGithub(cfg, deps = {}) {
   if (!cfg) return null
   const fetchGh = deps.fetch ?? globalThis.fetch
-  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), stati: new Map(), nascosti: new Map() }
+  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), etagRun: new Map(), jobs: new Map(), stati: new Map(), nascosti: new Map() }
 
   async function gh(metodo, path, { auth, etag } = {}) {
     const ctrl = new AbortController()
@@ -286,6 +289,45 @@ export function nuovoGithub(cfg, deps = {}) {
     return mem.stati
   }
 
+  // I run dei push sui rami di rilascio di UN repository da `da` in poi, per i tempi dei deploy
+  // (server/tempiDeploy.js). Una richiesta per ramo, condizionale come quelle del quadro: l'inizio si
+  // arrotonda all'ora, quindi l'indirizzo e il suo ETag restano uguali per un'ora. L'ETag sta in una
+  // mappa sua: il giro del quadro pota quelle che non usa, e toglierebbe queste. Lancia sugli errori:
+  // chi chiama decide cosa vuol dire un repository non letto.
+  async function runDi(r, { da, ora = Date.now() } = {}) {
+    const inizio = new Date(Math.floor((da ?? ora - FINESTRA_MS) / 3_600_000) * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const tutti = []
+    for (const ramo of Object.keys(cfg.rami)) {
+      // Chiave senza la data: all'ora nuova la risposta vecchia si sostituisce invece di accumularsi.
+      const base = `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/actions/runs?event=push&branch=${encodeURIComponent(ramo)}&per_page=100`
+      const path = `${base}&created=${encodeURIComponent(`>=${inizio}`)}`
+      const prima = mem.etagRun.get(base)
+      const valida = prima?.path === path ? prima : null
+      const res = await gh('GET', path, { auth: await token(r.owner, ora), etag: valida?.etag })
+      if (res.stato === 304 && valida) tutti.push(...valida.runs)
+      else {
+        const runs = res.json?.workflow_runs ?? []
+        mem.etagRun.set(base, { path, etag: res.etag, runs })
+        tutti.push(...runs)
+      }
+    }
+    return tutti
+  }
+
+  // I job di un run, per dividere la CI dalle attese (server/tempiDeploy.js). Un run FINITO non cambia
+  // più: i suoi job si tengono per sempre e non si richiedono, quindi dopo il primo giro si leggono solo
+  // i run nuovi. La memoria ha un tetto: oltre, esce il run letto per primo.
+  async function jobsDi({ owner, repo, id, finito }, { ora = Date.now() } = {}) {
+    if (mem.jobs.has(id)) return mem.jobs.get(id)
+    const res = await gh('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(id)}/jobs?per_page=100`, { auth: await token(owner, ora) })
+    const jobs = (res.json?.jobs ?? []).map((j) => ({ name: j.name, started_at: j.started_at, completed_at: j.completed_at }))
+    if (finito) {
+      mem.jobs.set(id, jobs)
+      if (mem.jobs.size > MAX_RUN_IN_MEMORIA) mem.jobs.delete(mem.jobs.keys().next().value)
+    }
+    return jobs
+  }
+
   // `lettoAlle`: l'ultima lettura riuscita, per capire se un 🧪 arrivato dalla coda è già finito.
-  return { leggi, mem, org: cfg.org, lettoAlle: () => mem.letto }
+  return { leggi, runDi, jobsDi, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
 }

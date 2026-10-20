@@ -6,6 +6,19 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Quanto ci mette un rilascio, servizio per servizio** (20/10/2026). Nella vista Deploy la scheda
+  *Tempi* (`GET /api/deploys/tempi`) dà mediana e p90, sulle ultime build riuscite, di CI, attesa,
+  coda, build e deploy, e del tempo dal push a in produzione. La CI va dal primo run GitHub del push
+  all'ultimo job finito prima che la build partisse: nei workflow che lanciano CodeBuild e ne
+  aspettano la fine la durata del run conterrebbe il deploy, e un'approvazione su un environment
+  protetto si leggerebbe come test lenti, quindi quel tempo è l'*attesa*, a parte. Accanto: quota di
+  deploy falliti, rilasci in 7 giorni, tempo di ripristino (dal primo rosso di una serie al verde),
+  attesa fra staging e produzione per gli stessi commit, e «più lenta del solito» quando l'ultima
+  build supera il p90 delle precedenti di almeno un minuto. Le stesse serie in `/metrics`
+  (`dadaguard_deploy_duration_seconds{segment,quantile}`, `_failure_ratio`, `_last_7d`,
+  `_recovery_seconds`, `_staging_to_prod_seconds`, `_slow`). I run e i job arrivano dalla GitHub App
+  del quadro, con richieste condizionali e i job dei run finiti letti una volta sola; senza App CI e
+  attesa restano vuote e la pagina lo dice. Cache di 5 minuti (`DADAGUARD_TEMPI_TTL_MS`).
 - **Comandi e link alla console passano da Teleport, dove l'installazione ce l'ha** (19/10/2026).
   Con `teleport.webUrl` (o `teleport.proxy`) in config e, sull'account, `teleportApp` +
   `teleportRole`, il comando suggerito è `tsh aws --app … --aws-role …` invece di

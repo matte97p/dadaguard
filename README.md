@@ -55,6 +55,12 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
 - **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
+- **Tempi dei deploy** per servizio (scheda *Tempi* nella vista Deploy, e in `/metrics`): mediana e p90 di
+  CI, attesa (approvazioni, runner occupati), coda CodeBuild, build e deploy fino al rollout convergente, più
+  il tempo dal push a in produzione, la quota di deploy falliti, quanti rilasci in 7 giorni, il tempo di
+  ripristino dopo un fallimento e l'attesa di un commit fra staging e produzione. Un servizio la cui ultima
+  build è molto sopra il suo p90 si segna **più lenta del solito**. CI e attesa vengono dai run di GitHub
+  Actions (la stessa GitHub App del quadro); senza App quelle colonne restano vuote
 - **Deploy fatti a mano**: riavvii forzati e hotfix lanciati fuori dalla CI, con chi ha premuto — azioni che non producono nessuna build e che nessuna vista mostrava
 - **WAF** (Cloudflare): richieste **fermate** per zona e per regola — traffico che non arriva ai servizi, quindi assente da ogni log applicativo
 - **Topologia** che risponde a due domande, «se questo si ferma chi ne soffre?» e «questo è rotto da cosa dipende?»: le relazioni le **deduce da AWS** (configurazioni, event source, indirizzi dei load balancer con la porta, permessi IAM, security group) e le colonne vengono dagli archi, niente da dichiarare a mano

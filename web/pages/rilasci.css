@@ -184,7 +184,33 @@
   flex-wrap: wrap;
 }
 
+/* Scheda Tempi: mediana in grande, p90 sotto. L'etichetta della cella c'e' solo sul telefono, dove
+   l'intestazione delle colonne sparisce. */
+.rl-tempo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rl-tempo small {
+  font-size: 11px;
+}
+.rl-tempo-et {
+  display: none;
+  color: var(--mute);
+}
+.rl-tempi-riga .ui-name .ui-pill {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
 @media (max-width: 860px) {
+  .rl-tempo-et {
+    display: block;
+  }
+  .rl-tempi-riga > .ui-name {
+    grid-column: 1 / -1;
+  }
   .rl-pagina .ui-row > .rl-hist,
   .rl-pagina .ui-row > .rl-runs {
     display: none;

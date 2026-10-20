@@ -13,6 +13,8 @@ import { isQueryable, accessoDi } from './accounts.js'
 import { linkAws } from '../shared/accessoAws.js'
 import { listDeploys } from './deploys.js'
 import { tabellaRilasci, daRilasciare, testoRilasci } from './rilasci.js'
+import { tempiPerServizio, repoDelleBuild, runDaLeggere } from './tempiDeploy.js'
+import { githubConfig, nuovoGithub } from './notify/github.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { wafOverview } from './waf.js'
 import { budgetsOverview } from './budgets.js'
@@ -86,7 +88,10 @@ app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4')
   try {
     const stato = isDemo ? demoStatus('en') : (await statusFor('en')).value
-    res.send(renderMetrics(stato))
+    // I tempi dei deploy si aggiungono se sono pronti entro due secondi: a cache fredda il primo giro
+    // legge CodeBuild e GitHub, e uno scrape non deve aspettarlo. Lo scrape dopo li trova.
+    const tempi = await Promise.race([tempiCached('en').then((r) => r.value.righe), new Promise((ok) => setTimeout(() => ok([]), 2000))]).catch(() => [])
+    res.send(renderMetrics(stato, tempi))
   } catch (err) {
     res.status(500).send(`# scrape failed: ${err.message}\ndadaguard_scrape_success 0\n`)
   }
@@ -396,6 +401,59 @@ app.get('/api/rilasci', async (req, res) => {
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// I tempi dei deploy per servizio (CI, coda, build, deploy) e la salute del canale di rilascio, vedi
+// server/tempiDeploy.js. Le build sono quelle di /api/deploys SENZA finestra (le ultime per progetto,
+// stesso giro AWS); i run GitHub servono solo alla colonna CI e al lead time, e arrivano dalla stessa
+// GitHub App del quadro. Senza App, o con GitHub che non risponde, la colonna resta vuota e lo si dice
+// in `ciNota`: il resto della tabella non dipende da GitHub.
+const githubTempi = nuovoGithub(githubConfig())
+const tempiMemo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_TEMPI_TTL_MS) || 5 * 60_000,
+  onError: (err, key) => log.error('tempi deploy: rinfresco in background fallito', { key, err: err.message }),
+})
+
+async function leggiTempi(lang) {
+  const perAccount = (await deploysCached(lang)).value
+  if (!githubTempi) return { righe: tempiPerServizio(perAccount), ciNota: 'senza-app' }
+  const runs = new Map()
+  const nonLetti = []
+  await Promise.all(
+    repoDelleBuild(perAccount, { org: githubTempi.org }).map(async (r) => {
+      try {
+        runs.set(`${r.owner}/${r.repo}`.toLowerCase(), await githubTempi.runDi(r, { da: r.da }))
+      } catch (err) {
+        nonLetti.push(`${r.owner}/${r.repo}`)
+        log.warn('tempi deploy: run GitHub non letti, CI vuota per il repository', { repo: `${r.owner}/${r.repo}`, err: err.message })
+      }
+    }),
+  )
+  // I job servono a separare la CI dalle attese: senza, la CI resta intera e l'attesa vuota.
+  const jobs = new Map()
+  const daLeggere = runDaLeggere(perAccount, runs, githubTempi.rami)
+  for (let i = 0; i < daLeggere.length; i += 5) {
+    await Promise.all(
+      daLeggere.slice(i, i + 5).map((r) =>
+        githubTempi
+          .jobsDi(r)
+          .then((j) => jobs.set(r.id, j))
+          .catch((err) => log.warn('tempi deploy: job GitHub non letti, CI senza attese', { repo: `${r.owner}/${r.repo}`, run: r.id, err: err.message })),
+      ),
+    )
+  }
+  return { righe: tempiPerServizio(perAccount, { runs, jobs, rami: githubTempi.rami }), ciNota: nonLetti.length ? 'parziale' : null, nonLetti }
+}
+
+const tempiCached = (lang) => (isDemo ? Promise.resolve({ value: { righe: tempiPerServizio(demoDeploys()), ciNota: 'senza-app' }, at: null }) : tempiMemo(`tempi:${lang ?? ''}`, () => leggiTempi(lang)))
+
+app.get('/api/deploys/tempi', async (req, res) => {
+  try {
+    const { value, at } = await tempiCached(req.query.lang)
+    conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
