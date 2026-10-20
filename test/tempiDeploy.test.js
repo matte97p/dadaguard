@@ -184,3 +184,27 @@ test('client GitHub: run per ramo con ETag che vale un’ora, job dei run finiti
   const job = chiamate.filter((c) => c.path.endsWith('/jobs')).map((c) => c.path)
   assert.deepEqual(job, ['/repos/acme/api/actions/runs/5/jobs', '/repos/acme/api/actions/runs/6/jobs', '/repos/acme/api/actions/runs/6/jobs'], 'un run ancora in corso si rilegge')
 })
+
+test('client GitHub: sotto la riserva di richieste dell’ora i job aspettano il giro dopo', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const risposta = (status, json, headers = {}) => ({ status, ok: status >= 200 && status < 300, headers: new Headers(headers), json: async () => json })
+  let resta = '5000'
+  let jobs = 0
+  const fetch = async (url) => {
+    const u = new URL(url)
+    if (u.pathname === '/orgs/acme/installation') return risposta(200, { id: 7 })
+    if (u.pathname.endsWith('/access_tokens')) return risposta(201, { token: 'ghs_x', expires_at: iso(ORA + 3_600_000) })
+    if (u.pathname.endsWith('/jobs')) {
+      jobs++
+      return risposta(200, { jobs: [] }, { 'x-ratelimit-remaining': resta })
+    }
+    return risposta(404, {})
+  }
+  const gh = nuovoGithub({ appId: '1', chiave: privateKey.export({ type: 'pkcs1', format: 'pem' }), org: null, rami: RAMI }, { fetch })
+  await gh.jobsDi({ owner: 'acme', repo: 'api', id: 1, finito: true })
+  resta = '900'
+  await gh.jobsDi({ owner: 'acme', repo: 'api', id: 2, finito: true })
+  await assert.rejects(gh.jobsDi({ owner: 'acme', repo: 'api', id: 3, finito: true }), (e) => e.riserva === true)
+  assert.equal(jobs, 2, 'il terzo non è partito')
+  assert.deepEqual(await gh.jobsDi({ owner: 'acme', repo: 'api', id: 1, finito: true }), [], 'quelli già in memoria si danno lo stesso')
+})

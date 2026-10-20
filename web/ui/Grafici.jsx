@@ -228,7 +228,9 @@ export function GraficoMemoria({ andamento, lang, t, formatoGb }) {
 // Colonne impilate, una per fascia, coi tipi che contano (login fallite, accessi negati, scritture in
 // produzione, SSH). Colonne sottili con l'aria fra l'una e l'altra, due pixel di fondo fra i pezzi
 // della stessa colonna, l'angolo tondo solo in cima. Una fascia fuori dal campione resta vuota.
-export function GraficoEventi({ andamento, serie = [], lang, t }) {
+// `aria`, `formato` (valori e asse) ed `extra` (righe in piu' nel riquadro, per indice) servono agli
+// altri grafici a colonne (i tempi dei deploy); senza, e' il grafico degli eventi di Accessi.
+export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, extra }) {
   const [ref, larghezza] = useLarghezza()
   const punti = andamento?.punti ?? 0
   const m = { sx: 34, dx: 10, su: 10, plot: 120, giu: 24 }
@@ -246,8 +248,8 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
   const xt = (k) => m.sx + k * banda
   return (
     <div className="ui-grafico" ref={ref}>
-      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={t('accessi.grafico.aria')} {...mirino}>
-        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={(v) => (Number.isInteger(v) ? String(v) : '')} />
+      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria ?? t('accessi.grafico.aria')} {...mirino}>
+        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato ?? ((v) => (Number.isInteger(v) ? String(v) : ''))} />
         <AsseTempo serie={andamento} x={xt} alto={m.su} basso={asse} lang={lang} griglia={false} />
         {i != null && <rect x={xt(i)} width={banda} y={m.su} height={m.plot} className="ui-fascia-mirino" />}
         {pile.map((p) => {
@@ -274,8 +276,52 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
           larghezza={larghezza}
           titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
           righe={[
-            ...serie.map((s) => ({ colore: s.colore, etichetta: s.etichetta, valore: s.valori[i] == null ? '-' : String(s.valori[i]) })),
-            { etichetta: t('accessi.grafico.persone'), valore: andamento.persone?.[i] == null ? '-' : String(andamento.persone[i]) },
+            ...serie.map((s) => ({ colore: s.colore, etichetta: s.etichetta, valore: s.valori[i] == null ? '-' : (formato ?? String)(s.valori[i]) })),
+            ...(extra ? extra(i) : [{ etichetta: t('accessi.grafico.persone'), valore: andamento.persone?.[i] == null ? '-' : String(andamento.persone[i]) }]),
+          ]}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Mediana e p90 ──────────────────────────────────────────────────────────────────────────────────
+//
+// Una durata nel tempo: la linea della mediana nel colore d'accento e la fascia fino al p90 sotto
+// (la stessa tinta, chiara). Una fascia che si allarga dice «di solito va, ogni tanto no»; una linea
+// che sale dice «va peggio sempre». Le fasce senza dati sono buchi, non zeri.
+export function GraficoBanda({ andamento, p50 = [], p90 = [], lang, aria, formato = String, etichette }) {
+  const [ref, larghezza] = useLarghezza()
+  const punti = andamento?.punti ?? 0
+  const m = { sx: 44, dx: 14, su: 10, plot: 150, giu: 24 }
+  const destra = Math.max(m.sx + 40, larghezza - m.dx)
+  const x = useCallback((k) => m.sx + (k * (destra - m.sx)) / Math.max(1, punti - 1), [destra, punti, m.sx])
+  const hi = tondo(Math.max(0, ...[...p50, ...p90].filter((v) => v != null && Number.isFinite(v))) || 1)
+  const y = (v) => m.su + m.plot - (v / hi) * m.plot
+  const asse = m.su + m.plot
+  const [i, mirino] = useMirino(punti, x)
+  if (!punti) return null
+  const ultimo = p50.reduce((u, v, k) => (v != null ? k : u), -1)
+  return (
+    <div className="ui-grafico" ref={ref}>
+      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria} {...mirino}>
+        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato} />
+        <AsseTempo serie={andamento} x={x} alto={m.su} basso={asse} lang={lang} />
+        <path d={percorsoBanda(p90, p50, x, y)} className="ui-banda" />
+        <path d={percorso(p50, x, y)} className="ui-linea ui-linea-accento" />
+        {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(p50[ultimo])} r="4" className="ui-punto-accento" />}
+        {i != null && <line x1={x(i)} x2={x(i)} y1={m.su} y2={asse} className="ui-mirino" />}
+        {i != null && p50[i] != null && <circle cx={x(i)} cy={y(p50[i])} r="4" className="ui-punto-accento" />}
+      </svg>
+      {i != null && (
+        <Lettura
+          x={x(i)}
+          larghezza={larghezza}
+          titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
+          righe={[
+            { colore: 'var(--chart-1)', etichetta: etichette.p50, valore: p50[i] == null ? '-' : formato(p50[i]) },
+            { etichetta: etichette.p90, valore: p90[i] == null ? '-' : formato(p90[i]) },
+            ...(etichette.extra ? etichette.extra(i) : []),
           ]}
         />
       )}
@@ -289,7 +335,7 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
 // stesso asse del tempo, che si scrive una volta sola in fondo. Il mirino attraversa tutte le righe,
 // e il numero di ogni riga diventa quello dell'ora indicata: e' cosi' che si vede che lo swap e' salito
 // nell'ora dell'OOM.
-export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
+export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultimoTesto }) {
   const [ref, larghezza] = useLarghezza(460)
   const punti = tempo?.punti ?? 0
   const m = { sx: 0, dx: 6, alta: 40, testa: 22, spazio: 12, giu: 22 }
@@ -302,7 +348,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
   const fine = visibili.length * altezzaRiga
   return (
     <div className="ui-grafico ui-multipli" ref={ref}>
-      <svg width={larghezza} height={fine + m.giu} tabIndex={0} role="img" aria-label={t('flotta.serie.aria')} {...mirino}>
+      <svg width={larghezza} height={fine + m.giu} tabIndex={0} role="img" aria-label={aria ?? t('flotta.serie.aria')} {...mirino}>
         {visibili.map((r, n) => {
           const top = n * altezzaRiga
           const noti = r.valori.filter((v) => v != null)
@@ -340,7 +386,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
         {i != null && <line x1={x(i)} x2={x(i)} y1={0} y2={fine - m.spazio} className="ui-mirino" />}
       </svg>
       <p className="ui-multipli-quando">
-        {i != null ? etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang) : t('flotta.serie.ultimo')}
+        {i != null ? etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang) : ultimoTesto ?? t('flotta.serie.ultimo')}
       </p>
     </div>
   )

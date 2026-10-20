@@ -168,78 +168,6 @@ function Fasi({ phases = [] }) {
   )
 }
 
-// I tempi per servizio (server/tempiDeploy.js): mediana grande, p90 sotto. L'etichetta in ogni cella
-// serve sul telefono, dove l'intestazione delle colonne non c'e' e le celle vanno a capo a coppie.
-const TEMPI_SEGMENTI = ['ci', 'attesa', 'coda', 'build', 'deploy', 'lead']
-const COLONNE_TEMPI = `minmax(0,1.3fr) repeat(${TEMPI_SEGMENTI.length + 4}, minmax(64px,1fr))`
-const COLONNE_TEMPI_M = 'minmax(0,1fr) minmax(0,1fr)'
-
-function Cella({ etichetta, valore, sotto, livello, titolo }) {
-  return (
-    <span className="rl-tempo" title={titolo}>
-      <small className="rl-tempo-et">{etichetta}</small>
-      <b className={`ui-mono${livello ? ` ui-t-${livello}` : ''}`}>{valore ?? '—'}</b>
-      {sotto && <small className="ui-mute">{sotto}</small>}
-    </span>
-  )
-}
-
-function TabellaTempi({ dati, loading, error, t }) {
-  const righe = dati?.righe ?? []
-  const col = (k) => t(`rilasci.dep.tempi.col.${k}`)
-  return (
-    <>
-      <p className="ui-note">{t('rilasci.dep.tempi.nota')}</p>
-      {dati?.ciNota === 'senza-app' && <p className="ui-note">{t('rilasci.dep.tempi.senzaApp')}</p>}
-      {dati?.ciNota === 'parziale' && <div className="ui-readwarn">{t('rilasci.dep.tempi.parziale', { repo: (dati.nonLetti ?? []).join(', ') })}</div>}
-      {error && <div className="ui-readwarn">{error}</div>}
-      {loading && !dati ? (
-        <p className="ui-mute">{t('rilasci.dep.v.attesa')}</p>
-      ) : (
-        <Lista
-          colonne={[t('rilasci.dep.col.servizio'), ...TEMPI_SEGMENTI.map(col), col('falliti'), col('settimana'), col('ripristino'), col('daStaging')]}
-          griglia={COLONNE_TEMPI}
-          grigliaMobile={COLONNE_TEMPI_M}
-          vuoto={t('rilasci.dep.tempi.vuoto')}
-        >
-          {righe.map((r) => {
-            const f = r.fallimento
-            return (
-              <div key={`${r.account}/${r.servizio}`} className="ui-row rl-tempi-riga">
-                <span className="ui-name">
-                  {r.servizio}
-                  <small>{[r.accountLabel, t('rilasci.dep.tempi.campioni', { n: r.campioni })].join(' · ')}</small>
-                  {r.lenta && (
-                    <span title={t('rilasci.dep.tempi.lentaTip', { d: fmtMs(r.lenta.durationMs), p90: fmtMs(r.lenta.p90), build: r.lenta.build ?? '?' })}>
-                      <Pill livello="warn">{t('rilasci.dep.tempi.lenta')}</Pill>
-                    </span>
-                  )}
-                </span>
-                {TEMPI_SEGMENTI.map((k) => (
-                  <Cella key={k} etichetta={col(k)} valore={r[k] ? fmtMs(r[k].p50) : null} sotto={r[k] ? `p90 ${fmtMs(r[k].p90)}` : null} />
-                ))}
-                <Cella
-                  etichetta={col('falliti')}
-                  valore={f ? `${Math.round(f.tasso * 100)}%` : null}
-                  sotto={f ? t('rilasci.dep.tempi.suFiniti', { n: f.falliti, tot: f.finiti }) : null}
-                  livello={f && f.tasso >= 0.25 ? 'crit' : f && f.tasso > 0 ? 'warn' : null}
-                />
-                <Cella etichetta={col('settimana')} valore={r.settimana ? `${r.settimana.almeno && r.settimana.n ? '≥' : ''}${r.settimana.n}` : null} titolo={r.settimana?.almeno && r.settimana.n ? t('rilasci.dep.tempi.almenoTip') : undefined} />
-                <Cella etichetta={col('ripristino')} valore={r.ripristino ? fmtMs(r.ripristino.p50) : null} sotto={r.ripristino ? t('rilasci.dep.tempi.volte', { n: r.ripristino.n }) : null} />
-                <Cella
-                  etichetta={col('daStaging')}
-                  valore={r.daStaging ? fmtMs(r.daStaging.p50) : null}
-                  sotto={r.daStaging ? `p90 ${fmtMs(r.daStaging.p90)}` : r.ambiente === 'produzione' ? t('rilasci.dep.tempi.nonAbbinato') : null}
-                />
-              </div>
-            )
-          })}
-        </Lista>
-      )}
-    </>
-  )
-}
-
 // Il pannello di UNA build: cosa e' successo e cosa fare, i fatti (commit, chi, quando, durata), gli
 // ultimi deploy dello stesso servizio, le fasi e i link alle console che ne sanno di piu'.
 function PannelloBuild({ sel, onClose, t }) {
@@ -322,9 +250,6 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
   const [query, setQuery] = useState('')
   const [vista, setVista] = useState('servizi')
   const [selected, setSelected] = useState(null) // { build, accountLabel, recenti }
-  // I tempi si chiedono solo con la loro scheda aperta: il primo giro legge anche GitHub. Il server li
-  // tiene 5 minuti, quindi rileggerli piu' spesso non darebbe niente di nuovo.
-  const tempi = usePoll(`/api/deploys/tempi?lang=${lang}`, { intervalMs: 300000, enabled: vista === 'tempi' })
 
   // Il bottone "Aggiorna" globale fa +1 su refreshKey: questa pagina ha un fetch proprio.
   const seenRk = useRef(refreshKey)
@@ -473,19 +398,13 @@ export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFil
           voci={[
             { key: 'servizi', label: t('rilasci.dep.vistaServizi'), n: gruppi.length },
             { key: 'build', label: t('rilasci.dep.vistaBuild'), n: visibili.length },
-            { key: 'tempi', label: t('rilasci.dep.vistaTempi') },
           ]}
           attiva={vista}
           onCambia={setVista}
         />
       </div>
 
-      {vista === 'tempi' ? (
-        <TabellaTempi
-          // Gli stessi filtri delle altre schede: account in alto, servizi dal link, ricerca.
-          dati={tempi.data && { ...tempi.data, righe: (tempi.data.righe ?? []).filter((r) => matchesAny(r.account, accountFilter) && matchesAny(r.servizio, serviceFilter) && cercato({ service: r.servizio })) }}
-          loading={tempi.loading} error={tempi.error} t={t} />
-      ) : loading && !data ? (
+      {loading && !data ? (
         <p className="ui-mute">{t('rilasci.dep.v.attesa')}</p>
       ) : vista === 'servizi' ? (
         <Lista

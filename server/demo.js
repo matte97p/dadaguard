@@ -1923,3 +1923,84 @@ export function demoSpesaGiornaliera(now = new Date()) {
   }
   return out
 }
+
+// Lo storico della dashboard dei tempi, finto e DETERMINISTICO (stesso seme, stessi grafici: il video
+// demo e i test non tremano). Build CodeBuild con le fasi, run GitHub e job, cosi' passa dallo stesso
+// codice dello storico vero (server/tempiDeploy.js): CI, attese, coda, build e deploy, le cache fredde
+// che triplicano una build, qualche fallimento, le approvazioni di produzione che si fanno aspettare.
+export function demoStoricoDeploy(giorni = 30, ora = Date.now()) {
+  let seme = 20261020
+  const rnd = () => {
+    seme = (seme + 0x6d2b79f5) | 0
+    let t = Math.imul(seme ^ (seme >>> 15), 1 | seme)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const hex = (n) => Array.from({ length: n }, () => Math.floor(rnd() * 16).toString(16)).join('')
+  const SERVIZI = [
+    { s: 'backend', build: 260, deploy: 150, ci: 540 },
+    { s: 'frontend', build: 140, deploy: 70, ci: 300 },
+    { s: 'agentic-chat', build: 200, deploy: 120, ci: 420 },
+    { s: 'search-api', build: 110, deploy: 90, ci: 240 },
+    { s: 'billing-worker', build: 80, deploy: 60, ci: 180 },
+  ]
+  const AMB = [
+    { key: 'staging', label: 'Staging', ramo: 'staging', alGiorno: 3 },
+    { key: 'prod', label: 'Production', ramo: 'main', alGiorno: 1 },
+  ]
+  const perAccount = Object.fromEntries(AMB.map((a) => [a.key, { label: a.label, builds: [] }]))
+  const runs = new Map()
+  const jobs = new Map()
+  let idRun = 1000
+  let numero = 1
+  const fase = (type, s, status = 'SUCCEEDED') => ({ type, status, durationMs: Math.round(s * 1000) })
+  const inizio = ora - giorni * 86_400_000
+  for (const sv of SERVIZI) {
+    const repo = `https://github.com/example-org/${sv.s}`
+    const lista = []
+    runs.set(`example-org/${sv.s}`, lista)
+    const inStaging = []
+    for (const a of AMB) {
+      // Un rilascio ogni tanto, in orario di lavoro, piu' fitto verso oggi (il servizio cresce).
+      for (let t = inizio; t < ora - 3_600_000; t += (86_400_000 / a.alGiorno) * (0.4 + rnd() * 1.2)) {
+        const h = new Date(t).getHours()
+        if (h < 8 || h > 19) continue
+        const fredda = rnd() < 0.08 ? 2.6 : 1
+        const lenta = (t - inizio) / (ora - inizio) > 0.6 && sv.s === 'backend' ? 1.35 : 1
+        const coda = 20 + rnd() * 25
+        const build = sv.build * fredda * lenta * (0.85 + rnd() * 0.3)
+        const deploy = sv.deploy * (0.8 + rnd() * 0.4)
+        const fallita = rnd() < 0.08
+        const commit = a.key === 'prod' && inStaging.length && rnd() < 0.7 ? inStaging[Math.floor(rnd() * inStaging.length)] : hex(40)
+        const ci = sv.ci * (0.8 + rnd() * 0.5)
+        const attesa = a.key === 'prod' && rnd() < 0.25 ? 600 + rnd() * 2400 : 15 + rnd() * 60
+        const startedAt = t
+        const fasi = [fase('SUBMITTED', 1), fase('QUEUED', coda * 0.3), fase('PROVISIONING', coda * 0.7), fase('DOWNLOAD_SOURCE', 8), fase('INSTALL', 20), fase('PRE_BUILD', 10)]
+        const durata = fallita ? coda + 38 + build * 0.5 : coda + 38 + build - 38 + deploy
+        fasi.push(fallita ? fase('BUILD', build * 0.5, 'FAILED') : fase('BUILD', build - 38))
+        if (!fallita) fasi.push(fase('POST_BUILD', deploy))
+        fasi.push({ type: 'COMPLETED', status: null, durationMs: null })
+        perAccount[a.key].builds.push({
+          id: `demo-${a.key}-${sv.s}-deploy:${numero}`,
+          number: numero++,
+          service: sv.s,
+          project: `demo-${a.key}-${sv.s}-deploy`,
+          repo,
+          status: fallita ? 'FAILED' : 'SUCCEEDED',
+          inProgress: false,
+          commit: commit.slice(0, 7),
+          startedAt: new Date(startedAt).toISOString(),
+          endedAt: new Date(startedAt + durata * 1000).toISOString(),
+          durationMs: Math.round(durata * 1000),
+          phases: fasi,
+        })
+        if (a.key === 'staging' && !fallita) inStaging.push(commit)
+        const id = idRun++
+        const fineTest = startedAt - attesa * 1000
+        lista.push({ id, event: 'push', head_branch: a.ramo, head_sha: commit, status: 'completed', run_started_at: new Date(fineTest - ci * 1000).toISOString() })
+        jobs.set(id, [{ name: 'test', completed_at: new Date(fineTest).toISOString() }])
+      }
+    }
+  }
+  return { perAccount, runs, jobs, rami: { staging: 'staging', main: 'produzione' } }
+}

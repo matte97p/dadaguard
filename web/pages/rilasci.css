@@ -184,7 +184,22 @@
   flex-wrap: wrap;
 }
 
-/* Scheda Tempi: mediana in grande, p90 sotto. L'etichetta della cella c'e' solo sul telefono, dove
+/* Pagina Tempi: due pannelli affiancati quando c'e' posto, uno sotto l'altro sul telefono. */
+.tp-griglia {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 16px;
+}
+.tp-select {
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* Tabella dei tempi: mediana in grande, p90 sotto. L'etichetta della cella c'e' solo sul telefono, dove
    l'intestazione delle colonne sparisce. */
 .rl-tempo {
   display: flex;

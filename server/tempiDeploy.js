@@ -19,6 +19,9 @@
 // della build è l'ATTESA (approvazioni, wait timer, runner occupati), contata a parte.
 import { ambienteDi } from './rilasci.js'
 import { repoDaUrl } from './notify/github.js'
+import { quantile, riassunto } from '../shared/tempiSerie.js'
+
+export { quantile }
 
 const CODA = new Set(['SUBMITTED', 'QUEUED', 'PROVISIONING'])
 const BUILD = new Set(['DOWNLOAD_SOURCE', 'INSTALL', 'PRE_BUILD', 'BUILD'])
@@ -38,21 +41,6 @@ const CI_MAX_MS = 3 * 3_600_000
 const SETTIMANA_MS = 7 * 86_400_000
 
 const ms = (v) => (v == null ? null : new Date(v).getTime())
-
-// Quantile con interpolazione lineare (lo stesso di numpy di default). Puro.
-export function quantile(valori, q) {
-  const v = valori.filter(Number.isFinite).sort((a, b) => a - b)
-  if (!v.length) return null
-  const pos = (v.length - 1) * q
-  const lo = Math.floor(pos)
-  const hi = Math.ceil(pos)
-  return Math.round(v[lo] + (v[hi] - v[lo]) * (pos - lo))
-}
-
-const riassunto = (valori) => {
-  const v = valori.filter(Number.isFinite)
-  return v.length ? { p50: quantile(v, 0.5), p90: quantile(v, 0.9), n: v.length } : null
-}
 
 // Le durate di una build per segmento, dalle sue fasi. Un segmento senza nessuna fase misurata resta
 // null, non zero: «0s di coda» e «non lo so» sono due cose diverse. Puro/testabile.
@@ -262,4 +250,37 @@ export function repoDelleBuild(perAccount = {}, { org = null } = {}) {
       else if (Number.isFinite(da) && (!Number.isFinite(gia.da) || da < gia.da)) gia.da = da
     }
   return [...out.values()]
+}
+
+// Un punto per build finita, per la dashboard dei tempi (shared/tempiSerie.js fa le serie nel
+// browser). Campi corti: su 90 giorni sono migliaia di build, e il JSON resta sotto qualche centinaio
+// di KB. STOPPED non è né riuscita né fallita: qualcuno l'ha fermata, e resta fuori. Puro/testabile.
+export function puntiBuild(perAccount = {}, { runs = null, jobs = null, rami = {} } = {}) {
+  const ramoDi = ramoPerAmbiente(rami)
+  const out = []
+  for (const [chiave, dati] of Object.entries(perAccount)) {
+    const amb = ambienteDi(chiave)
+    for (const b of dati?.builds ?? []) {
+      if (!isBuildVera(b) || b.inProgress) continue
+      const esito = b.status === 'SUCCEEDED' ? 'ok' : FALLITI.has(b.status) ? 'ko' : null
+      const t = ms(b.startedAt)
+      if (!esito || !Number.isFinite(t)) continue
+      const seg = segmentiBuild(b)
+      const lista = esito === 'ok' ? runDelRepo(b, runs) : null
+      const c = lista ? ciDellaBuild(b, lista, ramoDi[amb] ?? null, jobs) : null
+      out.push({
+        a: chiave,
+        s: b.service,
+        amb,
+        t,
+        esito,
+        n: b.number,
+        ...seg,
+        ci: c?.ci ?? null,
+        attesa: c?.attesa ?? null,
+        lead: c && b.endedAt ? ms(b.endedAt) - c.inizio : null,
+      })
+    }
+  }
+  return out.sort((x, y) => x.t - y.t)
 }

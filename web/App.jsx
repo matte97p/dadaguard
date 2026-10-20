@@ -22,6 +22,7 @@ import RunsPage from './pages/RunsPage.jsx'
 import SpendPage from './pages/SpendPage.jsx'
 import LimitsPage from './pages/LimitsPage.jsx'
 import DeploysPage from './pages/DeploysPage.jsx'
+import TempiPage from './pages/TempiPage.jsx'
 import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import AccessiPage from './pages/AccessiPage.jsx'
@@ -53,6 +54,8 @@ const NAV = [
   // barra generica: per questo qui non ne dichiara.
   { to: '/servizi', key: 'services', fields: [], surfaces: ['dashboard'] },
   { to: '/deploy', key: 'deploys', fields: [], surfaces: ['deploys'] },
+  // Tempi: la dashboard dei tempi dei rilasci. Stesse build della pagina Deploy, quindi stessa superficie.
+  { to: '/tempi', key: 'tempi', fields: [], surfaces: ['deploys'] },
   // Cron: la pagina delle esecuzioni. Il nome nuovo e' quello con cui la gente le chiama; il percorso
   // vecchio resta come redirect.
   { to: '/cron', key: 'cron', fields: [], surfaces: [] },
@@ -779,6 +782,7 @@ export default function App() {
                 element={<RunsPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />}
               />
               <Route path="/deploy" element={<DeploysPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
+              <Route path="/tempi" element={<TempiPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />} />
               <Route
                 path="/spesa"
                 element={<SpendPage accountLabels={aggregateLabels} tabs={tabsOf(NAV_ITEMS.find((n) => n.key === 'spend'))} t={t} lang={lang} />}

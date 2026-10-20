@@ -64,6 +64,10 @@ const FALLITI = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure']
 // I job dei run finiti tenuti in memoria per i tempi dei deploy: qualche decina di repository per le
 // ultime build di ognuno sta largamente sotto.
 const MAX_RUN_IN_MEMORIA = 2000
+// Le pagine di run lette per ramo (100 run l'una), e le richieste lasciate libere nell'ora per il
+// quadro: i tempi dei deploy possono aspettare, gli stati dei test no.
+const PAGINE_RUN = 3
+const RISERVA_RICHIESTE = 1000
 
 export function githubConfig(env = process.env) {
   const appId = String(env.DADAGUARD_GITHUB_APP_ID ?? '').trim()
@@ -166,7 +170,7 @@ class LimiteGithub extends Error {}
 export function nuovoGithub(cfg, deps = {}) {
   if (!cfg) return null
   const fetchGh = deps.fetch ?? globalThis.fetch
-  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), etagRun: new Map(), jobs: new Map(), stati: new Map(), nascosti: new Map() }
+  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), etagRun: new Map(), jobs: new Map(), resta: null, stati: new Map(), nascosti: new Map() }
 
   async function gh(metodo, path, { auth, etag } = {}) {
     const ctrl = new AbortController()
@@ -187,6 +191,8 @@ export function nuovoGithub(cfg, deps = {}) {
       // Il rate limit esaurito risponde 403 (o 429) con `x-ratelimit-remaining: 0`, o con `retry-after`
       // per il limite secondario: si aspetta fin lì, invece di insistere e allungare la punizione.
       const resta = res.headers.get('x-ratelimit-remaining')
+      // Il residuo dell'ora, per le letture che possono aspettare (i tempi dei deploy, vedi `jobsDi`).
+      if (resta != null && Number.isFinite(Number(resta))) mem.resta = Number(resta)
       if ((res.status === 403 || res.status === 429) && (resta === '0' || res.headers.get('retry-after'))) {
         const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000
         const dopo = Number(res.headers.get('retry-after')) * 1000
@@ -298,17 +304,23 @@ export function nuovoGithub(cfg, deps = {}) {
     const inizio = new Date(Math.floor((da ?? ora - FINESTRA_MS) / 3_600_000) * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const tutti = []
     for (const ramo of Object.keys(cfg.rami)) {
-      // Chiave senza la data: all'ora nuova la risposta vecchia si sostituisce invece di accumularsi.
-      const base = `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/actions/runs?event=push&branch=${encodeURIComponent(ramo)}&per_page=100`
-      const path = `${base}&created=${encodeURIComponent(`>=${inizio}`)}`
-      const prima = mem.etagRun.get(base)
-      const valida = prima?.path === path ? prima : null
-      const res = await gh('GET', path, { auth: await token(r.owner, ora), etag: valida?.etag })
-      if (res.stato === 304 && valida) tutti.push(...valida.runs)
-      else {
-        const runs = res.json?.workflow_runs ?? []
-        mem.etagRun.set(base, { path, etag: res.etag, runs })
+      // Su 90 giorni un ramo può avere più di 100 run: si va avanti a pagine, con un tetto. Oltre il
+      // tetto restano fuori i run più vecchi, che sono gli ultimi della lista.
+      for (let pagina = 1; pagina <= PAGINE_RUN; pagina++) {
+        // Chiave senza la data: all'ora nuova la risposta vecchia si sostituisce invece di accumularsi.
+        const base = `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/actions/runs?event=push&branch=${encodeURIComponent(ramo)}&per_page=100&page=${pagina}`
+        const path = `${base}&created=${encodeURIComponent(`>=${inizio}`)}`
+        const prima = mem.etagRun.get(base)
+        const valida = prima?.path === path ? prima : null
+        const res = await gh('GET', path, { auth: await token(r.owner, ora), etag: valida?.etag })
+        let runs
+        if (res.stato === 304 && valida) runs = valida.runs
+        else {
+          runs = res.json?.workflow_runs ?? []
+          mem.etagRun.set(base, { path, etag: res.etag, runs })
+        }
         tutti.push(...runs)
+        if (runs.length < 100) break
       }
     }
     return tutti
@@ -319,6 +331,9 @@ export function nuovoGithub(cfg, deps = {}) {
   // i run nuovi. La memoria ha un tetto: oltre, esce il run letto per primo.
   async function jobsDi({ owner, repo, id, finito }, { ora = Date.now() } = {}) {
     if (mem.jobs.has(id)) return mem.jobs.get(id)
+    // La GitHub App è la stessa degli stati dei test del quadro: sotto la riserva i job si lasciano al
+    // giro dopo, invece di togliere al quadro le richieste che gli servono.
+    if (mem.resta != null && mem.resta < RISERVA_RICHIESTE) throw Object.assign(new Error(`github: restano ${mem.resta} richieste nell'ora, i job aspettano`), { riserva: true })
     const res = await gh('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(id)}/jobs?per_page=100`, { auth: await token(owner, ora) })
     const jobs = (res.json?.jobs ?? []).map((j) => ({ name: j.name, started_at: j.started_at, completed_at: j.completed_at }))
     if (finito) {

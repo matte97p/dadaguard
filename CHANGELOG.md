@@ -6,19 +6,24 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
-- **Quanto ci mette un rilascio, servizio per servizio** (20/10/2026). Nella vista Deploy la scheda
-  *Tempi* (`GET /api/deploys/tempi`) dà mediana e p90, sulle ultime build riuscite, di CI, attesa,
-  coda, build e deploy, e del tempo dal push a in produzione. La CI va dal primo run GitHub del push
-  all'ultimo job finito prima che la build partisse: nei workflow che lanciano CodeBuild e ne
-  aspettano la fine la durata del run conterrebbe il deploy, e un'approvazione su un environment
-  protetto si leggerebbe come test lenti, quindi quel tempo è l'*attesa*, a parte. Accanto: quota di
-  deploy falliti, rilasci in 7 giorni, tempo di ripristino (dal primo rosso di una serie al verde),
-  attesa fra staging e produzione per gli stessi commit, e «più lenta del solito» quando l'ultima
-  build supera il p90 delle precedenti di almeno un minuto. Le stesse serie in `/metrics`
-  (`dadaguard_deploy_duration_seconds{segment,quantile}`, `_failure_ratio`, `_last_7d`,
-  `_recovery_seconds`, `_staging_to_prod_seconds`, `_slow`). I run e i job arrivano dalla GitHub App
-  del quadro, con richieste condizionali e i job dei run finiti letti una volta sola; senza App CI e
-  attesa restano vuote e la pagina lo dice. Cache di 5 minuti (`DADAGUARD_TEMPI_TTL_MS`).
+- **Quanto ci mette un rilascio: la pagina Tempi** (20/10/2026). Una dashboard in stile Grafana sugli
+  ultimi 7, 30 o 90 giorni (`GET /api/deploys/storico?giorni=`): le tessere della finestra (CI,
+  attese, build, deploy, quota di falliti, rilasci al giorno), dove va il tempo fascia per fascia, la
+  durata dal push a in produzione (o della sola build) con la fascia fino al p90, i rilasci riusciti e
+  falliti, un piccolo grafico per servizio sulla stessa scala, e la tabella per servizio con tempo di
+  ripristino, attesa fra staging e produzione e «più lenta del solito». Filtri di finestra, servizio e
+  ambiente; le serie le calcola la pagina (`shared/tempiSerie.js`), quindi un filtro non rifà il giro.
+  La CI va dal primo run GitHub del push all'ultimo job finito prima che la build partisse: nei
+  workflow che lanciano CodeBuild e ne aspettano la fine la durata del run conterrebbe il deploy, e
+  un'approvazione su un environment protetto si leggerebbe come test lenti, quindi quel tratto è
+  l'*attesa*, a parte. Lo storico si rilegge da CodeBuild (tutte le build della finestra, a pagine) e
+  da GitHub con la GitHub App del quadro: richieste condizionali, job dei run finiti letti una volta
+  sola, al massimo 150 job per giro (`DADAGUARD_TEMPI_JOB_PER_GIRO`) e mai sotto le 1.000 richieste
+  rimaste nell'ora, che restano agli stati dei test del quadro. Senza App CI e attese restano vuote e
+  la pagina lo dice. Le stesse misure in `/metrics` (`dadaguard_deploy_duration_seconds{segment,
+  quantile}`, `_failure_ratio`, `_last_7d`, `_recovery_seconds`, `_staging_to_prod_seconds`, `_slow`)
+  con una dashboard Grafana pronta in `deploy/grafana/dadaguard-tempi.json`. Nel demo uno storico
+  finto di 90 giorni, deterministico.
 - **Comandi e link alla console passano da Teleport, dove l'installazione ce l'ha** (19/10/2026).
   Con `teleport.webUrl` (o `teleport.proxy`) in config e, sull'account, `teleportApp` +
   `teleportRole`, il comando suggerito è `tsh aws --app … --aws-role …` invece di
