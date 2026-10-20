@@ -1222,11 +1222,11 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         .then(() => log.info('deploy: cache scaldata'))
         .catch((err) => log.error('deploy: scaldata iniziale fallita', { err: err.message }))
     }, 60_000).unref()
-    // Lo storico dei tempi a 30 giorni (la finestra con cui l'andamento di Deploy si apre): a cache
+    // Lo storico dei tempi a 7 giorni (la finestra con cui l'andamento di Deploy si apre): a cache
     // fredda costa fino a qualche minuto, e senza scaldata lo pagherebbe il primo che apre la vista
     // dopo ogni rilascio. Dopo, la cache consegna il giro vecchio e rinfresca dietro.
     setTimeout(() => {
-      storicoMemo('storico:30', () => leggiStorico(30, 'it'))
+      storicoMemo('storico:7', () => leggiStorico(7, 'it'))
         .then(() => log.info('storico deploy: cache scaldata'))
         .catch((err) => log.error('storico deploy: scaldata iniziale fallita', { err: err.message }))
     }, 90_000).unref()

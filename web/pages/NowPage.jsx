@@ -43,7 +43,7 @@ const SIGLA = {
   alb: 'ALB',
   elasticache: 'RED',
 }
-const SIGLA_KIND = { deploy: 'CI', 'slow-build': '⏱', restart: '⟳', waf: 'WAF', budget: '$', anomaly: '$', alarm: '!' }
+const SIGLA_KIND = { deploy: 'CI', 'slow-build': '⏱', cron: '⏰', web: 'ALB', spesa: '$', restart: '⟳', waf: 'WAF', budget: '$', anomaly: '$', alarm: '!' }
 
 const ORE = 24
 
@@ -70,6 +70,28 @@ export default function NowPage({
   const [waf, setWaf] = useState(null)
   const [budgets, setBudgets] = useState(null)
   const [tempi, setTempi] = useState(null)
+  // I segnali delle viste «Andamento»: cron, servizi web, spesa. Tre letture in piu', in silenzio come
+  // quella dei tempi, e non bloccano niente: le righe arrivano quando arrivano.
+  const [cron, setCron] = useState(null)
+  const [web, setWeb] = useState(null)
+  const [spesa, setSpesa] = useState(null)
+  // «Solo da sistemare»: via tutto quello che va bene (stato dei servizi, oggi, ambienti, cosa e'
+  // cambiato), resta la lista dei problemi. La scelta resta a chi guarda.
+  const [solo, setSolo] = useState(() => {
+    try {
+      return localStorage.getItem('dadaguard-home-solo') === '1'
+    } catch {
+      return false
+    }
+  })
+  const scegliSolo = (v) => {
+    setSolo(v)
+    try {
+      localStorage.setItem('dadaguard-home-solo', v ? '1' : '0')
+    } catch {
+      /* preferenza non salvata: la vista funziona lo stesso */
+    }
+  }
   const [errori, setErrori] = useState([])
   const [aperto, setAperto] = useState(null)
 
@@ -91,6 +113,20 @@ export default function NowPage({
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => vivo && setTempi(j))
       .catch(() => {})
+    const zitto = (url, set) =>
+      fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => vivo && set(j))
+        .catch(() => {})
+    let tz = ''
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+    } catch {
+      /* fuso del server */
+    }
+    zitto(`/api/runs/storico?giorni=7&tz=${encodeURIComponent(tz)}&lang=${lang ?? ''}`, setCron)
+    zitto(`/api/servizi/andamento?ore=24&lang=${lang ?? ''}`, setWeb)
+    zitto(`/api/costs/daily?giorni=30&lang=${lang ?? ''}`, setSpesa)
     return () => {
       vivo = false
     }
@@ -108,7 +144,7 @@ export default function NowPage({
   // «Da sistemare»: i segnali che mordono (rossi e arancio), dal piu' grave, filtrati per ambiente e
   // ruolo. Quelli informativi (un deploy in corso, un riavvio) stanno in «Cosa e' cambiato».
   const righe = useMemo(() => {
-    const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, tempi, hours: ORE, t, nameOf: displayName })
+    const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, tempi, cron, web, spesa, hours: ORE, t, nameOf: displayName })
     return tutti
       .filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
       .map((s) => {
@@ -117,7 +153,7 @@ export default function NowPage({
       })
       .filter((r) => (r.livello === 'crit' || r.livello === 'warn') && (ruolo === 'ops' || r.owner === 'dev'))
       .sort((a, b) => rangoLivello(a.livello) - rangoLivello(b.livello))
-  }, [services, deploys, waf, budgets, alarmiOrfani, tempi, accountFilter, ruolo, perChiave, t])
+  }, [services, deploys, waf, budgets, alarmiOrfani, tempi, cron, web, spesa, accountFilter, ruolo, perChiave, t])
 
   const conta = contaLivelli(nelFiltro)
   const serviziRotti = righe.filter((r) => r.kind === 'service' && r.livello === 'crit').length
@@ -164,11 +200,28 @@ export default function NowPage({
 
   return (
     <>
-      <Verdetto livello={verdetto.livello} forte={verdetto.forte} resto={verdetto.resto} dettaglio={t(`home.ruolo.${ruolo}`)} />
+      <Verdetto
+        livello={verdetto.livello}
+        forte={verdetto.forte}
+        resto={verdetto.resto}
+        dettaglio={t(`home.ruolo.${ruolo}`)}
+        extra={
+          <div className="ui-seg" role="group" aria-label={t('home.solo.aria')}>
+            <button type="button" aria-pressed={!solo} onClick={() => scegliSolo(false)}>
+              {t('home.solo.tutto')}
+            </button>
+            <button type="button" aria-pressed={solo} onClick={() => scegliSolo(true)}>
+              {t('home.solo.problemi')}
+            </button>
+          </div>
+        }
+      />
 
       {statusError && <div className="ui-readwarn">{statusError}</div>}
       {errori.length > 0 && <div className="ui-readwarn">{t('now.partial')}: {errori.join(' · ')}</div>}
 
+      {!solo && (
+        <>
       <div className="ui-hero">
         <Card titolo={t('home.statoServizi')} nota={inAttesa ? t('home.inLettura') : t('home.controllati', { n: nelFiltro.length })}>
           <div className="ui-stack" aria-hidden="true">
@@ -233,6 +286,9 @@ export default function NowPage({
         </div>
       )}
 
+        </>
+      )}
+
       <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
         <Lista vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
           {righe.map((r) => (
@@ -255,9 +311,11 @@ export default function NowPage({
         </Lista>
       </Sezione>
 
-      <Sezione titolo={t('home.cambiato')} sotto={t('home.cambiatoSotto')}>
-        <Cambiamenti build={build} storico={storico} accountFilter={accountFilter} t={t} />
-      </Sezione>
+      {!solo && (
+        <Sezione titolo={t('home.cambiato')} sotto={t('home.cambiatoSotto')}>
+          <Cambiamenti build={build} storico={storico} accountFilter={accountFilter} t={t} />
+        </Sezione>
+      )}
 
       <Drawer
         aperto={Boolean(aperto)}

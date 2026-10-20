@@ -323,3 +323,52 @@ test('build più lenta del solito: giallo in «Da sistemare» solo se è dentro 
   const coda = buildSignals({ tempi: { righe: [riga('2026-10-20T10:00:00Z', 'coda')] }, now, hours: 24 })
   assert.equal(coda[0].owner, 'ops')
 })
+
+test('segnali delle viste Andamento: cron falliti o saltati nelle ultime 24 ore, servizi con errori o lenti, spesa che cresce', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z')
+  const H = 3_600_000
+  const t = (k, v) => `${k}${v?.n != null ? ` ${v.n}` : ''}`
+  // Cron: fasce da sei ore, l'ultima finisce adesso. Una fallita ieri sera (dentro le 24 ore), una
+  // saltata tre giorni fa (fuori).
+  const inizio = now - 28 * 6 * H
+  const fasce = (pos) => Array.from({ length: 28 }, (_, i) => (pos.includes(i) ? 1 : 0))
+  const cron = {
+    inizio,
+    passoMs: 6 * H,
+    punti: 28,
+    account: { prod: { label: 'Production' } },
+    crons: [
+      { k: 'prod/rotto', nome: 'rotto', account: 'prod', corse: fasce([25, 26]), fallite: fasce([25]), saltate: fasce([]) },
+      { k: 'prod/vecchio', nome: 'vecchio', account: 'prod', corse: fasce([10]), fallite: fasce([]), saltate: fasce([15]) },
+      { k: 'prod/saltato', nome: 'saltato', account: 'prod', corse: fasce([]), fallite: fasce([]), saltate: fasce([27]) },
+    ],
+  }
+  const c = buildSignals({ cron, now, t }).filter((s) => s.kind === 'cron')
+  assert.deepEqual(c.map((s) => [s.title, s.level]), [['rotto', 'bad'], ['saltato', 'warn']])
+  assert.equal(c[0].to, '/cron?cron=prod%2Frotto')
+  assert.equal(c[0].accountLabel, 'Production')
+
+  // Servizi: 24 fasce da un'ora. «api» col 6% di errori, «lento» con l'ultima ora a 900 ms invece di 100.
+  const serie = (n, v) => Array.from({ length: 24 }, (_, i) => (typeof v === 'function' ? v(i) : v))
+  const web = {
+    passoMs: H,
+    account: { prod: { label: 'Production' } },
+    servizi: [
+      { k: 'prod/api', account: 'prod', servizio: 'api', richieste: serie(24, 1000), errori: serie(24, 60), p50: serie(24, 80), p90: serie(24, 200) },
+      { k: 'prod/lento', account: 'prod', servizio: 'lento', richieste: serie(24, 1000), errori: serie(24, 0), p50: serie(24, (i) => (i === 23 ? 900 : 100)), p90: serie(24, (i) => (i === 23 ? 1500 : 200)) },
+      { k: 'prod/sano', account: 'prod', servizio: 'sano', richieste: serie(24, 1000), errori: serie(24, 1), p50: serie(24, 50), p90: serie(24, 90) },
+    ],
+  }
+  const w = buildSignals({ web, now, t }).filter((s) => s.kind === 'web')
+  assert.deepEqual(w.map((s) => [s.title, s.level]), [['api', 'bad'], ['lento', 'warn']])
+
+  // Spesa: 14 giorni interi + oggi. «cara» da 20 a 40 $ al giorno (+100%, +140 $ in settimana), «poca» da
+  // 1 a 3 $ (+200%, ma solo 14 $ in piu': rumore).
+  const giorni = Array.from({ length: 15 }, (_, i) => new Date(Date.UTC(2026, 9, 7 + i)).toISOString().slice(0, 10))
+  const v = (a, b) => giorni.map((_, i) => (i < 7 ? a : b))
+  const spesa = { prod: { label: 'Production', oggi: giorni.at(-1), giorni, servizi: [{ servizio: 'cara', valori: v(20, 40) }, { servizio: 'poca', valori: v(1, 3) }], crediti: giorni.map(() => 0), tasse: giorni.map(() => 0) } }
+  const sp = buildSignals({ spesa, now, t }).filter((s) => s.kind === 'spesa')
+  assert.deepEqual(sp.map((s) => s.title), ['cara'])
+  assert.equal(sp[0].owner, 'ops', 'la spesa e’ di chi tiene l’infrastruttura')
+  assert.equal(buildSignals({ cron: null, web: { servizi: [] }, spesa: { x: { error: 'AccessDenied' } }, now }).length, 0, 'una fonte che manca non fa rumore')
+})
