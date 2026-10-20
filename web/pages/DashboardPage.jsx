@@ -3,6 +3,7 @@ import { Lista } from '../ui/index.js'
 import ServiceCard from '../components/ServiceCard.jsx'
 import ServicesTable, { famigliePerAccount, perGravita } from '../components/ServicesTable.jsx'
 import StatusSummary from '../components/StatusSummary.jsx'
+import ServiziAndamento from './ServiziAndamento.jsx'
 import FilterBar, { FiltroServizi, FILTER_FIELDS_SERVIZI } from '../components/FilterBar.jsx'
 import { matchesAny } from '../filters.js'
 import { serviceKey } from '../serviceName.js'
@@ -43,9 +44,12 @@ export default function DashboardPage({
   error,
   onOpen,
   t,
+  lang,
+  refreshKey,
 }) {
   // Lista o card. Oltre la ventina di servizi la lista vince; le card restano per le flotte piccole
-  // e per chi le preferisce. La scelta si ricorda, come prima.
+  // e per chi le preferisce. La scelta si ricorda, come prima. La terza vista, l'andamento, e' la
+  // dashboard del tempo di risposta e degli errori dei servizi web (vedi ServiziAndamento.jsx).
   const [view, setView] = useState(() => leggi('dadaguard-view', 'table'))
   const pickView = (v) => (scrivi('dadaguard-view', v), setView(v))
   // Le tendine sul telefono: chiuse finche' non le apri, perche' sette controlli uno sotto l'altro
@@ -64,19 +68,27 @@ export default function DashboardPage({
   const vista = (
     <div className="sv-tools">
       <div className="ui-seg" role="group" aria-label={t('svc.vista')} data-view="view-switch">
-        {['table', 'cards'].map((v) => (
+        {['table', 'cards', 'andamento'].map((v) => (
           <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)}>
             {t(`svc.vista.${v}`)}
           </button>
         ))}
       </div>
-      {data?.generatedAt && (
+      {/* L'ora dello stato non vale per l'andamento, che ha i suoi dati e la sua cache. */}
+      {view !== 'andamento' && data?.generatedAt && (
         <span className="ui-faint">
           {t('content.lastFetch')} {new Date(data.generatedAt).toLocaleTimeString()}
         </span>
       )}
     </div>
   )
+
+  // L'andamento ha il suo verdetto e i suoi filtri (finestra e servizio): i chip e le tendine della
+  // lista filtrano lo STATO dei servizi, e lasciarli in pagina senza che contino direbbe una cosa falsa.
+  // L'ambiente in alto invece vale anche qui.
+  if (view === 'andamento') {
+    return <ServiziAndamento t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} extra={vista} />
+  }
 
   return (
     <>

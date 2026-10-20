@@ -1230,6 +1230,11 @@
   fill: var(--chart-1);
   opacity: 0.1;
 }
+/* La fascia dei momenti lenti (GraficoBanda) e' la seconda cosa da leggere, non uno sfondo: al 10%
+   sul tema scuro spariva. */
+.ui-banda.ui-banda-lenti {
+  opacity: 0.22;
+}
 .ui-punto-accento,
 .ui-punto-neutro,
 .ui-punto {
