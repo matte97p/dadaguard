@@ -208,3 +208,11 @@ test('client GitHub: sotto la riserva di richieste dell’ora i job aspettano il
   assert.equal(jobs, 2, 'il terzo non è partito')
   assert.deepEqual(await gh.jobsDi({ owner: 'acme', repo: 'api', id: 1, finito: true }), [], 'quelli già in memoria si danno lo stesso')
 })
+
+test('lenta: dice anche quando e quale fase è cresciuta', () => {
+  const normali = [200, 210, 190, 205, 215].map((dur, i) => build({ fa: 100 + i * 10, dur }))
+  const lenta = build({ fa: 10, dur: 400, phases: fasi({ build: 310 }) })
+  const l = buildLenta([lenta, ...normali])
+  assert.equal(l.fase, 'build')
+  assert.equal(l.quando, lenta.endedAt)
+})

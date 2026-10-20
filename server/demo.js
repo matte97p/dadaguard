@@ -2002,5 +2002,14 @@ export function demoStoricoDeploy(giorni = 30, ora = Date.now()) {
       }
     }
   }
+  // L'ultima build di backend in staging a cache fredda: e' il «piu' lento del solito» che la home
+  // mostra in «Da sistemare» (dieci minuti in piu' nella fase di build).
+  const ultima = perAccount.staging.builds.filter((b) => b.service === 'backend' && b.status === 'SUCCEEDED').sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]
+  if (ultima) {
+    const fase = ultima.phases.find((p) => p.type === 'BUILD')
+    fase.durationMs += 600_000
+    ultima.durationMs += 600_000
+    ultima.endedAt = new Date(Date.parse(ultima.endedAt) + 600_000).toISOString()
+  }
   return { perAccount, runs, jobs, rami: { staging: 'staging', main: 'produzione' } }
 }

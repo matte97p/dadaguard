@@ -309,3 +309,17 @@ test('nessun allarme orfano: nessuna riga, e una fonte assente non spegne le alt
   assert.deepEqual(buildSignals({ alarmi: null, now: NOW, t }), [])
   assert.deepEqual(buildSignals({ now: NOW, t }), [])
 })
+
+test('build più lenta del solito: giallo in «Da sistemare» solo se è dentro la finestra; una coda lunga è di DevOps', async () => {
+  const { buildSignals } = await import('../web/nowSignals.js')
+  const now = Date.parse('2026-10-20T12:00:00Z')
+  const riga = (quando, fase) => ({ account: 'prod', accountLabel: 'Production', servizio: 'api', lenta: { durationMs: 9 * 60_000, p50: 4 * 60_000, build: 7, quando, fase } })
+  const s = buildSignals({ tempi: { righe: [riga('2026-10-20T10:00:00Z', 'build'), { ...riga('2026-10-17T10:00:00Z', 'build'), servizio: 'vecchia' }] }, now, hours: 24, t: (k, v) => `${k} ${v?.d ?? ''}` })
+  assert.equal(s.length, 1, 'quella di tre giorni fa non è «adesso»')
+  assert.equal(s[0].level, 'warn')
+  assert.equal(s[0].owner, 'dev')
+  assert.equal(s[0].to, '/tempi?service=api')
+  assert.match(s[0].detail, /now.slowBuildIn 9 min/)
+  const coda = buildSignals({ tempi: { righe: [riga('2026-10-20T10:00:00Z', 'coda')] }, now, hours: 24 })
+  assert.equal(coda[0].owner, 'ops')
+})

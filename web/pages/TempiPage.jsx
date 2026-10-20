@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, GraficoBanda, PiccoliMultipli, Legenda } from '../ui/index.js'
+import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, PiccoliMultipli, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
 import { matchesAny, listaDaUrl } from '../filters.js'
 import { numero } from '../grafici.js'
@@ -206,22 +206,14 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
               t={t}
               aria={t('tempi.pila.titolo')}
               formato={dMin}
-              extra={riuscite}
+              extra={(i) => [
+                { etichetta: t('tempi.totaleSolito'), valore: dMin(inMin(linea.p50[i])) },
+                { etichetta: t('tempi.totaleLenti'), valore: dMin(inMin(linea.p90[i])) },
+                ...riuscite(i),
+              ]}
             />
           </Card>
 
-          <div className="tp-griglia">
-            <Card titolo={t(`tempi.banda.titolo.${campo}`)} nota={t('tempi.banda.nota')}>
-              <GraficoBanda
-                andamento={serie}
-                p50={linea.p50.map(inMin)}
-                p90={linea.p90.map(inMin)}
-                lang={lang}
-                aria={t(`tempi.banda.titolo.${campo}`)}
-                formato={dMin}
-                etichette={{ p50: t('tempi.solito'), p90: t('tempi.lenti'), extra: riuscite }}
-              />
-            </Card>
             <Card titolo={t('tempi.rilasci.titolo')} nota={t('tempi.rilasci.nota')}>
               <Legenda
                 voci={[
@@ -241,7 +233,6 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
                 extra={() => []}
               />
             </Card>
-          </div>
 
           {multipli.righe.length > 1 && (
             <Card titolo={t('tempi.multipli.titolo')} nota={t(`tempi.multipli.nota.${campo}`)}>

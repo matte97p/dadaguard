@@ -235,12 +235,40 @@ function alarmSignals(alarmi = [], t) {
 // un evento di sei ore fa. Puro/testabile.
 // `nameOf` = come si chiama un servizio per un umano: il nome corto lo sa il client (serviceName.js),
 // non il server, e passarlo tiene questa funzione pura invece di importare mezza UI.
+// Le build PIU' LENTE DEL SOLITO (server/tempiDeploy.js, `lenta`): l'ultima build riuscita di un
+// servizio molto sopra le sue precedenti. Giallo da guardare, non un guasto: il servizio resta verde,
+// perche' gira, ma il prossimo rilascio (o un hotfix urgente) ci mettera' di piu'. Solo se quella
+// build e' dentro la finestra: una lentezza di tre giorni fa che nessuno ha rifatto non e' «adesso».
+// Di chi e': una coda lunga e' CodeBuild senza macchine (DevOps), il resto e' di chi sviluppa.
+function lenteSignals(tempi, opts, t) {
+  const out = []
+  for (const r of tempi?.righe ?? []) {
+    const l = r.lenta
+    if (!l || !inWindow(l.quando, opts)) continue
+    out.push({
+      id: `lenta:${r.account}:${r.servizio}:${l.build ?? ''}`,
+      level: 'warn',
+      kind: 'slow-build',
+      owner: l.fase === 'coda' ? 'ops' : 'dev',
+      title: r.servizio,
+      detail: t(l.fase ? 'now.slowBuildIn' : 'now.slowBuild', { d: minuti(l.durationMs), solito: minuti(l.p50), fase: l.fase ? t(`tempi.fase.${l.fase}`) : '' }),
+      when: l.quando,
+      to: `/tempi?service=${encodeURIComponent(r.servizio)}`,
+      accountKey: r.account,
+      accountLabel: r.accountLabel ?? null,
+    })
+  }
+  return out
+}
+const minuti = (v) => (Number.isFinite(v) ? `${Math.max(1, Math.round(v / 60_000))} min` : '?')
+
 export function buildSignals({
   services = [],
   deploys = {},
   waf = null,
   budgets = null,
   alarmi = null,
+  tempi = null,
   hours = 24,
   now = Date.now(),
   t = (k) => k,
@@ -256,6 +284,7 @@ export function buildSignals({
     ...wafSignals(waf, t),
     ...budgetSignals(budgets, t),
     ...alarmSignals(alarmi ?? [], t),
+    ...lenteSignals(tempi, opts, t),
   ]
   return all.sort((a, b) => {
     const r = (LEVEL_RANK[a.level] ?? 9) - (LEVEL_RANK[b.level] ?? 9)

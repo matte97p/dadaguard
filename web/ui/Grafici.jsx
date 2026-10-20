@@ -285,51 +285,6 @@ export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, e
   )
 }
 
-// ── Mediana e p90 ──────────────────────────────────────────────────────────────────────────────────
-//
-// Una durata nel tempo: la linea della mediana nel colore d'accento e la fascia fino al p90 sotto
-// (la stessa tinta, chiara). Una fascia che si allarga dice «di solito va, ogni tanto no»; una linea
-// che sale dice «va peggio sempre». Le fasce senza dati sono buchi, non zeri.
-export function GraficoBanda({ andamento, p50 = [], p90 = [], lang, aria, formato = String, etichette }) {
-  const [ref, larghezza] = useLarghezza()
-  const punti = andamento?.punti ?? 0
-  const m = { sx: 44, dx: 14, su: 10, plot: 150, giu: 24 }
-  const destra = Math.max(m.sx + 40, larghezza - m.dx)
-  const x = useCallback((k) => m.sx + (k * (destra - m.sx)) / Math.max(1, punti - 1), [destra, punti, m.sx])
-  const hi = tondo(Math.max(0, ...[...p50, ...p90].filter((v) => v != null && Number.isFinite(v))) || 1)
-  const y = (v) => m.su + m.plot - (v / hi) * m.plot
-  const asse = m.su + m.plot
-  const [i, mirino] = useMirino(punti, x)
-  if (!punti) return null
-  const ultimo = p50.reduce((u, v, k) => (v != null ? k : u), -1)
-  return (
-    <div className="ui-grafico" ref={ref}>
-      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria} {...mirino}>
-        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato} />
-        <AsseTempo serie={andamento} x={x} alto={m.su} basso={asse} lang={lang} />
-        <path d={percorsoBanda(p90, p50, x, y)} className="ui-banda" />
-        <path d={percorsoPonti(p50, x, y)} className="ui-linea ui-linea-accento ui-ponte" />
-        <path d={percorso(p50, x, y)} className="ui-linea ui-linea-accento" />
-        {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(p50[ultimo])} r="4" className="ui-punto-accento" />}
-        {i != null && <line x1={x(i)} x2={x(i)} y1={m.su} y2={asse} className="ui-mirino" />}
-        {i != null && p50[i] != null && <circle cx={x(i)} cy={y(p50[i])} r="4" className="ui-punto-accento" />}
-      </svg>
-      {i != null && (
-        <Lettura
-          x={x(i)}
-          larghezza={larghezza}
-          titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
-          righe={[
-            { colore: 'var(--chart-1)', etichetta: etichette.p50, valore: p50[i] == null ? '-' : formato(p50[i]) },
-            { etichetta: etichette.p90, valore: p90[i] == null ? '-' : formato(p90[i]) },
-            ...(etichette.extra ? etichette.extra(i) : []),
-          ]}
-        />
-      )}
-    </div>
-  )
-}
-
 // ── Piccoli multipli ────────────────────────────────────────────────────────────────────────────────
 //
 // Le serie di un Mac una sotto l'altra, ciascuna con la sua scala vera (`dominio`) ma tutte sullo

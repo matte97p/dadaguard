@@ -113,7 +113,23 @@ export function buildLenta(riuscite = []) {
   const p50 = quantile(tot, 0.5)
   if (!Number.isFinite(ultima.durationMs) || p90 == null) return null
   const lenta = ultima.durationMs > p90 + SCARTO_MIN_MS && ultima.durationMs > p50 * SCARTO_MEDIANA
-  return lenta ? { durationMs: ultima.durationMs, p50, p90, build: ultima.number, commit: ultima.commit } : null
+  if (!lenta) return null
+  // Quale fase è cresciuta di più rispetto al solito: dice dove guardare, e di chi è (una coda lunga è
+  // CodeBuild senza macchine, una build lunga è il Dockerfile o la cache).
+  const seg = segmentiBuild(ultima)
+  const prec = prima.map(segmentiBuild)
+  const fase = ['coda', 'build', 'deploy']
+    .map((k) => ({ k, di: seg[k] == null ? -Infinity : seg[k] - (quantile(prec.map((x) => x[k]), 0.5) ?? seg[k]) }))
+    .sort((a, b) => b.di - a.di)[0]
+  return {
+    durationMs: ultima.durationMs,
+    p50,
+    p90,
+    build: ultima.number,
+    commit: ultima.commit,
+    quando: ultima.endedAt ?? ultima.startedAt ?? null,
+    fase: Number.isFinite(fase?.di) && fase.di > 0 ? fase.k : null,
+  }
 }
 
 // L'attesa di un commit fra staging e produzione: da quando il deploy in staging è finito a quando
