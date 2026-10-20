@@ -245,6 +245,11 @@
   max-width: 1560px;
   display: block;
 }
+/* Le dashboard (Tempi) prendono tutta la larghezza: i grafici del tempo guadagnano punti leggibili,
+   non righe lunghe da seguire con l'occhio. */
+.ui-main.ui-main-pieno {
+  max-width: none;
+}
 
 /* ── verdetto ── */
 .ui-verdetto {
@@ -1208,6 +1213,12 @@
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+/* Il ponte sopra un buco della serie: stesso colore, sottile e tratteggiato. */
+.ui-ponte {
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
 }
 .ui-linea-neutra {
   stroke: var(--chart-neutro);

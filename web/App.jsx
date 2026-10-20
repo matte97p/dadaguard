@@ -97,6 +97,8 @@ const REDIRECTS = {
   '/quote': '/limiti',
   '/freetier': '/limiti?tab=freetier',
   '/esecuzioni': '/cron',
+  // La pagina Tempi e' diventata la vista «Andamento» della pagina Deploy.
+  '/tempi': '/deploy?vista=andamento',
 }
 
 // Il redirect tiene la query del link vecchio (`/esecuzioni?cron=x` deve aprire quel cron, non

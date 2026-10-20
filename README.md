@@ -55,6 +55,12 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
 - **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
+- **Tempi dei rilasci**: la vista **Andamento** della pagina Deploy è una dashboard sugli ultimi 7, 30 o 90 giorni, servizio per
+  servizio: dove va il tempo (CI, attese, build, deploy), dal push a in produzione con la fascia fino al p90,
+  rilasci riusciti e falliti, un piccolo grafico per servizio e la tabella con ripristino dopo un fallimento,
+  attesa fra staging e produzione e i servizi **più lenti del solito**. Lo storico si rilegge da CodeBuild e
+  dai run di GitHub Actions (la GitHub App del quadro, con un tetto di letture per giro); niente database.
+  Le stesse misure in `/metrics`, con una dashboard Grafana pronta in `deploy/grafana/`
 - **Deploy fatti a mano**: riavvii forzati e hotfix lanciati fuori dalla CI, con chi ha premuto — azioni che non producono nessuna build e che nessuna vista mostrava
 - **WAF** (Cloudflare): richieste **fermate** per zona e per regola — traffico che non arriva ai servizi, quindi assente da ogni log applicativo
 - **Topologia** che risponde a due domande, «se questo si ferma chi ne soffre?» e «questo è rotto da cosa dipende?»: le relazioni le **deduce da AWS** (configurazioni, event source, indirizzi dei load balancer con la porta, permessi IAM, security group) e le colonne vengono dagli archi, niente da dichiarare a mano
@@ -151,6 +157,11 @@ npm run check -- --fail-on degraded   # soglia più severa (gating di pipeline)
 ```
 - **`/metrics`** — formato Prometheus (severità per servizio/check + latenza + running/desired): aggancialo a Grafana/Alertmanager per dashboard, alert e storico, senza che Dadaguard diventi un servizio stateful.
 - **`/healthz`** — liveness dell'app (non chiama AWS).
+- **Dashboard Grafana dei tempi dei rilasci**: `deploy/grafana/dadaguard-tempi.json`: importala (o mettila
+  nel provisioning) su un Prometheus che legge `/metrics`. Variabili per account e servizio; lo storico è quello
+  di Prometheus, quindi parte da quando lo scrape è acceso. Le serie: `dadaguard_deploy_duration_seconds`
+  (`segment` = ci, attesa, coda, build, deploy, totale, lead; `quantile` = 0.5, 0.9), `_failure_ratio`,
+  `_last_7d`, `_recovery_seconds`, `_staging_to_prod_seconds`, `_slow`.
 
 ## Notifiche Slack (il watchdog che ti chiama)
 Una dashboard è una cosa che devi ricordarti di aprire. Con un webhook configurato, Dadaguard guarda la
