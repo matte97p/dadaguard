@@ -79,3 +79,40 @@
   font-weight: 400;
   padding-left: 18px;
 }
+
+/* Andamento giorno per giorno (SpesaGiorni.jsx): la frase in cima, la riga dei filtri e la tabella.
+   I grafici e le tessere sono dei componenti condivisi; qui solo le forme che quelli non hanno. */
+.sp-g-testa h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  color: var(--ink);
+}
+.sp-g-testa p {
+  margin: 4px 0 0;
+}
+.sp-g-filtri {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.sp-g-select {
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  /* I nomi dei servizi AWS sono lunghi («Amazon Elastic Compute Cloud - Compute»): sul telefono il
+     menu non deve allargare la pagina. */
+  max-width: 100%;
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .sp-g-riga > .ui-name {
+    grid-column: 1 / -1;
+  }
+}

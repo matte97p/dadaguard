@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Card, Lista, Sezione, Meter, Rimedio } from '../ui/index.js'
 import CostTrend from '../components/CostTrend.jsx'
+import SpesaGiorni from './SpesaGiorni.jsx'
 import { mergeTrend } from '../format.js'
 import { soldi, leggi, meseCorrente } from './spesaKit.js'
 
@@ -129,7 +130,7 @@ const giornoCorto = (g) => {
 }
 
 // Le tre viste della spesa vera (Cost Explorer), una per scheda:
-// 'summary' (totali, giorni, dove va) · 'trend' (13 mesi) · 'breakdown' (per servizio, livello, componente).
+// 'summary' (totali, giorni, dove va) · 'trend' (giorno per giorno, o 13 mesi) · 'breakdown' (per servizio, livello, componente).
 // Cost Explorer è a pagamento: ogni vista chiede SOLO i suoi dati, e al cambio di mese o livello.
 export default function CostsPage({ accountLabels, t = (k) => k, lang, section = 'summary' }) {
   const [month, setMonth] = useState(() => meseCorrente())
@@ -142,6 +143,9 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, section =
   const [trendMetric, setTrendMetric] = useState('usage') // 'usage' = tutto · 'infra' = senza AI
   // Quale LENTE della ripartizione si guarda: la domanda è una («dove vanno i soldi»), la lente cambia.
   const [lens, setLens] = useState('service') // service | level | component
+  // Andamento si guarda a GIORNI (30 o 90, la dashboard di SpesaGiorni.jsx) o a MESI (13): la prima
+  // dice cosa sta cambiando adesso, la seconda se il conto cresce davvero. Si apre sui giorni.
+  const [vista, setVista] = useState('giorni') // giorni | mesi
 
   // Le chiamate rispondono SEMPRE ({ dati } o { errore }), quindi `null` vuol dire solo «sta
   // arrivando»: senza questa distinzione «non c'è niente» e «aspetta» si leggono uguali.
@@ -167,14 +171,14 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, section =
   // Il trend NON dipende dal mese scelto (sono gli ultimi 13 mesi): cambiare mese non rifà una
   // chiamata a pagamento.
   useEffect(() => {
-    if (section !== 'trend') return undefined
+    if (section !== 'trend' || vista !== 'mesi') return undefined
     let vivo = true
     setTrend(null)
     leggi(`/api/costs/trend?type=${type}&lang=${lang}`).then((r) => vivo && setTrend(r))
     return () => {
       vivo = false
     }
-  }, [section, type, lang])
+  }, [section, type, lang, vista])
 
   useEffect(() => {
     if (!(section === 'breakdown' && lens === 'component')) return undefined
@@ -226,7 +230,7 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, section =
 
   const filtri = (
     <div className="sp-filtri">
-      <span>{t(`costs.desc.${section}`)}</span>
+      <span>{section === 'trend' && vista === 'giorni' ? t('spesa.g.desc') : t(`costs.desc.${section}`)}</span>
       <label>
         {t('costs.type')}
         <select value={type} onChange={(e) => setType(e.target.value)}>
@@ -268,7 +272,22 @@ export default function CostsPage({ accountLabels, t = (k) => k, lang, section =
     <>
       {filtri}
       {section === 'summary' && (statoCosti ?? <Riepilogo accounts={accounts} giorni={giorni} accountLabels={accountLabels} t={t} lang={lang} />)}
-      {section === 'trend' && <Andamento trend={trend} visibile={visibile} metric={trendMetric} setMetric={setTrendMetric} t={t} lang={lang} />}
+      {section === 'trend' && (
+        <>
+          <div className="ui-seg" style={{ alignSelf: 'flex-start' }} role="group">
+            {['giorni', 'mesi'].map((k) => (
+              <button key={k} type="button" aria-pressed={vista === k} onClick={() => setVista(k)}>
+                {t(`spesa.g.vista.${k}`)}
+              </button>
+            ))}
+          </div>
+          {vista === 'giorni' ? (
+            <SpesaGiorni accountLabels={accountLabels} type={type} t={t} lang={lang} />
+          ) : (
+            <Andamento trend={trend} visibile={visibile} metric={trendMetric} setMetric={setTrendMetric} t={t} lang={lang} />
+          )}
+        </>
+      )}
       {section === 'breakdown' && (
         <>
           <div className="ui-seg" style={{ alignSelf: 'flex-start' }} role="group">

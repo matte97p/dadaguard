@@ -1,5 +1,6 @@
 import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer'
 import { clientOpts } from './runtime/awsClient.js'
+import { monthEndProjection } from '../shared/spesaSerie.js'
 
 // Costo dell'account, mese corrente (MTD). Cost Explorer è GLOBALE → us-east-1, ~$0.01 a chiamata
 // → SEMPRE on-demand. Separiamo per RECORD_TYPE: il CONSUMO (usage, per servizio) dai CREDITI/rimborsi,
@@ -99,32 +100,10 @@ export function aggregateMonth(groups = []) {
   return { items, gross, tax, credits, aiGross, infraGross: gross - aiGross, total: gross + tax + credits }
 }
 
-// Proiezione di fine mese ("run-rate"): la spesa MTD estrapolata linearmente sui giorni del mese —
-// "a questo ritmo, a fine mese avrai speso X". Deterministica, niente ML/GetCostForecast (coerente con
-// l'ethos no-LLM dell'app; nessuna chiamata extra a pagamento né permesso IAM in più):
-//   factor = giorniDelMese / giorniTrascorsi.
-// Deriva tutto dal `period` già calcolato da getCosts (start incluso, end ESCLUSIVO = domani per il
-// mese corrente), quindi per un mese PASSATO i giorni trascorsi eguagliano quelli del mese → factor 1
-// → nessuna estrapolazione (ritorna null). Proietta sia il netto (post-crediti, il numero grande) sia
-// il lordo (consumo). NB early-month = pochi giorni → factor alto e stima rumorosa: il chiamante mostra
-// sempre la base "su X/Y giorni" così è trasparente. Pura/testabile.
-export function monthEndProjection({ gross = 0, total = 0, period } = {}) {
-  if (!period?.start || !period?.end) return null
-  const start = new Date(`${period.start}T00:00:00Z`)
-  const end = new Date(`${period.end}T00:00:00Z`) // esclusivo
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
-  const daysInMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate()
-  const daysElapsed = Math.round((end - start) / 86_400_000) // giorni coperti dall'MTD (end esclusivo)
-  if (daysElapsed <= 0 || daysElapsed >= daysInMonth) return null // mese completo → niente da proiettare
-  const factor = daysInMonth / daysElapsed
-  return {
-    daysElapsed,
-    daysInMonth,
-    pct: Math.round((daysElapsed / daysInMonth) * 100),
-    gross: gross * factor,
-    net: total * factor,
-  }
-}
+// Proiezione di fine mese ("run-rate"): sta in shared/spesaSerie.js, perche' la usa anche la pagina
+// (la proiezione di un servizio solo, nella dashboard giorno per giorno). Riesportata qui: il server e i
+// test la prendono da sempre da questo file.
+export { monthEndProjection }
 
 // ─── Trend: 13 mesi, consumo a listino vs fatturato ──────────────────────────────────────────────
 // "Quanto costa" senza "sta crescendo?" non fa agire nessuno: un numero solo non distingue un mese
@@ -192,6 +171,119 @@ export async function getCostTrend({ profile, roleArn, externalId, accountId, mo
   } while (pageToken)
   const nowMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
   return { currency: 'USD', months: aggregateTrend(results, nowMonth) }
+}
+
+// ─── Giorno per giorno: la dashboard della scheda Andamento ─────────────────────────────────────
+// «Quanto stiamo spendendo» guardato a mesi arriva tardi: un servizio che raddoppia oggi si vede nel
+// totale del mese fra tre settimane. Qui un valore al giorno per servizio, sugli ultimi 30 o 90 giorni.
+//
+// Quanto costa, scritto perche' e' il vincolo del disegno. UNA GetCostAndUsage per account copre la
+// finestra intera: granularita' DAILY, raggruppata per [SERVICE, RECORD_TYPE]. Il secondo
+// raggruppamento non e' un capriccio: e' quello del mese (getCosts), e serve a tenere fuori dal
+// consumo per servizio crediti e tasse con le stesse regole (vedi aggregateMonth), invece di inventarne
+// altre. Cost Explorer pagina (NextPageToken) quando i gruppi sono tanti e ogni pagina e' una richiesta:
+//   costo di un caricamento = 0,01 $ x account x pagine (di solito una; 90 giorni x 40 servizi possono
+//   farne due o tre)
+//   al giorno, nel caso peggiore = 0,01 $ x account x pagine x 2 finestre x 4 (cache di 6 ore in
+//   index.js), cioe' 0,24 $ al giorno per tre account a una pagina, chiunque apra la pagina.
+// Il filtro Livello (Cost Category), se scelto, e' una chiave di cache in piu', come per gli altri.
+export const GIORNI_SPESA = [30, 90]
+
+// La finestra dalla query: 30 o 90, e qualsiasi altra cosa diventa la piu' vicina delle due. Un
+// numero libero vorrebbe dire una chiave di cache per numero, cioe' una chiamata a pagamento per
+// ogni valore che qualcuno scrive nell'indirizzo. Puro.
+export function giorniSpesa(q) {
+  const n = Number(q)
+  return Number.isFinite(n) && n >= 60 ? 90 : 30
+}
+
+const ymd = (d) => d.toISOString().slice(0, 10)
+
+// [start, end) della richiesta: `giorni` giorni che finiscono OGGI incluso (End esclusivo = domani), e
+// comunque dal primo del mese, perche' «questo mese finora» va contato tutto anche il 31 con la
+// finestra di 30 giorni. Date UTC: Cost Explorer ragiona in UTC. Puro/testabile.
+export function dailyRange(now, giorni = 30) {
+  const fine = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+  const finestra = new Date(fine.getTime() - giorni * 86_400_000)
+  const mese = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  return { start: ymd(finestra < mese ? finestra : mese), end: ymd(fine) }
+}
+
+// ResultsByTime giornalieri (gruppi [SERVICE, RECORD_TYPE]) nella forma compatta della pagina: le date
+// della finestra, e per servizio un importo al giorno nello stesso ordine. Ogni giorno passa da
+// aggregateMonth, quindi la regola su crediti e tasse e' la stessa del mese:
+//   consumo (listino) + tasse + crediti = quanto paghi davvero, giorno per giorno.
+// I giorni senza righe ci sono lo stesso, a zero: un giorno che manca sull'asse sembra un buco nei dati,
+// ed e' invece un giorno in cui non si e' speso. Importi al centesimo: la risposta resta piccola
+// (90 giorni x 40 servizi sono qualche decina di KB) e il centesimo e' gia' la precisione del conto.
+// Puro/testabile.
+export function aggregateDaily(resultsByTime = [], { start, end } = {}) {
+  const giorni = []
+  for (let g = start; g && g < end; ) {
+    giorni.push(g)
+    const d = new Date(`${g}T00:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + 1)
+    g = ymd(d)
+  }
+  const pos = new Map(giorni.map((g, i) => [g, i]))
+  const cent = (x) => Math.round(x * 100) / 100
+  const servizi = new Map()
+  const crediti = giorni.map(() => 0)
+  const tasse = giorni.map(() => 0)
+  for (const r of resultsByTime) {
+    const i = pos.get(String(r?.TimePeriod?.Start ?? '').slice(0, 10))
+    if (i == null) continue
+    const a = aggregateMonth(r.Groups ?? [])
+    crediti[i] += a.credits
+    tasse[i] += a.tax
+    for (const it of a.items) {
+      if (!servizi.has(it.service)) servizi.set(it.service, { servizio: it.service, ai: it.ai, valori: giorni.map(() => 0), totale: 0 })
+      const s = servizi.get(it.service)
+      s.valori[i] += it.amount
+      s.totale += it.amount
+    }
+  }
+  return {
+    giorni,
+    servizi: [...servizi.values()]
+      .sort((a, b) => b.totale - a.totale)
+      .map(({ servizio, ai, valori }) => ({ servizio, ai, valori: valori.map(cent) })),
+    crediti: crediti.map(cent),
+    tasse: tasse.map(cent),
+  }
+}
+
+export async function getCostDaily({ profile, roleArn, externalId, accountId, type, giorni = 30, now = new Date() }) {
+  const ce = new CostExplorerClient(clientOpts({ profile, roleArn, externalId, region: 'us-east-1' }))
+  const { start, end } = dailyRange(now, giorni)
+  // Stesso filtro degli altri: sul payer, senza `accountId`, Cost Explorer risponde con tutta l'org e
+  // la sua riga sommerebbe gli altri account (doppioni).
+  const filter = buildFilter({ accountId, type })
+  const results = []
+  let pageToken
+  do {
+    const res = await ce.send(
+      new GetCostAndUsageCommand({
+        TimePeriod: { Start: start, End: end },
+        Granularity: 'DAILY',
+        Metrics: ['UnblendedCost'],
+        Filter: filter,
+        GroupBy: [
+          { Type: 'DIMENSION', Key: 'SERVICE' },
+          { Type: 'DIMENSION', Key: 'RECORD_TYPE' },
+        ],
+        NextPageToken: pageToken,
+      }),
+    )
+    // Come nel trend: paginando, lo stesso giorno puo' tornare su due pagine, e i gruppi si fondono.
+    for (const r of res.ResultsByTime ?? []) {
+      const seen = results.find((x) => x.TimePeriod?.Start === r.TimePeriod?.Start)
+      if (seen) seen.Groups = [...(seen.Groups ?? []), ...(r.Groups ?? [])]
+      else results.push({ ...r, Groups: [...(r.Groups ?? [])] })
+    }
+    pageToken = res.NextPageToken
+  } while (pageToken)
+  return { period: { start, end }, currency: 'USD', oggi: ymd(now), ...aggregateDaily(results, { start, end }) }
 }
 
 // ─── Attribuzione per COMPONENTE (tag di allocazione costi) ──────────────────────────────────────
