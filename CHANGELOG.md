@@ -6,6 +6,25 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Quanto ci mette un rilascio: la vista Andamento della pagina Deploy** (20/10/2026). Accanto
+  all'elenco dei deploy, una dashboard in stile Grafana a tutta larghezza (il vecchio link `/tempi` ci porta) sugli
+  ultimi 7, 30 o 90 giorni (`GET /api/deploys/storico?giorni=`): le tessere della finestra (CI,
+  attese, build, deploy, quota di falliti, rilasci al giorno), dove va il tempo fascia per fascia, la
+  durata dal push a in produzione (o della sola build) con la fascia fino al p90, i rilasci riusciti e
+  falliti, un piccolo grafico per servizio sulla stessa scala, e la tabella per servizio con tempo di
+  ripristino, attesa fra staging e produzione e «più lenta del solito». Filtri di finestra, servizio e
+  ambiente; le serie le calcola la pagina (`shared/tempiSerie.js`), quindi un filtro non rifà il giro.
+  La CI va dal primo run GitHub del push all'ultimo job finito prima che la build partisse: nei
+  workflow che lanciano CodeBuild e ne aspettano la fine la durata del run conterrebbe il deploy, e
+  un'approvazione su un environment protetto si leggerebbe come test lenti, quindi quel tratto è
+  l'*attesa*, a parte. Lo storico si rilegge da CodeBuild (tutte le build della finestra, a pagine) e
+  da GitHub con la GitHub App del quadro: richieste condizionali, job dei run finiti letti una volta
+  sola, al massimo 150 job per giro (`DADAGUARD_TEMPI_JOB_PER_GIRO`) e mai sotto le 1.000 richieste
+  rimaste nell'ora, che restano agli stati dei test del quadro. Senza App CI e attese restano vuote e
+  la pagina lo dice. Le stesse misure in `/metrics` (`dadaguard_deploy_duration_seconds{segment,
+  quantile}`, `_failure_ratio`, `_last_7d`, `_recovery_seconds`, `_staging_to_prod_seconds`, `_slow`)
+  con una dashboard Grafana pronta in `deploy/grafana/dadaguard-tempi.json`. Nel demo uno storico
+  finto di 90 giorni, deterministico.
 - **Comandi e link alla console passano da Teleport, dove l'installazione ce l'ha** (19/10/2026).
   Con `teleport.webUrl` (o `teleport.proxy`) in config e, sull'account, `teleportApp` +
   `teleportRole`, il comando suggerito è `tsh aws --app … --aws-role …` invece di

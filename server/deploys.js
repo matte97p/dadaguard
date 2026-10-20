@@ -217,3 +217,45 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
   const dentro = (b) => !soglia || b.startTime == null || new Date(b.startTime).getTime() >= soglia
   return { builds: [...builds, ...restarts].filter(dentro).sort(byRecent) }
 }
+
+// Lo STORICO delle build di deploy, per la dashboard dei tempi: tutte le build degli ultimi `giorni`
+// di ogni progetto, non le ultime 15. CodeBuild non filtra per data: gli id arrivano dal più recente a
+// pagine di 100, e ci si ferma alla prima pagina che scende sotto la soglia (o al tetto per progetto).
+// Niente CloudTrail e niente log delle cause, che servono alla vista Deploy e non a un cronometro:
+// sono la parte cara del giro. Stessi permessi di `listDeploys`.
+export async function storicoBuilds({ profile, roleArn, externalId, region } = {}, { giorni = 30, maxPerProgetto = 600 } = {}) {
+  const cb = new CodeBuildClient(clientOpts({ profile, roleArn, externalId, region }))
+  const soglia = Date.now() - giorni * 86_400_000
+  const projects = []
+  let nextToken
+  do {
+    const r = await cb.send(new ListProjectsCommand({ nextToken, sortBy: 'NAME' }))
+    projects.push(...(r.projects ?? []))
+    nextToken = r.nextToken
+  } while (nextToken)
+  const deployProjects = projects.filter(isDeployProject)
+  if (!deployProjects.length) return { builds: [], noProjects: true }
+
+  const perProgetto = await Promise.all(
+    deployProjects.map(async (projectName) => {
+      const out = []
+      let token
+      do {
+        // L'ordine si chiede solo sulla prima pagina: con `nextToken` CodeBuild rifiuta `sortOrder`
+        // («Sort order can't be specified when passing a nextToken», visto su staging il 20/10/2026), e le
+        // pagine dopo tengono l'ordine della prima.
+        const r = await cb.send(new ListBuildsForProjectCommand({ projectName, ...(token ? { nextToken: token } : { sortOrder: 'DESCENDING' }) }))
+        const ids = r.ids ?? []
+        if (!ids.length) break
+        const { builds = [] } = await cb.send(new BatchGetBuildsCommand({ ids }))
+        const dentro = builds.filter((b) => b.startTime == null || new Date(b.startTime).getTime() >= soglia)
+        out.push(...dentro)
+        // Una pagina con build sotto la soglia è l'ultima: quelle dopo sono tutte più vecchie.
+        if (dentro.length < builds.length) break
+        token = r.nextToken
+      } while (token && out.length < maxPerProgetto)
+      return out.map((b) => mapBuild(b))
+    }),
+  )
+  return { builds: perProgetto.flat().sort(byRecent) }
+}

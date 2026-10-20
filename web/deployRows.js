@@ -49,3 +49,16 @@ export function groupByService(builds) {
     return a.service.localeCompare(b.service)
   })
 }
+
+// Quale vista apre la pagina Deploy: l'elenco dei deploy o «Andamento» (i tempi nel tempo). Il link
+// vince: `?vista=` la dice esplicita, e un link che filtra un servizio o uno stato (dalla home, da una
+// notifica) vuole l'elenco, perche' chi lo segue cerca quella build. Senza link, l'ultima scelta, e
+// la prima volta l'ELENCO: il numerino rosso su «Deploy» nel menu conta i falliti, e chi ci clicca
+// cerca quelli, non un grafico di trenta giorni. Pura.
+export const VISTE_DEPLOY = ['elenco', 'andamento']
+export function vistaInizialeDeploy(search = '', salvata = null) {
+  const q = new URLSearchParams(search || '')
+  if (VISTE_DEPLOY.includes(q.get('vista'))) return q.get('vista')
+  if (q.get('service') || q.get('status')) return 'elenco'
+  return VISTE_DEPLOY.includes(salvata) ? salvata : 'elenco'
+}

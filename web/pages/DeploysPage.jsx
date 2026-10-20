@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Verdetto, Card, Lista, Pill, Dot, Tabs, Drawer, Rimedio, ListaLink, Sezione } from '../ui/index.js'
 import { shortActor, fmtAgo, fmtMs, awsErrorText } from '../format.js'
-import { groupByService, isServiceRow } from '../deployRows.js'
+import { groupByService, isServiceRow, vistaInizialeDeploy } from '../deployRows.js'
+import TempiPage from './TempiPage.jsx'
 import { AZIONI_A_MANO, isManualRestart, isByHand, humanActor, FAILED_STATUSES } from '../deployKinds.js'
 import { usePoll } from '../usePoll.js'
 import { matchesAny, isFiltering, asList, listaDaUrl } from '../filters.js'
@@ -237,7 +238,42 @@ function PannelloBuild({ sel, onClose, t }) {
   )
 }
 
+// La pagina: due viste sulle stesse build, come la pagina Cron. «Andamento» dice quanto ci mette un
+// rilascio e dove perde tempo nel tempo (TempiPage), l'elenco cosa sta uscendo adesso e com'e' andata.
 export default function DeploysPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
+  const [vista, setVista] = useState(() => {
+    let salvata = null
+    try {
+      salvata = localStorage.getItem('dadaguard-deploy-vista')
+    } catch {
+      /* finestra privata: si parte dal default */
+    }
+    return vistaInizialeDeploy(typeof window === 'undefined' ? '' : window.location.search, salvata)
+  })
+  const scegli = (v) => {
+    setVista(v)
+    try {
+      localStorage.setItem('dadaguard-deploy-vista', v)
+    } catch {
+      /* preferenza non salvata: la vista funziona lo stesso */
+    }
+  }
+  return (
+    <div className="rl-pagina tp-pagina">
+      <Tabs
+        voci={[
+          { key: 'elenco', label: t('deploys.vista.elenco') },
+          { key: 'andamento', label: t('deploys.vista.andamento') },
+        ]}
+        attiva={vista}
+        onCambia={scegli}
+      />
+      {vista === 'andamento' ? <TempiPage t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} /> : <ElencoDeploy t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} />}
+    </div>
+  )
+}
+
+function ElencoDeploy({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   // ⚠️ La finestra la porta anche il SERVER, non solo il filtro qui: il periodo scelto viaggia in
   // `?ore=` e il server taglia alla fonte. Prima tornavano sempre le ultime 15 build per progetto, e
   // scegliere «30g» non mostrava niente di piu'. Auto-refresh ogni 15s: una build dura un minuto.

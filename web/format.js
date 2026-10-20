@@ -279,3 +279,16 @@ export function accountShort(label) {
     .replace(/\s*\([^)]*\)\s*/g, ' ')
     .trim()
 }
+
+// Una durata da leggere al volo: «14 min», non «13m 36s». Per gli andamenti di giorni e settimane,
+// dove i secondi sono rumore che rallenta chi legge (`fmtMs` resta per la singola build o corsa).
+export function durata(ms, t = (k, v) => `${v?.n} ${k}`) {
+  if (ms == null || !Number.isFinite(ms)) return '-'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s} s`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`
+  return t('tempi.giorni', { n: Math.round(h / 24) })
+}

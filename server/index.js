@@ -11,8 +11,10 @@ import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCost
 import { cached } from './util/ttlcache.js'
 import { isQueryable, accessoDi } from './accounts.js'
 import { linkAws } from '../shared/accessoAws.js'
-import { listDeploys } from './deploys.js'
+import { listDeploys, storicoBuilds } from './deploys.js'
 import { tabellaRilasci, daRilasciare, testoRilasci } from './rilasci.js'
+import { tempiPerServizio, repoDelleBuild, runDaLeggere, puntiBuild } from './tempiDeploy.js'
+import { githubConfig, nuovoGithub } from './notify/github.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { wafOverview } from './waf.js'
 import { budgetsOverview } from './budgets.js'
@@ -53,7 +55,7 @@ import { statoFlotta } from './flotta.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 import { storicoFlotta } from './storicoAws.js'
-import { demoHistory } from './demo.js'
+import { demoHistory, demoStoricoDeploy } from './demo.js'
 // rd-server-meta: metadati della UI nuova
 import { spesaGiornaliera } from './meta/spesa.js'
 import { riepilogoLogin } from './meta/accessi.js'
@@ -86,7 +88,10 @@ app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4')
   try {
     const stato = isDemo ? demoStatus('en') : (await statusFor('en')).value
-    res.send(renderMetrics(stato))
+    // I tempi dei deploy si aggiungono se sono pronti entro due secondi: a cache fredda il primo giro
+    // legge CodeBuild e GitHub, e uno scrape non deve aspettarlo. Lo scrape dopo li trova.
+    const tempi = await Promise.race([tempiCached('en').then((r) => r.value.righe), new Promise((ok) => setTimeout(() => ok([]), 2000))]).catch(() => [])
+    res.send(renderMetrics(stato, tempi))
   } catch (err) {
     res.status(500).send(`# scrape failed: ${err.message}\ndadaguard_scrape_success 0\n`)
   }
@@ -396,6 +401,143 @@ app.get('/api/rilasci', async (req, res) => {
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// I tempi dei deploy per servizio (CI, coda, build, deploy) e la salute del canale di rilascio, vedi
+// server/tempiDeploy.js. Le build sono quelle di /api/deploys SENZA finestra (le ultime per progetto,
+// stesso giro AWS); i run GitHub servono solo alla colonna CI e al lead time, e arrivano dalla stessa
+// GitHub App del quadro. Senza App, o con GitHub che non risponde, la colonna resta vuota e lo si dice
+// in `ciNota`: il resto della tabella non dipende da GitHub.
+const githubTempi = nuovoGithub(githubConfig())
+// I job letti per giro, al massimo: su 90 giorni i run sono centinaia, e la prima apertura li
+// chiederebbe tutti insieme. Quelli dei run finiti restano in memoria, quindi i giri dopo continuano da
+// dove si era arrivati e in pochi giri la memoria è completa. Sotto la riserva di richieste dell'ora
+// (vedi `jobsDi`) si smette prima.
+const JOB_PER_GIRO = Number(process.env.DADAGUARD_TEMPI_JOB_PER_GIRO) || 150
+const tempiMemo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_TEMPI_TTL_MS) || 5 * 60_000,
+  onError: (err, key) => log.error('tempi deploy: rinfresco in background fallito', { key, err: err.message }),
+})
+
+// I run GitHub dei repository delle build, e i job di quelli abbinati a una build riuscita. Non lancia:
+// GitHub che non risponde vuol dire CI e attesa vuote, detto in `ciNota`, non una pagina rotta.
+async function leggiGithub(perAccount) {
+  if (!githubTempi) return { runs: null, jobs: null, ciNota: 'senza-app' }
+  const runs = new Map()
+  const nonLetti = []
+  await Promise.all(
+    repoDelleBuild(perAccount, { org: githubTempi.org }).map(async (r) => {
+      try {
+        runs.set(`${r.owner}/${r.repo}`.toLowerCase(), await githubTempi.runDi(r, { da: r.da }))
+      } catch (err) {
+        nonLetti.push(`${r.owner}/${r.repo}`)
+        log.warn('tempi deploy: run GitHub non letti, CI vuota per il repository', { repo: `${r.owner}/${r.repo}`, err: err.message })
+      }
+    }),
+  )
+  // Prima i run già in memoria (gratis), poi i nuovi dal più recente: col tetto, restano senza job i
+  // più vecchi, che sono anche quelli che pesano meno su «com'è adesso».
+  const jobs = new Map()
+  const daLeggere = runDaLeggere(perAccount, runs, githubTempi.rami).sort((a, b) => b.id - a.id)
+  let letti = 0
+  let incompleti = false
+  for (const r of daLeggere) {
+    const gia = githubTempi.mem.jobs.get(r.id)
+    if (gia) {
+      jobs.set(r.id, gia)
+      continue
+    }
+    if (letti >= JOB_PER_GIRO) {
+      incompleti = true
+      continue
+    }
+    letti++
+    try {
+      jobs.set(r.id, await githubTempi.jobsDi(r))
+    } catch (err) {
+      incompleti = true
+      if (err.riserva) break
+      log.warn('tempi deploy: job GitHub non letti, CI senza attese', { repo: `${r.owner}/${r.repo}`, run: r.id, err: err.message })
+    }
+  }
+  const ciNota = nonLetti.length ? 'parziale' : incompleti ? 'job-in-arrivo' : null
+  return { runs, jobs, rami: githubTempi.rami, ciNota, nonLetti }
+}
+
+async function leggiTempi(lang) {
+  const perAccount = (await deploysCached(lang)).value
+  const { runs, jobs, rami, ciNota, nonLetti } = await leggiGithub(perAccount)
+  return { righe: tempiPerServizio(perAccount, { runs, jobs, rami }), ciNota, nonLetti }
+}
+
+// Nel demo lo storico finto di 30 giorni (con run e job), cosi' /metrics e la dashboard Grafana hanno
+// anche CI, attesa e push -> live.
+const demoTempi = () => {
+  const { perAccount, ...gh } = demoStoricoDeploy(30)
+  return { righe: tempiPerServizio(perAccount, gh), ciNota: null }
+}
+const tempiCached = (lang) => (isDemo ? Promise.resolve({ value: demoTempi(), at: null }) : tempiMemo(`tempi:${lang ?? ''}`, () => leggiTempi(lang)))
+
+app.get('/api/deploys/tempi', async (req, res) => {
+  try {
+    const { value, at } = await tempiCached(req.query.lang)
+    conEta(res, at).json(value)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Lo storico per la dashboard dei tempi: un punto per build negli ultimi 7, 30 o 90 giorni, più la
+// tabella per servizio sulla stessa finestra. Le serie le fa la pagina (shared/tempiSerie.js), così
+// cambiare servizio o ambiente non rifà il giro. Dieci minuti di cache: è uno storico, e un giro a
+// 90 giorni legge qualche migliaio di build.
+const GIORNI_STORICO = [7, 30, 90]
+const storicoMemo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_STORICO_TTL_MS) || 10 * 60_000,
+  onError: (err, key) => log.error('storico deploy: rinfresco in background fallito', { key, err: err.message }),
+})
+
+async function leggiStorico(giorni, lang) {
+  const t = makeT(lang)
+  const { accounts } = await resolveServices()
+  const perAccount = {}
+  await Promise.all(
+    Object.entries(accounts).map(async ([key, a]) => {
+      if (!isQueryable(a)) return
+      try {
+        const { builds } = await storicoBuilds({ profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region }, { giorni })
+        perAccount[key] = { label: a.label ?? key, builds }
+      } catch (err) {
+        perAccount[key] = { label: a.label ?? key, error: cleanAwsReason(err, t), builds: [] }
+      }
+    }),
+  )
+  const { runs, jobs, rami, ciNota, nonLetti } = await leggiGithub(perAccount)
+  return {
+    giorni,
+    punti: puntiBuild(perAccount, { runs, jobs, rami }),
+    righe: tempiPerServizio(perAccount, { runs, jobs, rami }),
+    account: Object.fromEntries(Object.entries(perAccount).map(([k, v]) => [k, { label: v.label, ...(v.error ? { error: v.error } : {}) }])),
+    ciNota,
+    nonLetti,
+  }
+}
+
+app.get('/api/deploys/storico', async (req, res) => {
+  try {
+    const giorni = GIORNI_STORICO.includes(Number(req.query.giorni)) ? Number(req.query.giorni) : 30
+    if (isDemo) {
+      const { perAccount, ...gh } = demoStoricoDeploy(giorni)
+      return res.json({ giorni, punti: puntiBuild(perAccount, gh), righe: tempiPerServizio(perAccount, gh), account: Object.fromEntries(Object.entries(perAccount).map(([k, v]) => [k, { label: v.label }])), ciNota: null })
+    }
+    // La chiave non porta la lingua: cambia solo il testo degli errori di un account, e un giro a 30
+    // giorni costa minuti (2.264 build e 1.000 run letti il 20/10/2026, 158 secondi a cache fredda).
+    // Una cache per lingua li farebbe pagare due volte, e la scaldata all'avvio ne copre una sola.
+    const { value, at } = await storicoMemo(`storico:${giorni}`, () => leggiStorico(giorni, req.query.lang))
+    conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -990,6 +1132,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         .then(() => log.info('deploy: cache scaldata'))
         .catch((err) => log.error('deploy: scaldata iniziale fallita', { err: err.message }))
     }, 60_000).unref()
+    // Lo storico dei tempi a 30 giorni (la finestra con cui l'andamento di Deploy si apre): a cache
+    // fredda costa fino a qualche minuto, e senza scaldata lo pagherebbe il primo che apre la vista
+    // dopo ogni rilascio. Dopo, la cache consegna il giro vecchio e rinfresca dietro.
+    setTimeout(() => {
+      storicoMemo('storico:30', () => leggiStorico(30, 'it'))
+        .then(() => log.info('storico deploy: cache scaldata'))
+        .catch((err) => log.error('storico deploy: scaldata iniziale fallita', { err: err.message }))
+    }, 90_000).unref()
   }
 })
 
