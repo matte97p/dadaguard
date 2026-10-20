@@ -76,7 +76,7 @@ export function parseCron(expr) {
 // così l'ora legale è gestita per costruzione.
 const DOW_IDX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 const fmtCache = new Map()
-function zoneFields(date, tz) {
+export function zoneFields(date, tz) {
   if (!tz) {
     return {
       minute: date.getUTCMinutes(),
@@ -114,7 +114,7 @@ function zoneFields(date, tz) {
 }
 
 // Fuso non valido (typo, zona sconosciuta) → si valuta in UTC invece di esplodere.
-function safeTz(tz) {
+export function safeTz(tz) {
   if (!tz) return null
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz })
@@ -127,6 +127,11 @@ function safeTz(tz) {
 function matches(date, c, tz) {
   const f = zoneFields(date, tz)
   if (!c.minute.has(f.minute)) return false
+  return oraOk(f, c)
+}
+
+// Tutti i campi tranne il minuto: dice se in quell'ORA locale lo schedule puo' scattare.
+function oraOk(f, c) {
   if (!c.hour.has(f.hour)) return false
   if (!c.month.has(f.month)) return false
   if (!c.year.has(f.year)) return false
@@ -189,4 +194,47 @@ export function missedWindow(expr, nowMs, tz = null, graceMin = GRACE_MIN) {
   // Tetto a 31 giorni: oltre, la finestra non è più un dead-man ma un'archeologia (e le metriche
   // CloudWatch a quella distanza sono aggregate in bucket enormi).
   return { windowMin: Math.min(windowMin, 31 * 24 * 60), expectedAt: ref }
+}
+
+// TUTTI gli scatti di uno schedule `cron(...)` in [da, a), in ms, in ordine. Serve allo storico dei cron
+// (server/cronStorico.js) per contare le corse attese, cioe' quelle che mancano. `null` se l'espressione
+// non si espande (rate, L/W/#): chi chiama lascia il conto vuoto, non a zero.
+//
+// Si scorre per ORE e non per minuti: trenta giorni sono 720 ore contro 43.200 minuti, e per uno
+// schedule col fuso ogni passo costa una lettura di Intl. In un'ora UTC i minuti locali sono di una o
+// due ore locali (due solo nei fusi a mezz'ora, India o Nepal): si guarda l'ora locale all'inizio e,
+// se l'ora UTC ne attraversa un'altra, anche quella.
+export function espandiCron(expr, da, a, tz = null) {
+  const c = parseCron(expr)
+  if (!c || !(a > da)) return null
+  const z = safeTz(tz)
+  const minuti = [...c.minute].sort((x, y) => x - y)
+  const fuori = []
+  for (let h = Math.floor(da / 3_600_000) * 3_600_000; h < a; h += 3_600_000) {
+    const f = zoneFields(new Date(h), z)
+    const pezzi = [{ base: h - f.minute * 60_000, f }]
+    if (f.minute) {
+      const dopo = h + (60 - f.minute) * 60_000
+      pezzi.push({ base: dopo, f: zoneFields(new Date(dopo), z) })
+    }
+    for (const p of pezzi) {
+      if (!oraOk(p.f, c)) continue
+      for (const m of minuti) {
+        const t = p.base + m * 60_000
+        if (t >= h && t < h + 3_600_000 && t >= da && t < a) fuori.push(t)
+      }
+    }
+  }
+  return fuori
+}
+
+// La cadenza di uno schedule `rate(...)`, in ms; `null` per tutto il resto. Di un rate si sa QUANTE volte
+// scatta in una fascia (se la cadenza la divide esatta), non QUANDO: l'istante dipende da quando la
+// regola e' stata accesa, che EventBridge non restituisce.
+export function cadenzaRate(expr) {
+  const m = /^\s*rate\((\d+)\s+(minute|minutes|hour|hours|day|days)\)\s*$/i.exec(String(expr ?? ''))
+  if (!m) return null
+  const n = Number(m[1])
+  const u = m[2].toLowerCase()
+  return n * (u.startsWith('minute') ? 60_000 : u.startsWith('hour') ? 3_600_000 : 86_400_000) || null
 }

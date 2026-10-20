@@ -105,7 +105,8 @@ data "aws_iam_policy_document" "readonly" {
   statement {
     sid       = "LogsReadOnly" # pannello "Log recenti" (on-demand): ultimi eventi CloudWatch Logs
     effect    = "Allow"
-    actions   = ["logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogGroups"]
+    # DescribeLogStreams: le corse dei job ECS e il loro storico (pagina Cron), senza leggere righe.
+    actions   = ["logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogGroups", "logs:DescribeLogStreams"]
     resources = ["*"]
   }
 

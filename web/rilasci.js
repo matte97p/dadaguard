@@ -84,6 +84,19 @@ export { livelloCorsa, statoCron, motivoCorsa } from '../shared/cron.js'
 // che il server mette in `etichetta`; senza tag, lo schedule di sempre. Pura.
 export const nomeCron = (c) => c?.etichetta ?? c?.name ?? ''
 
+// Da quale vista parte la pagina Cron: l'ANDAMENTO (com'e' andata nei giorni) o l'ELENCO delle corse
+// (cosa gira adesso, com'e' finita ognuna). Si parte dall'andamento, tranne quando il link porta gia'
+// una domanda precisa: `?cron=` arriva dal canvas delle corse in Slack e `?q=` da una ricerca, e aprire
+// un grafico al posto della corsa cercata romperebbe quel link. `?vista=` vince su tutto; poi l'ultima
+// scelta di chi guarda. Pura.
+export const VISTE_CRON = ['andamento', 'elenco']
+export function vistaIniziale(search = '', salvata = null) {
+  const q = new URLSearchParams(search || '')
+  if (VISTE_CRON.includes(q.get('vista'))) return q.get('vista')
+  if (q.get('cron') || q.get('q')) return 'elenco'
+  return VISTE_CRON.includes(salvata) ? salvata : 'andamento'
+}
+
 // Il reaper di un job, quando è un PROBLEMA: la riga prende il suo stato (`statoCron`), e il
 // suggerimento deve dire perché, altrimenti un job «Ok 3 h fa» con la pillola rossa è un indovinello.
 // A posto, il reaper non dice niente. Pura.

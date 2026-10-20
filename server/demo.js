@@ -16,6 +16,10 @@ import { durataTipica } from './meta/cron.js'
 import { andamentoAudit, passoAndamento, settimanaDiSalute } from './teleport.js'
 import { componiFlotta } from './flotta.js'
 import { SOGLIE_DEV_ENV } from './accessi.js'
+import { grigliaFuso, serieLambda, rigaLambda, rigaEcs, rispostaStorico } from './cronStorico.js'
+import { runsFromStreams } from './runs.js'
+import { espandiCron, cadenzaRate } from './util/nextrun.js'
+import { quantile } from '../shared/tempiSerie.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -2012,4 +2016,124 @@ export function demoStoricoDeploy(giorni = 30, ora = Date.now()) {
     ultima.endedAt = new Date(Date.parse(ultima.endedAt) + 600_000).toISOString()
   }
   return { perAccount, runs, jobs, rami: { staging: 'staging', main: 'produzione' } }
+}
+
+// Lo storico della vista «Andamento» dei cron, finto e DETERMINISTICO (stesso seme, stesso grafico). Non
+// si scrivono le righe a mano: si fingono le risposte di AWS (i punti di `GetMetricData` per le Lambda,
+// gli stream di `DescribeLogStreams` per i job ECS) e le si passano alle stesse funzioni dello storico
+// vero (server/cronStorico.js). Dentro: qualche Lambda fallita, un paio di corse saltate, un job ECS che
+// da nove giorni ci mette la meta' in piu' e un cron spento che non compare.
+export function demoStoricoCron(giorni = 7, ora = Date.now(), tz = null) {
+  let seme = 20261021
+  const rnd = () => {
+    seme = (seme + 0x6d2b79f5) | 0
+    let t = Math.imul(seme ^ (seme >>> 15), 1 | seme)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const hex = (n) => Array.from({ length: n }, () => Math.floor(rnd() * 16).toString(16)).join('')
+  const MIN = 60_000
+  // Il caso di UNA corsa dipende dal suo istante e dal cron, non dall'ordine di lettura: cosi' la
+  // settimana e il mese mostrano gli stessi fallimenti negli stessi giorni.
+  const caso = (t, k) => {
+    let x = Math.imul(Math.floor(t / MIN), -1640531535) ^ Math.imul(k + 1, 40503)
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296
+  }
+  const g = grigliaFuso({ giorni, ora, tz })
+  const fine = Math.min(ora - 5 * MIN, g.inizio + g.punti * g.passoMs)
+  // Gli scatti di uno schedule nella finestra: quelli veri dell'espressione, o a passo fisso per un rate
+  // (agganciato a un minuto qualunque, come una regola accesa in un momento qualunque).
+  const scatti = (expr, tzCron) => {
+    const rate = cadenzaRate(expr)
+    if (!rate) return espandiCron(expr, g.inizio, fine, tzCron) ?? []
+    const fuori = []
+    for (let t = Math.ceil((g.inizio - 7 * MIN) / rate) * rate + 7 * MIN; t < fine; t += rate) fuori.push(t)
+    return fuori
+  }
+  // Lo scatto saltato e' quello piu' vicino a ogni istante scelto: cade sempre su uno scatto vero,
+  // anche quando l'istante e' di sabato e il cron gira solo nei feriali.
+  const daSaltare = (lista, x) =>
+    new Set((x.salta ?? []).map((s) => lista.reduce((m, t) => (m == null || Math.abs(t - s) < Math.abs(m - s) ? t : m), null)))
+  const cron = (o) => ({ region: 'eu-west-1', enabled: true, scheduleTz: null, ...o, key: `${o.account}/${o.name}` })
+
+  const lambda = [
+    // Giornaliera, un paio di timeout: la stessa che la lista delle corse mostra fallita.
+    { c: cron({ name: 'daily-digest', type: 'lambda', account: 'prod', function: 'daily-digest', scheduleExpr: 'cron(0 6 * * ? *)', scheduleTz: 'Europe/Rome' }), durata: 4200, ko: 0.08 },
+    { c: cron({ name: 'cache-warmer', type: 'lambda', account: 'prod', function: 'cache-warmer', scheduleExpr: 'cron(*/15 * * * ? *)' }), durata: 900, ko: 0.004 },
+    // Ogni ora; due ore saltate (lo schedule spento e riacceso durante un intervento).
+    { c: cron({ name: 'invoice-sync', type: 'lambda', account: 'prod', function: 'invoice-sync', scheduleExpr: 'rate(1 hour)' }), durata: 12_000, ko: 0.01, salta: [ora - 3 * 86_400_000 - 2 * 3_600_000, ora - 3 * 86_400_000 - 3_600_000] },
+    // Feriali alle nove; un giorno saltato, cinque giorni fa.
+    { c: cron({ name: 'report-mailer', type: 'lambda', account: 'prod', function: 'report-mailer', scheduleExpr: 'cron(0 9 ? * MON-FRI *)', scheduleTz: 'Europe/Rome' }), durata: 28_000, ko: 0.03, salta: [ora - 5 * 86_400_000] },
+    { c: cron({ name: 'daily-digest', type: 'lambda', account: 'staging', function: 'daily-digest-staging', scheduleExpr: 'cron(0 5 * * ? *)', scheduleTz: 'Europe/Rome' }), durata: 3900, ko: 0.05 },
+    // Spento e senza corse nella finestra: la risposta non lo deve mostrare.
+    { c: cron({ name: 'invoice-retry', type: 'lambda', account: 'staging', function: 'invoice-retry', scheduleExpr: 'rate(15 minutes)', enabled: false }), durata: 0, ko: 0, mai: true },
+  ]
+  const ecs = [
+    // Da nove giorni ci mette la meta' in piu': il «quale cron ci mette di piu'» lo deve far vedere.
+    { c: cron({ name: 'catalog-crawler', type: 'ecs-scheduled', account: 'prod', scheduleExpr: 'cron(0 3 * * ? *)', scheduleTz: 'Europe/Rome' }), durata: 38 * MIN, lento: 1.5 },
+    { c: cron({ name: 'search-reindex', type: 'ecs-scheduled', account: 'prod', scheduleExpr: 'cron(30 1 * * ? *)', scheduleTz: 'Europe/Rome' }), durata: 21 * MIN },
+    { c: cron({ name: 'nightly-export', type: 'ecs-scheduled', account: 'prod', scheduleExpr: 'cron(0 */6 * * ? *)' }), durata: 6 * MIN },
+    // Una notte, quattro giorni fa, non e' partito.
+    { c: cron({ name: 'catalog-crawler', type: 'ecs-scheduled', account: 'staging', scheduleExpr: 'cron(0 2 * * ? *)', scheduleTz: 'Europe/Rome' }), durata: 31 * MIN, salta: [ora - 4 * 86_400_000] },
+  ]
+
+  // Le Lambda: per ogni scatto una invocazione (riuscita o no) con la sua durata, poi i punti che
+  // CloudWatch restituirebbe per fascia e per la finestra.
+  const risultati = []
+  lambda.forEach((l, i) => {
+    const perFascia = Array.from({ length: g.punti }, () => ({ n: 0, e: 0, d: [] }))
+    const tutte = []
+    const lista = l.mai ? [] : scatti(l.c.scheduleExpr, l.c.scheduleTz)
+    const saltati = daSaltare(lista, l)
+    for (const t of lista) {
+      if (saltati.has(t)) continue
+      const f = perFascia[Math.floor((t - g.inizio) / g.passoMs)]
+      const ko = caso(t, i) < l.ko
+      const d = Math.round(l.durata * (ko ? 2.5 : 0.8 + caso(t, i + 50) * 0.45))
+      f.n++
+      if (ko) f.e++
+      f.d.push(d)
+      tutte.push(d)
+    }
+    const punti = (valore) => {
+      const ts = []
+      const vs = []
+      perFascia.forEach((f, k) => {
+        const v = valore(f)
+        if (v == null) return
+        ts.push(new Date(g.inizio + k * g.passoMs))
+        vs.push(v)
+      })
+      return { Timestamps: ts, Values: vs }
+    }
+    // Come CloudWatch: nessun punto dove la funzione non e' stata chiamata.
+    risultati.push({ Id: `f${i}n`, ...punti((f) => (f.n ? f.n : null)) })
+    risultati.push({ Id: `f${i}e`, ...punti((f) => (f.n ? f.e : null)) })
+    risultati.push({ Id: `f${i}m`, ...punti((f) => quantile(f.d, 0.5)) })
+    risultati.push({ Id: `f${i}s`, ...punti((f) => quantile(f.d, 0.9)) })
+    if (tutte.length) {
+      risultati.push({ Id: `f${i}w`, Timestamps: [new Date(g.inizio)], Values: [quantile(tutte, 0.5)] })
+      risultati.push({ Id: `f${i}x`, Timestamps: [new Date(g.inizio)], Values: [quantile(tutte, 0.9)] })
+    }
+  })
+  const serie = serieLambda(risultati, lambda.length, g)
+  const righe = lambda.map((l, i) => rigaLambda(l.c, serie[i], g, { ora }))
+
+  // I job ECS: uno stream per corsa, che comincia un minuto o tre dopo lo scatto (pull dell'immagine).
+  ecs.forEach((e, k) => {
+    const lista = scatti(e.c.scheduleExpr, e.c.scheduleTz)
+    const saltati = daSaltare(lista, e)
+    const streams = []
+    for (const t of lista) {
+      if (saltati.has(t)) continue
+      const inizio = t + Math.round((1 + caso(t, 100 + k) * 2) * MIN)
+      const lento = e.lento && ora - t < 9 * 86_400_000 ? e.lento : 1
+      const d = Math.round(e.durata * lento * (0.85 + caso(t, 200 + k) * 0.3))
+      streams.push({ logStreamName: `cron/job/${hex(32)}`, firstEventTimestamp: inizio, lastEventTimestamp: Math.min(inizio + d, ora) })
+    }
+    righe.push(rigaEcs(e.c, runsFromStreams(streams, { streamPrefix: 'cron', container: 'job', since: g.inizio }), g, { ora }))
+  })
+  return rispostaStorico({ giorni, g, righe, account: { prod: { label: ACC.prod.label }, staging: { label: ACC.staging.label } } })
 }

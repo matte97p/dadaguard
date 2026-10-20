@@ -24,6 +24,7 @@ import { networkTopology } from './topology/network.js'
 import { renderMetrics } from './metrics.js'
 import { recentLogs } from './logs.js'
 import { runsOverview } from './runsOverview.js'
+import { storicoCron, giorniStorico } from './cronStorico.js'
 import { listCrons } from './crons.js'
 import { cronRunLogs } from './runs.js'
 import { prefectRunLogs } from './prefect.js'
@@ -55,7 +56,7 @@ import { statoFlotta } from './flotta.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 import { storicoFlotta } from './storicoAws.js'
-import { demoHistory, demoStoricoDeploy } from './demo.js'
+import { demoHistory, demoStoricoDeploy, demoStoricoCron } from './demo.js'
 // rd-server-meta: metadati della UI nuova
 import { spesaGiornaliera } from './meta/spesa.js'
 import { riepilogoLogin } from './meta/accessi.js'
@@ -861,6 +862,23 @@ app.get('/api/runs', async (req, res) => {
     // `infra: true` sui cron della squadra infra (DADAGUARD_CORSE_INFRA): la pagina li mette in fondo,
     // in una sezione loro, come il canvas delle corse. Le squadre le conosce solo il server.
     conEta(res, overview.generatedAt).json(conDurataTipica(conInfra(overview, corseConfig())))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Lo STORICO dei cron per la vista «Andamento»: per cron e per fascia corse, fallite, saltate e durata,
+// negli ultimi 7 o 30 giorni. Dalle metriche di Lambda e dagli stream dei job ECS, senza leggere una
+// riga di log: il conto di cosa costa sta in testa a server/cronStorico.js. `tz` e' il fuso del
+// browser, perche' le fasce cadano sulla mezzanotte di chi guarda; dieci minuti di cache.
+app.get('/api/runs/storico', async (req, res) => {
+  try {
+    const giorni = giorniStorico(req.query.giorni)
+    const tz = typeof req.query.tz === 'string' ? req.query.tz.slice(0, 64) : null
+    if (isDemo) return res.json(demoStoricoCron(giorni, Date.now(), tz))
+    const { accounts } = await resolveServices()
+    const { value, at } = await storicoCron(accounts, { giorni, tz, t: makeT(req.query.lang), lang: req.query.lang === 'en' ? 'en' : 'it' })
+    conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

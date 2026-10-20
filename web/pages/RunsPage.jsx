@@ -4,11 +4,12 @@ import { usePoll } from '../usePoll.js'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { matchesAny, isFiltering, queryCerca } from '../filters.js'
 import { rangoLivello } from '../adattatori.js'
-import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron, nomeCron, avvisoReaper } from '../rilasci.js'
+import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron, nomeCron, avvisoReaper, vistaIniziale } from '../rilasci.js'
 import { contaCron, verdettoCron } from '../../shared/cron.js'
 import { useTick } from '../components/runBits.jsx'
 import RunTimeline from '../components/RunTimeline.jsx'
 import RunLogsDrawer from '../components/RunLogsDrawer.jsx'
+import CronAndamento from './CronAndamento.jsx'
 import './rilasci.css'
 
 // Pagina CRON: cosa sta girando adesso, e com'e' finita ogni corsa di prima.
@@ -111,7 +112,50 @@ function cosaCron(c, stato, t, now) {
   return { cosa: t('rilasci.cron.ok', { quando, d: durata ? fmtMs(durata) : '?' }), hint: prossima }
 }
 
+// Le due viste della pagina: l'ANDAMENTO (com'e' andata nei giorni, CronAndamento.jsx) e l'ELENCO delle
+// corse qui sotto (cosa gira adesso, com'e' finita ognuna). Quale si apre lo decide `vistaIniziale`
+// (web/rilasci.js): i link con un cron o una ricerca aprono l'elenco, come prima.
 export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
+  const [vista, setVista] = useState(() => {
+    let salvata = null
+    try {
+      salvata = localStorage.getItem('dadaguard-cron-vista')
+    } catch {
+      /* finestra privata: si parte dal default */
+    }
+    return vistaIniziale(typeof window === 'undefined' ? '' : window.location.search, salvata)
+  })
+  // Il cron da aprire nell'elenco quando lo si sceglie dalla tabella dell'andamento.
+  const [cronIniziale, setCronIniziale] = useState(null)
+  const scegli = (v) => {
+    setVista(v)
+    if (v === 'andamento') setCronIniziale(null)
+    try {
+      localStorage.setItem('dadaguard-cron-vista', v)
+    } catch {
+      /* preferenza non salvata: la vista funziona lo stesso */
+    }
+  }
+  return (
+    <div className={vista === 'andamento' ? 'rl-pagina tp-pagina' : 'rl-pagina'}>
+      <Tabs
+        voci={[
+          { key: 'andamento', label: t('cronStorico.vista.andamento') },
+          { key: 'elenco', label: t('cronStorico.vista.elenco') },
+        ]}
+        attiva={vista}
+        onCambia={scegli}
+      />
+      {vista === 'andamento' ? (
+        <CronAndamento t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} onApriCron={(k) => (setCronIniziale(k), scegli('elenco'))} />
+      ) : (
+        <ElencoCorse key={cronIniziale ?? ''} t={t} lang={lang} refreshKey={refreshKey} accountFilter={accountFilter} cronIniziale={cronIniziale} />
+      )}
+    </div>
+  )
+}
+
+function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronIniziale = null }) {
   const [minutes, setMinutes] = useState(1440)
   // La vista scelta persiste: e' una preferenza di chi guarda. Letta con la guardia perche' il
   // modulo puo' essere reso fuori dal browser, e `localStorage` puo' lanciare (finestra privata).
@@ -135,7 +179,9 @@ export default function RunsPage({ t = (k) => k, lang, refreshKey, accountFilter
   // Parte da `?cron=<account>/<nome>`: e' il link di ogni riga del canvas delle corse in Slack
   // (server/notify/corse.js), e il redirect da `/esecuzioni` lo tiene gia'. Senza, il link atterrava
   // sull'elenco di tutti i cron, da cercare a mano.
+  // Dalla tabella dell'andamento il cron arriva come prop, non dall'URL.
   const [soloCron, setSoloCron] = useState(() => {
+    if (cronIniziale) return cronIniziale
     try {
       return new URLSearchParams(window.location.search).get('cron') || null
     } catch {
