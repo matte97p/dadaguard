@@ -184,6 +184,11 @@
   flex-wrap: wrap;
 }
 
+/* Pagina Tempi: e' una dashboard, prende tutta la larghezza del guscio (1560px) invece dei 1180 delle
+   pagine di testo. */
+.rl-pagina.tp-pagina {
+  max-width: none;
+}
 /* Pagina Tempi: due pannelli affiancati quando c'e' posto, uno sotto l'altro sul telefono. */
 .tp-griglia {
   display: grid;

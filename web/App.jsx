@@ -724,7 +724,8 @@ export default function App() {
         <div className="ui-body">
           <SideNav voci={vociNav} vociOps={vociOps} attiva={activeNav.to} onScegli={(to) => navigate(to)} mostraOps={ruolo === 'ops'} t={t} />
 
-          <main className={`ui-main ${home ? '' : 'ui-main-largo'}`}>
+          {/* Tempi e' una dashboard: prende tutto lo schermo, come Grafana, invece della misura delle liste. */}
+          <main className={`ui-main ${home ? '' : 'ui-main-largo'}${location.pathname === '/tempi' ? ' ui-main-pieno' : ''}`}>
             {/* La barra dei filtri ha bisogno dei dati (le opzioni vengono dagli account e dai servizi),
                 ma il suo SPAZIO no: senza riservarlo, quando lo stato della flotta arriva la barra
                 compare e spinge giu' l'intera pagina, facendo perdere il punto in cui si stava leggendo. */}

@@ -245,6 +245,11 @@
   max-width: 1560px;
   display: block;
 }
+/* Le dashboard (Tempi) prendono tutta la larghezza: i grafici del tempo guadagnano punti leggibili,
+   non righe lunghe da seguire con l'occhio. */
+.ui-main.ui-main-pieno {
+  max-width: none;
+}
 
 /* ── verdetto ── */
 .ui-verdetto {

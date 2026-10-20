@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, GraficoBanda, PiccoliMultipli, Legenda } from '../ui/index.js'
-import { fmtMs } from '../format.js'
 import { usePoll } from '../usePoll.js'
 import { matchesAny, listaDaUrl } from '../filters.js'
 import { numero } from '../grafici.js'
@@ -8,62 +7,76 @@ import { PEZZI, griglia, serieTempi, kpiTempi, perServizio } from '../../shared/
 import './rilasci.css'
 
 // Pagina TEMPI: quanto ci mette un rilascio e dove perde tempo, nel tempo. Una dashboard nello stile
-// di Grafana: le tessere della finestra in cima, poi dove va il tempo fascia per fascia, la durata con
-// la sua fascia fino al p90, i rilasci riusciti e falliti, un piccolo grafico per servizio e la tabella.
-// I punti (uno per build) arrivano da /api/deploys/storico; le serie le fa shared/tempiSerie.js qui nel
-// browser, cosi' cambiare servizio o ambiente non rifa' il giro di CodeBuild e GitHub.
+// di Grafana, scritta per leggersi al volo: «di solito» e «nei giorni lenti» invece di mediana e p90,
+// durate arrotondate al minuto, titoli che sono la domanda a cui il pannello risponde. I punti (uno per
+// build) arrivano da /api/deploys/storico; le serie le fa shared/tempiSerie.js qui nel browser, cosi'
+// cambiare servizio o ambiente non rifa' il giro di CodeBuild e GitHub.
+//
+// Cosa si misura: dal push a in produzione quando i run di GitHub ci sono, altrimenti dall'avvio della
+// build. Non e' una scelta di chi legge: un selettore fra le due chiedeva di sapere la differenza.
 
 const GIORNI = [7, 30, 90]
 // Il colore segue il pezzo, in ordine fisso: CI, attese (grigio: tempo in cui non lavora nessuno),
 // build, deploy. Sono i quattro colori dei grafici di app.css, gia' validati per chiaro e scuro.
 const COLORE = { ci: 'var(--chart-1)', attese: 'var(--chart-neutro)', build: 'var(--chart-2)', deploy: 'var(--chart-3)' }
+// Le fasi della tabella, nell'ordine in cui succedono: per la colonna «dove perde piu' tempo».
+const FASI = ['ci', 'attesa', 'coda', 'build', 'deploy']
 
-// I grafici lavorano in MINUTI: l'asse tondo (1, 2, 5, 10) cade su minuti tondi, in millisecondi
-// cadrebbe su 8m 20s.
+// Le durate si leggono arrotondate: «14 min», non «13m 36s». Sono andamenti di settimane, e i secondi
+// sono rumore che rallenta chi legge.
+export function durata(ms, t = (k, v) => `${v?.n} ${k}`) {
+  if (ms == null || !Number.isFinite(ms)) return '-'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s} s`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`
+  return t('tempi.giorni', { n: Math.round(h / 24) })
+}
+
+// I grafici lavorano in MINUTI: l'asse tondo (1, 2, 5, 10) cade su minuti tondi.
 const inMin = (v) => (v == null ? null : v / 60_000)
-const fmtMin = (v) => (v == null ? '-' : v === 0 ? '0' : fmtMs(v * 60_000))
 
-const TEMPI_SEGMENTI = ['ci', 'attesa', 'coda', 'build', 'deploy', 'lead']
-const COLONNE_TEMPI = `minmax(0,1.3fr) repeat(${TEMPI_SEGMENTI.length + 4}, minmax(64px,1fr))`
-const COLONNE_TEMPI_M = 'minmax(0,1fr) minmax(0,1fr)'
-
-// Una cella della tabella: mediana grande, p90 sotto. L'etichetta serve sul telefono, dove
-// l'intestazione delle colonne non c'e'.
-function Cella({ etichetta, valore, sotto, livello, titolo }) {
+// Una cella della tabella: il numero grande, la spiegazione sotto. L'etichetta serve sul telefono,
+// dove l'intestazione delle colonne non c'e'.
+function Cella({ etichetta, valore, sotto, livello }) {
   return (
-    <span className="rl-tempo" title={titolo}>
+    <span className="rl-tempo">
       <small className="rl-tempo-et">{etichetta}</small>
-      <b className={`ui-mono${livello ? ` ui-t-${livello}` : ''}`}>{valore ?? '-'}</b>
+      <b className={livello ? `ui-t-${livello}` : undefined}>{valore ?? '-'}</b>
       {sotto && <small className="ui-mute">{sotto}</small>}
     </span>
   )
 }
 
-function TabellaTempi({ righe, t }) {
-  const col = (k) => t(`rilasci.dep.tempi.col.${k}`)
+function TabellaTempi({ righe, t, d }) {
+  const col = (k) => t(`tempi.tab.${k}`)
   return (
     <Lista
-      colonne={[t('rilasci.dep.col.servizio'), ...TEMPI_SEGMENTI.map(col), col('falliti'), col('settimana'), col('ripristino'), col('daStaging')]}
-      griglia={COLONNE_TEMPI}
-      grigliaMobile={COLONNE_TEMPI_M}
+      colonne={[col('servizio'), col('solito'), col('lenti'), col('fase'), col('falliti'), col('settimana'), col('verde')]}
+      griglia="minmax(0,1.4fr) repeat(6, minmax(80px,1fr))"
+      grigliaMobile="minmax(0,1fr) minmax(0,1fr)"
       vuoto={t('rilasci.dep.tempi.vuoto')}
     >
       {righe.map((r) => {
         const f = r.fallimento
+        const misura = r.lead ?? r.totale
+        const fase = FASI.filter((k) => r[k]).sort((a, b) => r[b].p50 - r[a].p50)[0]
         return (
           <div key={`${r.account}/${r.servizio}`} className="ui-row rl-tempi-riga">
             <span className="ui-name">
               {r.servizio}
-              <small>{[r.accountLabel, t('rilasci.dep.tempi.campioni', { n: r.campioni })].join(' · ')}</small>
+              <small>{r.accountLabel}</small>
               {r.lenta && (
-                <span title={t('rilasci.dep.tempi.lentaTip', { d: fmtMs(r.lenta.durationMs), p90: fmtMs(r.lenta.p90), build: r.lenta.build ?? '?' })}>
+                <span title={t('tempi.lentaTip', { d: d(r.lenta.durationMs), solito: d(r.lenta.p50) })}>
                   <Pill livello="warn">{t('rilasci.dep.tempi.lenta')}</Pill>
                 </span>
               )}
             </span>
-            {TEMPI_SEGMENTI.map((k) => (
-              <Cella key={k} etichetta={col(k)} valore={r[k] ? fmtMs(r[k].p50) : null} sotto={r[k] ? `p90 ${fmtMs(r[k].p90)}` : null} />
-            ))}
+            <Cella etichetta={col('solito')} valore={misura ? d(misura.p50) : null} sotto={misura ? t(r.lead ? 'tempi.dalPush' : 'tempi.dallaBuild') : null} />
+            <Cella etichetta={col('lenti')} valore={misura ? d(misura.p90) : null} />
+            <Cella etichetta={col('fase')} valore={fase ? t(`tempi.fase.${fase}`) : null} sotto={fase ? d(r[fase].p50) : null} />
             <Cella
               etichetta={col('falliti')}
               valore={f ? `${Math.round(f.tasso * 100)}%` : null}
@@ -71,12 +84,7 @@ function TabellaTempi({ righe, t }) {
               livello={f && f.tasso >= 0.25 ? 'crit' : f && f.tasso > 0.1 ? 'warn' : null}
             />
             <Cella etichetta={col('settimana')} valore={r.settimana ? String(r.settimana.n) : null} />
-            <Cella etichetta={col('ripristino')} valore={r.ripristino ? fmtMs(r.ripristino.p50) : null} sotto={r.ripristino ? t('rilasci.dep.tempi.volte', { n: r.ripristino.n }) : null} />
-            <Cella
-              etichetta={col('daStaging')}
-              valore={r.daStaging ? fmtMs(r.daStaging.p50) : null}
-              sotto={r.daStaging ? `p90 ${fmtMs(r.daStaging.p90)}` : r.ambiente === 'produzione' ? t('rilasci.dep.tempi.nonAbbinato') : null}
-            />
+            <Cella etichetta={col('verde')} valore={r.ripristino ? d(r.ripristino.p50) : null} sotto={r.ripristino ? t('tempi.volte', { n: r.ripristino.n }) : null} />
           </div>
         )
       })}
@@ -88,9 +96,6 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
   const [giorni, setGiorni] = useState(30)
   // Deep-link `?service=a,b`, come la pagina Deploy.
   const [servizi, setServizi] = useState(() => (typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service')))
-  // Cosa misurano la linea e i piccoli multipli: dal push a in produzione, o la sola build CodeBuild.
-  // Senza GitHub il push non si vede, e si parte dalla build.
-  const [misura, setMisura] = useState('lead')
   const { data, loading, error, refresh } = usePoll(`/api/deploys/storico?giorni=${giorni}&lang=${lang}`, { intervalMs: 600000 })
 
   const seenRk = useRef(refreshKey)
@@ -101,6 +106,8 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
     }
   }, [refreshKey, refresh])
 
+  const d = (ms) => durata(ms, t)
+  const dMin = (v) => (v == null ? '-' : v === 0 ? '0' : d(v * 60_000))
   const etichettaConto = (k) => data?.account?.[k]?.label ?? k
   const tutti = useMemo(() => (data?.punti ?? []).filter((p) => matchesAny(p.a, accountFilter)), [data, accountFilter])
   const elencoServizi = useMemo(() => [...new Set(tutti.map((p) => p.s))].sort(), [tutti])
@@ -110,26 +117,30 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
   const g = useMemo(() => griglia({ giorni }), [giorni, data])
   const serie = useMemo(() => serieTempi(punti, g), [punti, g])
   const kpi = useMemo(() => kpiTempi(punti, { giorni }), [punti, giorni])
-  const conLead = punti.some((p) => p.lead != null)
-  const campo = misura === 'lead' && conLead ? 'lead' : 'totale'
+  const campo = punti.some((p) => p.lead != null) ? 'lead' : 'totale'
   const multipli = useMemo(() => perServizio(punti, g, { campo }), [punti, g, campo])
   const linea = campo === 'lead' ? serie.lead : serie.totale
+  const testa = kpi[campo]
 
   const finestra = t(`tempi.finestra.${giorni}`)
   const pz = Object.fromEntries(serie.pezzi.map((p) => [p.k, p.valori]))
   // Nelle tessere l'andamento senza le fasce vuote: e' una direzione in 90 pixel, non un asse del tempo,
   // e coi buchi una serie rada sparisce.
-  const tessera = (k, r) => ({ valore: r ? fmtMs(r.p50) : null, sotto: r ? `p90 ${fmtMs(r.p90)}` : null, trend: { valori: (pz[k] ?? []).filter((v) => v != null), descrizione: t('tempi.trend', { cosa: t(`tempi.pezzo.${k}`) }) } })
+  const tessera = (k, r) => ({
+    valore: r ? d(r.p50) : null,
+    sotto: r ? t('tempi.lentiBreve', { d: d(r.p90) }) : null,
+    trend: { valori: (pz[k] ?? []).filter((v) => v != null), descrizione: t('tempi.trend', { cosa: t(`tempi.pezzo.${k}`) }) },
+  })
   const f = kpi.falliti
-  const testa = kpi.lead ?? kpi.totale
+  const riuscite = (i) => [{ etichetta: t('tempi.riuscite'), valore: String(serie.riusciti[i] ?? 0) }]
 
   return (
-    <div className="rl-pagina">
+    <div className="rl-pagina tp-pagina">
       <Verdetto
         livello={null}
-        forte={loading && !data ? null : testa ? t(kpi.lead ? 'tempi.v.lead' : 'tempi.v.totale', { d: fmtMs(testa.p50) }) : null}
-        resto={loading && !data ? t('rilasci.dep.v.attesa') : testa ? t('tempi.v.resto', { p90: fmtMs(testa.p90), n: testa.n, finestra }) : t('tempi.v.vuoto', { finestra })}
-        dettaglio={t('tempi.v.dettaglio')}
+        forte={loading && !data ? null : testa ? t('tempi.v.forte', { d: d(testa.p50) }) : null}
+        resto={loading && !data ? t('rilasci.dep.v.attesa') : testa ? t(`tempi.v.resto.${campo}`, { lenti: d(testa.p90) }) : t('tempi.v.vuoto', { finestra })}
+        dettaglio={testa ? t('tempi.v.dettaglio', { finestra, n: testa.n }) : null}
       />
 
       {error && <div className="ui-readwarn">{error}</div>}
@@ -161,15 +172,6 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
             </option>
           ))}
         </select>
-        {conLead && (
-          <div className="ui-seg" role="group" aria-label={t('tempi.misura')}>
-            {['lead', 'totale'].map((m) => (
-              <button key={m} type="button" aria-pressed={campo === m} onClick={() => setMisura(m)}>
-                {t(`tempi.misura.${m}`)}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {loading && !data ? (
@@ -177,7 +179,6 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
       ) : (
         <>
           <Tessere etichetta={t('tempi.tessere')}>
-            {/* Il push -> live e' gia' nel titolo: sei tessere stanno su una riga, sette no. */}
             <Tessera etichetta={t('tempi.pezzo.ci')} {...tessera('ci', kpi.ci)} />
             <Tessera etichetta={t('tempi.pezzo.attese')} {...tessera('attese', kpi.attese)} />
             <Tessera etichetta={t('tempi.pezzo.build')} {...tessera('build', kpi.build)} />
@@ -196,16 +197,16 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
             />
           </Tessere>
 
-          <Card titolo={t('tempi.pila.titolo', { finestra })} nota={t('tempi.pila.nota')}>
+          <Card titolo={t('tempi.pila.titolo')} nota={t('tempi.pila.nota')}>
             <Legenda voci={PEZZI.map((p) => ({ etichetta: t(`tempi.pezzo.${p.k}`), colore: COLORE[p.k] }))} />
             <GraficoEventi
               andamento={serie}
               serie={PEZZI.map((p) => ({ k: p.k, etichetta: t(`tempi.pezzo.${p.k}`), colore: COLORE[p.k], valori: pz[p.k].map(inMin) }))}
               lang={lang}
               t={t}
-              aria={t('tempi.pila.titolo', { finestra })}
-              formato={fmtMin}
-              extra={(i) => [{ etichetta: t('tempi.riuscite'), valore: String(serie.riusciti[i] ?? 0) }]}
+              aria={t('tempi.pila.titolo')}
+              formato={dMin}
+              extra={riuscite}
             />
           </Card>
 
@@ -217,8 +218,8 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
                 p90={linea.p90.map(inMin)}
                 lang={lang}
                 aria={t(`tempi.banda.titolo.${campo}`)}
-                formato={fmtMin}
-                etichette={{ p50: t('tempi.mediana'), p90: 'p90', extra: (i) => [{ etichetta: t('tempi.riuscite'), valore: String(serie.riusciti[i] ?? 0) }] }}
+                formato={dMin}
+                etichette={{ p50: t('tempi.solito'), p90: t('tempi.lenti'), extra: riuscite }}
               />
             </Card>
             <Card titolo={t('tempi.rilasci.titolo')} nota={t('tempi.rilasci.nota')}>
@@ -243,7 +244,7 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
           </div>
 
           {multipli.righe.length > 1 && (
-            <Card titolo={t(`tempi.multipli.titolo.${campo}`)} nota={t('tempi.multipli.nota')}>
+            <Card titolo={t('tempi.multipli.titolo')} nota={t(`tempi.multipli.nota.${campo}`)}>
               <PiccoliMultipli
                 serie={serie}
                 righe={multipli.righe.map((r) => ({
@@ -253,19 +254,19 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
                   dominio: multipli.dominio.map(inMin),
                   colore: 'var(--chart-1)',
                   ponti: true,
-                  formato: fmtMin,
+                  formato: dMin,
                 }))}
                 lang={lang}
                 t={t}
-                aria={t(`tempi.multipli.titolo.${campo}`)}
+                aria={t('tempi.multipli.titolo')}
                 ultimoTesto={t('tempi.multipli.ultimo')}
               />
               {multipli.altri > 0 && <p className="ui-note">{t('tempi.multipli.altri', { n: multipli.altri })}</p>}
             </Card>
           )}
 
-          <Card titolo={t('tempi.tabella.titolo', { finestra })} nota={t('rilasci.dep.tempi.nota')}>
-            <TabellaTempi righe={righe} t={t} />
+          <Card titolo={t('tempi.tabella.titolo')} nota={t('tempi.tabella.nota')}>
+            <TabellaTempi righe={righe} t={t} d={d} />
           </Card>
         </>
       )}
