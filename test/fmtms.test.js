@@ -66,3 +66,12 @@ test('anche fmtCount è allineato fra i due gemelli, M e B compresi', async () =
   assert.equal(fmtCount(1788000), '1.8M')
   assert.equal(fmtCount(2.5e9), '2.5B')
 })
+
+test('durata: sotto il mezzo secondo «< 1 s», non «0 s»', async () => {
+  const { durata } = await import('../web/format.js')
+  assert.equal(durata(300), '< 1 s')
+  assert.equal(durata(0), '< 1 s')
+  assert.equal(durata(800), '1 s')
+  assert.equal(durata(13 * 60_000 + 36_000), '14 min')
+  assert.equal(durata(null), '-')
+})

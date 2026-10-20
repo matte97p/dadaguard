@@ -284,6 +284,9 @@ export function accountShort(label) {
 // dove i secondi sono rumore che rallenta chi legge (`fmtMs` resta per la singola build o corsa).
 export function durata(ms, t = (k, v) => `${v?.n} ${k}`) {
   if (ms == null || !Number.isFinite(ms)) return '-'
+  // Sotto il mezzo secondo «0 s» si legge «non ha girato»: il 20/10/2026 la durata di solito di 63 cron
+  // (dominata dalle Lambda frequenti, ~300 ms) diceva proprio quello.
+  if (ms < 500) return '< 1 s'
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s} s`
   const m = Math.round(s / 60)
