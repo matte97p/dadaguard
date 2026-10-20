@@ -773,6 +773,8 @@ export default function App() {
                     error={error}
                     onOpen={(s) => openDetail(s)}
                     t={t}
+                    lang={lang}
+                    refreshKey={refreshKey}
                   />
                 }
               />

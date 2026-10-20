@@ -289,6 +289,54 @@ export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, f
   )
 }
 
+// ── Linea con la fascia ─────────────────────────────────────────────────────────────────────────────
+//
+// Una misura col suo «di solito» e i suoi «momenti lenti», come la memoria della flotta ma generica:
+// la linea e' il valore tipico (`linea`), la fascia chiara sale fino a quello dei momenti lenti
+// (`alto`). Chi legge guarda la linea; la fascia dice quanto si allarga la coda, e quando si gonfia
+// senza che la linea si muova il problema e' di poche richieste, non di tutte. I buchi restano buchi
+// nella fascia, e la linea li scavalca col ponte tratteggiato (una fascia senza richieste non e' un
+// tempo di risposta zero). `formato` scrive valori e asse, `extra(i)` aggiunge righe al riquadro.
+export function GraficoBanda({ andamento, linea = [], alto = [], lang, t, aria, formato = String, etichette = {}, extra, colore = 'var(--chart-1)' }) {
+  const [ref, larghezza] = useLarghezza()
+  const punti = andamento?.punti ?? 0
+  const m = { sx: 50, dx: 12, su: 10, plot: 150, giu: 24 }
+  const destra = Math.max(m.sx + 40, larghezza - m.dx)
+  const x = useCallback((i) => m.sx + (i * (destra - m.sx)) / Math.max(1, punti - 1), [destra, punti, m.sx])
+  const hi = tondo(Math.max(1, ...[...linea, ...alto].filter((v) => v != null && Number.isFinite(v))))
+  const y = (v) => m.su + m.plot - (v / hi) * m.plot
+  const asse = m.su + m.plot
+  const [i, mirino] = useMirino(punti, x)
+  if (!punti) return null
+  const ultimo = linea.reduce((u, v, k) => (v != null ? k : u), -1)
+  return (
+    <div className="ui-grafico" ref={ref}>
+      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria} {...mirino}>
+        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato} />
+        <AsseTempo serie={andamento} x={x} alto={m.su} basso={asse} lang={lang} />
+        <path d={percorsoBanda(alto, linea, x, y)} className="ui-banda ui-banda-lenti" style={{ fill: colore }} />
+        <path d={percorsoPonti(linea, x, y)} className="ui-linea ui-ponte" style={{ stroke: colore }} />
+        <path d={percorso(linea, x, y)} className="ui-linea" style={{ stroke: colore }} />
+        {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(linea[ultimo])} r="4" className="ui-punto" style={{ fill: colore }} />}
+        {i != null && <line x1={x(i)} x2={x(i)} y1={m.su} y2={asse} className="ui-mirino" />}
+        {i != null && linea[i] != null && <circle cx={x(i)} cy={y(linea[i])} r="4" className="ui-punto" style={{ fill: colore }} />}
+      </svg>
+      {i != null && (
+        <Lettura
+          x={x(i)}
+          larghezza={larghezza}
+          titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
+          righe={[
+            { colore, etichetta: etichette.linea ?? '', valore: linea[i] == null ? '-' : formato(linea[i]) },
+            { colore: `color-mix(in srgb, ${colore} 30%, transparent)`, etichetta: etichette.alto ?? '', valore: alto[i] == null ? '-' : formato(alto[i]) },
+            ...(extra ? extra(i) : []),
+          ]}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Piccoli multipli ────────────────────────────────────────────────────────────────────────────────
 //
 // Le serie di un Mac una sotto l'altra, ciascuna con la sua scala vera (`dominio`) ma tutte sullo
