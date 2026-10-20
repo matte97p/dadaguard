@@ -3,7 +3,7 @@
 // (c) valutare la UI. Attivo con env DADAGUARD_DEMO=1 (vedi mode.js: isDemo).
 // Tutto statico e read-only: nessuna chiamata di rete.
 import { budgetLevel } from './budgets.js'
-import { monthEndProjection } from './costs.js'
+import { monthEndProjection, aggregateDaily, dailyRange } from './costs.js'
 import { computeOverall } from './status.js'
 import { makeT } from './i18n.js'
 import { componiStorico } from './storico.js'
@@ -1906,6 +1906,104 @@ export function demoMappaAccessi() {
       sso: { ok: true, permissionSets: 3 },
     },
   }
+}
+
+// La spesa giorno per giorno della scheda Andamento, finta e DETERMINISTICA: tre account, un valore al
+// giorno per servizio, con la settimana che si vede (staging spento nel weekend, i modelli usati meno
+// il sabato e la domenica) e un servizio che cresce (Bedrock in produzione, quasi triplicato in 90 giorni: e' la
+// storia che la dashboard deve saper raccontare). Le righe hanno la forma di Cost Explorer (gruppi
+// [SERVICE, RECORD_TYPE], crediti e tasse compresi) e passano da `aggregateDaily`, lo stesso codice
+// del percorso vero. Il rumore di un giorno dipende dal giorno e dal servizio, non dall'ordine in cui
+// si generano: la finestra di 30 giorni e quella di 90 dicono lo stesso importo per lo stesso giorno.
+export function demoCostDaily(giorni = 30, type, now = new Date()) {
+  // Un PRNG piccolo (mulberry32) col seme dal testo: stesso giorno e servizio, stesso numero.
+  const rumore = (testo) => {
+    let h = 1779033703
+    for (const c of testo) h = Math.imul(h ^ c.charCodeAt(0), 3432918353)
+    let t = (h ^ (h >>> 13)) + 0x6d2b79f5
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  // [servizio, al giorno, quanto resta nel weekend, crescita sulla finestra di 90 giorni]
+  const CONTI = {
+    prod: {
+      label: 'Production',
+      color: '#cf1322',
+      servizi: [
+        ['Amazon Bedrock', 8.5, 0.45, 1.8],
+        ['Amazon Elastic Container Service', 4.7, 0.9, 0],
+        ['Amazon Elastic Compute Cloud - Compute', 3.1, 1, 0],
+        ['Amazon RDS', 2.9, 1, 0.1],
+        ['AmazonCloudWatch', 1.1, 0.8, 0.2],
+        ['Amazon Simple Storage Service', 0.9, 1, 0.15],
+        ['AWS Lambda', 0.4, 0.6, 0],
+        ['Amazon CloudFront', 0.3, 0.7, 0],
+      ],
+      credito: 1.3, // crediti promozionali al giorno, scalati sul consumo
+      tassa: 0.1,
+    },
+    staging: {
+      label: 'Staging',
+      color: '#1677ff',
+      servizi: [
+        ['Amazon Elastic Container Service', 1.1, 0.35, 0],
+        ['Amazon RDS', 0.8, 1, 0],
+        ['Amazon ElastiCache', 0.6, 1, 0],
+        ['Amazon Bedrock', 0.4, 0.2, 0.5],
+        ['AmazonCloudWatch', 0.3, 0.6, 0],
+      ],
+    },
+    management: {
+      label: 'Management (payer)',
+      color: '#722ed1',
+      servizi: [
+        ['AWS Marketplace (Claude Sonnet)', 3.9, 0.3, 0.4],
+        ['CodeBuild', 0.47, 0.2, 0],
+        ['Amazon Simple Storage Service', 0.1, 1, 0],
+      ],
+    },
+  }
+  // Il Livello dei servizi finti, per far agire davvero il filtro (vedi demoApplyType): i servizi
+  // senza livello spariscono quando se ne sceglie uno, come in Cost Explorer.
+  const LIVELLO = {
+    'Amazon Bedrock': 'llms',
+    'AWS Marketplace (Claude Sonnet)': 'llms',
+    'Amazon Elastic Container Service': 'compute',
+    'Amazon Elastic Compute Cloud - Compute': 'compute',
+    'AWS Lambda': 'compute',
+    'Amazon RDS': 'database',
+    'Amazon ElastiCache': 'database',
+    CodeBuild: 'deploy',
+  }
+  const filtro = type && type !== 'all' ? type : null
+  const periodo = dailyRange(now, giorni)
+  const oggi = ymd(now)
+  const out = {}
+  for (const [key, c] of Object.entries(CONTI)) {
+    const righe = []
+    for (let g = periodo.start; g < periodo.end; ) {
+      const d = new Date(`${g}T00:00:00Z`)
+      const fa = Math.round((Date.parse(`${oggi}T00:00:00Z`) - d.getTime()) / 86_400_000)
+      const weekend = d.getUTCDay() === 0 || d.getUTCDay() === 6
+      // Oggi e' a meta': e' il caso vero, e senza sembrerebbe un giorno qualunque.
+      const quota = g === oggi ? now.getUTCHours() / 24 || 0.4 : 1
+      const gruppi = []
+      for (const [servizio, base, fine, crescita] of c.servizi) {
+        if (filtro && LIVELLO[servizio] !== filtro) continue
+        const sale = 1 + crescita * Math.max(0, 1 - fa / 90) ** 2
+        const v = base * sale * (weekend ? fine : 1) * (0.85 + rumore(`${key}|${servizio}|${g}`) * 0.3) * quota
+        gruppi.push({ Keys: [servizio, 'Usage'], Metrics: { UnblendedCost: { Amount: String(v) } } })
+      }
+      if (!filtro && c.credito) gruppi.push({ Keys: ['Amazon Bedrock', 'Credit'], Metrics: { UnblendedCost: { Amount: String(-c.credito * quota) } } })
+      if (!filtro && c.tassa) gruppi.push({ Keys: ['Tax', 'Tax'], Metrics: { UnblendedCost: { Amount: String(c.tassa * quota) } } })
+      righe.push({ TimePeriod: { Start: g }, Groups: gruppi })
+      d.setUTCDate(d.getUTCDate() + 1)
+      g = ymd(d)
+    }
+    out[key] = { label: c.label, color: c.color, period: periodo, currency: 'USD', oggi, ...aggregateDaily(righe, periodo) }
+  }
+  return out
 }
 
 // Spesa giornaliera demo: 30 giorni fino a oggi, stessa forma di `meta/spesa.js`. Valori calcolati da
