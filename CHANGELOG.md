@@ -6,6 +6,18 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Com'è andata coi cron: la vista Andamento della pagina Cron** (20/10/2026). La stessa dashboard
+  dell'andamento di Deploy sugli ultimi 7 o 30 giorni (`GET /api/runs/storico?giorni=`): la quota delle volte
+  senza problemi, le tessere (corse, fallite, saltate, durata di solito e nei giorni lenti), le corse
+  fascia per fascia (riuscite, fallite, saltate, esito non letto), quanto ci mette ogni cron sulla
+  stessa scala e la tabella cron per cron dal peggiore, con «più lento del solito». Costa poco per
+  costruzione: le Lambda dalle metriche (`GetMetricData`, sei metriche a funzione in una chiamata per
+  account), i job ECS dagli stream (`DescribeLogStreams`, inizio e fine senza leggere una riga); dieci
+  minuti di cache. Le corse saltate vengono dallo schedule (scatti attesi meno corse), solo per i cron
+  accesi e solo dove l'espressione si espande; le corse ECS vecchie sono «esito non letto», mai
+  riuscite. La pagina parte dall'elenco delle corse, come prima, e ricorda l'ultima vista; `?vista=andamento`
+  apre l'andamento. Il ruolo read-only in JSON ora concede `logs:DescribeLogStreams` e
+  `logs:DescribeLogGroups`.
 - **Quanto ci mette un rilascio: la vista Andamento della pagina Deploy** (20/10/2026). Accanto
   all'elenco dei deploy, una dashboard in stile Grafana a tutta larghezza (il vecchio link `/tempi` ci porta) sugli
   ultimi 7, 30 o 90 giorni (`GET /api/deploys/storico?giorni=`): le tessere della finestra (CI,

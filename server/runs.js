@@ -156,7 +156,7 @@ const MAX_LAMBDA_PAGES = 25
 
 // «C'è un errore in questo stream?», seguendo le pagine: con `FilterLogEvents` una pagina vuota NON è
 // una risposta finché torna un `nextToken` (stesso inganno documentato in runtime/ecsScheduled.js).
-async function anyFailure(logs, params) {
+export async function anyFailure(logs, params) {
   let token
   for (let page = 0; page < MAX_PAGES; page++) {
     const r = await logs.send(new FilterLogEventsCommand({ ...params, nextToken: token, limit: 1, filterPattern: FAILURE_PATTERN }))

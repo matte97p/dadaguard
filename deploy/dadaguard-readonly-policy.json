@@ -88,6 +88,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "CronHistoryReadOnly",
+      "Effect": "Allow",
+      "Action": ["logs:DescribeLogStreams", "logs:DescribeLogGroups"],
+      "Resource": "*"
+    },
+    {
       "Sid": "SecretsByNameOnly",
       "Effect": "Allow",
       "Action": ["ssm:GetParametersByPath", "ssm:DescribeParameters"],
