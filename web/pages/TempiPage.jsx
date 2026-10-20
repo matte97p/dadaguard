@@ -42,8 +42,8 @@ function TabellaTempi({ righe, t, d }) {
   const col = (k) => t(`tempi.tab.${k}`)
   return (
     <Lista
-      colonne={[col('servizio'), col('solito'), col('lenti'), col('fase'), col('falliti'), col('settimana'), col('verde')]}
-      griglia="minmax(0,1.4fr) repeat(6, minmax(80px,1fr))"
+      colonne={[col('servizio'), col('solito'), col('lenti'), col('fase'), col('falliti'), col('settimana'), col('verde'), col('daStaging')]}
+      griglia="minmax(0,1.4fr) repeat(7, minmax(80px,1fr))"
       grigliaMobile="minmax(0,1fr) minmax(0,1fr)"
       vuoto={t('rilasci.dep.tempi.vuoto')}
     >
@@ -73,6 +73,13 @@ function TabellaTempi({ righe, t, d }) {
             />
             <Cella etichetta={col('settimana')} valore={r.settimana ? String(r.settimana.n) : null} />
             <Cella etichetta={col('verde')} valore={r.ripristino ? d(r.ripristino.p50) : null} sotto={r.ripristino ? t('tempi.volte', { n: r.ripristino.n }) : null} />
+            {/* Solo in produzione, e solo dove lo stesso commit e' uscito anche in staging: un merge commit
+                ha un altro sha, e li' si dice che l'abbinamento non c'e' invece di inventarlo. */}
+            <Cella
+              etichetta={col('daStaging')}
+              valore={r.daStaging ? d(r.daStaging.p50) : null}
+              sotto={r.daStaging ? t('tempi.daStagingSotto', { n: r.daStaging.n }) : r.ambiente === 'produzione' ? t('tempi.nonAbbinato') : null}
+            />
           </div>
         )
       })}
