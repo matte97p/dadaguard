@@ -372,3 +372,19 @@ test('segnali delle viste Andamento: cron falliti o saltati nelle ultime 24 ore,
   assert.equal(sp[0].owner, 'ops', 'la spesa e’ di chi tiene l’infrastruttura')
   assert.equal(buildSignals({ cron: null, web: { servizi: [] }, spesa: { x: { error: 'AccessDenied' } }, now }).length, 0, 'una fonte che manca non fa rumore')
 })
+
+test('aree dei problemi: ogni segnale nella sua, conti per livello; i segnali con uno storico portano la serie', async () => {
+  const { areaDi, contaPerArea, AREE } = await import('../web/nowSignals.js')
+  assert.deepEqual(AREE, ['servizi', 'deploy', 'cron', 'web', 'spesa', 'sicurezza'])
+  assert.equal(areaDi({ kind: 'slow-build' }), 'deploy')
+  assert.equal(areaDi({ kind: 'anomaly' }), 'spesa')
+  assert.equal(areaDi({ kind: 'alarm' }), 'sicurezza')
+  assert.equal(areaDi({ kind: 'service' }), 'servizi')
+  const c = contaPerArea([{ kind: 'cron', livello: 'crit' }, { kind: 'cron', livello: 'warn' }, { kind: 'web', livello: 'warn' }, { kind: 'deploy', livello: 'info' }])
+  assert.deepEqual(c.cron, { crit: 1, warn: 1 })
+  assert.deepEqual(c.web, { crit: 0, warn: 1 })
+  assert.deepEqual(c.deploy, { crit: 0, warn: 0 }, 'un info non e’ un problema')
+  const now = Date.parse('2026-10-21T12:00:00Z')
+  const cron = { inizio: now - 4 * 6 * 3_600_000, passoMs: 6 * 3_600_000, punti: 4, crons: [{ k: 'p/x', nome: 'x', corse: [1, 1, 1, 1], fallite: [0, 1, 0, 1], saltate: [0, 0, 0, 0] }] }
+  assert.deepEqual(buildSignals({ cron, now })[0].serie, [0, 1, 0, 1])
+})

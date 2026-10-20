@@ -22,7 +22,15 @@ export default function RigaProblema({ livello, etichetta, icona, nome, sotto, c
         {suggerimento && <span className="ui-hint">{suggerimento}</span>}
       </span>
       <span className="ui-who">{owner && <b>{owner}</b>}</span>
-      {serie?.length > 1 ? <Sparkline valori={serie} livello={livello} className="ui-sk" /> : <span className="ui-sk ui-when">{quando}</span>}
+      {/* Con uno storico, l'andamento E quando: l'andamento da solo toglieva l'informazione «da quando». */}
+      {serie?.length > 1 ? (
+        <span className="ui-sk ui-sk-con">
+          <Sparkline valori={serie} livello={livello} />
+          <small className="ui-when">{quando}</small>
+        </span>
+      ) : (
+        <span className="ui-sk ui-when">{quando}</span>
+      )}
       <span className="ui-go">{azione}</span>
     </Tag>
   )

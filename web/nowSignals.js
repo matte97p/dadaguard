@@ -85,6 +85,14 @@ export function lastSuccessBySvc(deploys = {}) {
 // nella pagina Deploy, che è il posto dove si scava.
 // Un riavvio RESPINTO resta invece sempre: non è un guasto che un rilascio successivo aggiusta, è il
 // fatto che qualcuno ha provato a toccare la produzione e non ha potuto.
+function duratePerServizio(builds = [], servizio) {
+  return (builds ?? [])
+    .filter((x) => x.service === servizio && x.kind !== 'restart' && Number.isFinite(x.durationMs))
+    .sort((a, c) => ms(a.startedAt) - ms(c.startedAt))
+    .slice(-12)
+    .map((x) => Math.round(x.durationMs / 1000))
+}
+
 function deploySignals(deploys = {}, opts, t) {
   const riuscite = lastSuccessBySvc(deploys)
   const out = []
@@ -136,6 +144,9 @@ function deploySignals(deploys = {}, opts, t) {
         to: `/deploy?service=${encodeURIComponent(b.service ?? '')}`,
         accountKey: key,
         accountLabel: acc?.label ?? key,
+        // Le durate delle ultime build di quel servizio, dalla piu' vecchia: si vede se e' una build
+        // storta o un servizio che rilascia male da giorni. I riavvii non hanno una build da misurare.
+        serie: restart ? null : duratePerServizio(acc?.builds, b.service),
       })
     }
   }
@@ -293,6 +304,9 @@ function cronSignals(storico, { now }, t) {
     out.push({
       id: `cron:${c.k}`,
       level: fallite ? 'bad' : 'warn',
+      // L'andamento della settimana, fascia per fascia: un cron che fallisce da giorni e uno che e'
+      // caduto stanotte si distinguono a colpo d'occhio.
+      serie: (c.corse ?? []).map((_, i) => (fallite ? c.fallite?.[i] ?? 0 : c.saltate?.[i] ?? 0)),
       kind: 'cron',
       title: c.nome,
       detail: [fallite ? t('now.cronFallito', { n: fallite }) : null, saltate ? t('now.cronSaltato', { n: saltate }) : null].filter(Boolean).join(' · '),
@@ -324,6 +338,8 @@ function serviziSignals(andamento, t) {
     out.push({
       id: `web:${s.k}`,
       level: errori === 'crit' ? 'bad' : 'warn',
+      // Gli errori ora per ora se il problema sono gli errori, se no il tempo di risposta di solito.
+      serie: errori ? s.errori : s.p50.map((v) => (v == null ? null : v)),
       kind: 'web',
       title: s.servizio,
       detail: [
@@ -349,13 +365,17 @@ function spesaSignals(daily, t) {
   const conti = Object.values(daily ?? {}).filter((c) => c && !c.error && c.giorni?.length)
   if (!conti.length) return []
   const out = []
-  for (const r of tabellaServizi(unisciConti(conti))) {
+  const uniti = unisciConti(conti)
+  const valori = new Map((uniti.servizi ?? []).map((x) => [x.servizio, x.valori]))
+  for (const r of tabellaServizi(uniti)) {
     const w = r.settimana
     if (!w || w.prima == null || w.variazione == null) continue
     if (w.variazione < 1 / 3 || w.ultimi - w.prima < 50) continue
     out.push({
       id: `spesa:${r.servizio}`,
       level: 'warn',
+      // Le ultime due settimane giorno per giorno: la salita si vede.
+      serie: (valori.get(r.servizio) ?? []).slice(-15, -1),
       kind: 'spesa',
       owner: 'ops',
       title: r.servizio,
@@ -398,7 +418,7 @@ export function buildSignals({
     ...cronSignals(cron, opts, t),
     ...serviziSignals(web, t),
     ...spesaSignals(spesa, t),
-  ]
+  ].map((s) => (s.kind === 'service' && !s.serie ? { ...s, serie: serieServizio(s, services, web) } : s))
   return all.sort((a, b) => {
     const r = (LEVEL_RANK[a.level] ?? 9) - (LEVEL_RANK[b.level] ?? 9)
     if (r !== 0) return r
@@ -409,6 +429,44 @@ export function buildSignals({
     if (bt == null) return 1
     return bt - at
   })
+}
+
+// L'andamento di un servizio rotto o da guardare, da dati che la home ha gia': lo spark del runtime
+// quando c'e' (i Worker di Cloudflare lo portano), altrimenti il tempo di risposta ora per ora del suo
+// load balancer dalla vista Andamento dei servizi web. Senza nessuno dei due, niente: meglio una riga
+// senza andamento che un andamento inventato.
+function serieServizio(sig, services = [], web = null) {
+  const s = (services ?? []).find((x) => `svc:${x.account?.key ?? '-'}:${x.resourceId ?? x.name}` === sig.id)
+  const spark = Object.values(s?.checks ?? {})
+    .flatMap((c) => c?.metrics ?? [])
+    .find((m) => Array.isArray(m?.spark) && m.spark.length > 1)?.spark
+  if (spark) return spark
+  const alb = (web?.servizi ?? []).find((w) => w.account === sig.accountKey && (w.servizio === s?.name || w.servizio === sig.title))
+  return alb?.p50?.some((v) => v != null) ? alb.p50 : null
+}
+
+// L'AREA di un segnale, per le tessere di «Solo da sistemare»: dove guardare, nelle parole delle
+// pagine. Un segnale di servizio va con il suo tipo solo quando e' un servizio web; il resto e' «servizi».
+export const AREE = ['servizi', 'deploy', 'cron', 'web', 'spesa', 'sicurezza']
+export function areaDi(sig) {
+  const k = sig?.kind
+  if (k === 'deploy' || k === 'slow-build' || k === 'restart') return 'deploy'
+  if (k === 'cron') return 'cron'
+  if (k === 'web') return 'web'
+  if (k === 'spesa' || k === 'budget' || k === 'anomaly') return 'spesa'
+  if (k === 'waf' || k === 'alarm') return 'sicurezza'
+  return 'servizi'
+}
+
+// Quanti per area e per livello, nell'ordine delle aree. Puro/testabile.
+export function contaPerArea(righe = []) {
+  const out = Object.fromEntries(AREE.map((a) => [a, { crit: 0, warn: 0 }]))
+  for (const r of righe) {
+    const a = out[areaDi(r)]
+    if (r.livello === 'crit') a.crit++
+    else if (r.livello === 'warn') a.warn++
+  }
+  return out
 }
 
 // Quanti per livello, per la banda in cima. Puro/testabile.
