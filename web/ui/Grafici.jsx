@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { etichettaFascia, impila, percorso, percorsoBanda, tacche, tondo } from '../grafici.js'
+import { etichettaFascia, impila, percorso, percorsoBanda, percorsoPonti, tacche, tondo } from '../grafici.js'
 
 // I GRAFICI DEL TEMPO del cruscotto: la memoria della flotta (Flotta), gli eventi della finestra
 // (Accessi) e i piccoli multipli del pannello di un Mac. Tre forme, una meccanica sola: l'asse del
@@ -228,7 +228,9 @@ export function GraficoMemoria({ andamento, lang, t, formatoGb }) {
 // Colonne impilate, una per fascia, coi tipi che contano (login fallite, accessi negati, scritture in
 // produzione, SSH). Colonne sottili con l'aria fra l'una e l'altra, due pixel di fondo fra i pezzi
 // della stessa colonna, l'angolo tondo solo in cima. Una fascia fuori dal campione resta vuota.
-export function GraficoEventi({ andamento, serie = [], lang, t }) {
+// `aria`, `formato` (valori e asse) ed `extra` (righe in piu' nel riquadro, per indice) servono agli
+// altri grafici a colonne (i tempi dei deploy); senza, e' il grafico degli eventi di Accessi.
+export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, extra }) {
   const [ref, larghezza] = useLarghezza()
   const punti = andamento?.punti ?? 0
   const m = { sx: 34, dx: 10, su: 10, plot: 120, giu: 24 }
@@ -246,8 +248,8 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
   const xt = (k) => m.sx + k * banda
   return (
     <div className="ui-grafico" ref={ref}>
-      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={t('accessi.grafico.aria')} {...mirino}>
-        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={(v) => (Number.isInteger(v) ? String(v) : '')} />
+      <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria ?? t('accessi.grafico.aria')} {...mirino}>
+        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato ?? ((v) => (Number.isInteger(v) ? String(v) : ''))} />
         <AsseTempo serie={andamento} x={xt} alto={m.su} basso={asse} lang={lang} griglia={false} />
         {i != null && <rect x={xt(i)} width={banda} y={m.su} height={m.plot} className="ui-fascia-mirino" />}
         {pile.map((p) => {
@@ -274,8 +276,8 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
           larghezza={larghezza}
           titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
           righe={[
-            ...serie.map((s) => ({ colore: s.colore, etichetta: s.etichetta, valore: s.valori[i] == null ? '-' : String(s.valori[i]) })),
-            { etichetta: t('accessi.grafico.persone'), valore: andamento.persone?.[i] == null ? '-' : String(andamento.persone[i]) },
+            ...serie.map((s) => ({ colore: s.colore, etichetta: s.etichetta, valore: s.valori[i] == null ? '-' : (formato ?? String)(s.valori[i]) })),
+            ...(extra ? extra(i) : [{ etichetta: t('accessi.grafico.persone'), valore: andamento.persone?.[i] == null ? '-' : String(andamento.persone[i]) }]),
           ]}
         />
       )}
@@ -289,7 +291,7 @@ export function GraficoEventi({ andamento, serie = [], lang, t }) {
 // stesso asse del tempo, che si scrive una volta sola in fondo. Il mirino attraversa tutte le righe,
 // e il numero di ogni riga diventa quello dell'ora indicata: e' cosi' che si vede che lo swap e' salito
 // nell'ora dell'OOM.
-export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
+export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultimoTesto }) {
   const [ref, larghezza] = useLarghezza(460)
   const punti = tempo?.punti ?? 0
   const m = { sx: 0, dx: 6, alta: 40, testa: 22, spazio: 12, giu: 22 }
@@ -302,7 +304,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
   const fine = visibili.length * altezzaRiga
   return (
     <div className="ui-grafico ui-multipli" ref={ref}>
-      <svg width={larghezza} height={fine + m.giu} tabIndex={0} role="img" aria-label={t('flotta.serie.aria')} {...mirino}>
+      <svg width={larghezza} height={fine + m.giu} tabIndex={0} role="img" aria-label={aria ?? t('flotta.serie.aria')} {...mirino}>
         {visibili.map((r, n) => {
           const top = n * altezzaRiga
           const noti = r.valori.filter((v) => v != null)
@@ -328,6 +330,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
                   )
                 : (
                   <>
+                    {r.ponti && <path d={percorsoPonti(r.valori, x, y)} className="ui-linea ui-ponte" style={{ stroke: r.colore }} />}
                     <path d={percorso(r.valori, x, y)} className="ui-linea" style={{ stroke: r.colore }} />
                     {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(r.valori[ultimo])} r="3.5" className="ui-punto" style={{ fill: r.colore }} />}
                   </>
@@ -340,7 +343,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t }) {
         {i != null && <line x1={x(i)} x2={x(i)} y1={0} y2={fine - m.spazio} className="ui-mirino" />}
       </svg>
       <p className="ui-multipli-quando">
-        {i != null ? etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang) : t('flotta.serie.ultimo')}
+        {i != null ? etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang) : ultimoTesto ?? t('flotta.serie.ultimo')}
       </p>
     </div>
   )

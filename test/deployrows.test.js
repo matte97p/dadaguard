@@ -86,3 +86,14 @@ test('una riga senza servizio non fa sparire il gruppo: cade su project, poi su 
   const gruppi = groupByService([{ id: 'x', project: 'acme-backend-deploy', status: 'SUCCEEDED', startedAt: new Date().toISOString() }, { id: 'y', status: 'SUCCEEDED', startedAt: new Date().toISOString() }])
   assert.deepEqual(gruppi.map((g) => g.service).sort(), ['acme-backend-deploy', '—'])
 })
+
+test('vista iniziale di Deploy: il link vince, un filtro vuole l’elenco, poi l’ultima scelta, poi l’elenco', async () => {
+  const { vistaInizialeDeploy } = await import('../web/deployRows.js')
+  assert.equal(vistaInizialeDeploy('?vista=elenco', 'andamento'), 'elenco')
+  assert.equal(vistaInizialeDeploy('?vista=andamento&service=api', 'elenco'), 'andamento', 'la build lenta della home apre l’andamento di quel servizio')
+  assert.equal(vistaInizialeDeploy('?service=api', 'andamento'), 'elenco', 'un link a un servizio cerca quella build')
+  assert.equal(vistaInizialeDeploy('', 'elenco'), 'elenco')
+  assert.equal(vistaInizialeDeploy('', 'andamento'), 'andamento')
+  assert.equal(vistaInizialeDeploy('', 'boh'), 'elenco')
+  assert.equal(vistaInizialeDeploy(), 'elenco', 'il numerino rosso del menu porta ai falliti')
+})

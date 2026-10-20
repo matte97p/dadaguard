@@ -43,7 +43,7 @@ const SIGLA = {
   alb: 'ALB',
   elasticache: 'RED',
 }
-const SIGLA_KIND = { deploy: 'CI', restart: '⟳', waf: 'WAF', budget: '$', anomaly: '$', alarm: '!' }
+const SIGLA_KIND = { deploy: 'CI', 'slow-build': '⏱', restart: '⟳', waf: 'WAF', budget: '$', anomaly: '$', alarm: '!' }
 
 const ORE = 24
 
@@ -69,6 +69,7 @@ export default function NowPage({
   const navigate = useNavigate()
   const [waf, setWaf] = useState(null)
   const [budgets, setBudgets] = useState(null)
+  const [tempi, setTempi] = useState(null)
   const [errori, setErrori] = useState([])
   const [aperto, setAperto] = useState(null)
 
@@ -84,6 +85,12 @@ export default function NowPage({
     setErrori([])
     prendi(`/api/waf?hours=${ORE}`, setWaf)
     prendi(`/api/budgets?lang=${lang ?? ''}`, setBudgets)
+    // Le build piu' lente del solito. In silenzio se non risponde: e' un giallo in piu', non una fonte
+    // senza la quale la home dice il falso, e un avviso rosso per lei spaventerebbe per niente.
+    fetch(`/api/deploys/tempi?lang=${lang ?? ''}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => vivo && setTempi(j))
+      .catch(() => {})
     return () => {
       vivo = false
     }
@@ -101,7 +108,7 @@ export default function NowPage({
   // «Da sistemare»: i segnali che mordono (rossi e arancio), dal piu' grave, filtrati per ambiente e
   // ruolo. Quelli informativi (un deploy in corso, un riavvio) stanno in «Cosa e' cambiato».
   const righe = useMemo(() => {
-    const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, hours: ORE, t, nameOf: displayName })
+    const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, tempi, hours: ORE, t, nameOf: displayName })
     return tutti
       .filter((s) => s.accountKey == null || matchesAny(s.accountKey, accountFilter))
       .map((s) => {
@@ -110,7 +117,7 @@ export default function NowPage({
       })
       .filter((r) => (r.livello === 'crit' || r.livello === 'warn') && (ruolo === 'ops' || r.owner === 'dev'))
       .sort((a, b) => rangoLivello(a.livello) - rangoLivello(b.livello))
-  }, [services, deploys, waf, budgets, alarmiOrfani, accountFilter, ruolo, perChiave, t])
+  }, [services, deploys, waf, budgets, alarmiOrfani, tempi, accountFilter, ruolo, perChiave, t])
 
   const conta = contaLivelli(nelFiltro)
   const serviziRotti = righe.filter((r) => r.kind === 'service' && r.livello === 'crit').length

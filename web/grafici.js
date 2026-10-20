@@ -80,6 +80,26 @@ export function percorso(valori = [], x, y) {
   return d
 }
 
+// I PONTI sopra i buchi: un tratto dall'ultimo punto noto al primo noto dopo un buco. Si disegna
+// tratteggiato sotto la linea vera: una serie rada (un rilascio al giorno) senza ponti e' una fila di
+// trattini staccati che non si legge come un andamento, e una linea piena direbbe misure che non ci
+// sono. Il tratteggio dice tutte e due le cose.
+export function percorsoPonti(valori = [], x, y) {
+  let d = ''
+  let ultimo = null
+  let buco = false
+  valori.forEach((v, i) => {
+    if (v == null || !Number.isFinite(v)) {
+      if (ultimo != null) buco = true
+      return
+    }
+    if (buco) d += `M${x(ultimo).toFixed(1)},${y(valori[ultimo]).toFixed(1)}L${x(i).toFixed(1)},${y(v).toFixed(1)}`
+    ultimo = i
+    buco = false
+  })
+  return d
+}
+
 // L'area fra due serie (`alto` sopra, `basso` sotto), con gli stessi buchi: un tratto per ogni corsa
 // di punti in cui ci sono tutte e due.
 export function percorsoBanda(alto = [], basso = [], x, y) {
