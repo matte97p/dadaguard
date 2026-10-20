@@ -1979,8 +1979,26 @@ export function demoCostDaily(giorni = 30, type, now = new Date()) {
   const filtro = type && type !== 'all' ? type : null
   const periodo = dailyRange(now, giorni)
   const oggi = ymd(now)
+  // Il netto del mese di ogni account e' quello di demoCosts, cioe' del verdetto in cima alla pagina
+  // Spesa: due numeri diversi per «questo mese finora» nella stessa pagina si leggono come un errore.
+  // Le righe si generano una volta senza filtro, se ne misura il netto del mese e tutto (consumo,
+  // crediti, tasse) si scala dello stesso fattore: la forma resta, il totale torna.
+  const mese = demoCosts()
+  const nettoDelMese = (r) => {
+    const a = aggregateDaily(r, periodo)
+    return a.giorni.reduce((s, g, i) => (g.startsWith(oggi.slice(0, 7)) ? s + a.crediti[i] + a.tasse[i] + a.servizi.reduce((x, sv) => x + sv.valori[i], 0) : s), 0)
+  }
   const out = {}
   for (const [key, c] of Object.entries(CONTI)) {
+    const grezze = genera(key, c, null, 1)
+    const netto = nettoDelMese(grezze)
+    const scala = netto > 0.005 && mese[key]?.total ? mese[key].total / netto : 1
+    const righe = filtro || scala !== 1 ? genera(key, c, filtro, scala) : grezze
+    out[key] = { label: c.label, color: c.color, period: periodo, currency: 'USD', oggi, ...aggregateDaily(righe, periodo) }
+  }
+  return out
+
+  function genera(key, c, filtro, scala) {
     const righe = []
     for (let g = periodo.start; g < periodo.end; ) {
       const d = new Date(`${g}T00:00:00Z`)
@@ -1992,18 +2010,17 @@ export function demoCostDaily(giorni = 30, type, now = new Date()) {
       for (const [servizio, base, fine, crescita] of c.servizi) {
         if (filtro && LIVELLO[servizio] !== filtro) continue
         const sale = 1 + crescita * Math.max(0, 1 - fa / 90) ** 2
-        const v = base * sale * (weekend ? fine : 1) * (0.85 + rumore(`${key}|${servizio}|${g}`) * 0.3) * quota
+        const v = base * sale * (weekend ? fine : 1) * (0.85 + rumore(`${key}|${servizio}|${g}`) * 0.3) * quota * scala
         gruppi.push({ Keys: [servizio, 'Usage'], Metrics: { UnblendedCost: { Amount: String(v) } } })
       }
-      if (!filtro && c.credito) gruppi.push({ Keys: ['Amazon Bedrock', 'Credit'], Metrics: { UnblendedCost: { Amount: String(-c.credito * quota) } } })
-      if (!filtro && c.tassa) gruppi.push({ Keys: ['Tax', 'Tax'], Metrics: { UnblendedCost: { Amount: String(c.tassa * quota) } } })
+      if (!filtro && c.credito) gruppi.push({ Keys: ['Amazon Bedrock', 'Credit'], Metrics: { UnblendedCost: { Amount: String(-c.credito * quota * scala) } } })
+      if (!filtro && c.tassa) gruppi.push({ Keys: ['Tax', 'Tax'], Metrics: { UnblendedCost: { Amount: String(c.tassa * quota * scala) } } })
       righe.push({ TimePeriod: { Start: g }, Groups: gruppi })
       d.setUTCDate(d.getUTCDate() + 1)
       g = ymd(d)
     }
-    out[key] = { label: c.label, color: c.color, period: periodo, currency: 'USD', oggi, ...aggregateDaily(righe, periodo) }
+    return righe
   }
-  return out
 }
 
 // Spesa giornaliera demo: 30 giorni fino a oggi, stessa forma di `meta/spesa.js`. Valori calcolati da

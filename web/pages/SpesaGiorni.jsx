@@ -27,9 +27,9 @@ import './rilasci.css'
 // ore di cache); le serie le fa shared/spesaSerie.js qui nel browser, cosi' scegliere un servizio o un
 // account non costa una chiamata.
 //
-// Cosa si misura: il CONSUMO a listino, prima di crediti e tasse, perche' e' l'unico che si divide per
-// servizio (un credito e' una riga del conto, non di un servizio). Il netto si dice a parole accanto
-// al numero del mese, e lo si legge per intero nel Riepilogo.
+// Cosa si misura: in cima il NETTO, dopo crediti e tasse, come il verdetto della pagina: e' quello che
+// si paga. Grafico per servizio, piccoli multipli e tabella invece sono a LISTINO, perche' e' l'unico
+// che si divide per servizio (un credito e' una riga del conto, non di un servizio), e lo dicono.
 
 const FINESTRE = [30, 90]
 const GIORNO = 86_400_000
@@ -152,12 +152,11 @@ export default function SpesaGiorni({ accountLabels, type = 'all', t = (k) => k,
   ) : mese ? (
     <div className="sp-g-testa">
       <h2>
-        <b>{t('spesa.g.v.forte', { v: S(mese.lordo) })}</b>
-        {pr ? t('spesa.g.v.resto', { p: S(pr.gross) }) : null}
+        <b>{t('spesa.g.v.forte', { v: S(mese.netto) })}</b>
+        {pr ? t('spesa.g.v.resto', { p: S(pr.net) }) : null}
       </h2>
       <p className="ui-mute">
-        {t('spesa.g.v.dettaglio')}
-        {scelti.length ? ` ${t('spesa.g.v.servizio', { s: scelti[0] })}` : mese.conCrediti ? ` ${t('spesa.g.v.netto', { v: S(mese.netto) })}` : ''}
+        {scelti.length ? t('spesa.g.v.servizio', { s: scelti[0] }) : mese.conCrediti ? t('spesa.g.v.dettaglio', { v: S(mese.lordo) }) : t('spesa.g.v.senzaCrediti')}
       </p>
     </div>
   ) : (
@@ -198,14 +197,17 @@ export default function SpesaGiorni({ accountLabels, type = 'all', t = (k) => k,
           <Tessere etichetta={t('spesa.g.tessere')}>
             <Tessera
               etichetta={t('spesa.g.mese')}
-              valore={mese ? S(mese.lordo) : null}
-              sotto={mese ? (mese.conCrediti && !scelti.length ? t('spesa.g.dopoCrediti', { v: S(mese.netto) }) : t('spesa.g.suGiorni', { n: mese.giorni })) : null}
+              valore={mese ? S(mese.netto) : null}
+              sotto={mese ? t('spesa.g.listino', { v: S(mese.lordo) }) : null}
+              title={mese ? t('spesa.g.suGiorni', { n: mese.giorni }) : undefined}
               trend={mese ? { valori: mese.cumulato, descrizione: t('spesa.g.trend', { cosa: t('spesa.g.mese') }) } : null}
             />
             <Tessera
               etichetta={t('spesa.g.proiezione')}
-              valore={pr ? S(pr.gross) : null}
-              sotto={pr ? (pr.chiuso ? t('spesa.g.meseChiuso') : t('spesa.g.base', { d: pr.daysElapsed, tot: pr.daysInMonth })) : null}
+              valore={pr ? S(pr.net) : null}
+              sotto={pr ? t('spesa.g.listino', { v: S(pr.gross) }) : null}
+              // La base della stima nel tooltip: a inizio mese pochi giorni fanno una stima rumorosa.
+              title={pr ? (pr.chiuso ? t('spesa.g.meseChiuso') : t('spesa.g.base', { d: pr.daysElapsed, tot: pr.daysInMonth })) : undefined}
               trend={pr ? { valori: pr.andamento, descrizione: t('spesa.g.trend', { cosa: t('spesa.g.proiezione') }) } : null}
             />
             <Tessera

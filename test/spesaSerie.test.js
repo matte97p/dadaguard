@@ -10,6 +10,7 @@ import {
   ultimi,
   soloServizi,
   totaliGiorno,
+  nettiGiorno,
   coloriServizi,
   seriePila,
   kpiSpesa,
@@ -24,7 +25,7 @@ import {
   ALTRI,
 } from '../shared/spesaSerie.js'
 import { aggregateDaily, dailyRange, giorniSpesa, getCostDaily, monthEndProjection } from '../server/costs.js'
-import { demoCostDaily } from '../server/demo.js'
+import { demoCostDaily, demoCosts } from '../server/demo.js'
 
 const gruppo = (servizio, tipo, importo) => ({ Keys: [servizio, tipo], Metrics: { UnblendedCost: { Amount: String(importo) } } })
 
@@ -138,28 +139,38 @@ test('colori: i primi quattro per spesa, il colore segue il servizio anche filtr
   assert.deepEqual(seriePila(soloServizi(u, ['E']), colori).map((p) => [p.k, p.colore]), [['E', COLORE_ALTRI]])
 })
 
-test('tessere: mese finora dal primo, proiezione col run-rate del mese, di solito e giorno più caro senza oggi', () => {
-  // 25 giorni fino al 10/10: dal 16/09. Ogni giorno 10 $, il 5/10 ne costa 40, oggi (a metà) 2.
+test('tessere: al NETTO (dopo crediti e tasse) col listino accanto, mese dal primo, oggi fuori da di solito e più caro', () => {
+  // 25 giorni fino al 10/10: dal 16/09. Ogni giorno 10 $ a listino e 1 $ di crediti, il 5/10 ne costa
+  // 40, oggi (a metà) 2.
   const u = conto('2026-10-10', 25, { 'Amazon RDS': (i, g) => (g === '2026-10-10' ? 2 : g === '2026-10-05' ? 40 : 10) }, { crediti: -1 })
+  u.tasse[u.giorni.indexOf('2026-10-02')] = 0.5
+  assert.equal(nettiGiorno(u)[u.giorni.indexOf('2026-10-02')], 9.5, 'listino + crediti + tasse, la regola del mese')
   const k = kpiSpesa(u, 30)
   assert.equal(k.mese.lordo, 9 * 10 + 30 + 2, '1-9 ottobre più il picco del 5 e oggi')
-  assert.equal(k.mese.netto, k.mese.lordo - 10, 'dieci giorni di crediti')
+  assert.equal(k.mese.netto, k.mese.lordo - 10 + 0.5, 'dieci giorni di crediti e una tassa')
+  assert.equal(k.mese.conCrediti, true)
   assert.equal(k.mese.giorni, 10)
-  assert.equal(k.mese.cumulato.length, 10)
-  const atteso = monthEndProjection({ gross: 122, total: 112, period: { start: '2026-10-01', end: '2026-10-11' } })
+  assert.equal(k.mese.cumulato.at(-1), k.mese.netto, 'l’andamento del mese è al netto')
+  const atteso = monthEndProjection({ gross: 122, total: 112.5, period: { start: '2026-10-01', end: '2026-10-11' } })
+  assert.equal(k.proiezione.net, Math.round(atteso.net * 100) / 100)
   assert.equal(k.proiezione.gross, Math.round(atteso.gross * 100) / 100)
   assert.equal(k.proiezione.daysElapsed, 10)
-  assert.equal(k.proiezione.andamento.length, 10)
-  assert.equal(k.alGiorno.valore, 10, 'la mediana: il picco da 40 e oggi da 2 non la spostano')
+  assert.equal(k.proiezione.andamento.at(-1), k.proiezione.net)
+  assert.equal(k.alGiorno.valore, 9, 'la mediana al netto: il picco e oggi non la spostano')
   assert.equal(k.alGiorno.andamento.length, 24, 'oggi è escluso')
-  assert.deepEqual([k.piuCaro.giorno, k.piuCaro.valore], ['2026-10-05', 40])
+  assert.deepEqual([k.piuCaro.giorno, k.piuCaro.valore], ['2026-10-05', 39])
+  // Con un servizio solo i crediti non ci sono (non sono di un servizio): netto e listino coincidono.
+  const solo = kpiSpesa(soloServizi(u, ['Amazon RDS']), 30)
+  assert.equal(solo.mese.netto, solo.mese.lordo)
 })
 
 test('tessere: l’ultimo giorno del mese non c’è niente da proiettare, e il numero resta quello vero', () => {
   const u = conto('2026-10-31', 31, { X: () => 1 })
   const k = kpiSpesa(u, 30)
   assert.equal(k.mese.lordo, 31)
+  assert.equal(k.mese.netto, 31)
   assert.equal(k.proiezione.chiuso, true)
+  assert.equal(k.proiezione.net, 31)
   assert.equal(k.proiezione.gross, 31)
 })
 
@@ -221,6 +232,14 @@ test('demo: 90 giorni deterministici, un servizio che cresce, il weekend che si 
   const giovedi = d.staging.giorni.indexOf('2026-10-15')
   assert.ok(ecs.valori[sabato] < ecs.valori[giovedi] * 0.6, 'staging spento nel weekend')
   assert.ok(d.prod.crediti.every((c) => c < 0))
+  // Il netto del mese torna quello di demoCosts, cioè del verdetto in cima alla pagina Spesa, con
+  // tutte e due le finestre. A meno dei centesimi: ogni servizio di ogni giorno e' arrotondato al
+  // centesimo, come nel percorso vero, e sul mese fanno qualche decina di centesimi.
+  const verdetto = Object.values(demoCosts()).reduce((s, a) => s + a.total, 0)
+  for (const n of [30, 90]) {
+    const k = kpiSpesa(unisciConti(Object.values(demoCostDaily(n, undefined, now))), n)
+    assert.ok(Math.abs(k.mese.netto - verdetto) < 1, `${n} giorni: ${k.mese.netto} contro ${verdetto}`)
+  }
   const llms = demoCostDaily(30, 'llms', now)
   assert.deepEqual(llms.prod.servizi.map((s) => s.servizio), ['Amazon Bedrock'])
   assert.ok(llms.prod.crediti.every((c) => c === 0))

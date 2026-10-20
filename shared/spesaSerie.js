@@ -181,36 +181,48 @@ export function seriePila(dati, colori) {
 // qualche ora). Con oggi dentro, «di solito» e il confronto fra settimane scenderebbero ogni mattina.
 const interi = (dati) => (dati?.giorni ?? []).map((g, i) => [g, i]).filter(([g]) => !dati.oggi || g < dati.oggi).map(([, i]) => i)
 
+// Il NETTO di ogni giorno: consumo a listino + crediti (negativi) + tasse, la stessa regola del mese
+// (aggregateMonth in server/costs.js) applicata giorno per giorno. E' quanto si paga davvero; con un
+// filtro sul servizio crediti e tasse sono a zero (vedi soloServizi) e il netto torna il listino. Puro.
+export function nettiGiorno(dati) {
+  return totaliGiorno(dati).map((v, i) => cent(v + (dati.crediti?.[i] ?? 0) + (dati.tasse?.[i] ?? 0)))
+}
+
 // Le tessere in cima. `tutto` sono i dati interi (il mese puo' cominciare prima della finestra),
-// `n` la finestra in giorni. Il mese e' quello UTC di oggi, come per /api/costs. Puro.
+// `n` la finestra in giorni. Il mese e' quello UTC di oggi, come per /api/costs. Il numero grande e'
+// il NETTO, come nel verdetto in cima alla pagina Spesa: e' quello che si paga. Il listino resta
+// accanto (`lordo`, `gross`), perche' e' quello che si paghera' a crediti finiti. Puro.
 export function kpiSpesa(tutto, n) {
   const oggi = tutto?.oggi
   const tot = totaliGiorno(tutto)
-  const netti = tot.map((v, i) => v + (tutto.crediti?.[i] ?? 0) + (tutto.tasse?.[i] ?? 0))
+  const netti = nettiGiorno(tutto)
   const mese = oggi ? oggi.slice(0, 7) : null
   const delMese = mese ? tutto.giorni.map((g, i) => [g, i]).filter(([g]) => g.startsWith(mese) && g <= oggi) : []
   const inizioMese = mese ? `${mese}-01` : null
   // Il numero di oggi e quello di ogni giorno passato del mese: le tessere ne disegnano l'andamento.
-  let cum = 0
-  const cumulato = delMese.map(([, i]) => cent((cum += tot[i])))
+  let cumL = 0
+  let cumN = 0
+  const listino = delMese.map(([, i]) => cent((cumL += tot[i])))
+  const cumulato = delMese.map(([, i]) => cent((cumN += netti[i])))
   const proiezioni = delMese.map(([g], k) => {
-    const p = monthEndProjection({ gross: cumulato[k], total: cumulato[k], period: { start: inizioMese, end: giornoDopo(g) } })
-    return p ? cent(p.gross) : cumulato[k]
+    const p = monthEndProjection({ gross: listino[k], total: cumulato[k], period: { start: inizioMese, end: giornoDopo(g) } })
+    return p ? cent(p.net) : cumulato[k]
   })
-  const lordo = cumulato.at(-1) ?? 0
-  const netto = cent(somma(delMese.map(([, i]) => netti[i])))
+  const lordo = listino.at(-1) ?? 0
+  const netto = cumulato.at(-1) ?? 0
   const proiezione = mese && delMese.length ? monthEndProjection({ gross: lordo, total: netto, period: { start: inizioMese, end: giornoDopo(oggi) } }) : null
 
+  // «Di solito» e «il piu' caro» anche loro al netto, sui giorni interi della finestra.
   const fin = ultimi(tutto, n)
-  const totFin = totaliGiorno(fin)
+  const nettiFin = nettiGiorno(fin)
   const idx = interi(fin)
-  const giornalieri = idx.map((i) => totFin[i])
-  const caro = idx.reduce((m, i) => (m == null || totFin[i] > totFin[m] ? i : m), null)
+  const giornalieri = idx.map((i) => nettiFin[i])
+  const caro = idx.reduce((m, i) => (m == null || nettiFin[i] > nettiFin[m] ? i : m), null)
   return {
-    mese: delMese.length ? { lordo, netto, conCrediti: Math.abs(netto - lordo) > 0.005, cumulato, giorni: delMese.length } : null,
+    mese: delMese.length ? { netto, lordo, conCrediti: Math.abs(netto - lordo) > 0.005, cumulato, giorni: delMese.length } : null,
     proiezione: proiezione ? { ...proiezione, gross: cent(proiezione.gross), net: cent(proiezione.net), andamento: proiezioni } : delMese.length ? { gross: lordo, net: netto, chiuso: true, andamento: proiezioni } : null,
     alGiorno: giornalieri.length ? { valore: cent(mediana(giornalieri)), andamento: giornalieri } : null,
-    piuCaro: caro != null && totFin[caro] > 0.005 ? { giorno: fin.giorni[caro], valore: totFin[caro], andamento: giornalieri } : null,
+    piuCaro: caro != null && nettiFin[caro] > 0.005 ? { giorno: fin.giorni[caro], valore: nettiFin[caro], andamento: giornalieri } : null,
   }
 }
 
