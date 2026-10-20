@@ -140,6 +140,17 @@ export function riduci(valori = [], n = 1, modo = 'somma') {
   return fuori
 }
 
+// La griglia di una serie ridotta con `riduci(valori, n)`: fasce `n` volte piu' larghe, contate dalla
+// FINE come i gruppi di `riduci`, cosi' l'ultima colonna finisce dove finiva la serie. La prima fascia
+// puo' cominciare prima dei dati (il gruppo monco): e' tempo in cui la serie non c'era, non un buco.
+// Serve ai grafici a colonne su finestre fitte: 288 colonne in uno schermo di telefono sono un pettine.
+export function fasceLarghe({ inizio, passoMs, punti } = {}, n = 1) {
+  if (n <= 1 || !punti) return { inizio, passoMs, punti }
+  const largo = passoMs * n
+  const quante = Math.ceil(punti / n)
+  return { inizio: inizio + punti * passoMs - quante * largo, passoMs: largo, punti: quante }
+}
+
 // Le colonne impilate di un grafico a fasce: per ogni fascia e ogni serie, da dove parte e dove
 // arriva. Una fascia `null` in tutte le serie e' «non lo so» (fuori dal campione), e resta vuota.
 export function impila(serie = [], punti = 0) {
