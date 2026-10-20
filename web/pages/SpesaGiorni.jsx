@@ -18,6 +18,7 @@ import {
   COLORE_ALTRI,
 } from '../../shared/spesaSerie.js'
 // Le celle della tabella (numero grande, spiegazione sotto) sono quelle della tabella dei Tempi.
+import { useSchermoPieno } from '../ui/useSchermoPieno.js'
 import './rilasci.css'
 
 // La spesa GIORNO PER GIORNO (Spesa, scheda Andamento): una dashboard nello stile di quella dei Tempi,
@@ -99,6 +100,7 @@ function TabellaSpesa({ righe, finestra, t, lang }) {
 export default function SpesaGiorni({ accountLabels, type = 'all', t = (k) => k, lang }) {
   const [giorni, setGiorni] = useState(30)
   const [servizio, setServizio] = useState('')
+  useSchermoPieno()
   const [risposta, setRisposta] = useState(null)
 
   // Una chiamata per finestra e Livello: account e servizio si filtrano qui, gratis.
