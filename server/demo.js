@@ -20,6 +20,7 @@ import { grigliaFuso, serieLambda, rigaLambda, rigaEcs, rispostaStorico } from '
 import { runsFromStreams } from './runs.js'
 import { espandiCron, cadenzaRate } from './util/nextrun.js'
 import { quantile } from '../shared/tempiSerie.js'
+import { grigliaAndamento } from './andamentoServizi.js'
 
 const ACC = {
   prod: { key: 'prod', label: 'Production', color: '#cf1322' },
@@ -2256,4 +2257,69 @@ export function demoStoricoCron(giorni = 7, ora = Date.now(), tz = null) {
     righe.push(rigaEcs(e.c, corse, g, { ora }))
   })
   return rispostaStorico({ giorni, g, righe, account: { prod: { label: ACC.prod.label }, staging: { label: ACC.staging.label } } })
+}
+
+// L'andamento dei servizi web (vista «Andamento» della pagina Servizi), finto e DETERMINISTICO: ogni
+// valore dipende solo dal servizio e dall'ora della fascia, quindi due aperture di fila disegnano lo
+// stesso grafico e i test non tremano. Esce come i risultati di GetMetricData e passa dallo stesso
+// codice del vero (`payloadAndamento`). Dentro: il traffico del giorno (poco di notte, il picco nel
+// primo pomeriggio, meno nel fine settimana), un picco di lentezza su search-api cinque ore fa e una
+// raffica di errori 5xx su checkout-api in produzione nove ore fa.
+// `conti` restringe come il `?account=` del vero, prima di comporre.
+export function demoAndamentoServizi(ore = 24, ora = Date.now(), conti = []) {
+  const g = grigliaAndamento(ore, ora)
+  const TUTTI = [
+    { account: 'prod', servizio: 'checkout-api', alMinuto: 900, ms: 140, errori: 0.0003 },
+    { account: 'prod', servizio: 'web', alMinuto: 2400, ms: 55, errori: 0.0001 },
+    { account: 'prod', servizio: 'search-api', alMinuto: 600, ms: 210, errori: 0.0004 },
+    { account: 'staging', servizio: 'checkout-api', alMinuto: 40, ms: 160, errori: 0.002 },
+    { account: 'staging', servizio: 'web', alMinuto: 90, ms: 70, errori: 0.001 },
+    { account: 'staging', servizio: 'legacy-api', alMinuto: 25, ms: 380, errori: 0.005 },
+  ]
+  const SERVIZI = TUTTI.filter((s) => !conti.length || conti.includes(s.account))
+  // Un numero fra 0 e 1 dal testo (un hash FNV rimescolato): stesso servizio e stessa fascia, stesso
+  // numero, comunque si sposti la finestra.
+  const rumore = (testo) => {
+    let h = 2166136261
+    for (const c of testo) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+    h = Math.imul(h ^ (h >>> 15), 1 | h)
+    h = (h + Math.imul(h ^ (h >>> 7), 61 | h)) ^ h
+    return ((h ^ (h >>> 14)) >>> 0) / 4294967296
+  }
+  // Quanto della fascia [t, t + passo) cade nell'intervallo [da, a): il picco su una fascia di sei ore
+  // ne occupa un sesto, e cosi' si vede (piu' basso) anche sul mese.
+  const dentro = (t, da, a) => Math.max(0, Math.min(t + g.passoMs, a) - Math.max(t, da)) / g.passoMs
+  const ancora = Math.floor(ora / 3_600_000) * 3_600_000
+  const lento = { servizio: 'search-api', account: 'prod', da: ancora - 5 * 3_600_000, a: ancora - 4 * 3_600_000 }
+  const raffica = { servizio: 'checkout-api', account: 'prod', da: ancora - 9 * 3_600_000, a: ancora - 9 * 3_600_000 + 40 * 60_000 }
+  const minuti = g.passoMs / 60_000
+  const risultati = []
+  SERVIZI.forEach((s, i) => {
+    const serie = { p50: { t: [], v: [] }, p90: { t: [], v: [] }, errori: { t: [], v: [] }, richieste: { t: [], v: [] } }
+    for (let k = 0; k < g.punti; k++) {
+      const t = g.inizio + k * g.passoMs
+      const d = new Date(t + g.passoMs / 2)
+      const h = d.getHours() + d.getMinutes() / 60
+      const festa = d.getDay() === 0 || d.getDay() === 6 ? 0.6 : 1
+      const giorno = (0.15 + 0.85 * Math.max(0, Math.sin((Math.PI * (h - 6)) / 16))) * festa
+      const r = rumore(`${s.account}|${s.servizio}|${t}`)
+      const richieste = Math.round(s.alMinuto * minuti * giorno * (0.9 + 0.2 * r))
+      if (!richieste) continue
+      const lentezza = s.servizio === lento.servizio && s.account === lento.account ? dentro(t, lento.da, lento.a) : 0
+      const p50 = s.ms * (1 + 0.25 * giorno) * (0.92 + 0.16 * r) * (1 + 7 * lentezza)
+      const p90 = p50 * (2.2 + 0.6 * rumore(`${s.servizio}|${t}|coda`)) * (1 + 4 * lentezza)
+      const inRaffica = s.servizio === raffica.servizio && s.account === raffica.account ? dentro(t, raffica.da, raffica.a) : 0
+      const errori = Math.round(richieste * (s.errori * (0.5 + rumore(`${s.servizio}|${t}|err`)) + 0.25 * inRaffica))
+      for (const [m, v] of [['p50', p50 / 1000], ['p90', p90 / 1000], ['richieste', richieste], ['errori', errori]]) {
+        // Come CloudWatch: un conteggio a zero non esce affatto.
+        if (m === 'errori' && !v) continue
+        serie[m].t.push(new Date(t))
+        serie[m].v.push(v)
+      }
+    }
+    for (const [m, x] of Object.entries(serie)) risultati.push({ Id: `b${i}_${m}`, Timestamps: x.t, Values: x.v })
+  })
+  const bersagli = SERVIZI.map((s) => ({ account: s.account, servizio: s.servizio, lb: `app/demo-${s.account}/0000000000000000`, tg: `targetgroup/${s.servizio}/0000000000000000` }))
+  const account = Object.fromEntries([...new Set(SERVIZI.map((s) => s.account))].map((k) => [k, { label: ACC[k].label }]))
+  return { g, bersagli, risultati, account, trovati: bersagli.length }
 }

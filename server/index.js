@@ -56,7 +56,8 @@ import { statoFlotta } from './flotta.js'
 import { entroLimiti, elenco as elencoFinestre } from './finestre.js'
 import { mappaAccessi } from './mappaAccessi.js'
 import { storicoFlotta } from './storicoAws.js'
-import { demoHistory, demoStoricoDeploy, demoStoricoCron, demoCostDaily } from './demo.js'
+import { demoHistory, demoStoricoDeploy, demoStoricoCron, demoCostDaily, demoAndamentoServizi } from './demo.js'
+import { andamentoServizi, oreAndamento, payloadAndamento } from './andamentoServizi.js'
 // rd-server-meta: metadati della UI nuova
 import { spesaGiornaliera } from './meta/spesa.js'
 import { riepilogoLogin } from './meta/accessi.js'
@@ -578,6 +579,37 @@ app.get('/api/deploys/storico', async (req, res) => {
     // giorni costa minuti (2.264 build e 1.000 run letti il 20/10/2026, 158 secondi a cache fredda).
     // Una cache per lingua li farebbe pagare due volte, e la scaldata all'avvio ne copre una sola.
     const { value, at } = await storicoMemo(`storico:${giorni}`, () => leggiStorico(giorni, req.query.lang))
+    conEta(res, at).json(value)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// L'andamento dei servizi web: tempo di risposta ed errori nel tempo, dalle metriche degli ALB (vedi
+// server/andamentoServizi.js, col conto di quanto costa). Due cache perche' due ritmi: sulle 24 ore
+// cinque minuti (una fascia e' di cinque minuti, rileggere prima non aggiunge un punto), su 7 e 30
+// giorni mezz'ora (le fasce sono di ore). `?account=a,b` restringe PRIMA del tetto dei servizi, cosi'
+// chi sceglie un ambiente in alto vede tutti i suoi e non i primi trenta di tutti.
+const andamentoBreve = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_ANDAMENTO_TTL_MS) || 5 * 60_000,
+  onError: (err, key) => log.error('andamento servizi: rinfresco in background fallito', { key, err: err.message }),
+})
+const andamentoLungo = swrMemo({
+  ttlMs: Number(process.env.DADAGUARD_ANDAMENTO_LUNGO_TTL_MS) || 30 * 60_000,
+  onError: (err, key) => log.error('andamento servizi: rinfresco in background fallito', { key, err: err.message }),
+})
+
+app.get('/api/servizi/andamento', async (req, res) => {
+  try {
+    const ore = oreAndamento(req.query.ore)
+    const conti = String(req.query.account ?? '').split(',').map((s) => s.trim()).filter(Boolean).sort()
+    if (isDemo) return res.json(payloadAndamento(demoAndamentoServizi(ore, Date.now(), conti)))
+    const t = makeT(req.query.lang)
+    const memo = ore === 24 ? andamentoBreve : andamentoLungo
+    const { value, at } = await memo(`andamento:${ore}:${conti.join(',')}`, async () => {
+      const { accounts, services } = await resolveServices()
+      return andamentoServizi({ services, accounts, ore, conti, errore: (err) => cleanAwsReason(err, t) })
+    })
     conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
