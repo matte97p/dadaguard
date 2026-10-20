@@ -225,6 +225,8 @@ export function story(lang = 'en') {
 
       // ── Cron: cosa gira adesso, e com'è finita ogni corsa ────────────────────────────────────
       { type: 'click', selector: nav('/cron') },
+      // La storia racconta l'elenco delle corse: lo sceglie, nel caso l'ultima vista fosse l'andamento.
+      { type: 'click', selector: '[data-tab="elenco"]' },
       { type: 'wait', selector: '[data-cron]' },
       { type: 'highlight', selector: '.ui-sezione', pad: 4 },
       {
