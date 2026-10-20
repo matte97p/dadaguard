@@ -3,6 +3,7 @@ import { Verdetto, Card, Lista, Pill, Tessere, Tessera, GraficoEventi, PiccoliMu
 import { usePoll } from '../usePoll.js'
 import { matchesAny, listaDaUrl } from '../filters.js'
 import { numero } from '../grafici.js'
+import { durata } from '../format.js'
 import { PEZZI, griglia, serieTempi, kpiTempi, perServizio } from '../../shared/tempiSerie.js'
 import './rilasci.css'
 
@@ -21,19 +22,6 @@ const GIORNI = [7, 30, 90]
 const COLORE = { ci: 'var(--chart-1)', attese: 'var(--chart-neutro)', build: 'var(--chart-2)', deploy: 'var(--chart-3)' }
 // Le fasi della tabella, nell'ordine in cui succedono: per la colonna «dove perde piu' tempo».
 const FASI = ['ci', 'attesa', 'coda', 'build', 'deploy']
-
-// Le durate si leggono arrotondate: «14 min», non «13m 36s». Sono andamenti di settimane, e i secondi
-// sono rumore che rallenta chi legge.
-export function durata(ms, t = (k, v) => `${v?.n} ${k}`) {
-  if (ms == null || !Number.isFinite(ms)) return '-'
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s} s`
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`
-  return t('tempi.giorni', { n: Math.round(h / 24) })
-}
 
 // I grafici lavorano in MINUTI: l'asse tondo (1, 2, 5, 10) cade su minuti tondi.
 const inMin = (v) => (v == null ? null : v / 60_000)
