@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Verdetto, Card, Lista, Tessere, Tessera, GraficoEventi, GraficoBanda, PiccoliMultipli, Legenda } from '../ui/index.js'
 import { usePoll } from '../usePoll.js'
+import { useSchermoPieno } from '../ui/useSchermoPieno.js'
 import { asList, matchesAny } from '../filters.js'
 import { numero, riduci, fasceLarghe } from '../grafici.js'
 import { durata } from '../format.js'
@@ -92,6 +93,7 @@ function TabellaServizi({ righe, etichettaConto, t, lang }) {
 export default function ServiziAndamento({ t = (k) => k, lang, refreshKey, accountFilter = [], extra }) {
   const [ore, setOre] = useState(24)
   const [scelto, setScelto] = useState('')
+  useSchermoPieno()
   // L'ambiente scelto in alto va al server: restringe PRIMA del tetto dei servizi letti.
   const conti = asList(accountFilter)
   const url = `/api/servizi/andamento?ore=${ore}&lang=${lang}${conti.length ? `&account=${encodeURIComponent(conti.join(','))}` : ''}`
