@@ -17,7 +17,8 @@ import './spesa.css'
 //
 // Ogni scheda è una domanda sola:
 //   Riepilogo          → quanto stiamo spendendo questo mese, giorno per giorno, e dove va
-//   Andamento          → sta crescendo (13 mesi, indipendenti dal mese scelto)
+//   Andamento          → sta crescendo: giorno per giorno (30 o 90 giorni, per servizio) o mese per
+//                        mese (13 mesi); tutte e due indipendenti dal mese scelto
 //   Ripartizioni       → di CHI è la spesa (per servizio, per livello, per componente)
 //   Sprechi            → cosa paghiamo senza usarlo
 //   Budget e anomalie  → siamo dentro al deciso, e AWS ha visto qualcosa di strano

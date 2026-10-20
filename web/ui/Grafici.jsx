@@ -230,7 +230,11 @@ export function GraficoMemoria({ andamento, lang, t, formatoGb }) {
 // della stessa colonna, l'angolo tondo solo in cima. Una fascia fuori dal campione resta vuota.
 // `aria`, `formato` (valori e asse) ed `extra` (righe in piu' nel riquadro, per indice) servono agli
 // altri grafici a colonne (i tempi dei deploy); senza, e' il grafico degli eventi di Accessi.
-export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, extra }) {
+// `formatoAsse` scrive le etichette dell'asse quando `formato` non ci sta nei 28 pixel a sinistra
+// ("1.000 $" no, "1k" si'); `titolo(i)` da' il titolo del riquadro di una colonna, quando la fascia
+// ha gia' un nome suo (un giorno di Cost Explorer: col cambio d'ora, inizio + i giorni cade alle 23 del
+// giorno prima, e il riquadro direbbe il giorno sbagliato).
+export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, formatoAsse, titolo, extra }) {
   const [ref, larghezza] = useLarghezza()
   const punti = andamento?.punti ?? 0
   const m = { sx: 34, dx: 10, su: 10, plot: 120, giu: 24 }
@@ -249,7 +253,7 @@ export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, e
   return (
     <div className="ui-grafico" ref={ref}>
       <svg width={larghezza} height={asse + m.giu} tabIndex={0} role="img" aria-label={aria ?? t('accessi.grafico.aria')} {...mirino}>
-        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato ?? ((v) => (Number.isInteger(v) ? String(v) : ''))} />
+        <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formatoAsse ?? formato ?? ((v) => (Number.isInteger(v) ? String(v) : ''))} />
         <AsseTempo serie={andamento} x={xt} alto={m.su} basso={asse} lang={lang} griglia={false} />
         {i != null && <rect x={xt(i)} width={banda} y={m.su} height={m.plot} className="ui-fascia-mirino" />}
         {pile.map((p) => {
@@ -274,7 +278,7 @@ export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, e
         <Lettura
           x={x(i)}
           larghezza={larghezza}
-          titolo={etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
+          titolo={titolo ? titolo(i) : etichettaFascia(andamento.inizio + i * andamento.passoMs, andamento.passoMs, lang)}
           righe={[
             ...serie.map((s) => ({ colore: s.colore, etichetta: s.etichetta, valore: s.valori[i] == null ? '-' : (formato ?? String)(s.valori[i]) })),
             ...(extra ? extra(i) : [{ etichetta: t('accessi.grafico.persone'), valore: andamento.persone?.[i] == null ? '-' : String(andamento.persone[i]) }]),
@@ -290,8 +294,8 @@ export function GraficoEventi({ andamento, serie = [], lang, t, aria, formato, e
 // Le serie di un Mac una sotto l'altra, ciascuna con la sua scala vera (`dominio`) ma tutte sullo
 // stesso asse del tempo, che si scrive una volta sola in fondo. Il mirino attraversa tutte le righe,
 // e il numero di ogni riga diventa quello dell'ora indicata: e' cosi' che si vede che lo swap e' salito
-// nell'ora dell'OOM.
-export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultimoTesto }) {
+// nell'ora dell'OOM. `titolo(i)` come in GraficoEventi: il nome della fascia, quando ne ha uno suo.
+export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultimoTesto, titolo }) {
   const [ref, larghezza] = useLarghezza(460)
   const punti = tempo?.punti ?? 0
   const m = { sx: 0, dx: 6, alta: 40, testa: 22, spazio: 12, giu: 22 }
@@ -343,7 +347,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultim
         {i != null && <line x1={x(i)} x2={x(i)} y1={0} y2={fine - m.spazio} className="ui-mirino" />}
       </svg>
       <p className="ui-multipli-quando">
-        {i != null ? etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang) : ultimoTesto ?? t('flotta.serie.ultimo')}
+        {i != null ? (titolo ? titolo(i) : etichettaFascia(tempo.inizio + i * tempo.passoMs, tempo.passoMs, lang)) : ultimoTesto ?? t('flotta.serie.ultimo')}
       </p>
     </div>
   )
