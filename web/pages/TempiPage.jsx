@@ -89,7 +89,9 @@ function TabellaTempi({ righe, t, d }) {
 }
 
 export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
-  const [giorni, setGiorni] = useState(30)
+  // Sette giorni e non trenta: la vista apre su quello che c'e' da sapere adesso, e a cache fredda un giro
+  // a 30 giorni dura minuti (158 secondi misurati il 20/10/2026), uno a 7 una frazione.
+  const [giorni, setGiorni] = useState(7)
   useSchermoPieno()
   // Deep-link `?service=a,b`, come la pagina Deploy.
   const [servizi, setServizi] = useState(() => (typeof window === 'undefined' ? [] : listaDaUrl(window.location.search, 'service')))

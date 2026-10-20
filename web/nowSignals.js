@@ -13,6 +13,8 @@
 // soglie qui dentro sono decisioni di prodotto, non dettagli.
 
 import { compactBuildReason } from './format.js'
+import { kpiAndamento, livelloErrori } from '../shared/serviziSerie.js'
+import { unisciConti, tabellaServizi } from '../shared/spesaSerie.js'
 
 const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 
@@ -262,6 +264,111 @@ function lenteSignals(tempi, opts, t) {
 }
 const minuti = (v) => (Number.isFinite(v) ? `${Math.max(1, Math.round(v / 60_000))} min` : '?')
 
+// I segnali delle viste «Andamento», per «Da sistemare»: solo quello che e' successo nelle ULTIME
+// 24 ORE (l'ultima ora per la velocita' dei servizi), perche' la home risponde a «cosa guardo adesso».
+// Ognuno porta alla sua vista. Le fonti arrivano dalle stesse rotte delle pagine e dalle loro cache;
+// una che manca (permesso, errore) toglie i suoi segnali e basta.
+
+// Cron: fallite e saltate nelle fasce che finiscono nelle ultime 24 ore (`/api/runs/storico`). Una
+// fallita e' rossa, una saltata gialla: un cron che non e' partito non ha fatto il suo lavoro, ma non
+// ha nemmeno rotto niente.
+function cronSignals(storico, { now }, t) {
+  if (!storico?.crons?.length || !storico.passoMs) return []
+  const da = now - 24 * 3_600_000
+  const dentro = (i) => storico.inizio + (i + 1) * storico.passoMs > da
+  const out = []
+  for (const c of storico.crons) {
+    let fallite = 0
+    let saltate = 0
+    let ultima = null
+    ;(c.corse ?? []).forEach((_, i) => {
+      if (!dentro(i)) return
+      const f = c.fallite?.[i] ?? 0
+      const sa = c.saltate?.[i] ?? 0
+      fallite += f
+      saltate += sa
+      if (f || sa) ultima = storico.inizio + i * storico.passoMs
+    })
+    if (!fallite && !saltate) continue
+    out.push({
+      id: `cron:${c.k}`,
+      level: fallite ? 'bad' : 'warn',
+      kind: 'cron',
+      title: c.nome,
+      detail: [fallite ? t('now.cronFallito', { n: fallite }) : null, saltate ? t('now.cronSaltato', { n: saltate }) : null].filter(Boolean).join(' · '),
+      when: ultima,
+      to: `/cron?cron=${encodeURIComponent(c.k)}`,
+      accountKey: c.account ?? null,
+      accountLabel: storico.account?.[c.account]?.label ?? null,
+    })
+  }
+  return out
+}
+
+// Servizi web (`/api/servizi/andamento`, 24 ore): errori sopra soglia nelle 24 ore (le soglie della
+// vista: rosso dal 5%, giallo dall'1%), oppure l'ULTIMA ORA molto piu' lenta del resto della giornata
+// (il doppio, e almeno 200 ms in piu': sotto e' rumore che nessuno sente).
+function serviziSignals(andamento, t) {
+  const servizi = andamento?.servizi ?? []
+  if (!servizi.length || !andamento.passoMs) return []
+  const ultimi = Math.max(1, Math.round(3_600_000 / andamento.passoMs))
+  const fetta = (s, da, a) => ({ ...s, richieste: s.richieste.slice(da, a), errori: s.errori.slice(da, a), p50: s.p50.slice(da, a), p90: s.p90.slice(da, a) })
+  const out = []
+  for (const s of servizi) {
+    const giorno = kpiAndamento([s])
+    const ora = kpiAndamento([fetta(s, -ultimi)])
+    const prima = kpiAndamento([fetta(s, 0, -ultimi)])
+    const errori = livelloErrori(giorno.tasso)
+    const lento = Number.isFinite(ora.p50) && Number.isFinite(prima.p50) && ora.p50 > prima.p50 * 2 && ora.p50 - prima.p50 >= 200
+    if (!errori && !lento) continue
+    out.push({
+      id: `web:${s.k}`,
+      level: errori === 'crit' ? 'bad' : 'warn',
+      kind: 'web',
+      title: s.servizio,
+      detail: [
+        errori ? t('now.webErrori', { pct: (Math.round(giorno.tasso * 1000) / 10).toString().replace('.', ','), n: giorno.errori }) : null,
+        lento ? t('now.webLento', { ora: Math.round(ora.p50), solito: Math.round(prima.p50) }) : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      when: null,
+      to: '/servizi',
+      accountKey: s.account ?? null,
+      accountLabel: andamento.account?.[s.account]?.label ?? null,
+    })
+  }
+  return out
+}
+
+// Spesa (`/api/costs/daily`): un servizio che in sette giorni costa almeno un terzo in piu' dei sette
+// prima, e almeno 50 $ in piu' (sotto, la percentuale grande di un servizio da pochi dollari e' rumore).
+// E' di chi tiene l'infrastruttura. A listino, come la tabella della vista: i crediti non si dividono
+// per servizio.
+function spesaSignals(daily, t) {
+  const conti = Object.values(daily ?? {}).filter((c) => c && !c.error && c.giorni?.length)
+  if (!conti.length) return []
+  const out = []
+  for (const r of tabellaServizi(unisciConti(conti))) {
+    const w = r.settimana
+    if (!w || w.prima == null || w.variazione == null) continue
+    if (w.variazione < 1 / 3 || w.ultimi - w.prima < 50) continue
+    out.push({
+      id: `spesa:${r.servizio}`,
+      level: 'warn',
+      kind: 'spesa',
+      owner: 'ops',
+      title: r.servizio,
+      detail: t('now.spesaCresce', { pct: Math.round(w.variazione * 100), ora: Math.round(w.ultimi), prima: Math.round(w.prima) }),
+      when: null,
+      to: '/spesa?tab=andamento',
+      accountKey: null,
+      accountLabel: null,
+    })
+  }
+  return out
+}
+
 export function buildSignals({
   services = [],
   deploys = {},
@@ -269,6 +376,9 @@ export function buildSignals({
   budgets = null,
   alarmi = null,
   tempi = null,
+  cron = null,
+  web = null,
+  spesa = null,
   hours = 24,
   now = Date.now(),
   t = (k) => k,
@@ -285,6 +395,9 @@ export function buildSignals({
     ...budgetSignals(budgets, t),
     ...alarmSignals(alarmi ?? [], t),
     ...lenteSignals(tempi, opts, t),
+    ...cronSignals(cron, opts, t),
+    ...serviziSignals(web, t),
+    ...spesaSignals(spesa, t),
   ]
   return all.sort((a, b) => {
     const r = (LEVEL_RANK[a.level] ?? 9) - (LEVEL_RANK[b.level] ?? 9)

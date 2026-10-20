@@ -129,7 +129,13 @@ test('storicoFlotta: una fonte senza permesso diventa un errore suo, il resto ri
   assert.equal(out.nota.approssimato, true)
 })
 
-test('demo: completa, con un guasto correlato al deploy', () => {
+test('demo: completa, con un guasto correlato al deploy', (t) => {
+  // L'orologio a mezzogiorno: la cronologia e' quella di OGGI (dalla mezzanotte locale) e il guasto del
+  // demo e' di 33 minuti fa, quindi fra mezzanotte e le 00:45 cadeva ieri e il test falliva (21/10/2026,
+  // 00:03, anche su main).
+  const mezzogiorno = new Date()
+  mezzogiorno.setHours(12, 0, 0, 0)
+  t.mock.timers.enable({ apis: ['Date'], now: mezzogiorno.getTime() })
   const h = demoHistory()
   assert.deepEqual(Object.keys(h.ambienti).sort(), ['cloudflare', 'produzione', 'staging'])
   assert.ok(h.cronologia.some((e) => e.tipo === 'guasto' && e.dopoDeploy))

@@ -6,6 +6,13 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **«Solo da sistemare» nella home** (21/10/2026). Un interruttore accanto al verdetto toglie tutto
+  quello che va bene (stato dei servizi, oggi, ambienti, cosa è cambiato) e lascia la lista dei
+  problemi, una riga per problema; la scelta resta a chi guarda. «Da sistemare» prende anche i segnali
+  delle viste Andamento: cron falliti o non partiti nelle ultime 24 ore, servizi web con errori 5xx
+  sopra l'1% o con l'ultima ora molto più lenta del resto della giornata, servizi la cui spesa cresce di
+  un terzo in una settimana (e di almeno 50 $). L'andamento di Deploy apre su 7 giorni invece di 30, e
+  la cache si scalda su quella finestra: a cache fredda costa una frazione.
 - **Com'è andata coi cron: la vista Andamento della pagina Cron** (20/10/2026). La stessa dashboard
   dell'andamento di Deploy sugli ultimi 7 o 30 giorni (`GET /api/runs/storico?giorni=`): la quota delle volte
   senza problemi, le tessere (corse, fallite, saltate, durata di solito e nei giorni lenti), le corse
