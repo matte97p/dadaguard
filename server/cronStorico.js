@@ -14,8 +14,12 @@
 //    Sei metriche a funzione, fino a 500 in una chiamata sola.
 //  · ECS RunTask: un task = un log stream, e `DescribeLogStreams` ne da' inizio e fine senza leggere una
 //    riga (`firstEventTimestamp`, `lastEventTimestamp`). Dal piu' recente, a pagine da 50, finche' si
-//    resta nella finestra, con un tetto per cron. Non dice com'e' finita (l'exit code sta nell'API ECS,
-//    che dimentica i task dopo un'ora): queste corse sono «esito non letto», MAI riuscite per omissione.
+//    resta nella finestra, con un tetto per cron. L'exit code sta nell'API ECS, che dimentica i task dopo
+//    un'ora: l'esito si legge dal LOG della corsa, con la stessa ricerca di un errore che usa l'elenco
+//    delle corse (`anyFailure`, `FilterLogEvents` con `limit: 1` sullo stream di quella corsa). Una
+//    corsa finita non cambia piu': il suo esito si tiene in memoria e non si rilegge. Al piu'
+//    `SCANSIONI_PER_CRON` corse nuove a cron per giro, dalla piu' recente: le altre restano «esito non
+//    letto» (MAI riuscite per omissione) fino ai giri dopo.
 //
 // COSTO DI UN GIRO (prezzi CloudWatch di listino, ottobre 2026):
 //  · `GetMetricData` si paga a metrica chiesta, $0,01 ogni 1.000: con 40 Lambda sono 240 metriche, una
@@ -26,13 +30,15 @@
 //    richieste API» ($0,01 ogni 1.000, il primo milione al mese gratis), cioe' zero. Un job giornaliero
 //    costa una pagina sola; uno orario su trenta giorni quindici, e sopra il tetto ci si ferma.
 //  · Task definition e retention dei log group stanno in cache per un'ora: non cambiano a ogni giro.
-// Il vincolo vero degli stream non e' il prezzo, e' la quota (25 richieste al secondo per account):
-// per questo si leggono quattro cron alla volta.
+//  · `FilterLogEvents` per l'esito delle corse ECS non si paga a dato letto (lo fa Logs Insights, non
+//    questa API): una chiamata o poche pagine per corsa, una volta sola per corsa grazie alla memoria.
+// Il vincolo vero degli stream non e' il prezzo, e' la quota (25 richieste al secondo per account, 5 per
+// `FilterLogEvents`): per questo si leggono quattro cron alla volta e c'e' il tetto di scansioni.
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
 import { CloudWatchLogsClient, DescribeLogStreamsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { listCrons } from './crons.js'
-import { leggiTaskDef, runsFromStreams } from './runs.js'
+import { anyFailure, leggiTaskDef, runsFromStreams } from './runs.js'
 import { awslogsFromTaskDef } from './logs.js'
 import { espandiCron, cadenzaRate, safeTz, zoneFields } from './util/nextrun.js'
 import { griglia, quantile, riassunto } from '../shared/tempiSerie.js'
@@ -211,6 +217,7 @@ export function rigaLambda(cron, s, g, { ora = Date.now() } = {}) {
 
 // La riga di un cron ECS, dagli stream letti. `copertoDa` = da quando in poi lo storico e' completo
 // (retention dei log, o tetto di pagine): le fasce che cominciano prima restano null. Pura.
+// Ogni corsa puo' portare `esito` ('ok' | 'ko', dal suo log): senza, e' «esito non letto».
 export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = null, troncato = false } = {}) {
   const coperto = Array.from({ length: g.punti }, (_, i) => copertoDa == null || g.inizio + i * g.passoMs >= copertoDa)
   const fasce = Array.from({ length: g.punti }, () => [])
@@ -230,16 +237,19 @@ export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = nul
   }
   const ultima = nelleFasce.reduce((u, r) => Math.max(u, r.startedAt), -Infinity)
   const tutte = riassunto(durate(nelleFasce))
+  const conta = (esito) => fasce.map((f, i) => (coperto[i] ? f.filter((r) => (esito ? r.esito === esito : r.esito !== 'ok' && r.esito !== 'ko')).length : null))
+  const riuscite = conta('ok')
+  const fallite = conta('ko')
   return {
     ...base(cron),
     fonte: 'log',
-    // L'esito di una corsa vecchia sta nell'exit code, che ECS dimentica dopo un'ora: «non letto», ne'
-    // riuscita ne' fallita. Grigio nel grafico, fuori dalla percentuale delle riuscite.
-    esitoLetto: false,
+    // L'esito viene dal log della corsa; una corsa che non si e' ancora potuta leggere e' «non letta»,
+    // ne' riuscita ne' fallita: grigia nel grafico, fuori dalla percentuale delle riuscite.
+    esitoLetto: nelleFasce.some((r) => r.esito === 'ok' || r.esito === 'ko'),
     corse,
-    riuscite: corse.map((c) => (c == null ? null : 0)),
-    fallite: corse.map((c) => (c == null ? null : 0)),
-    nonLette: corse,
+    riuscite,
+    fallite,
+    nonLette: conta(null),
     saltate,
     p50: fasce.map((f, i) => (coperto[i] ? quantile(durate(f), 0.5) : null)),
     p90: fasce.map((f, i) => (coperto[i] ? quantile(durate(f), 0.9) : null)),
@@ -343,13 +353,51 @@ export async function streamDelJob(logs, logGroup, { da, maxPagine = MAX_PAGINE_
   return { streams, copertoDa: nextToken ? piuVecchio : null, troncato: Boolean(nextToken), pagine }
 }
 
+// L'esito delle corse ECS, dal loro log. In memoria per sempre (con un tetto), perche' una corsa finita
+// non cambia: dopo il primo giro si leggono solo le corse nuove.
+const esitiCorse = new Map()
+const MAX_ESITI = 20_000
+export const SCANSIONI_PER_CRON = 30
+// Una corsa finita da poco puo' ancora scrivere l'ultima riga di un traceback: si aspetta prima di
+// deciderne l'esito, altrimenti resterebbe «riuscita» in memoria per sempre.
+const ASSESTAMENTO_MS = 5 * 60_000
+
+export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca = anyFailure, tetto = SCANSIONI_PER_CRON } = {}) {
+  let letti = 0
+  const out = []
+  for (const r of corse) {
+    const k = `${logGroup}|${r.stream}`
+    if (esitiCorse.has(k)) {
+      out.push({ ...r, esito: esitiCorse.get(k) })
+      continue
+    }
+    const finita = r.endedAt != null && ora - r.endedAt > ASSESTAMENTO_MS
+    if (!r.stream || !finita || letti >= tetto) {
+      out.push(r)
+      continue
+    }
+    letti++
+    try {
+      const fallita = await cerca(logs, { logGroupName: logGroup, logStreamNames: [r.stream], startTime: r.startedAt, endTime: r.endedAt + 60_000 })
+      const esito = fallita ? 'ko' : 'ok'
+      esitiCorse.set(k, esito)
+      if (esitiCorse.size > MAX_ESITI) esitiCorse.delete(esitiCorse.keys().next().value)
+      out.push({ ...r, esito })
+    } catch {
+      // Quota o permesso: la corsa resta «non letta», e il giro dopo ci riprova.
+      out.push(r)
+    }
+  }
+  return out
+}
+
 async function rigaDaLog(cron, aws, g, ora) {
   const { td } = await leggiTaskDef(aws, cron.taskDefinition)
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cron.container)
   if (!logGroup) return rigaIllegibile(cron, g, 'senza log group')
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const [letti, retention] = await Promise.all([streamDelJob(logs, logGroup, { da: g.inizio }), retentionGiorni(logs, aws, logGroup).catch(() => null)])
-  const corse = runsFromStreams(letti.streams, { streamPrefix, container, since: g.inizio })
+  const corse = await conEsito(logs, logGroup, runsFromStreams(letti.streams, { streamPrefix, container, since: g.inizio }), ora)
   const daRetention = retention ? ora - retention * GIORNO : null
   const copertoDa = Math.max(letti.copertoDa ?? -Infinity, daRetention ?? -Infinity)
   return rigaEcs(cron, corse, g, { ora, copertoDa: Number.isFinite(copertoDa) ? copertoDa : null, troncato: letti.troncato })

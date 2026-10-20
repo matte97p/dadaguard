@@ -2133,7 +2133,12 @@ export function demoStoricoCron(giorni = 7, ora = Date.now(), tz = null) {
       const d = Math.round(e.durata * lento * (0.85 + caso(t, 200 + k) * 0.3))
       streams.push({ logStreamName: `cron/job/${hex(32)}`, firstEventTimestamp: inizio, lastEventTimestamp: Math.min(inizio + d, ora) })
     }
-    righe.push(rigaEcs(e.c, runsFromStreams(streams, { streamPrefix: 'cron', container: 'job', since: g.inizio }), g, { ora }))
+    // L'esito dal log, come nel vero: quasi sempre riuscita, ogni tanto un traceback; le ultime due ore
+    // non ancora lette (il giro le legge quando sono finite da qualche minuto).
+    const corse = runsFromStreams(streams, { streamPrefix: 'cron', container: 'job', since: g.inizio }).map((r) =>
+      ora - r.endedAt < 2 * 3_600_000 ? r : { ...r, esito: caso(r.startedAt, 300 + k) < 0.06 ? 'ko' : 'ok' },
+    )
+    righe.push(rigaEcs(e.c, corse, g, { ora }))
   })
   return rispostaStorico({ giorni, g, righe, account: { prod: { label: ACC.prod.label }, staging: { label: ACC.staging.label } } })
 }

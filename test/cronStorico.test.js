@@ -118,7 +118,7 @@ test('saltate per scatto: lo scatto delle 23:59 partito alle 00:01 non e’ salt
   assert.deepEqual(saltatePerScatto([G / 2, G + G / 2], [], [null, 0, 0], g, { coperto: [false, true, true] }), [null, 1, 0])
 })
 
-test('riga ECS: esito non letto, mai riuscita; le fasce prima della retention restano vuote', () => {
+test('riga ECS senza esito: non letta, mai riuscita; le fasce prima della retention restano vuote', () => {
   const g = grigliaFuso({ giorni: 30, ora: ADESSO, tz: 'Europe/Rome' })
   const cron = { key: 'prod/job', name: 'job', type: 'ecs-scheduled', account: 'prod', enabled: true, scheduleExpr: 'cron(0 3 * * ? *)', scheduleTz: 'Europe/Rome' }
   const scatti = espandiCron(cron.scheduleExpr, g.inizio, ADESSO, cron.scheduleTz)
@@ -170,7 +170,7 @@ test('stream di un job: dal piu’ recente, ci si ferma fuori dalla finestra; co
 })
 
 test('giro intero con i client finti: una GetMetricData per account, stream e retention per i job', async () => {
-  const conti = { metriche: 0, stream: 0, gruppi: 0, taskdef: 0 }
+  const conti = { metriche: 0, stream: 0, gruppi: 0, taskdef: 0, esiti: 0 }
   const cron = (o) => ({ region: 'eu-west-1', enabled: true, scheduleTz: null, ...o, key: `${o.account}/${o.name}` })
   const crons = [
     cron({ name: 'digest', type: 'lambda', account: 'prod', function: 'digest', scheduleExpr: 'cron(0 6 * * ? *)' }),
@@ -186,6 +186,11 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
   }
   CloudWatchLogsClient.prototype.send = async function (cmd) {
     if (cmd.constructor.name === 'DescribeLogGroupsCommand') return conti.gruppi++, { logGroups: [{ logGroupName: '/ecs/crawler', retentionInDays: 3 }] }
+    // L'esito della corsa dal suo log: c'e' una riga d'errore, quindi e' fallita.
+    if (cmd.constructor.name === 'FilterLogEventsCommand') {
+      assert.deepEqual(cmd.input.logStreamNames, ['cron/job/abc'])
+      return conti.esiti++, { events: [{ message: 'Traceback (most recent call last):' }] }
+    }
     conti.stream++
     return { logStreams: [{ logStreamName: 'cron/job/abc', firstEventTimestamp: ADESSO - ORA, lastEventTimestamp: ADESSO - 30 * MIN }] }
   }
@@ -195,12 +200,14 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
   }
   try {
     const out = await leggiStoricoCron({ prod: { label: 'Production', region: 'eu-west-1' } }, { giorni: 7, tz: 'Europe/Rome', ora: ADESSO, leggiCron: async () => ({ crons, problems: [] }) })
-    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1 })
+    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1, esiti: 1 })
     const per = Object.fromEntries(out.crons.map((c) => [c.nome, c]))
     assert.equal(per.digest.corse[27], 1)
     assert.equal(per.crawler.corse.at(-1), 1)
     assert.equal(per.crawler.corse[0], null, 'oltre i tre giorni di retention non si sa')
-    assert.equal(per.crawler.nonLette.at(-1), 1)
+    assert.equal(per.crawler.fallite.at(-1), 1, 'l’esito del job ECS viene dal suo log')
+    assert.equal(per.crawler.nonLette.at(-1), 0)
+    assert.equal(per.crawler.esitoLetto, true)
     assert.equal(out.account.prod.label, 'Production')
   } finally {
     CloudWatchClient.prototype.send = prima.cw
@@ -303,4 +310,21 @@ test('demo: deterministica, passa dalle funzioni vere, con fallite, saltate e un
   // La settimana e il mese raccontano gli stessi giorni: le fallite della settimana ci sono nel mese.
   const s = kpiCron(demoStoricoCron(7, ADESSO, 'Europe/Rome').crons)
   assert.ok(s.fallite <= k.fallite && s.saltate <= k.saltate)
+})
+
+test('esito delle corse ECS dal log: una lettura per corsa finita, poi dalla memoria; le corse fresche aspettano', async () => {
+  const { conEsito } = await import('../server/cronStorico.js')
+  const letture = []
+  const cerca = async (_logs, p) => (letture.push(p.logStreamNames[0]), p.logStreamNames[0] === 'ko')
+  const corse = [
+    { stream: 'ok', startedAt: ADESSO - 2 * ORA, endedAt: ADESSO - ORA },
+    { stream: 'ko', startedAt: ADESSO - 3 * ORA, endedAt: ADESSO - 2 * ORA },
+    { stream: 'fresca', startedAt: ADESSO - 10 * MIN, endedAt: ADESSO - 2 * MIN },
+    { stream: 'oltre-il-tetto', startedAt: ADESSO - 5 * ORA, endedAt: ADESSO - 4 * ORA },
+  ]
+  const a = await conEsito(null, '/ecs/esiti', corse, ADESSO, { cerca, tetto: 2 })
+  assert.deepEqual(a.map((r) => r.esito ?? null), ['ok', 'ko', null, null], 'la fresca puo’ ancora scrivere il traceback; la quarta e’ oltre il tetto')
+  const b = await conEsito(null, '/ecs/esiti', corse, ADESSO, { cerca, tetto: 2 })
+  assert.deepEqual(b.map((r) => r.esito ?? null), ['ok', 'ko', null, 'ok'])
+  assert.deepEqual(letture, ['ok', 'ko', 'oltre-il-tetto'], 'quelle gia’ lette non si rileggono')
 })
