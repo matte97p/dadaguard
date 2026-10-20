@@ -117,7 +117,9 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
 
   const finestra = t(`tempi.finestra.${giorni}`)
   const pz = Object.fromEntries(serie.pezzi.map((p) => [p.k, p.valori]))
-  const tessera = (k, r) => ({ valore: r ? fmtMs(r.p50) : null, sotto: r ? `p90 ${fmtMs(r.p90)}` : null, trend: { valori: pz[k] ?? [], descrizione: t('tempi.trend', { cosa: t(`tempi.pezzo.${k}`) }) } })
+  // Nelle tessere l'andamento senza le fasce vuote: e' una direzione in 90 pixel, non un asse del tempo,
+  // e coi buchi una serie rada sparisce.
+  const tessera = (k, r) => ({ valore: r ? fmtMs(r.p50) : null, sotto: r ? `p90 ${fmtMs(r.p90)}` : null, trend: { valori: (pz[k] ?? []).filter((v) => v != null), descrizione: t('tempi.trend', { cosa: t(`tempi.pezzo.${k}`) }) } })
   const f = kpi.falliti
   const testa = kpi.lead ?? kpi.totale
 
@@ -250,6 +252,7 @@ export default function TempiPage({ t = (k) => k, lang, refreshKey, accountFilte
                   valori: r.valori.map(inMin),
                   dominio: multipli.dominio.map(inMin),
                   colore: 'var(--chart-1)',
+                  ponti: true,
                   formato: fmtMin,
                 }))}
                 lang={lang}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { etichettaFascia, impila, percorso, percorsoBanda, tacche, tondo } from '../grafici.js'
+import { etichettaFascia, impila, percorso, percorsoBanda, percorsoPonti, tacche, tondo } from '../grafici.js'
 
 // I GRAFICI DEL TEMPO del cruscotto: la memoria della flotta (Flotta), gli eventi della finestra
 // (Accessi) e i piccoli multipli del pannello di un Mac. Tre forme, una meccanica sola: l'asse del
@@ -308,6 +308,7 @@ export function GraficoBanda({ andamento, p50 = [], p90 = [], lang, aria, format
         <AsseValori dominio={[0, hi]} y={y} sinistra={m.sx} destra={destra} formato={formato} />
         <AsseTempo serie={andamento} x={x} alto={m.su} basso={asse} lang={lang} />
         <path d={percorsoBanda(p90, p50, x, y)} className="ui-banda" />
+        <path d={percorsoPonti(p50, x, y)} className="ui-linea ui-linea-accento ui-ponte" />
         <path d={percorso(p50, x, y)} className="ui-linea ui-linea-accento" />
         {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(p50[ultimo])} r="4" className="ui-punto-accento" />}
         {i != null && <line x1={x(i)} x2={x(i)} y1={m.su} y2={asse} className="ui-mirino" />}
@@ -374,6 +375,7 @@ export function PiccoliMultipli({ serie: tempo, righe = [], lang, t, aria, ultim
                   )
                 : (
                   <>
+                    {r.ponti && <path d={percorsoPonti(r.valori, x, y)} className="ui-linea ui-ponte" style={{ stroke: r.colore }} />}
                     <path d={percorso(r.valori, x, y)} className="ui-linea" style={{ stroke: r.colore }} />
                     {ultimo >= 0 && i == null && <circle cx={x(ultimo)} cy={y(r.valori[ultimo])} r="3.5" className="ui-punto" style={{ fill: r.colore }} />}
                   </>

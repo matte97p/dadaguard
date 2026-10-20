@@ -83,3 +83,11 @@ test('agoBreve e numero: la cella stretta e la virgola della lingua', () => {
   assert.equal(numero(3.74, 'en'), '3.7')
   assert.equal(numero(null), null)
 })
+
+test('percorsoPonti: un tratto per ogni buco, fra l’ultimo punto prima e il primo dopo', async () => {
+  const { percorsoPonti } = await import('../web/grafici.js')
+  const x = (i) => i * 10
+  const y = (v) => v
+  assert.equal(percorsoPonti([1, null, null, 4, 5, null, 7], x, y), 'M0.0,1.0L30.0,4.0M40.0,5.0L60.0,7.0')
+  assert.equal(percorsoPonti([null, 2, 3, null], x, y), '', 'i buchi ai bordi non hanno un punto da collegare')
+})

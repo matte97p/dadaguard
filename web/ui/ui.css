@@ -1209,6 +1209,12 @@
   stroke-linejoin: round;
   stroke-linecap: round;
 }
+/* Il ponte sopra un buco della serie: stesso colore, sottile e tratteggiato. */
+.ui-ponte {
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
 .ui-linea-neutra {
   stroke: var(--chart-neutro);
 }
