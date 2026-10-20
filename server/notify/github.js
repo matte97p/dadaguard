@@ -65,8 +65,10 @@ const FALLITI = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure']
 // ultime build di ognuno sta largamente sotto.
 const MAX_RUN_IN_MEMORIA = 2000
 // Le pagine di run lette per ramo (100 run l'una), e le richieste lasciate libere nell'ora per il
-// quadro: i tempi dei deploy possono aspettare, gli stati dei test no.
-const PAGINE_RUN = 3
+// quadro: i tempi dei deploy possono aspettare, gli stati dei test no. Dieci pagine e non tre: il
+// 20/10/2026 il ramo staging di un repository aveva 450 build in 30 giorni, e con 300 run letti meta'
+// delle build restava senza CI. Le pagine dopo la prima tornano 304 finche' non cambiano.
+const PAGINE_RUN = 10
 const RISERVA_RICHIESTE = 1000
 
 export function githubConfig(env = process.env) {

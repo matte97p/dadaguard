@@ -85,7 +85,11 @@ test('storico CodeBuild: pagine finché si resta nella finestra, la prima pagina
     const nome = cmd.constructor.name
     chiamate.push(nome)
     if (nome === 'ListProjectsCommand') return { projects: ['acme-production-api-deploy', 'altro-progetto'] }
-    if (nome === 'ListBuildsForProjectCommand') return pagine[cmd.input.nextToken]
+    if (nome === 'ListBuildsForProjectCommand') {
+      // Come CodeBuild vero: `sortOrder` insieme a `nextToken` è un errore.
+      if (cmd.input.nextToken && cmd.input.sortOrder) throw new Error("Sort order can't be specified when passing a nextToken.")
+      return pagine[cmd.input.nextToken]
+    }
     if (nome === 'BatchGetBuildsCommand') return { builds: cmd.input.ids.map((id) => build(Number(id), vecchie[id])) }
     throw new Error(nome)
   }

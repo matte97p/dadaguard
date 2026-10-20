@@ -533,7 +533,10 @@ app.get('/api/deploys/storico', async (req, res) => {
       const { perAccount, ...gh } = demoStoricoDeploy(giorni)
       return res.json({ giorni, punti: puntiBuild(perAccount, gh), righe: tempiPerServizio(perAccount, gh), account: Object.fromEntries(Object.entries(perAccount).map(([k, v]) => [k, { label: v.label }])), ciNota: null })
     }
-    const { value, at } = await storicoMemo(`storico:${giorni}:${req.query.lang ?? ''}`, () => leggiStorico(giorni, req.query.lang))
+    // La chiave non porta la lingua: cambia solo il testo degli errori di un account, e un giro a 30
+    // giorni costa minuti (2.264 build e 1.000 run letti il 20/10/2026, 158 secondi a cache fredda).
+    // Una cache per lingua li farebbe pagare due volte, e la scaldata all'avvio ne copre una sola.
+    const { value, at } = await storicoMemo(`storico:${giorni}`, () => leggiStorico(giorni, req.query.lang))
     conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -1129,6 +1132,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         .then(() => log.info('deploy: cache scaldata'))
         .catch((err) => log.error('deploy: scaldata iniziale fallita', { err: err.message }))
     }, 60_000).unref()
+    // Lo storico dei tempi a 30 giorni (la finestra con cui l'andamento di Deploy si apre): a cache
+    // fredda costa fino a qualche minuto, e senza scaldata lo pagherebbe il primo che apre la vista
+    // dopo ogni rilascio. Dopo, la cache consegna il giro vecchio e rinfresca dietro.
+    setTimeout(() => {
+      storicoMemo('storico:30', () => leggiStorico(30, 'it'))
+        .then(() => log.info('storico deploy: cache scaldata'))
+        .catch((err) => log.error('storico deploy: scaldata iniziale fallita', { err: err.message }))
+    }, 90_000).unref()
   }
 })
 

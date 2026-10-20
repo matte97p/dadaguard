@@ -241,7 +241,10 @@ export async function storicoBuilds({ profile, roleArn, externalId, region } = {
       const out = []
       let token
       do {
-        const r = await cb.send(new ListBuildsForProjectCommand({ projectName, sortOrder: 'DESCENDING', nextToken: token }))
+        // L'ordine si chiede solo sulla prima pagina: con `nextToken` CodeBuild rifiuta `sortOrder`
+        // («Sort order can't be specified when passing a nextToken», visto su staging il 20/10/2026), e le
+        // pagine dopo tengono l'ordine della prima.
+        const r = await cb.send(new ListBuildsForProjectCommand({ projectName, ...(token ? { nextToken: token } : { sortOrder: 'DESCENDING' }) }))
         const ids = r.ids ?? []
         if (!ids.length) break
         const { builds = [] } = await cb.send(new BatchGetBuildsCommand({ ids }))
