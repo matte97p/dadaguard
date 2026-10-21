@@ -26,6 +26,8 @@ import {
   eseguiAllarmi,
   testoAllarme,
   datiAllarmi,
+  allarmiDalCanale,
+  ritrovaAllarmi,
   dividi,
   canvasTrasversale,
   canvasDaScrivere,
@@ -607,6 +609,79 @@ test('allarmi: dai dati del quadro, rotti e in corso, con una firma che non camb
   assert.deepEqual(prima.inCorso, ['web'])
   assert.equal(prima.rotti[0].firma, dopo.rotti[0].firma, 'cinque minuti dopo è lo stesso guasto')
   assert.equal(datiAllarmi(undefined), null)
+})
+
+test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio che segue', () => {
+  const qa = (deploy) =>
+    quadroAmbiente('staging', {
+      deploys: { staging: { builds: [b('backend', deploy.commit, deploy.da)] } },
+      servizi: [svc('backend', 'staging', { tag: deploy.commit, da: deploy.da })],
+    })
+  const conTestSu = (q, t) => {
+    q.app[0].test = t
+    return q
+  }
+  const rosso = { stato: 'fallito', da: '2026-10-03T11:00:00Z', url: 'https://github.com/x/b/actions/runs/1', sha: 'bbbbbbbcccc' }
+  const prima = { commit: 'aaaaaaa', da: '2026-10-03T10:00:00Z' }
+
+  const dati = datiAllarmi(conTestSu(qa(prima), rosso), { ora: ORA })
+  assert.deepEqual(dati.rotti.map((r) => r.nome), ['backend'])
+  assert.equal(dati.rotti[0].testo, '🔴 `backend` [STAGING] deploy NON avviato · i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>')
+  const { aperti, azioni } = pianoAllarmi({}, dati)
+  assert.deepEqual(azioni.map((z) => z.tipo), ['apri'])
+
+  // GitHub non elenca più il run (finestra di 24 ore) e niente è successo dopo: non è un rosso sistemato.
+  assert.deepEqual(pianoAllarmi(aperti, datiAllarmi(qa(prima), { ora: ORA })).azioni, [])
+  // Un push dopo coi test che girano: in corso, non ancora riparato.
+  const girano = datiAllarmi(conTestSu(qa(prima), { stato: 'in_corso', da: '2026-10-03T11:20:00Z' }), { ora: ORA })
+  assert.deepEqual(girano.inCorso, ['backend'])
+  assert.deepEqual(pianoAllarmi(aperti, girano).azioni, [])
+  // Il rilascio che segue: ✅.
+  const chiuso = pianoAllarmi(aperti, datiAllarmi(qa({ commit: 'ddddddd', da: '2026-10-03T11:40:00Z' }), { ora: ORA }))
+  assert.deepEqual(chiuso.azioni.map((z) => z.tipo), ['chiudi'])
+  assert.deepEqual(chiuso.aperti, {})
+
+  const migr = datiAllarmi(conTestSu(qa(prima), { ...rosso, causa: 'migration', file: '20261016_00_x.sql' }), { ora: ORA })
+  assert.match(migr.rotti[0].testo, /deploy NON avviato · migration fallita: `20261016_00_x.sql`, niente è andato su staging · /)
+  const prod = quadroAmbiente('produzione', { deploys: { production: { builds: [b('api', 'aaaaaaa', prima.da)] } }, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: prima.da })] })
+  assert.match(datiAllarmi(conTestSu(prod, rosso), { ora: ORA }).rotti[0].testo, /^🔴 `api` \[PROD\] deploy NON avviato · i check di CI sono rossi, niente è andato in produzione · /)
+})
+
+test('allarmi dopo un riavvio: si rileggono dal canale, e chiudono col ✅ senza riscrivere il rosso', async () => {
+  const bot = { user: 'UBOT', bot: 'BBOT' }
+  const rosso = '🔴 `backend` [STAGING] deploy NON avviato · i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>'
+  const messaggi = [
+    { ts: '1759492900.000100', user: 'UBOT', text: '✅ `web` [STAGING] build #8 fallita · risolto alle 13:00' },
+    { ts: '1759492800.000100', user: 'UBOT', text: rosso },
+    { ts: '1759492700.000100', bot_id: 'BBOT', text: '❌ `api` [STAGING] build #3 fallita' },
+    { ts: '1759492600.000100', user: 'UBOT', text: '🔴 `backend` [STAGING] deploy NON avviato · più vecchio' },
+    { ts: '1759492500.000100', user: 'UALTRO', text: '❌ `web` [STAGING] build #9 fallita' },
+    { ts: '1759492400.000100', user: 'UBOT', text: '❌ `web` [PROD] build #9 fallita' },
+    { ts: '1759492300.000100', user: 'UBOT', thread_ts: '1759492000.000100', text: '❌ `web` [STAGING] di nuovo' },
+  ]
+  const aperti = allarmiDalCanale(messaggi, { bot, tag: 'STAGING' })
+  assert.deepEqual(Object.keys(aperti).sort(), ['api', 'backend'], 'web: decide il più recente, che è chiuso')
+  assert.equal(aperti.backend.ts, '1759492800.000100', 'il più recente per risorsa')
+  assert.equal(aperti.backend.da, new Date(1759492800000.1).toISOString())
+  assert.equal(aperti.api.da, null)
+
+  // Al primo giro il rosso ancora rotto si adotta in silenzio; quello rientrato si chiude.
+  const dati = { rotti: [{ nome: 'backend', firma: 'test|x', testo: rosso, da: '2026-10-03T11:00:00Z' }], inCorso: [], buildIgnote: false, ultimo: {} }
+  const piano = pianoAllarmi(aperti, dati, { primoGiro: true })
+  assert.deepEqual(piano.azioni.map((z) => `${z.tipo}:${z.nome}`), ['chiudi:api'])
+  assert.equal(piano.aperti.backend.firma, 'test|x')
+  assert.equal(piano.aperti.backend.ts, '1759492800.000100')
+
+  const chiamate = []
+  const api = async (metodo, corpo) => {
+    chiamate.push([metodo, corpo])
+    return metodo === 'auth.test' ? { user_id: 'UBOT', bot_id: 'BBOT' } : { messages: messaggi }
+  }
+  const ritrovati = await ritrovaAllarmi(api, 'C1', 'staging', { ora: 1759500000000 })
+  assert.deepEqual(Object.keys(ritrovati).sort(), ['api', 'backend'])
+  const [, storia] = chiamate.find(([m]) => m === 'conversations.history')
+  assert.equal(storia.channel, 'C1')
+  assert.equal(storia.oldest, String(Math.floor((1759500000000 - 72 * 3_600_000) / 1000)))
 })
 
 test('allarmi: si scrivono nel canale, il ✅ va nella discussione e cambia il messaggio', async () => {

@@ -54,7 +54,7 @@ import { applicaEventi, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js
 //                                                 Actions, letti con una GitHub App (server/notify/github.js)
 //
 // ⚠️ Riscrivere un canvas non manda notifiche: è il suo pregio (niente rumore) e il suo limite. Per
-// questo quando qualcosa si ROMPE (build o apply fallito, servizio giù) il bot scrive anche un
+// questo quando qualcosa si ROMPE (build o apply fallito, check rossi della CI) il bot scrive anche un
 // messaggio nel canale, e lo chiude con ✅ quando torna a posto (vedi `pianoAllarmi`): se va tutto bene
 // il canale resta muto, se qualcosa si rompe chi segue il canale lo sa.
 //
@@ -1130,7 +1130,7 @@ export function listeDaScrivere(q, cfg, { ora = Date.now() } = {}) {
 
 // I metodi di sola lettura vogliono i parametri nell'indirizzo, gli altri accettano JSON.
 // ⚠️ `files.info` in POST JSON risponde `invalid_arguments`: vuole la query string.
-const GET = new Set(['auth.test', 'conversations.info', 'files.info', 'files.list'])
+const GET = new Set(['auth.test', 'conversations.info', 'conversations.history', 'files.info', 'files.list'])
 
 // Una chiamata alla Web API, senza SDK (come `postSlack`). Slack risponde 200 anche sugli errori, col
 // motivo in `error`: si controlla `ok`, non lo status HTTP.
@@ -1706,9 +1706,11 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
 // ancora aperto. Un allarme per RISORSA, non per evento: tre build fallite di fila sono una storia
 // sola, non tre messaggi.
 //
-// ⚠️ Gli allarmi aperti stanno in memoria, come lo stato del watchdog: a un riavvio di Dadaguard il
-// primo giro prende nota di cosa è rotto senza scriverlo (meglio perdere un messaggio che ripetere
-// tutti i rossi a ogni rilascio di Dadaguard), e un allarme aperto prima del riavvio non riceve il ✅.
+// ⚠️ Gli allarmi aperti stanno in memoria, come lo stato del watchdog. A un riavvio di Dadaguard si
+// rileggono dal canale (vedi `ritrovaAllarmi`): senza, un rosso aperto mentre Dadaguard si rilasciava
+// restava rosso per sempre, e Dadaguard si rilascia anche più volte al giorno (21/10/2026). Se il
+// canale non si rilegge (manca `channels:history`), il primo giro prende nota di cosa è rotto senza
+// scriverlo: meglio perdere un messaggio che ripetere tutti i rossi a ogni rilascio di Dadaguard.
 
 // Il messaggio mrkdwn di Slack, dalle celle markdown del canvas. Puro.
 const aMrkdwn = (t) => String(t ?? '').replace(/\*\*([^*]+)\*\*/g, '*$1*').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<$2|$1>')
@@ -1728,21 +1730,62 @@ export function testoAllarme(x, ambiente) {
 export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   if (!qa) return null
   const { adesso } = smista(qa, { ora, url, ore })
+  const test = allarmiTest(qa, { ora, url, ore })
   return {
     // Solo i RILASCI rotti (gravità 1: build, apply o riavvio falliti). Un servizio giù (gravità 0)
     // è un allarme del watchdog, che lo scrive già nel canale degli allarmi: ripeterlo qui era un
     // doppione (05/10/2026). Nel canvas resta, in cima.
-    rotti: adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })),
-    inCorso: adesso.filter((x) => x.gravita === 3).map((x) => x.nome),
+    rotti: [...adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })), ...test.rotti],
+    inCorso: [...adesso.filter((x) => x.gravita === 3).map((x) => x.nome), ...test.inCorso],
     buildIgnote: Boolean(qa.buildIgnote),
+    ultimo: test.ultimo,
   }
+}
+
+// I check rossi della CI, cioè un rilascio fermato prima che la build nasca (❌ test KO nella tabella).
+// La riga 🔴 la scriveva solo la CI, con un webhook, che
+// non risponde nella discussione e non cambia il messaggio: il rosso restava rosso per sempre anche
+// dopo il push che lo sistemava (21/10/2026). Adesso è un allarme del quadro come gli altri, e lo stato
+// è quello della tabella (`conTest`), così canale e canvas non si contraddicono: un push dopo coi test
+// che girano è «in corso», e il ✅ arriva col rilascio che segue.
+//   ultimo   per risorsa, la cosa più recente che il quadro sa (rilascio, build, test): un allarme dei
+//            test si chiude solo se dopo di lui è successo qualcosa. Senza, un run uscito dalla
+//            finestra di GitHub (24 ore) sembrerebbe un rosso sistemato
+// Puro.
+function allarmiTest(qa, { ora, url, ore }) {
+  const rotti = []
+  const inCorso = []
+  const ultimo = {}
+  const tag = AMBIENTI[qa.ambiente]?.tag ?? String(qa.ambiente).toUpperCase()
+  const dove = tag === 'PROD' ? 'niente è andato in produzione' : `niente è andato su ${String(qa.ambiente).toLowerCase()}`
+  for (const v of [...(qa.app ?? []), ...(qa.infra ? [qa.infra] : [])]) {
+    const r = rigaRisorsa(v, { ora, url, ore })
+    if (!r) continue
+    ultimo[r.nome] = new Date(Math.max(tempo(v.quando), tempo(v.tentativo?.da), tempo(v.test?.da))).toISOString()
+    if (r.stato === 'test_avviati') inCorso.push(r.nome)
+    if (r.stato !== 'test_falliti') continue
+    const t = v.test
+    const sha7 = t.sha ? String(t.sha).slice(0, 7) : null
+    const motivo = t.causa === 'migration' ? `migration fallita${t.file ? `: \`${t.file}\`` : ''}` : 'i check di CI sono rossi'
+    const x = {
+      emoji: '🔴',
+      nome: r.nome,
+      stato: 'deploy NON avviato',
+      dettagli: [`${motivo}, ${dove}`, sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)],
+      link: r.link,
+    }
+    rotti.push({ nome: r.nome, firma: `test|${t.da}`, testo: testoAllarme(x, qa.ambiente), da: t.da })
+  }
+  return { rotti, inCorso, ultimo }
 }
 
 // Cosa dire nel canale, confrontando gli allarmi aperti con quello che è rotto adesso. Puro/testabile.
 //   apri    una risorsa rotta che non lo era
 //   ancora  una risorsa già aperta che si è rotta di nuovo (firma diversa)
 //   chiudi  una risorsa aperta che non è più rotta, e non è in corso: un rilascio che riparte dopo un
-//           fallimento non ha ancora riparato niente, e un ✅ prima dell'esito sarebbe una promessa
+//           fallimento non ha ancora riparato niente, e un ✅ prima dell'esito sarebbe una promessa.
+//           Un allarme dei test (quello con `da`) chiude solo se dopo di lui è successo qualcosa
+//           (`dati.ultimo`): un run che GitHub non elenca più non è un run passato
 // Con le build non lette non si chiude niente: un fallimento che non si vede non è un fallimento finito.
 export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {}) {
   if (!dati) return { azioni: [], aperti }
@@ -1752,15 +1795,19 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
   for (const r of dati.rotti) {
     const a = aperti[r.nome]
     if (!a) {
-      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma }
+      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma, da: r.da ?? null }
       if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo })
+    } else if (a.firma == null) {
+      // Ritrovato nel canale dopo un riavvio (`ritrovaAllarmi`): è lo stesso rosso, non uno nuovo.
+      nuovi[r.nome] = { ...a, firma: r.firma, da: r.da ?? a.da ?? null }
     } else if (a.firma !== r.firma) {
-      nuovi[r.nome] = { ...a, firma: r.firma }
+      nuovi[r.nome] = { ...a, firma: r.firma, da: r.da ?? null }
       azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
     }
   }
   for (const [nome, a] of Object.entries(aperti)) {
     if (rottiOra.has(nome) || dati.inCorso.includes(nome) || dati.buildIgnote) continue
+    if (a.da && !(tempo(dati.ultimo?.[nome]) > tempo(a.da))) continue
     delete nuovi[nome]
     azioni.push({ tipo: 'chiudi', nome, testo: a.testo, ts: a.ts })
   }
@@ -1790,6 +1837,38 @@ export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {
     }
   }
   return aperti
+}
+
+// Gli allarmi ancora aperti nel canale, dai messaggi del bot dell'ambiente giusto: per ogni risorsa
+// decide il più recente, aperto se inizia con 🔴 o ❌ (uno chiuso è stato cambiato in ✅). La firma non si sa,
+// e il primo giro la prende dal guasto che vede (vedi `pianoAllarmi`). Per un check rosso della CI il
+// `da` è l'ora del messaggio, di poco dopo il run: così si chiude solo se dopo è successo qualcosa,
+// come uno aperto senza riavvii. `messaggi` come li dà `conversations.history`, dal più recente. Puro.
+export function allarmiDalCanale(messaggi = [], { bot = {}, tag } = {}) {
+  const aperti = {}
+  const visti = new Set()
+  for (const m of messaggi) {
+    if (!(m.user && m.user === bot.user) && !(m.bot_id && m.bot_id === bot.bot)) continue
+    if (m.thread_ts && m.thread_ts !== m.ts) continue
+    const x = /^(🔴|❌|✅) `([^`]+)` \[([^\]]+)\]/u.exec(m.text ?? '')
+    if (!x || x[3] !== tag || visti.has(x[2])) continue
+    visti.add(x[2])
+    if (x[1] === '✅') continue
+    const da = / deploy NON avviato /.test(m.text) ? new Date(Number(m.ts) * 1000).toISOString() : null
+    aperti[x[2]] = { ts: m.ts, testo: m.text, firma: null, da }
+  }
+  return aperti
+}
+
+// Quanto indietro si guarda nel canale: un rosso più vecchio di così lo si lascia com'è.
+const ORE_ALLARMI_RITROVATI = 72
+
+// Rilegge dal canale gli allarmi aperti prima di un riavvio. Vuole `channels:history` (e
+// `groups:history` per un canale privato): senza, lancia, e chi chiama va avanti come prima.
+export async function ritrovaAllarmi(api, canale, ambiente, { ora = Date.now(), ore = ORE_ALLARMI_RITROVATI } = {}) {
+  const io = await api('auth.test', {})
+  const r = await api('conversations.history', { channel: canale, oldest: String(Math.floor((ora - ore * 3_600_000) / 1000)), limit: '200' })
+  return allarmiDalCanale(r.messages ?? [], { bot: { user: io.user_id, bot: io.bot_id }, tag: AMBIENTI[ambiente]?.tag ?? String(ambiente).toUpperCase() })
 }
 
 // ── La guardia del quadro ────────────────────────────────────────────────────────────────────────
@@ -1872,7 +1951,18 @@ export function startQuadro(leggiDati, env = process.env) {
     for (const e of esiti) {
       // Senza dati (il giro è morto prima) non si apre e non si chiude niente.
       if (!e.allarmi) continue
-      const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: !visti.has(e.ambiente) })
+      // Il primo giro tace solo se non sa cosa c'è già nel canale. Riletto il canale, un rosso che non
+      // c'è si scrive subito: è quello arrivato mentre Dadaguard era spento o si rilasciava, e tacerlo
+      // vorrebbe dire non scriverlo mai, perché la CI lo lascia al quadro (21/10/2026).
+      let muto = false
+      if (!visti.has(e.ambiente))
+        try {
+          allarmi[e.ambiente] = { ...(await ritrovaAllarmi(api, cfg.canali[e.ambiente], e.ambiente)), ...(allarmi[e.ambiente] ?? {}) }
+        } catch (err) {
+          muto = true
+          log.warn('quadro: allarmi aperti non riletti dal canale, quelli di prima del riavvio restano senza ✅', { ambiente: e.ambiente, err: err.message })
+        }
+      const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: muto })
       visti.add(e.ambiente)
       if (piano.azioni.length) log.info('quadro: allarmi', { ambiente: e.ambiente, azioni: piano.azioni.map((z) => `${z.tipo}:${z.nome}`) })
       allarmi[e.ambiente] = await eseguiAllarmi(api, cfg.canali[e.ambiente], piano)
