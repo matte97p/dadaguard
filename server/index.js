@@ -576,7 +576,7 @@ app.get('/api/deploys/storico', async (req, res) => {
       return res.json({ giorni, punti: puntiBuild(perAccount, gh), righe: tempiPerServizio(perAccount, gh), account: Object.fromEntries(Object.entries(perAccount).map(([k, v]) => [k, { label: v.label }])), ciNota: null })
     }
     // La chiave non porta la lingua: cambia solo il testo degli errori di un account, e un giro a 30
-    // giorni costa minuti (2.264 build e 1.000 run letti il 20/10/2026, 158 secondi a cache fredda).
+    // giorni su un'organizzazione con qualche migliaio di build costa minuti a cache fredda.
     // Una cache per lingua li farebbe pagare due volte, e la scaldata all'avvio ne copre una sola.
     const { value, at } = await storicoMemo(`storico:${giorni}`, () => leggiStorico(giorni, req.query.lang))
     conEta(res, at).json(value)
