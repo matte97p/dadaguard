@@ -12,6 +12,9 @@
 #   chat:write       il messaggio quando qualcosa si rompe, la risposta ✅ e la modifica del messaggio
 #   channels:read    conversations.info sui canali pubblici, per ritrovare il canvas del canale
 #   groups:read      lo stesso sui canali privati
+#   channels:history conversations.history, per rileggere dopo un riavvio i 🔴/❌ ancora aperti e
+#                    chiuderli col ✅ quando rientrano
+#   groups:history   lo stesso sui canali privati
 #   lists:write      slackLists.create, slackLists.items.create/update/delete, slackLists.access.set
 #   lists:read       slackLists.items.list, per rileggere le righe della List dopo un riavvio
 # Niente interattività, quindi nessun indirizzo pubblico da esporre: i link a Dadaguard sono link, non
@@ -23,7 +26,8 @@
 # `channel_not_found`, che sembra un id sbagliato e invece è un invito mancante.
 # ⚠️ Nessun permesso `bookmarks:*`: la List si ritrova fra i file del bot (`files.list`), non fra i
 # segnalibri del canale, e dal 06/10/2026 il quadro non ne aggiunge più (il link alla List sta in
-# fondo ai canvas). Un'app installata prima lo ha ancora, e non serve reinstallarla per toglierlo. E non serve nessun `*:history`: lo stato dei test non viene dal canale
+# fondo ai canvas). Un'app installata prima lo ha ancora, e non serve reinstallarla per toglierlo.
+# I `*:history` servono solo a ritrovare gli allarmi aperti: lo stato dei test non viene dal canale
 # ma da GitHub Actions, con una GitHub App (server/notify/github.js).
 display_information:
   name: Dadaguard
@@ -41,6 +45,8 @@ oauth_config:
       - chat:write
       - channels:read
       - groups:read
+      - channels:history
+      - groups:history
       - lists:write
       - lists:read
 settings:
