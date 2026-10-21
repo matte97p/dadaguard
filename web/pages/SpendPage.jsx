@@ -64,8 +64,8 @@ export default function SpendPage({ accountLabels, tabs = ['costs', 'waste'], t 
   const conti = Object.values(mese?.dati ?? {}).filter((a) => !a.error && visibile(a))
   const somma = (f) => conti.reduce((s, a) => s + (f(a) || 0), 0)
   const netto = somma((a) => (a.total != null ? a.total : a.gross))
-  // La previsione sullo stesso numero del titolo, il netto (dopo crediti e tasse): a listino diceva il
-  // 20/10/2026 «6242 $ spesi, previsione 67.170 $», due cifre di due mondi diversi nella stessa frase.
+  // La previsione sullo stesso numero del titolo, il netto (dopo crediti e tasse): prima il titolo diceva
+  // la spesa al netto e la previsione a listino, due cifre di due mondi diversi nella stessa frase.
   const previsione = somma((a) => (a.projection ? a.projection.net : a.total != null ? a.total : a.gross))
 
   const daGuardare = budgetDaGuardare(budgets?.dati, accountLabels)
