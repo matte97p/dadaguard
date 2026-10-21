@@ -51,6 +51,7 @@ import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } 
 import { statoLeggero } from './quadroStato.js'
 import { startCorse, corseConfig, conInfra } from './notify/corse.js'
 import { statusFor, warmStatus } from './statusCache.js'
+import { creaPronto } from './util/pronto.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
 import { statoFlotta } from './flotta.js'
@@ -78,6 +79,18 @@ const requireLocal = (feature) => (_req, res, next) => {
 
 // Liveness dell'app (container/orchestratori): NON chiama AWS, conferma solo che il server è su.
 app.get('/healthz', (_req, res) => res.json({ ok: true, mode: MODE }))
+
+// Readiness: 200 quando le cache che una pagina chiede all'apertura sono già piene (vedi util/pronto.js).
+// È l'health check del container: un rilascio a rotazione tiene il task vecchio finché questo non
+// risponde 200. Non chiama AWS nemmeno lui.
+const pronto = creaPronto({
+  attesi: isDemo ? [] : ['status', 'runs'],
+  maxMs: Number(process.env.DADAGUARD_READY_MAX_MS) || 240_000,
+})
+app.get('/readyz', (_req, res) => {
+  const stato = pronto.stato()
+  res.status(stato.pronto ? 200 : 503).json(stato)
+})
 
 // Esposizione Prometheus: severità per servizio/check → Grafana/Alertmanager fanno alert e storico,
 // senza che Dadaguard diventi un servizio.
@@ -1209,7 +1222,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.
-  if (!isDemo) warmStatus()
+  if (!isDemo) warmStatus().finally(() => pronto.fatto('status'))
   // Stessa ragione per le due pagine più care dopo lo stato, con le chiavi che la pagina chiede
   // all'apertura (finestra e numero di run di default). Scalate: tre giri insieme all'avvio si
   // contenderebbero la quota di CloudWatch Logs (~10 richieste al secondo per account) e il primo
@@ -1220,6 +1233,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         .then(({ accounts }) => runsOverview(accounts, { minutes: entroLimiti('runs') * 60, limit: 6, t: makeT('it') }))
         .then(() => log.info('runs: cache scaldata'))
         .catch((err) => log.error('runs: scaldata iniziale fallita', { err: err.message }))
+        .finally(() => pronto.fatto('runs'))
     }, 30_000).unref()
     setTimeout(() => {
       deploysCached('it', entroLimiti('deploys'))

@@ -160,6 +160,7 @@ npm run check -- --fail-on degraded   # soglia più severa (gating di pipeline)
 ```
 - **`/metrics`** — formato Prometheus (severità per servizio/check + latenza + running/desired): aggancialo a Grafana/Alertmanager per dashboard, alert e storico, senza che Dadaguard diventi un servizio stateful.
 - **`/healthz`** — liveness dell'app (non chiama AWS).
+- **`/readyz`** — readiness: 200 quando le cache care (stato e cron) sono piene, o dopo `DADAGUARD_READY_MAX_MS` (default 240 s) comunque. Usalo come health check del container, così un rilascio a rotazione tiene il task vecchio finché il nuovo non è pronto.
 - **Dashboard Grafana dei tempi dei rilasci**: `deploy/grafana/dadaguard-tempi.json`: importala (o mettila
   nel provisioning) su un Prometheus che legge `/metrics`. Variabili per account e servizio; lo storico è quello
   di Prometheus, quindi parte da quando lo scrape è acceso. Le serie: `dadaguard_deploy_duration_seconds`
