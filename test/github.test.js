@@ -241,3 +241,19 @@ test('job rossi non leggibili: lo stato ❌ resta, col motivo generico', async (
   assert.equal(stati.get('produzione|acme/api').stato, 'fallito')
   assert.equal(stati.get('produzione|acme/api').checks, undefined)
 })
+
+test('righeErrore: le righe prima del primo errore e gli errori, senza orari né righe di servizio', async () => {
+  const { righeErrore } = await import('../server/notify/github.js')
+  const log = [
+    '2026-10-21T09:40:00.0000000Z ##[group]Run pytest',
+    '2026-10-21T09:40:00.1000000Z shell: /usr/bin/bash -e {0}',
+    '2026-10-21T09:40:01.0000000Z collected 12 items',
+    '2026-10-21T09:40:02.0000000Z FAILED tests/test_api.py::test_login - AssertionError: assert 500 == 200',
+    '2026-10-21T09:40:02.1000000Z \u001b[31m1 failed\u001b[0m, 11 passed',
+    '2026-10-21T09:40:02.2000000Z ##[endgroup]',
+    '2026-10-21T09:40:02.3000000Z ##[error]Process completed with exit code 1.',
+  ].join('\n')
+  assert.deepEqual(righeErrore(log), ['collected 12 items', 'FAILED tests/test_api.py::test_login - AssertionError: assert 500 == 200', '1 failed, 11 passed'])
+  assert.deepEqual(righeErrore('tutto verde'), [])
+  assert.deepEqual(righeErrore('2026-10-21T09:40:00Z ##[error]ruff: E501 line too long (password=hunter2)'), ['ruff: E501 line too long (password=***)'])
+})

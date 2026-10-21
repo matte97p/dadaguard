@@ -1,5 +1,6 @@
 import { createPrivateKey, sign } from 'node:crypto'
 import { log } from '../log.js'
+import { ripulisci } from '../util/ripulisci.js'
 
 // Lo stato dei TEST di una riga del quadro, letto da GitHub Actions. I test non li vede né ECS né
 // CodeBuild: girano prima che la build esista, nel workflow del repository, e il quadro li chiede a
@@ -165,6 +166,26 @@ export function jobsRossi(jobs) {
   return [...new Set(nomi)].slice(0, 5)
 }
 
+// Le righe che dicono perché un job è rosso, dal suo log: quelle marcate `##[error]` (tranne il
+// generico «Process completed with exit code») e le ultime righe prima del primo errore, dove di solito
+// c'è il test o il comando caduto. Senza orari, codici colore e righe di servizio di GitHub, e ripulite
+// come le righe dei log degli allarmi: un log della CI può portare dati e segreti. Puro/testabile.
+export function righeErrore(testo, { prima = 6, max = 8 } = {}) {
+  const righe = String(testo ?? '')
+    .split(/\r?\n/)
+    .map((r) => r.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, '').replace(/\x1b\[[0-9;]*m/g, '').trimEnd())
+  const i = righe.findIndex((r) => r.startsWith('##[error]'))
+  if (i < 0) return []
+  const servizio = (r) => !r.trim() || /^##\[(group|endgroup|debug|warning|notice)\]/.test(r) || /^(shell|env):/.test(r.trim())
+  const contesto = righe.slice(0, i).filter((r) => !servizio(r)).slice(-prima)
+  const errori = righe
+    .slice(i)
+    .filter((r) => r.startsWith('##[error]'))
+    .map((r) => r.slice('##[error]'.length))
+    .filter((r) => !/^Process completed with exit code/.test(r))
+  return [...new Set([...contesto, ...errori].map((r) => ripulisci(r)).filter(Boolean))].slice(-max)
+}
+
 // Mette lo stato dei test sulle righe del quadro che vengono da quel repository, in quell'ambiente:
 // un repository che rilascia due servizi li segna tutti e due. Puro/testabile.
 export function applicaTest(q, stati) {
@@ -186,9 +207,9 @@ class LimiteGithub extends Error {}
 export function nuovoGithub(cfg, deps = {}) {
   if (!cfg) return null
   const fetchGh = deps.fetch ?? globalThis.fetch
-  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), etagRun: new Map(), jobs: new Map(), resta: null, stati: new Map(), nascosti: new Map() }
+  const mem = { giro: 0, prossimo: 0, prossimoAlle: 0, letto: null, pausaFino: 0, errore: null, installazioni: new Map(), token: new Map(), etag: new Map(), etagRun: new Map(), jobs: new Map(), errori: new Map(), resta: null, stati: new Map(), nascosti: new Map() }
 
-  async function gh(metodo, path, { auth, etag } = {}) {
+  async function gh(metodo, path, { auth, etag, testo = false } = {}) {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 10_000)
     try {
@@ -218,6 +239,8 @@ export function nuovoGithub(cfg, deps = {}) {
       }
       // Solo lo status nel messaggio, mai l'intestazione: lì c'è il token.
       if (!res.ok) throw Object.assign(new Error(`github ${metodo} ${path.split('?')[0]}: HTTP ${res.status}`), { status: res.status })
+      // Il log di un job è testo (GitHub risponde con un rinvio a un file, e fetch lo segue).
+      if (testo) return { stato: res.status, testo: await res.text() }
       return { stato: res.status, json: await res.json(), etag: res.headers.get('etag') }
     } finally {
       clearTimeout(timer)
@@ -352,12 +375,31 @@ export function nuovoGithub(cfg, deps = {}) {
     // giro dopo, invece di togliere al quadro le richieste che gli servono.
     if (mem.resta != null && mem.resta < RISERVA_RICHIESTE) throw Object.assign(new Error(`github: restano ${mem.resta} richieste nell'ora, i job aspettano`), { riserva: true })
     const res = await gh('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(id)}/jobs?per_page=100`, { auth: await token(owner, ora) })
-    const jobs = (res.json?.jobs ?? []).map((j) => ({ name: j.name, started_at: j.started_at, completed_at: j.completed_at, conclusion: j.conclusion ?? null }))
+    const jobs = (res.json?.jobs ?? []).map((j) => ({
+      id: j.id ?? null,
+      name: j.name,
+      started_at: j.started_at,
+      completed_at: j.completed_at,
+      conclusion: j.conclusion ?? null,
+      // Il passo rosso, per dire DOVE si è fermato il job (`Run tests`, non solo `validate`).
+      passo: (j.steps ?? []).find((x) => FALLITI.has(x.conclusion))?.name ?? null,
+    }))
     if (finito) {
       mem.jobs.set(id, jobs)
       if (mem.jobs.size > MAX_RUN_IN_MEMORIA) mem.jobs.delete(mem.jobs.keys().next().value)
     }
     return jobs
+  }
+
+  // Le righe d'errore del log di un job finito: non cambia più, quindi si chiede una volta sola.
+  async function erroreDi({ owner, repo, id }, { ora = Date.now() } = {}) {
+    if (mem.errori.has(id)) return mem.errori.get(id)
+    if (mem.resta != null && mem.resta < RISERVA_RICHIESTE) return null
+    const res = await gh('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/jobs/${encodeURIComponent(id)}/logs`, { auth: await token(owner, ora), testo: true })
+    const righe = righeErrore(res.testo)
+    mem.errori.set(id, righe)
+    if (mem.errori.size > MAX_RUN_IN_MEMORIA) mem.errori.delete(mem.errori.keys().next().value)
+    return righe
   }
 
   // Su ogni stato ❌ i job rossi dei suoi run (`checks`). Un run finito non cambia, e `jobsDi` lo tiene
@@ -372,6 +414,13 @@ export function nuovoGithub(cfg, deps = {}) {
         for (const id of s.runFalliti) jobs.push(...(await jobsDi({ owner, repo, id, finito: true }, { ora })))
         const checks = jobsRossi(jobs)
         if (checks.length) s.checks = checks
+        // Il PERCHÉ del primo job rosso, dal suo log: va nel thread dell'allarme. Senza, il canale
+        // diceva solo il nome del job, e a ogni commit nuovo ancora rosso ripeteva la stessa riga.
+        const rosso = jobs.find((j) => FALLITI.has(j.conclusion) && j.id)
+        if (rosso) {
+          const righe = await erroreDi({ owner, repo, id: rosso.id }, { ora }).catch((err) => (log.debug('quadro: log del job non letto', { err: err.message }), null))
+          if (righe?.length) s.errore = { job: jobsRossi([rosso])[0] ?? null, passo: rosso.passo ?? null, righe, id: rosso.id }
+        }
       } catch (err) {
         log.debug('quadro: job rossi non letti', { repo: `${owner}/${repo}`, err: err.message })
       }
