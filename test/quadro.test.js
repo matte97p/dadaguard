@@ -1788,3 +1788,18 @@ test('allarmi CI: un commit nuovo ancora rosso corregge il messaggio, e il log n
   assert.equal(p.aperti.backend.da, '2026-10-21T10:02:00Z')
   assert.deepEqual(pianoAllarmi(p.aperti, rosso('6b97d63', 2)).azioni, [], 'lo stesso log non si ripete')
 })
+
+test('allarmi CI: corretto il messaggio, i commit rossi di prima restano', async () => {
+  const rosso = (sha) => {
+    const testoCon = (prima = []) => `🔴 \`backend\` [STAGING] deploy NON avviato · ${sha}${prima.length ? ` · prima ${prima.join(', ')}` : ''}`
+    return { rotti: [{ nome: 'backend', firma: 'test', testo: testoCon(), commit: sha, testoCon, da: '2026-10-21T10:00:00Z' }], inCorso: [], buildIgnote: false }
+  }
+  let p = pianoAllarmi({}, rosso('5f38e24'))
+  p.aperti.backend.ts = '111'
+  p = pianoAllarmi(p.aperti, rosso('e7fa515'))
+  assert.deepEqual(p.azioni.map((z) => z.tipo), ['aggiorna'])
+  assert.match(p.azioni[0].testo, /e7fa515 · prima 5f38e24$/)
+  assert.deepEqual(pianoAllarmi(p.aperti, rosso('e7fa515')).azioni, [], 'stesso commit: niente da correggere')
+  p = pianoAllarmi(p.aperti, rosso('a1b2c3d'))
+  assert.match(p.azioni[0].testo, /a1b2c3d · prima 5f38e24, e7fa515$/)
+})
