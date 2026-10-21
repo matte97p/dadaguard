@@ -1749,3 +1749,25 @@ test('gli eventi della coda arrivano sul canvas: ⏳ da CodeBuild su una riga, �
   assert.equal(righe[1][2].testo, 'aaaaaaa · build #11 · verso bbbbbbb')
   assert.equal(righe[2][1].testo, '🧪 test · oggi 13:59')
 })
+
+test('allarmi: lo stesso guasto con un testo nuovo corregge il messaggio, non ne scrive un altro', () => {
+  const rotto = (testo) => ({ rotti: [{ nome: 'website', firma: '❌|build#4', testo }], inCorso: [], buildIgnote: false })
+  let p = pianoAllarmi({}, rotto('❌ `website` [STAGING] build #4 fallita alle 11:19'))
+  p.aperti.website.ts = '111'
+  p = pianoAllarmi(p.aperti, rotto('❌ `website` [STAGING] build #4 fallita alle 11:19 · motivo: Could not find compiled Open Next config'))
+  assert.deepEqual(p.azioni.map((z) => `${z.tipo}:${z.ts}`), ['aggiorna:111'])
+  p = pianoAllarmi(p.aperti, rotto('❌ `website` [STAGING] build #4 fallita alle 11:19 · motivo: Could not find compiled Open Next config'))
+  assert.deepEqual(p.azioni, [], 'stesso testo: niente da fare')
+  // Ritrovato nel canale dopo un riavvio: il testo di Slack non è il nostro, e non va riscritto.
+  const ritrovato = pianoAllarmi({ website: { ts: '111', testo: ':x: `website` ...', firma: null } }, rotto('❌ `website` [STAGING] build #4'))
+  assert.deepEqual(ritrovato.azioni, [])
+  assert.deepEqual(pianoAllarmi(ritrovato.aperti, rotto('❌ `website` [STAGING] build #4')).azioni, [])
+})
+
+test('allarmi: evento e giro della stessa build hanno la stessa firma anche con orari diversi', async () => {
+  const { eseguiAllarmi: esegui } = await import('../server/notify/quadro.js')
+  const chiamate = []
+  const api = async (m, c) => (chiamate.push([m, c.ts ?? null, c.thread_ts ?? null]), { ts: '9' })
+  await esegui(api, 'C1', { aperti: { website: { ts: '111' } }, azioni: [{ tipo: 'aggiorna', nome: 'website', testo: 'x', ts: '111' }] })
+  assert.deepEqual(chiamate, [['chat.update', '111', null]])
+})
