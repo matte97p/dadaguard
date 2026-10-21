@@ -328,3 +328,17 @@ test('esito delle corse ECS dal log: una lettura per corsa finita, poi dalla mem
   assert.deepEqual(b.map((r) => r.esito ?? null), ['ok', 'ko', null, 'ok'])
   assert.deepEqual(letture, ['ok', 'ko', 'oltre-il-tetto'], 'quelle gia’ lette non si rileggono')
 })
+
+test('esito ECS: il codice d’uscita annotato dall’API vince sul log (un OOM non scrive errori)', async () => {
+  const { conEsito } = await import('../server/cronStorico.js')
+  const { annotaEsitoEcs } = await import('../server/runs.js')
+  annotaEsitoEcs('/ecs/oom', { stream: 'ucciso', exitCode: 137, stopReason: 'OutOfMemoryError: Container killed due to memory usage' })
+  annotaEsitoEcs('/ecs/oom', { stream: 'pulito', exitCode: 0 })
+  annotaEsitoEcs('/ecs/oom', { stream: 'vivo', running: true, exitCode: null })
+  const letture = []
+  const cerca = async (_l, p) => (letture.push(p.logStreamNames[0]), false)
+  const corse = ['ucciso', 'pulito', 'vivo'].map((stream) => ({ stream, startedAt: ADESSO - 2 * ORA, endedAt: ADESSO - ORA }))
+  const r = await conEsito(null, '/ecs/oom', corse, ADESSO, { cerca })
+  assert.deepEqual(r.map((x) => x.esito), ['ko', 'ok', 'ok'])
+  assert.deepEqual(letture, ['vivo'], 'dove c’e’ il codice d’uscita il log non si legge')
+})

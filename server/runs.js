@@ -154,6 +154,21 @@ const MAX_PAGES = 12
 // fermarsi a metà finestra darebbe una lista che sembra completa e non lo è.
 const MAX_LAMBDA_PAGES = 25
 
+// Gli esiti CERTI delle corse ECS, letti dall'API finche' il task c'era: codice d'uscita, OOM, task
+// mai partito. Li scrive `ecsRuns` (la lista delle corse e il giro del canvas Slack, ogni pochi minuti),
+// li legge la vista «Andamento» prima di guardare nei log. Chiave: log group e stream della corsa.
+// Tetto alla memoria: oltre, esce il piu' vecchio.
+export const esitiEcs = new Map()
+const MAX_ESITI_ECS = 20_000
+
+export function annotaEsitoEcs(logGroup, r) {
+  if (!logGroup || !r?.stream || r.running) return
+  const certo = r.exitCode != null || r.stopCode === 'TaskFailedToStart' || /OutOfMemory|OOMKilled/i.test(String(r.stopReason ?? ''))
+  if (!certo) return
+  esitiEcs.set(`${logGroup}|${r.stream}`, classifyRun(r) === 'failed' ? 'ko' : 'ok')
+  if (esitiEcs.size > MAX_ESITI_ECS) esitiEcs.delete(esitiEcs.keys().next().value)
+}
+
 // «C'è un errore in questo stream?», seguendo le pagine: con `FilterLogEvents` una pagina vuota NON è
 // una risposta finché torna un `nextToken` (stesso inganno documentato in runtime/ecsScheduled.js).
 export async function anyFailure(logs, params) {
@@ -320,6 +335,11 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
       /* niente scansione per questa run: l'esito resta quello dei segnali API */
     }
   })
+
+  // L'esito dall'API ECS si annota per la vista «Andamento» (server/cronStorico.js): ECS dimentica un
+  // task fermo dopo circa un'ora, e senza il codice d'uscita un container ucciso per memoria finita, che
+  // non scrive nessun errore, sembrerebbe riuscito.
+  for (const r of merged) annotaEsitoEcs(logGroup, r)
 
   return {
     logGroup,
