@@ -208,12 +208,21 @@ export function findService(services, { service, account, resourceId: rid } = {}
   return inAccount[0] ?? null
 }
 
+// Scaduta la cache, la lista vecchia si consegna subito e la scoperta riparte dietro (come util/swr.js):
+// prima ogni cinque minuti la richiesta che capitava allo scadere aspettava un'auto-discovery intera,
+// ed era quella di chi apriva log, andamento o una corsa. Si aspetta solo la prima volta, quando non
+// c'è niente da consegnare, o dopo `invalidateServicesCache` (la watchlist è cambiata davvero).
 export async function resolveServices() {
   if (_resolveCache && Date.now() - _resolveCache.at < RESOLVE_TTL_MS) return _resolveCache.value
-  if (_resolveInFlight) return _resolveInFlight
-  _resolveInFlight = _resolveServices().finally(() => {
-    _resolveInFlight = null
-  })
+  if (!_resolveInFlight) {
+    _resolveInFlight = _resolveServices().finally(() => {
+      _resolveInFlight = null
+    })
+  }
+  if (_resolveCache) {
+    _resolveInFlight.catch((err) => log.error('auto-discovery: rinfresco in background fallito', { err: err.message }))
+    return _resolveCache.value
+  }
   return _resolveInFlight
 }
 

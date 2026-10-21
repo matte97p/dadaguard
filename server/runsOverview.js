@@ -23,7 +23,12 @@ const memo = swrMemo({
   ttlMs: TTL_MS,
   onError: (err, key) => log.error('runs: rinfresco in background fallito', { key, err: err.message }),
 })
-const MAX_CRONS = 40 // oltre, non è una pagina: è una scansione. Si dice che è troncata, e di quanto.
+// Il tetto dei cron accesi letti in un giro della pagina. Era 40, e con un'installazione più grande la
+// pagina ne mostrava una parte e un riepilogo che contava solo quelli: la domanda «è andato tutto
+// bene?» non aveva risposta senza cercarli a uno a uno. Il canvas delle corse li legge già TUTTI ogni
+// pochi minuti (vedi datiCorse in index.js), quindi il costo di leggerli tutti è già accettato; il
+// tetto resta come freno per installazioni enormi, e oltre si dice che è troncata, e di quanto.
+const MAX_CRONS = Number(process.env.DADAGUARD_RUNS_MAX_CRONS) || 200
 
 // La ricerca arriva dalla casella della pagina: minuscola, senza spazi ai bordi, e corta. Ogni testo
 // diverso è una chiave della cache, quindi una stringa lunga a piacere sarebbe memoria a piacere. Pura.
@@ -80,7 +85,7 @@ export function summarize(cron, runs = []) {
 }
 
 // Le opzioni oltre a quelle della pagina servono al canvas delle corse in Slack (server/notify/corse.js),
-// che vuole TUTTI i cron e non i primi 40, ma costando poco:
+// che vuole TUTTI i cron senza tetto, ma costando poco:
 //   max          il tetto dei cron accesi letti (default `MAX_CRONS`, quello della pagina)
 //   scan         per quante corse di ogni cron si cercano gli errori nei log (default 4 nella vista
 //                d'insieme): al canvas serve solo l'ultima finita
