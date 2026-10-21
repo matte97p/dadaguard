@@ -707,6 +707,8 @@ function voceApp(r, ora) {
       gravita: 1,
       quando: t.da,
       emoji: '❌',
+      // Il guasto è LA build: l'evento e il giro la vedono con orari diversi di qualche secondo.
+      guasto: t.numero ? `build#${t.numero}` : null,
       stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${alle(t.da, ora)}`,
       dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, motivo, t.log && `[log della build](${t.log})`],
     }
@@ -764,6 +766,7 @@ function voceIac(i, ora) {
       livello: 'adesso',
       gravita: 1,
       emoji: '❌',
+      guasto: i.numero ? `apply#${i.numero}` : null,
       stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${alle(i.quando, ora)}`,
       dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `[log della build](${i.log})`],
     }
@@ -1728,7 +1731,9 @@ export function testoAllarme(x, ambiente) {
 
 // Cosa serve agli allarmi di un ambiente: le risorse rotte (con la loro firma), quelle in corso, e se
 // le build si sono lette. La FIRMA cambia solo con un guasto nuovo (un'altra build fallita, un altro
-// rilascio giù): non con l'orologio, o ogni giro sembrerebbe un guasto nuovo. Puro.
+// rilascio giù): non con l'orologio, o ogni giro sembrerebbe un guasto nuovo. Dove c'è il numero della
+// build è lui la firma, non l'ora: l'evento di CodeBuild porta l'ora dell'evento, il giro quella della
+// build, e per qualche secondo di differenza lo stesso guasto veniva detto due volte (21/10/2026). Puro.
 export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
   if (!qa) return null
   const { adesso } = smista(qa, { ora, url, ore })
@@ -1737,7 +1742,7 @@ export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_OR
     // Solo i RILASCI rotti (gravità 1: build, apply o riavvio falliti). Un servizio giù (gravità 0)
     // è un allarme del watchdog, che lo scrive già nel canale degli allarmi: ripeterlo qui era un
     // doppione (05/10/2026). Nel canvas resta, in cima.
-    rotti: [...adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })), ...test.rotti],
+    rotti: [...adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.guasto ?? x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })), ...test.rotti],
     inCorso: [...adesso.filter((x) => x.gravita === 3).map((x) => x.nome), ...test.inCorso],
     buildIgnote: Boolean(qa.buildIgnote),
     ultimo: test.ultimo,
@@ -1792,6 +1797,8 @@ function allarmiTest(qa, { ora, url, ore }) {
 // Cosa dire nel canale, confrontando gli allarmi aperti con quello che è rotto adesso. Puro/testabile.
 //   apri    una risorsa rotta che non lo era
 //   ancora  una risorsa già aperta che si è rotta di nuovo (firma diversa)
+//   aggiorna lo stesso guasto con un testo nuovo (il motivo arrivato dopo, il commit col suo link): si
+//           corregge il messaggio che c'è, invece di ripeterlo nella discussione
 //   chiudi  una risorsa aperta che non è più rotta, e non è in corso: un rilascio che riparte dopo un
 //           fallimento non ha ancora riparato niente, e un ✅ prima dell'esito sarebbe una promessa.
 //           Un allarme dei test (quello con `da`) chiude solo se dopo di lui è successo qualcosa
@@ -1809,10 +1816,15 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
       if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo })
     } else if (a.firma == null) {
       // Ritrovato nel canale dopo un riavvio (`ritrovaAllarmi`): è lo stesso rosso, non uno nuovo.
-      nuovi[r.nome] = { ...a, firma: r.firma, da: r.da ?? a.da ?? null }
+      // Il testo letto dal canale è quello che Slack restituisce (emoji in codice, link riscritti):
+      // confrontato col nostro sembrerebbe sempre diverso, e ogni riavvio modificherebbe il messaggio.
+      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? a.da ?? null }
     } else if (a.firma !== r.firma) {
-      nuovi[r.nome] = { ...a, firma: r.firma, da: r.da ?? null }
+      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? null }
       azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
+    } else if (a.testo !== r.testo && a.ts) {
+      nuovi[r.nome] = { ...a, testo: r.testo }
+      azioni.push({ tipo: 'aggiorna', nome: r.nome, testo: r.testo, ts: a.ts })
     }
   }
   for (const [nome, a] of Object.entries(aperti)) {
@@ -1836,6 +1848,8 @@ export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {
         aperti[z.nome] = { ...aperti[z.nome], ts: r.ts }
       } else if (z.tipo === 'ancora' && z.ts) {
         await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: z.testo, ...senzaAnteprime })
+      } else if (z.tipo === 'aggiorna' && z.ts) {
+        await api('chat.update', { channel: canale, ts: z.ts, text: z.testo })
       } else if (z.tipo === 'chiudi' && z.ts) {
         const quando = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
         await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ risolto alle ${quando}`, ...senzaAnteprime })
