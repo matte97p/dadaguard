@@ -1792,20 +1792,38 @@ function allarmiTest(qa, { ora, url, ore }) {
         : checks
           ? `check di CI ${t.checks.length === 1 ? 'rosso' : 'rossi'}: ${checks}`
           : 'i check di CI sono rossi'
+    const commit = sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)
     const x = {
       emoji: '🔴',
       nome: r.nome,
       stato: 'deploy NON avviato',
-      dettagli: [`${motivo}, ${dove}`, sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)],
+      dettagli: [`${motivo}, ${dove}`, commit],
       link: r.link,
     }
     // La firma è la risorsa, non il run: un commit nuovo con la CI ancora rossa è lo stesso «deploy NON
     // avviato», e si corregge il messaggio (commit e job nuovi) invece di ripeterlo nel thread, che è
     // quello che succedeva a ogni push (21/10/2026). Nel thread va invece il PERCHÉ, dal log del job.
-    rotti.push({ nome: r.nome, firma: 'test', testo: testoAllarme(x, qa.ambiente), da: t.da, ...logDelJob(t.errore) })
+    // `testoCon` rifà il testo coi commit rossi di prima, che `pianoAllarmi` ricorda: corretto il
+    // messaggio, il primo commit spariva e non si capiva più chi l'aveva aperto (21/10/2026).
+    const testoCon = (prima = []) =>
+      testoAllarme(prima.length ? { ...x, dettagli: [...x.dettagli, `prima ${prima.join(', ')}`] } : x, qa.ambiente)
+    rotti.push({ nome: r.nome, firma: 'test', testo: testoCon(), commit, testoCon, da: t.da, ...logDelJob(t.errore) })
   }
   return { rotti, inCorso, ultimo }
 }
+
+const MAX_PRIMA = 5
+
+// I commit rossi prima di quello di adesso: quelli già ricordati, più il commit dell'allarme aperto se
+// è cambiato. Solo per gli allarmi che sanno rifare il testo (la CI). Puro.
+function conPrima(a, r) {
+  if (!r.testoCon) return []
+  const prima = (a?.prima ?? []).filter((c) => c !== r.commit)
+  if (a?.commit && r.commit && a.commit !== r.commit && !prima.includes(a.commit)) prima.push(a.commit)
+  return prima.slice(-MAX_PRIMA)
+}
+
+const commitDi = (r, prima) => (r.testoCon ? { commit: r.commit ?? null, prima } : {})
 
 // Cosa dire nel canale, confrontando gli allarmi aperti con quello che è rotto adesso. Puro/testabile.
 //   apri    una risorsa rotta che non lo era
@@ -1822,23 +1840,26 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
   const azioni = []
   const nuovi = { ...aperti }
   const rottiOra = new Set(dati.rotti.map((r) => r.nome))
-  for (const r of dati.rotti) {
-    const a = aperti[r.nome]
+  for (const r0 of dati.rotti) {
+    const a = aperti[r0.nome]
+    // I commit rossi di prima dello stesso allarme della CI, dal più vecchio, gli ultimi `MAX_PRIMA`.
+    const prima = conPrima(a, r0)
+    const r = prima.length && r0.testoCon ? { ...r0, testo: r0.testoCon(prima) } : r0
     if (!a) {
-      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma, da: r.da ?? null, chiaveLog: r.chiaveLog ?? null }
+      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma, da: r.da ?? null, chiaveLog: r.chiaveLog ?? null, ...commitDi(r, prima) }
       if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo, ...(r.log ? { log: r.log } : {}) })
       continue
     } else if (a.firma == null) {
       // Ritrovato nel canale dopo un riavvio (`ritrovaAllarmi`): è lo stesso rosso, non uno nuovo.
       // Il testo letto dal canale è quello che Slack restituisce (emoji in codice, link riscritti):
       // confrontato col nostro sembrerebbe sempre diverso, e ogni riavvio modificherebbe il messaggio.
-      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? a.da ?? null, chiaveLog: r.chiaveLog ?? null }
+      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? a.da ?? null, chiaveLog: r.chiaveLog ?? null, ...commitDi(r, prima) }
       continue
     } else if (a.firma !== r.firma) {
-      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? null }
+      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? null, ...commitDi(r, prima) }
       azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
     } else if (a.testo !== r.testo && a.ts) {
-      nuovi[r.nome] = { ...a, testo: r.testo, da: r.da ?? a.da ?? null }
+      nuovi[r.nome] = { ...a, testo: r.testo, da: r.da ?? a.da ?? null, ...commitDi(r, prima) }
       azioni.push({ tipo: 'aggiorna', nome: r.nome, testo: r.testo, ts: a.ts })
     }
     // Il log di un job che il thread non ha ancora: il primo arrivato dopo l'apertura, o quello di un
