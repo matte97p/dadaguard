@@ -13,6 +13,7 @@ import {
   repoDelQuadro,
   statoDaRun,
   applicaTest,
+  jobsRossi,
   nuovoGithub,
   GIRI_PER_GITHUB,
 } from '../server/notify/github.js'
@@ -87,7 +88,7 @@ test('le righe del quadro: i repository dalle build, lo stato su ogni riga di qu
 })
 
 // Un GitHub finto: installazione, token che scade, run con ETag, e il rate limit a comando.
-function githubFinto({ runs = () => [], scadenza = (ora) => new Date(ora + 3_600_000).toISOString(), nascosti = [] } = {}) {
+function githubFinto({ runs = () => [], jobs = null, scadenza = (ora) => new Date(ora + 3_600_000).toISOString(), nascosti = [] } = {}) {
   const chiamate = []
   const stato = { ora: ORA, limite: false, etag: 'W/"v1"' }
   const risposta = (status, json, headers = {}) => ({ status, ok: status >= 200 && status < 300, headers: new Headers(headers), json: async () => json })
@@ -98,6 +99,7 @@ function githubFinto({ runs = () => [], scadenza = (ora) => new Date(ora + 3_600
     if (u.pathname === '/orgs/acme/installation') return risposta(200, { id: 77 })
     if (u.pathname === '/app/installations/77/access_tokens') return risposta(201, { token: `ghs_${chiamate.length}`, expires_at: scadenza(stato.ora) })
     if (nascosti.some((r) => u.pathname.startsWith(`/repos/acme/${r}/`))) return risposta(404, { message: 'Not Found' })
+    if (jobs && u.pathname.endsWith('/jobs')) return risposta(200, { jobs: jobs(u.pathname) })
     if (u.pathname.endsWith('/actions/runs')) {
       if (init.headers['If-None-Match'] === stato.etag) return risposta(304, null)
       return risposta(200, { workflow_runs: runs(u.pathname) }, { etag: stato.etag })
@@ -206,4 +208,36 @@ test('un repository che l’App non vede (404) si salta da solo, si dice una vol
   } finally {
     log.warn = warn
   }
+})
+
+test('job rossi: i nomi dei job falliti, ripuliti per Slack, senza doppioni e al massimo cinque', () => {
+  const j = (name, conclusion) => ({ name, conclusion })
+  assert.deepEqual(jobsRossi([j('validate', 'success'), j('dependency-audit', 'failure'), j('Deploy production', 'skipped')]), ['dependency-audit'])
+  assert.deepEqual(jobsRossi([j('test (1)', 'failure'), j('lint', 'timed_out'), j('test (1)', 'cancelled')]), ['test (1)', 'lint'])
+  assert.deepEqual(jobsRossi([j('x <!channel> `y`', 'failure')]), ['x !channel y'], 'niente menzioni né backtick')
+  assert.equal(jobsRossi(Array.from({ length: 8 }, (_, i) => j(`j${i}`, 'failure'))).length, 5)
+  assert.deepEqual(jobsRossi(undefined), [])
+})
+
+test('uno stato ❌ porta i nomi dei job rossi, letti una volta per run', async () => {
+  const g = githubFinto({
+    runs: () => [run(9, { conclusion: 'failure' })],
+    jobs: () => [
+      { name: 'dependency-audit', conclusion: 'failure' },
+      { name: 'validate', conclusion: 'success' },
+    ],
+  })
+  const gh = nuovoGithub(CFG, { fetch: g.fetch })
+  const stati = await gh.leggi(REPO, { ora: ORA })
+  assert.deepEqual(stati.get('produzione|acme/api').checks, ['dependency-audit'])
+  assert.equal(g.chiamate.filter((c) => c.path === '/repos/acme/api/actions/runs/9/jobs').length, 1)
+  for (let i = 0; i < GIRI_PER_GITHUB; i++) await gh.leggi(REPO, { ora: ORA + 2 * 60_000 })
+  assert.equal(g.chiamate.filter((c) => c.path === '/repos/acme/api/actions/runs/9/jobs').length, 1, 'un run finito non si richiede')
+})
+
+test('job rossi non leggibili: lo stato ❌ resta, col motivo generico', async () => {
+  const g = githubFinto({ runs: () => [run(9, { conclusion: 'failure' })] })
+  const stati = await nuovoGithub(CFG, { fetch: g.fetch }).leggi(REPO, { ora: ORA })
+  assert.equal(stati.get('produzione|acme/api').stato, 'fallito')
+  assert.equal(stati.get('produzione|acme/api').checks, undefined)
 })

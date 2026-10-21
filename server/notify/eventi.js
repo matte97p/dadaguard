@@ -12,7 +12,8 @@ import { stripOrgEnv } from '../util/envToken.js'
 //                  progetto, repo, commit, run, quando, motivo? }`, dalle azioni `notifica-test-avviati`
 //                  e `notifica-check-rossi` della CI, nello stesso momento della riga su Slack.
 //                  `migration_fallita` (PLA-733) e' un check rosso anche lui, ma il job fallito e' quello
-//                  delle migration del database: `run` porta a quel job e `motivo` nomina il file
+//                  delle migration del database: `run` porta a quel job e `motivo` nomina il file.
+//                  `checks` (facoltativo) sono gli id dei job rossi, dal `needs` del chiamante
 //   CodeBuild      l'evento EventBridge `CodeBuild Build State Change` dei progetti `*-deploy`
 //   ECS            l'evento EventBridge `ECS Deployment State Change`
 //
@@ -59,6 +60,9 @@ const fileMigration = (x) => {
   const m = typeof x === 'string' && /^migration fallita: ([\w.-]{1,120}\.sql)$/.exec(x)
   return m ? m[1] : null
 }
+// Gli id dei job rossi: solo nomi da identificatore (come li scrive un workflow), al massimo cinque.
+const CHECK = /^[A-Za-z0-9_-]{1,60}$/
+export const soloChecks = (x) => (Array.isArray(x) ? x.filter((c) => typeof c === 'string' && CHECK.test(c)).slice(0, 5) : [])
 const linkConsole = (x) => (typeof x === 'string' && /^https:\/\/([a-z0-9-]+\.)?console\.aws\.amazon\.com\/[^\s()[\]<>]*$/i.test(x) ? x : null)
 // Il servizio di un progetto `<org>-<env>-<servizio>-deploy`, col nome breve che usano le righe. Puro.
 const servizioDaProgetto = (p) => stripOrgEnv(p).replace(/-deploy$/, '').replace(/^cron-/, '')
@@ -86,6 +90,8 @@ export function normalizza(corpo) {
     if (!progetto || !progetto.endsWith('-deploy') || !ambiente || !repo || !stato || !da) return null
     const ev = { tipo: 'test', fonte: 'ci', ambiente, servizio: servizioDaProgetto(progetto), repo: repo.toLowerCase(), stato, da, sha: soloSe(SHA, m.commit), url: linkGithub(m.run) }
     if (m.evento === 'migration_fallita') Object.assign(ev, { causa: 'migration', file: fileMigration(m.motivo) })
+    const checks = soloChecks(m.checks)
+    if (stato === 'fallito' && checks.length) ev.checks = checks
     return ev
   }
 
@@ -181,7 +187,9 @@ export function unisciTest(daGithub, eventiTest, { lettoAlle = null } = {}) {
     if (g && stesso(g.sha, ev.sha) && ev.stato !== 'fallito') continue
     if (g && !stesso(g.sha, ev.sha) && Date.parse(g.da) >= Date.parse(ev.da)) continue
     if (!g && lettoAlle && lettoAlle - ev.ricevuto > RITARDO_GITHUB_MS) continue
-    out.set(k, { stato: ev.stato, da: ev.da, url: ev.url ?? null, sha: ev.sha ?? null, ...(ev.causa ? { causa: ev.causa, file: ev.file ?? null } : {}) })
+    // I job rossi: quelli dell'evento, o quelli che GitHub ha letto per lo stesso commit.
+    const checks = ev.checks ?? (g && stesso(g.sha, ev.sha) ? g.checks : null)
+    out.set(k, { stato: ev.stato, da: ev.da, url: ev.url ?? null, sha: ev.sha ?? null, ...(ev.causa ? { causa: ev.causa, file: ev.file ?? null } : {}), ...(checks?.length ? { checks } : {}) })
   }
   return out
 }
