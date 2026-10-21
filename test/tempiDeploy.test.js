@@ -177,7 +177,7 @@ test('client GitHub: run per ramo con ETag che vale un’ora, job dei run finiti
   await gh.runDi(r, { da: ORA - 90 * MIN, ora: ORA })
   assert.equal(chiamate.filter((c) => c.path.endsWith('/actions/runs')).at(-1).etag, null, 'un’altra ora è un altro indirizzo: niente ETag vecchio')
 
-  assert.deepEqual(await gh.jobsDi({ ...r, id: 5, finito: true }), [{ name: 'test', started_at: 'a', completed_at: 'b' }], 'solo i campi che servono')
+  assert.deepEqual(await gh.jobsDi({ ...r, id: 5, finito: true }), [{ name: 'test', started_at: 'a', completed_at: 'b', conclusion: null }], 'solo i campi che servono (l’esito per i job rossi degli allarmi)')
   await gh.jobsDi({ ...r, id: 5, finito: true })
   await gh.jobsDi({ ...r, id: 6, finito: false })
   await gh.jobsDi({ ...r, id: 6, finito: false })

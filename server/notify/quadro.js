@@ -1716,12 +1716,14 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
 const aMrkdwn = (t) => String(t ?? '').replace(/\*\*([^*]+)\*\*/g, '*$1*').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<$2|$1>')
 
 // La riga dell'allarme, con la grammatica del canale dei rilasci: emoji, nome fra backtick, ambiente
-// fra quadre, poi cosa è successo e i dettagli. Puro/testabile.
+// fra quadre, cosa è successo, poi il trattino lungo e i dettagli separati da `·`. Il trattino è quello
+// dello standard dei messaggi, fra il fatto e i campi: col `·` anche lì, lo stesso rosso si leggeva diverso
+// in #aws-deploy e in #aws-deploy-status (21/10/2026). Puro/testabile.
+const TRATTINO = ' \u2014 '
 export function testoAllarme(x, ambiente) {
   const tag = AMBIENTI[ambiente]?.tag ?? String(ambiente).toUpperCase()
-  const dettagli = x.dettagli.filter(Boolean).map(aMrkdwn).join(SEP)
-  const link = x.link ? `${SEP}<${x.link}|Dadaguard>` : ''
-  return `${x.emoji} \`${x.nome}\` [${tag}] ${aMrkdwn(x.stato)}${dettagli ? `${SEP}${dettagli}` : ''}${link}`
+  const campi = [...x.dettagli.filter(Boolean).map(aMrkdwn), x.link && `<${x.link}|Dadaguard>`].filter(Boolean).join(SEP)
+  return `${x.emoji} \`${x.nome}\` [${tag}] ${aMrkdwn(x.stato)}${campi ? `${TRATTINO}${campi}` : ''}`
 }
 
 // Cosa serve agli allarmi di un ambiente: le risorse rotte (con la loro firma), quelle in corso, e se
@@ -1766,7 +1768,15 @@ function allarmiTest(qa, { ora, url, ore }) {
     if (r.stato !== 'test_falliti') continue
     const t = v.test
     const sha7 = t.sha ? String(t.sha).slice(0, 7) : null
-    const motivo = t.causa === 'migration' ? `migration fallita${t.file ? `: \`${t.file}\`` : ''}` : 'i check di CI sono rossi'
+    // I job rossi per nome, quando si sanno (dall'evento della CI o dai job del run): il generico «i
+    // check di CI sono rossi» mandava ad aprire la run per sapere cosa guardare (21/10/2026).
+    const checks = (t.checks ?? []).map((c) => `\`${c}\``).join(', ')
+    const motivo =
+      t.causa === 'migration'
+        ? `migration fallita${t.file ? `: \`${t.file}\`` : ''}`
+        : checks
+          ? `check di CI ${t.checks.length === 1 ? 'rosso' : 'rossi'}: ${checks}`
+          : 'i check di CI sono rossi'
     const x = {
       emoji: '🔴',
       nome: r.nome,
