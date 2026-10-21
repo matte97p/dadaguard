@@ -1848,12 +1848,17 @@ export function allarmiDalCanale(messaggi = [], { bot = {}, tag } = {}) {
   const aperti = {}
   const visti = new Set()
   for (const m of messaggi) {
-    if (!(m.user && m.user === bot.user) && !(m.bot_id && m.bot_id === bot.bot)) continue
+    // Solo i messaggi scritti col token del bot, che porta il suo utente. Quelli arrivati da un
+    // webhook della stessa app hanno il `bot_id` ma non l'utente, e non si possono modificare: presi
+    // come aperti, a ogni riavvio avrebbero ricevuto un altro «✅ risolto» restando rossi (21/10/2026).
+    if (!m.user || m.user !== bot.user) continue
     if (m.thread_ts && m.thread_ts !== m.ts) continue
-    const x = /^(🔴|❌|✅) `([^`]+)` \[([^\]]+)\]/u.exec(m.text ?? '')
+    // Slack restituisce gli emoji come codici (`:red_circle:`), non come li ha ricevuti: con i soli
+    // caratteri non si ritrovava niente, e i rossi aperti prima del riavvio restavano rossi (21/10/2026).
+    const x = /^(🔴|❌|✅|:red_circle:|:x:|:white_check_mark:) `([^`]+)` \[([^\]]+)\]/u.exec(m.text ?? '')
     if (!x || x[3] !== tag || visti.has(x[2])) continue
     visti.add(x[2])
-    if (x[1] === '✅') continue
+    if (x[1] === '✅' || x[1] === ':white_check_mark:') continue
     const da = / deploy NON avviato /.test(m.text) ? new Date(Number(m.ts) * 1000).toISOString() : null
     aperti[x[2]] = { ts: m.ts, testo: m.text, firma: null, da }
   }

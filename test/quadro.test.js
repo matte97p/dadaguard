@@ -653,14 +653,17 @@ test('allarmi dopo un riavvio: si rileggono dal canale, e chiudono col ✅ senza
   const messaggi = [
     { ts: '1759492900.000100', user: 'UBOT', text: '✅ `web` [STAGING] build #8 fallita · risolto alle 13:00' },
     { ts: '1759492800.000100', user: 'UBOT', text: rosso },
-    { ts: '1759492700.000100', bot_id: 'BBOT', text: '❌ `api` [STAGING] build #3 fallita' },
+    { ts: '1759492700.000100', user: 'UBOT', bot_id: 'BBOT', text: ':x: `api` [STAGING] build #3 fallita' },
+    { ts: '1759492650.000100', bot_id: 'BBOT', subtype: 'bot_message', text: ':red_circle: `agentic-chat` [STAGING] deploy NON avviato · dal webhook' },
+    { ts: '1759492640.000100', user: 'UBOT', text: ':white_check_mark: `cron` [STAGING] build #1 fallita · risolto alle 12:00' },
+    { ts: '1759492630.000100', user: 'UBOT', text: ':x: `cron` [STAGING] build #1 fallita' },
     { ts: '1759492600.000100', user: 'UBOT', text: '🔴 `backend` [STAGING] deploy NON avviato · più vecchio' },
     { ts: '1759492500.000100', user: 'UALTRO', text: '❌ `web` [STAGING] build #9 fallita' },
     { ts: '1759492400.000100', user: 'UBOT', text: '❌ `web` [PROD] build #9 fallita' },
     { ts: '1759492300.000100', user: 'UBOT', thread_ts: '1759492000.000100', text: '❌ `web` [STAGING] di nuovo' },
   ]
   const aperti = allarmiDalCanale(messaggi, { bot, tag: 'STAGING' })
-  assert.deepEqual(Object.keys(aperti).sort(), ['api', 'backend'], 'web: decide il più recente, che è chiuso')
+  assert.deepEqual(Object.keys(aperti).sort(), ['api', 'backend'], 'web e cron: decide il più recente, che è chiuso; agentic-chat: dal webhook, non si adotta')
   assert.equal(aperti.backend.ts, '1759492800.000100', 'il più recente per risorsa')
   assert.equal(aperti.backend.da, new Date(1759492800000.1).toISOString())
   assert.equal(aperti.api.da, null)
