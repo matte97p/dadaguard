@@ -16,6 +16,7 @@ import {
   testoLog,
   gestisci,
   logGroupDi,
+  zittito,
 } from '../server/notify/allarmi.js'
 import { makeT } from '../server/i18n.js'
 
@@ -207,13 +208,13 @@ test('logGroupDi: un cron dal servizio il cui nome apre quello dell allarme', as
 })
 
 // `gestisci` con tutto finto: cosa parte, dove, e il thread.
-const finti = ({ tag = [], storia = [] } = {}) => {
+const finti = ({ tag = [], storia = [], allarme = { ActionsEnabled: true, AlarmActions: ['arn:aws:sns:eu-central-1:1:t'] } } = {}) => {
   const inviati = []
   return {
     inviati,
     deps: {
       servizi: { accounts: { 'acme-production': { accountId: '111111111111', roleArn: 'arn:aws:iam::111111111111:role/r' } }, services: [] },
-      cw: { send: async (c) => (c.constructor.name === 'ListTagsForResourceCommand' ? { Tags: tag } : { AlarmHistoryItems: storia }) },
+      cw: { send: async (c) => (c.constructor.name === 'ListTagsForResourceCommand' ? { Tags: tag } : c.constructor.name === 'DescribeAlarmsCommand' ? { MetricAlarms: [allarme] } : { AlarmHistoryItems: storia }) },
       logGroupDi: async () => ({ logGroup: '/ecs/acme-production/backend', pattern: null }),
       leggiRighe: async () => [{ message: 'Child process [32] died', stream: 'backend/backend/b7dd03d3' }],
       chiamaSlack: async (_m, corpo) => (inviati.push({ via: 'bot', ...corpo }), { ts: '123.456' }),
@@ -269,4 +270,16 @@ test('gestisci: bot giù e nessun webhook → false, si riprova', async () => {
     throw new Error('slack chat.postMessage: not_in_channel')
   }
   assert.equal(await gestisci(normalizzaAllarme(evento()), { ...cfg, webhook: null }, f.deps), false)
+})
+
+test('zittito: notifiche spente o nessuna azione', () => {
+  assert.equal(zittito({ ActionsEnabled: false, AlarmActions: ['arn:aws:sns:x'] }), true)
+  assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [], OKActions: [] }), true)
+  assert.equal(zittito({ ActionsEnabled: true, AlarmActions: ['arn:aws:sns:x'] }), false)
+})
+
+test('gestisci: un allarme zittito non si dice, e la coda lo cancella', async () => {
+  const f = finti({ allarme: { ActionsEnabled: false, AlarmActions: ['arn:aws:sns:x'] } })
+  assert.equal(await gestisci(normalizzaAllarme(evento()), cfg, f.deps), true)
+  assert.equal(f.inviati.length, 0)
 })
