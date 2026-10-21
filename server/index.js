@@ -1210,15 +1210,23 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // Watchdog: guarda la flotta a intervalli e avvisa su Slack quando qualcosa attraversa il confine
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
   // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
-  if (!isDemo) startWatcher()
-  // Gli allarmi CloudWatch nel momento in cui cambiano stato, coi log nel thread: partono solo con la
-  // loro coda (vedi server/notify/allarmi.js).
-  if (!isDemo) startAllarmi()
-  // Il quadro dei deploy in Slack: parte solo con token di un'app e i canali. Legge la stessa cache
-  // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
-  if (!isDemo) startQuadro(datiQuadro)
-  // Il canvas delle corse dei cron: spento finché non c'è `DADAGUARD_CORSE_CANALI` (vedi notify/corse.js).
-  if (!isDemo) startCorse(datiCorse)
+  //
+  // Tutto quello che scrive su Slack parte solo a task PRONTO (vedi util/pronto.js). Durante un
+  // rilascio il task vecchio resta acceso finché il nuovo non è pronto, e in quei minuti due giri
+  // verso Slack insieme vorrebbero dire avvisi e righe del quadro doppi: così la sovrapposizione
+  // resta quella fra «pronto» e lo spegnimento del vecchio, come prima della readiness.
+  pronto.quando().then(() => {
+    if (isDemo) return
+    startWatcher()
+    // Gli allarmi CloudWatch nel momento in cui cambiano stato, coi log nel thread: partono solo con la
+    // loro coda (vedi server/notify/allarmi.js).
+    startAllarmi()
+    // Il quadro dei deploy in Slack: parte solo con token di un'app e i canali. Legge la stessa cache
+    // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
+    startQuadro(datiQuadro)
+    // Il canvas delle corse dei cron: spento finché non c'è `DADAGUARD_CORSE_CANALI` (vedi notify/corse.js).
+    startCorse(datiCorse)
+  })
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge
   // su main. Non blocca l'avvio: se fallisce lo dice e la prima richiesta ricalcola come prima.

@@ -9,10 +9,19 @@
 export function creaPronto({ attesi = [], maxMs = 240_000, now = () => Date.now() } = {}) {
   const inizio = now()
   const mancano = new Set(attesi)
+  let sveglia = () => {}
+  const quando = new Promise((resolve) => (sveglia = resolve))
+  if (mancano.size === 0) sveglia()
+  else setTimeout(() => sveglia(), maxMs).unref?.()
   return {
     // Una scaldata finita, bene o male: un errore non va ritentato qui, lo ritenta la prima richiesta.
     fatto(nome) {
       mancano.delete(nome)
+      if (mancano.size === 0) sveglia()
+    },
+    // Si risolve quando è pronto, o allo scadere di `maxMs`: lo stesso istante in cui `/readyz` passa a 200.
+    quando() {
+      return quando
     },
     stato() {
       const scaduto = now() - inizio >= maxMs

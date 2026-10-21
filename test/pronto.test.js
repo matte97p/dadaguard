@@ -28,3 +28,15 @@ test('pronto: senza niente da aspettare (demo) è pronto subito', () => {
   const { pronto } = conOrologio({ attesi: [] })
   assert.equal(pronto.stato().pronto, true)
 })
+
+test('pronto: quando() si risolve all\'ultima scaldata, non prima', async () => {
+  const { pronto } = conOrologio({ attesi: ['status', 'runs'] })
+  let risolto = false
+  pronto.quando().then(() => (risolto = true))
+  pronto.fatto('status')
+  await Promise.resolve()
+  assert.equal(risolto, false)
+  pronto.fatto('runs')
+  await pronto.quando()
+  assert.equal(risolto, true)
+})
