@@ -1771,3 +1771,20 @@ test('allarmi: evento e giro della stessa build hanno la stessa firma anche con 
   await esegui(api, 'C1', { aperti: { website: { ts: '111' } }, azioni: [{ tipo: 'aggiorna', nome: 'website', testo: 'x', ts: '111' }] })
   assert.deepEqual(chiamate, [['chat.update', '111', null]])
 })
+
+test('allarmi CI: un commit nuovo ancora rosso corregge il messaggio, e il log nuovo va nel thread', async () => {
+  const { logDelJob } = await import('../server/notify/quadro.js')
+  const rosso = (sha, id) => ({
+    rotti: [{ nome: 'backend', firma: 'test', testo: `🔴 \`backend\` [STAGING] deploy NON avviato · ${sha}`, da: `2026-10-21T10:0${id}:00Z`, ...logDelJob({ job: 'validate', passo: 'Run tests', righe: [`FAILED tests/test_${id}.py::test_x`], id }) }],
+    inCorso: [],
+    buildIgnote: false,
+  })
+  let p = pianoAllarmi({}, rosso('f266602', 1))
+  assert.deepEqual(p.azioni.map((z) => z.tipo), ['apri'])
+  assert.match(p.azioni[0].log, /perché è rosso \(`validate`, passo `Run tests`\):\n```\nFAILED tests\/test_1\.py::test_x\n```/)
+  p.aperti.backend.ts = '111'
+  p = pianoAllarmi(p.aperti, rosso('6b97d63', 2))
+  assert.deepEqual(p.azioni.map((z) => `${z.tipo}:${z.ts}`), ['aggiorna:111', 'log:111'], 'niente messaggio ripetuto: si corregge e si aggiunge il log')
+  assert.equal(p.aperti.backend.da, '2026-10-21T10:02:00Z')
+  assert.deepEqual(pianoAllarmi(p.aperti, rosso('6b97d63', 2)).azioni, [], 'lo stesso log non si ripete')
+})

@@ -15,6 +15,7 @@ import { resolveServices } from '../status.js'
 import { makeT } from '../i18n.js'
 import { log } from '../log.js'
 import { stripOrgEnv } from '../util/envToken.js'
+import { ripulisci } from '../util/ripulisci.js'
 import { envTag, postSlack } from './slack.js'
 import { chiamaSlack, quadroConfig, regoleSquadre, squadraDiRegole } from './quadro.js'
 import { regioneDaUrl } from './eventi.js'
@@ -183,6 +184,8 @@ export function zittito(x) {
   return ![...(x?.AlarmActions ?? []), ...(x?.OKActions ?? []), ...(x?.InsufficientDataActions ?? [])].length
 }
 
+export { ripulisci }
+
 // ── Il testo ───────────────────────────────────────────────────────────────────────────────────────
 
 // La prima frase di una descrizione: su un rientro la descrizione intera parla del GUASTO, e incollata
@@ -224,37 +227,6 @@ export function testoAllarme(a, decisione, { ambiente = null, t = (k) => k, url 
 const RE_RIGHE = '(?i)(error|exception|traceback|fatal|critical|panic|died|killed|out of memory|oom|memoryerror|timed out|timeout)'
 // Le richieste HTTP finite in 5xx, nella forma degli access log più comuni (`"GET /x HTTP/1.1" 502`).
 const RE_5XX = /"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) ([^\s?"]+)[^"]*" (5\d\d)\b/
-
-const MAX_RIGA = 220
-// Un messaggio di eccezione può portarsi dietro la query, i suoi parametri o una stringa di
-// connessione: nel canale va la causa, non i dati (la stessa pulizia del notificatore degli allarmi ALB
-// che queste righe sostituiscono). Si TAGLIA tutto da `[SQL:`, `[parameters:` e dal rimando di
-// SQLAlchemy in poi, e le stringhe lunghe fra apici diventano `'…'`: dentro ci sono i valori (un nome,
-// il testo di un documento), non il tipo di errore.
-const DA_TAGLIARE = [/\s*\[SQL:.*$/s, /\s*\[parameters:.*$/s, /\s*\(Background on this error at:.*$/s]
-// Prima di finire in chat una riga perde quello che non serve a capire e potrebbe non dover uscire:
-// dati di query, credenziali, query string, indirizzi email, token. `<`, `>` e `&` sono il markup di
-// Slack: i segnaposto sono fra quadre, e il resto si scappa. Pura/testabile.
-export function ripulisci(riga = '') {
-  let s = String(riga)
-  for (const re of DA_TAGLIARE) s = s.replace(re, '')
-  return s
-    .replace(/\s+/g, ' ')
-    .replace(/:\/\/[^/\s:@]+:[^/\s@]+@/g, '://***@')
-    .replace(/\b(password|passwd|pwd|token|secret|api_?key|authorization)(["']?\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1$2***')
-    .replace(/\?[^\s"']+/g, '?…')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
-    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]')
-    // Senza il trattino nella classe: un UUID non è un segreto, e resta leggibile (`forma` lo rende `[id]`).
-    .replace(/\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{32,}\b/g, '[token]')
-    .replace(/'[^']{25,}'/g, "'…'")
-    .replace(/"[^"]{25,}"/g, '"…"')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .trim()
-    .slice(0, MAX_RIGA)
-}
 
 // La FORMA di una riga, per contare insieme quelle che dicono la stessa cosa con numeri diversi: date,
 // ore, id, numeri. Pura/testabile.

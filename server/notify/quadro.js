@@ -1759,6 +1759,16 @@ export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_OR
 //            test si chiude solo se dopo di lui è successo qualcosa. Senza, un run uscito dalla
 //            finestra di GitHub (24 ore) sembrerebbe un rosso sistemato
 // Puro.
+// Il thread di un allarme della CI: dove si è fermato il job e le righe del suo log. `chiaveLog` è il
+// job, così lo stesso log non si ripete a ogni giro e uno nuovo (un altro commit, un altro errore)
+// arriva nel thread. Puro.
+export function logDelJob(e) {
+  if (!e?.righe?.length) return {}
+  const dove = [e.job && `\`${e.job}\``, e.passo && `passo \`${String(e.passo).replace(/`/g, "'")}\``].filter(Boolean).join(', ')
+  const corpo = e.righe.join('\n').replace(/```/g, "'''")
+  return { log: `perché è rosso${dove ? ` (${dove})` : ''}:\n\`\`\`\n${corpo}\n\`\`\``, chiaveLog: String(e.id ?? corpo) }
+}
+
 function allarmiTest(qa, { ora, url, ore }) {
   const rotti = []
   const inCorso = []
@@ -1789,7 +1799,10 @@ function allarmiTest(qa, { ora, url, ore }) {
       dettagli: [`${motivo}, ${dove}`, sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)],
       link: r.link,
     }
-    rotti.push({ nome: r.nome, firma: `test|${t.da}`, testo: testoAllarme(x, qa.ambiente), da: t.da })
+    // La firma è la risorsa, non il run: un commit nuovo con la CI ancora rossa è lo stesso «deploy NON
+    // avviato», e si corregge il messaggio (commit e job nuovi) invece di ripeterlo nel thread, che è
+    // quello che succedeva a ogni push (21/10/2026). Nel thread va invece il PERCHÉ, dal log del job.
+    rotti.push({ nome: r.nome, firma: 'test', testo: testoAllarme(x, qa.ambiente), da: t.da, ...logDelJob(t.errore) })
   }
   return { rotti, inCorso, ultimo }
 }
@@ -1812,19 +1825,27 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
   for (const r of dati.rotti) {
     const a = aperti[r.nome]
     if (!a) {
-      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma, da: r.da ?? null }
-      if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo })
+      nuovi[r.nome] = { ts: null, testo: r.testo, firma: r.firma, da: r.da ?? null, chiaveLog: r.chiaveLog ?? null }
+      if (!primoGiro) azioni.push({ tipo: 'apri', nome: r.nome, testo: r.testo, ...(r.log ? { log: r.log } : {}) })
+      continue
     } else if (a.firma == null) {
       // Ritrovato nel canale dopo un riavvio (`ritrovaAllarmi`): è lo stesso rosso, non uno nuovo.
       // Il testo letto dal canale è quello che Slack restituisce (emoji in codice, link riscritti):
       // confrontato col nostro sembrerebbe sempre diverso, e ogni riavvio modificherebbe il messaggio.
-      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? a.da ?? null }
+      nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? a.da ?? null, chiaveLog: r.chiaveLog ?? null }
+      continue
     } else if (a.firma !== r.firma) {
       nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? null }
       azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
     } else if (a.testo !== r.testo && a.ts) {
-      nuovi[r.nome] = { ...a, testo: r.testo }
+      nuovi[r.nome] = { ...a, testo: r.testo, da: r.da ?? a.da ?? null }
       azioni.push({ tipo: 'aggiorna', nome: r.nome, testo: r.testo, ts: a.ts })
+    }
+    // Il log di un job che il thread non ha ancora: il primo arrivato dopo l'apertura, o quello di un
+    // commit nuovo ancora rosso.
+    if (r.log && r.chiaveLog && r.chiaveLog !== (nuovi[r.nome].chiaveLog ?? null) && nuovi[r.nome].ts) {
+      nuovi[r.nome] = { ...nuovi[r.nome], chiaveLog: r.chiaveLog }
+      azioni.push({ tipo: 'log', nome: r.nome, testo: r.log, ts: nuovi[r.nome].ts })
     }
   }
   for (const [nome, a] of Object.entries(aperti)) {
@@ -1846,7 +1867,10 @@ export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {
       if (z.tipo === 'apri') {
         const r = await api('chat.postMessage', { channel: canale, text: z.testo, ...senzaAnteprime })
         aperti[z.nome] = { ...aperti[z.nome], ts: r.ts }
+        if (z.log) await api('chat.postMessage', { channel: canale, thread_ts: r.ts, text: z.log, ...senzaAnteprime })
       } else if (z.tipo === 'ancora' && z.ts) {
+        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: z.testo, ...senzaAnteprime })
+      } else if (z.tipo === 'log' && z.ts) {
         await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: z.testo, ...senzaAnteprime })
       } else if (z.tipo === 'aggiorna' && z.ts) {
         await api('chat.update', { channel: canale, ts: z.ts, text: z.testo })
