@@ -109,9 +109,21 @@ test('ripulisci: niente query string, email, token, jwt', () => {
   const s = ripulisci('GET /api/x?token=abc&u=1 by mario.rossi@example.com Bearer eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl key abcd1234efgh5678ijkl9012mnop3456qrst')
   assert.doesNotMatch(s, /token=abc|mario\.rossi|eyJhbGciOi|abcd1234efgh/)
   assert.match(s, /\?…/)
-  assert.match(s, /<email>/)
-  assert.match(s, /<jwt>/)
-  assert.match(s, /<token>/)
+  assert.match(s, /\[email\]/)
+  assert.match(s, /\[jwt\]/)
+  assert.match(s, /\[token\]/)
+})
+
+test('ripulisci: query, parametri e credenziali non arrivano in chat', () => {
+  const sql = ripulisci("ERROR (psycopg.errors.QueryCanceled) canceling statement due to statement timeout [SQL: SELECT * FROM tenders WHERE name = %(n)s] [parameters: {'n': 'Fornitura Comune di Roma'}] (Background on this error at: https://sqlalche.me/e/20/e3q8)")
+  assert.equal(sql, 'ERROR (psycopg.errors.QueryCanceled) canceling statement due to statement timeout')
+  const dsn = ripulisci('could not connect to postgresql://app:Sup3rS3cret@db.internal:5432/app password=hunter2 api_key: "abc"')
+  assert.doesNotMatch(dsn, /Sup3rS3cret|hunter2|"abc"/)
+  assert.match(dsn, /:\/\/\*\*\*@db\.internal/)
+  // I valori lunghi fra apici sono dati, non il tipo di errore.
+  assert.equal(ripulisci("KeyError: 'Fornitura di arredi per la scuola media'"), "KeyError: '…'")
+  // Il markup di Slack si scappa.
+  assert.equal(ripulisci('a <b> & c'), 'a &lt;b&gt; &amp; c')
 })
 
 test('forma: righe uguali a meno di numeri e id hanno la stessa forma', () => {
