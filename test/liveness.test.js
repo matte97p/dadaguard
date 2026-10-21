@@ -89,7 +89,9 @@ test('due timeout in ritardo: sconosciuto, non giu', async () => {
 
 test('timeout puntuale: e giu davvero, e non si riprova', async () => {
   let n = 0
-  const r = await run(svc, { fetchImpl: (u, o) => (n++, appesa(0)(u, o)), timeoutMs: 50 })
+  // 300 ms e non 50: «puntuale» vuol dire entro il 20% del timeout, e con 50 ms il margine era di 10 ms,
+  // meno di quanto ritarda l'event loop con la suite intera in parallelo (falliva una volta su dieci).
+  const r = await run(svc, { fetchImpl: (u, o) => (n++, appesa(0)(u, o)), timeoutMs: 300 })
   assert.equal(n, 1)
   assert.equal(r.status, 'down')
   assert.equal(r.reason, 'liveness.timeout')

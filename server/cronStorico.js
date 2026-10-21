@@ -17,7 +17,10 @@
 //    resta nella finestra, con un tetto per cron. L'exit code sta nell'API ECS, che dimentica i task dopo
 //    un'ora: l'esito si legge dal LOG della corsa, con la stessa ricerca di un errore che usa l'elenco
 //    delle corse (`anyFailure`, `FilterLogEvents` con `limit: 1` sullo stream di quella corsa). Una
-//    corsa finita non cambia piu': il suo esito si tiene in memoria e non si rilegge. Al piu'
+//    corsa finita non cambia piu': il suo esito si tiene in memoria e non si rilegge. Prima del log
+//    vale il codice d'uscita, quando l'API ECS l'ha dato a qualcuno nella prima ora (la lista delle
+//    corse e il giro del canvas Slack lo annotano in `esitiEcs`): e' l'unico modo di vedere un container
+//    ucciso per memoria finita, che non scrive errori. Senza, «nessun errore nel log» vale riuscita. Al piu'
 //    `SCANSIONI_PER_CRON` corse nuove a cron per giro, dalla piu' recente: le altre restano «esito non
 //    letto» (MAI riuscite per omissione) fino ai giri dopo.
 //
@@ -38,7 +41,7 @@ import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwat
 import { CloudWatchLogsClient, DescribeLogStreamsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { listCrons } from './crons.js'
-import { anyFailure, leggiTaskDef, runsFromStreams } from './runs.js'
+import { anyFailure, esitiEcs, leggiTaskDef, runsFromStreams } from './runs.js'
 import { awslogsFromTaskDef } from './logs.js'
 import { espandiCron, cadenzaRate, safeTz, zoneFields } from './util/nextrun.js'
 import { griglia, quantile, riassunto } from '../shared/tempiSerie.js'
@@ -367,6 +370,12 @@ export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca 
   const out = []
   for (const r of corse) {
     const k = `${logGroup}|${r.stream}`
+    // Prima l'esito certo dell'API ECS (codice d'uscita, OOM), se qualcuno l'ha letto mentre il task
+    // c'era: vince anche su un esito dal log gia' in memoria, che senza errori diceva «riuscita».
+    if (esitiEcs.has(k)) {
+      out.push({ ...r, esito: esitiEcs.get(k), fonteEsito: 'ecs' })
+      continue
+    }
     if (esitiCorse.has(k)) {
       out.push({ ...r, esito: esitiCorse.get(k) })
       continue
