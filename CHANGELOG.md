@@ -6,6 +6,16 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Gli allarmi CloudWatch li dice Dadaguard, coi log nel thread** (21/10/2026). Ogni account inoltra
+  l'evento `CloudWatch Alarm State Change` su una coda che Dadaguard ascolta (`DADAGUARD_ALLARMI_CODA`,
+  accesa da `deploy/enable-allarmi.sh`): il cambio di stato arriva nel canale in pochi secondi, in inglese
+  di default (`DADAGUARD_ALLARMI_LANG`). Su un allarme acceso Dadaguard trova da solo il log group (dal
+  metric filter della metrica, dal servizio a cui l'allarme appartiene, dalle dimensioni) e mette nel
+  thread le righe d'errore della finestra valutata, raggruppate e ripulite, con le risposte 5xx per rotta
+  e il link a Logs Insights. Il tag `team` dell'allarme decide il canale (data o principale), il tag
+  `severity` l'emoji. Il primo OK di un allarme appena nato e l'OK dopo un allarme che non aveva mai visto
+  dati si tacciono. Il ruolo di sola lettura chiede tre permessi in più: `cloudwatch:ListTagsForResource`,
+  `logs:DescribeMetricFilters` e le query di Logs Insights.
 - **«Solo da sistemare» nella home** (21/10/2026). Un interruttore accanto al verdetto toglie tutto
   quello che va bene (stato dei servizi, oggi, ambienti, cosa è cambiato) e lascia la lista dei
   problemi, una riga per problema; la scelta resta a chi guarda. «Da sistemare» prende anche i segnali

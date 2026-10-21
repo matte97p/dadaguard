@@ -51,7 +51,7 @@ export function awslogsFromTaskDef(taskDefinition, preferred = null) {
 
 // Ritorna { logGroup, streamPrefix, container } — gli ultimi due solo per ECS, e servono a filtrare
 // per singola istanza. `logGroup` null = il tipo non ha log applicativi su CloudWatch.
-async function resolveLogGroup(service, aws) {
+export async function resolveLogGroup(service, aws) {
   const cfg = service.aws ?? {}
   if (cfg.logGroup) return { logGroup: cfg.logGroup } // override esplicito
   if (cfg.type === 'lambda' && cfg.function) return { logGroup: `/aws/lambda/${cfg.function}` }

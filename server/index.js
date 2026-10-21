@@ -46,6 +46,7 @@ import { collectFindings } from './security.js'
 import { ssoAccess, ssoAccessToResource } from './sso.js'
 import { log } from './log.js'
 import { startWatcher } from './notify/watch.js'
+import { startAllarmi } from './notify/allarmi.js'
 import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } from './notify/quadro.js'
 import { statoLeggero } from './quadroStato.js'
 import { startCorse, corseConfig, conInfra } from './notify/corse.js'
@@ -1197,6 +1198,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // problema/non-problema. Parte solo se il webhook è configurato — senza, non fa nemmeno una
   // chiamata AWS. In demo non parte: non c'è niente di vero da sorvegliare.
   if (!isDemo) startWatcher()
+  // Gli allarmi CloudWatch nel momento in cui cambiano stato, coi log nel thread: partono solo con la
+  // loro coda (vedi server/notify/allarmi.js).
+  if (!isDemo) startAllarmi()
   // Il quadro dei deploy in Slack: parte solo con token di un'app e i canali. Legge la stessa cache
   // della pagina Deploy, quindi non aggiunge giri CodeBuild a quelli che la pagina fa già.
   if (!isDemo) startQuadro(datiQuadro)

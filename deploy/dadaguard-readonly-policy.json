@@ -24,6 +24,9 @@
         "ec2:DescribeInstanceStatus",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DescribeAlarmHistory",
+        "cloudwatch:ListTagsForResource",
         "scheduler:GetSchedule",
         "scheduler:ListSchedules",
         "sqs:GetQueueUrl",
@@ -90,7 +93,16 @@
     {
       "Sid": "CronHistoryReadOnly",
       "Effect": "Allow",
-      "Action": ["logs:DescribeLogStreams", "logs:DescribeLogGroups"],
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:DescribeLogGroups",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
+        "logs:DescribeMetricFilters",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StopQuery"
+      ],
       "Resource": "*"
     },
     {
