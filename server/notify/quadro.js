@@ -1706,11 +1706,11 @@ export async function sincronizzaLista(api, l, memoria, { bot, maxNuove = MAX_RI
 // ancora aperto. Un allarme per RISORSA, non per evento: tre build fallite di fila sono una storia
 // sola, non tre messaggi.
 //
-// ⚠️ Gli allarmi aperti stanno in memoria, come lo stato del watchdog: a un riavvio di Dadaguard il
-// primo giro prende nota di cosa è rotto senza scriverlo (meglio perdere un messaggio che ripetere
-// tutti i rossi a ogni rilascio di Dadaguard). Gli allarmi aperti prima del riavvio si rileggono dal
-// canale (vedi `ritrovaAllarmi`): senza, un rosso aperto mentre Dadaguard si rilasciava restava rosso
-// per sempre, e Dadaguard si rilascia anche più volte al giorno (21/10/2026).
+// ⚠️ Gli allarmi aperti stanno in memoria, come lo stato del watchdog. A un riavvio di Dadaguard si
+// rileggono dal canale (vedi `ritrovaAllarmi`): senza, un rosso aperto mentre Dadaguard si rilasciava
+// restava rosso per sempre, e Dadaguard si rilascia anche più volte al giorno (21/10/2026). Se il
+// canale non si rilegge (manca `channels:history`), il primo giro prende nota di cosa è rotto senza
+// scriverlo: meglio perdere un messaggio che ripetere tutti i rossi a ogni rilascio di Dadaguard.
 
 // Il messaggio mrkdwn di Slack, dalle celle markdown del canvas. Puro.
 const aMrkdwn = (t) => String(t ?? '').replace(/\*\*([^*]+)\*\*/g, '*$1*').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<$2|$1>')
@@ -1951,13 +1951,18 @@ export function startQuadro(leggiDati, env = process.env) {
     for (const e of esiti) {
       // Senza dati (il giro è morto prima) non si apre e non si chiude niente.
       if (!e.allarmi) continue
+      // Il primo giro tace solo se non sa cosa c'è già nel canale. Riletto il canale, un rosso che non
+      // c'è si scrive subito: è quello arrivato mentre Dadaguard era spento o si rilasciava, e tacerlo
+      // vorrebbe dire non scriverlo mai, perché la CI lo lascia al quadro (21/10/2026).
+      let muto = false
       if (!visti.has(e.ambiente))
         try {
           allarmi[e.ambiente] = { ...(await ritrovaAllarmi(api, cfg.canali[e.ambiente], e.ambiente)), ...(allarmi[e.ambiente] ?? {}) }
         } catch (err) {
+          muto = true
           log.warn('quadro: allarmi aperti non riletti dal canale, quelli di prima del riavvio restano senza ✅', { ambiente: e.ambiente, err: err.message })
         }
-      const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: !visti.has(e.ambiente) })
+      const piano = pianoAllarmi(allarmi[e.ambiente] ?? {}, e.allarmi, { primoGiro: muto })
       visti.add(e.ambiente)
       if (piano.azioni.length) log.info('quadro: allarmi', { ambiente: e.ambiente, azioni: piano.azioni.map((z) => `${z.tipo}:${z.nome}`) })
       allarmi[e.ambiente] = await eseguiAllarmi(api, cfg.canali[e.ambiente], piano)
