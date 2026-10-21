@@ -145,10 +145,24 @@ export function statoDaRun(perRepo, rami) {
       const stato = inCorso.length ? 'in_corso' : falliti.length ? 'fallito' : null
       if (!stato) continue
       const da = delCommit.map((r) => r.run_started_at ?? r.created_at).sort()[0]
-      out.set(`${amb}|${chiave}`, { stato, da, url: (inCorso[0] ?? falliti[0]).html_url ?? null, sha: ultimo.head_sha })
+      // Gli id dei run falliti servono a chiedere quali job sono rossi (`jobsRossi`); non si scrivono.
+      const runFalliti = stato === 'fallito' ? falliti.map((r) => r.id).filter(Boolean) : []
+      out.set(`${amb}|${chiave}`, { stato, da, url: (inCorso[0] ?? falliti[0]).html_url ?? null, sha: ultimo.head_sha, ...(runFalliti.length ? { runFalliti } : {}) })
     }
   }
   return out
+}
+
+// I nomi dei job rossi di un run, per l'allarme: «check di CI rosso: `dependency-audit`» invece del
+// generico «i check di CI sono rossi» (21/10/2026). Il nome lo sceglie chi scrive il workflow e finisce
+// su Slack: via i caratteri con cui Slack costruisce link, menzioni e formattazione. Al massimo cinque.
+// Puro/testabile.
+export function jobsRossi(jobs) {
+  const nomi = (jobs ?? [])
+    .filter((j) => FALLITI.has(j.conclusion))
+    .map((j) => String(j.name ?? '').replace(/[<>&`*_~|]/g, '').trim().slice(0, 60))
+    .filter(Boolean)
+  return [...new Set(nomi)].slice(0, 5)
 }
 
 // Mette lo stato dei test sulle righe del quadro che vengono da quel repository, in quell'ambiente:
@@ -278,6 +292,7 @@ export function nuovoGithub(cfg, deps = {}) {
       // Le risposte delle finestre passate non servono più.
       for (const path of mem.etag.keys()) if (!usati.has(path)) mem.etag.delete(path)
       mem.stati = statoDaRun(perRepo, cfg.rami)
+      await nominaJobRossi(mem.stati, ora)
       if (mem.errore) log.info('quadro: GitHub di nuovo leggibile, tornano gli stati dei test')
       mem.errore = null
       mem.letto = ora
@@ -337,12 +352,30 @@ export function nuovoGithub(cfg, deps = {}) {
     // giro dopo, invece di togliere al quadro le richieste che gli servono.
     if (mem.resta != null && mem.resta < RISERVA_RICHIESTE) throw Object.assign(new Error(`github: restano ${mem.resta} richieste nell'ora, i job aspettano`), { riserva: true })
     const res = await gh('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(id)}/jobs?per_page=100`, { auth: await token(owner, ora) })
-    const jobs = (res.json?.jobs ?? []).map((j) => ({ name: j.name, started_at: j.started_at, completed_at: j.completed_at }))
+    const jobs = (res.json?.jobs ?? []).map((j) => ({ name: j.name, started_at: j.started_at, completed_at: j.completed_at, conclusion: j.conclusion ?? null }))
     if (finito) {
       mem.jobs.set(id, jobs)
       if (mem.jobs.size > MAX_RUN_IN_MEMORIA) mem.jobs.delete(mem.jobs.keys().next().value)
     }
     return jobs
+  }
+
+  // Su ogni stato ❌ i job rossi dei suoi run (`checks`). Un run finito non cambia, e `jobsDi` lo tiene
+  // in memoria: una richiesta per run fallito, una volta sola. Se non si leggono (riserva dell'ora,
+  // GitHub che non risponde) l'allarme resta col motivo generico: un nome in meno non ferma il quadro.
+  async function nominaJobRossi(stati, ora) {
+    for (const [k, s] of stati) {
+      if (!s.runFalliti?.length) continue
+      const [owner, repo] = k.slice(k.indexOf('|') + 1).split('/')
+      try {
+        const jobs = []
+        for (const id of s.runFalliti) jobs.push(...(await jobsDi({ owner, repo, id, finito: true }, { ora })))
+        const checks = jobsRossi(jobs)
+        if (checks.length) s.checks = checks
+      } catch (err) {
+        log.debug('quadro: job rossi non letti', { repo: `${owner}/${repo}`, err: err.message })
+      }
+    }
   }
 
   // `lettoAlle`: l'ultima lettura riuscita, per capire se un 🧪 arrivato dalla coda è già finito.

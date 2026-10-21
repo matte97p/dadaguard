@@ -594,7 +594,7 @@ test('allarmi: il testo segue la grammatica del canale e porta i link in forma S
   }
   assert.equal(
     testoAllarme(x, 'produzione'),
-    '❌ `backend` [PROD] build #662 fallita al BUILD 2 min fa · gira ancora <https://github.com/x/b/commit/d5fda1e|d5fda1e> (rev 130) · motivo: exit status 1 · <https://log|log della build> · <https://dg.example.com/deploy?service=backend&account=production|Dadaguard>',
+    '❌ `backend` [PROD] build #662 fallita al BUILD 2 min fa \u2014 gira ancora <https://github.com/x/b/commit/d5fda1e|d5fda1e> (rev 130) · motivo: exit status 1 · <https://log|log della build> · <https://dg.example.com/deploy?service=backend&account=production|Dadaguard>',
   )
 })
 
@@ -626,7 +626,7 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
 
   const dati = datiAllarmi(conTestSu(qa(prima), rosso), { ora: ORA })
   assert.deepEqual(dati.rotti.map((r) => r.nome), ['backend'])
-  assert.equal(dati.rotti[0].testo, '🔴 `backend` [STAGING] deploy NON avviato · i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>')
+  assert.equal(dati.rotti[0].testo, '🔴 `backend` [STAGING] deploy NON avviato \u2014 i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>')
   const { aperti, azioni } = pianoAllarmi({}, dati)
   assert.deepEqual(azioni.map((z) => z.tipo), ['apri'])
 
@@ -642,14 +642,20 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
   assert.deepEqual(chiuso.aperti, {})
 
   const migr = datiAllarmi(conTestSu(qa(prima), { ...rosso, causa: 'migration', file: '20261016_00_x.sql' }), { ora: ORA })
-  assert.match(migr.rotti[0].testo, /deploy NON avviato · migration fallita: `20261016_00_x.sql`, niente è andato su staging · /)
+  assert.match(migr.rotti[0].testo, /deploy NON avviato \u2014 migration fallita: `20261016_00_x.sql`, niente è andato su staging · /)
   const prod = quadroAmbiente('produzione', { deploys: { production: { builds: [b('api', 'aaaaaaa', prima.da)] } }, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: prima.da })] })
-  assert.match(datiAllarmi(conTestSu(prod, rosso), { ora: ORA }).rotti[0].testo, /^🔴 `api` \[PROD\] deploy NON avviato · i check di CI sono rossi, niente è andato in produzione · /)
+  assert.match(datiAllarmi(conTestSu(prod, rosso), { ora: ORA }).rotti[0].testo, /^🔴 `api` \[PROD\] deploy NON avviato \u2014 i check di CI sono rossi, niente è andato in produzione · /)
+  // I job rossi per nome, quando si sanno: uno al singolare, più d'uno al plurale.
+  const uno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['dependency-audit'] }), { ora: ORA })
+  assert.match(uno.rotti[0].testo, /deploy NON avviato \u2014 check di CI rosso: `dependency-audit`, niente è andato su staging · /)
+  const due = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['validate', 'secret-scan'] }), { ora: ORA })
+  assert.match(due.rotti[0].testo, /check di CI rossi: `validate`, `secret-scan`, niente/)
+  assert.equal(uno.rotti[0].firma, dati.rotti[0].firma, 'il nome dei job non fa un guasto nuovo')
 })
 
 test('allarmi dopo un riavvio: si rileggono dal canale, e chiudono col ✅ senza riscrivere il rosso', async () => {
   const bot = { user: 'UBOT', bot: 'BBOT' }
-  const rosso = '🔴 `backend` [STAGING] deploy NON avviato · i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>'
+  const rosso = '🔴 `backend` [STAGING] deploy NON avviato \u2014 i check di CI sono rossi, niente è andato su staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>'
   const messaggi = [
     { ts: '1759492900.000100', user: 'UBOT', text: '✅ `web` [STAGING] build #8 fallita · risolto alle 13:00' },
     { ts: '1759492800.000100', user: 'UBOT', text: rosso },

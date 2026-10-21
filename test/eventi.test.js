@@ -221,3 +221,16 @@ test('migration_fallita (PLA-733): un check rosso col job delle migration e il f
   assert.equal(uniti.get('staging|acme/agentic-chat').causa, 'migration')
   assert.equal(uniti.get('staging|acme/agentic-chat').file, '20261016_00_x.sql')
 })
+
+test('checks della CI: gli id dei job rossi passano, il resto no, e GitHub li presta allo stesso commit', () => {
+  const ev = normalizza(ci({ evento: 'test_falliti', checks: ['dependency-audit', 'a b', '<!channel>', 7, 'validate'] }))
+  assert.deepEqual(ev.checks, ['dependency-audit', 'validate'])
+  assert.equal(normalizza(ci({ evento: 'test_falliti', checks: 'dependency-audit' })).checks, undefined, 'non un elenco: niente')
+  assert.equal(normalizza(ci({ evento: 'test_avviati', checks: ['x'] })).checks, undefined, 'solo su un rosso')
+  const k = 'staging|acme/agentic-chat'
+  const uniti = unisciTest(new Map(), [[k, { ...ev, ricevuto: ORA }]], { lettoAlle: ORA })
+  assert.deepEqual(uniti.get(k).checks, ['dependency-audit', 'validate'])
+  const senza = normalizza(ci({ evento: 'test_falliti' }))
+  const daGithub = new Map([[k, { stato: 'fallito', da: senza.da, sha: senza.sha, checks: ['lint'] }]])
+  assert.deepEqual(unisciTest(daGithub, [[k, { ...senza, ricevuto: ORA }]], { lettoAlle: ORA }).get(k).checks, ['lint'], 'stesso commit: i nomi letti da GitHub restano')
+})
