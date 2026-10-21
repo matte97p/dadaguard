@@ -52,24 +52,25 @@ data "aws_iam_policy_document" "readonly" {
       "lambda:ListTags", # tag `Codice` dei cron Lambda: GetFunction li restituisce solo con questo
       "autoscaling:DescribeAutoScalingGroups",
       "rds:DescribeDBClusters", "rds:DescribeDBInstances",
-      "rds:DescribeDBClusterSnapshots", "rds:DescribeDBSnapshots", # recency backup
+      "rds:DescribeDBClusterSnapshots", "rds:DescribeDBSnapshots",   # recency backup
       "rds:DescribeEvents", "autoscaling:DescribeScalingActivities", # eventi recenti (RDS/ASG)
-      "acm:DescribeCertificate", # #scadenza certificati
+      "acm:DescribeCertificate",                                     # #scadenza certificati
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
       "ec2:DescribeInstances", "ec2:DescribeInstanceStatus",
       "cloudwatch:GetMetricData",
-      "cloudwatch:ListMetrics",    # discovery Bedrock: i ModelId invocati (metriche AWS/Bedrock)
-      "cloudwatch:DescribeAlarms", # allarmi in stato ALARM correlati alla risorsa
+      "cloudwatch:ListMetrics",          # discovery Bedrock: i ModelId invocati (metriche AWS/Bedrock)
+      "cloudwatch:DescribeAlarms",       # allarmi in stato ALARM correlati alla risorsa
       "cloudwatch:DescribeAlarmHistory", # storico della disponibilita (/api/history): quando un allarme e' entrato e uscito
+      "cloudwatch:ListTagsForResource",  # allarmi detti da Dadaguard: i tag `team` e `severity` dell'allarme decidono canale ed emoji
       "tag:GetResources",                # tag dadaguard:team/slack/runbook/slo dei servizi
       "servicequotas:ListServiceQuotas", # quote vicine al limite (uso vs limite via CloudWatch)
       "scheduler:GetSchedule", "scheduler:ListSchedules",
-      "sqs:GetQueueUrl", "sqs:GetQueueAttributes",   # #3 runtime SQS (profondità coda)
-      "dynamodb:DescribeTable",                       # #3 runtime DynamoDB (stato tabella)
-      "elasticache:DescribeCacheClusters",            # #3 runtime ElastiCache (stato cluster)
-      "elasticache:DescribeReplicationGroups",        # #3 runtime ElastiCache (stato del gruppo, non del nodo)
+      "sqs:GetQueueUrl", "sqs:GetQueueAttributes",            # #3 runtime SQS (profondità coda)
+      "dynamodb:DescribeTable",                               # #3 runtime DynamoDB (stato tabella)
+      "elasticache:DescribeCacheClusters",                    # #3 runtime ElastiCache (stato cluster)
+      "elasticache:DescribeReplicationGroups",                # #3 runtime ElastiCache (stato del gruppo, non del nodo)
       "states:DescribeStateMachine", "states:ListExecutions", # Step Functions
       "eks:DescribeCluster",                                  # EKS
       "cloudfront:GetDistribution",                           # CloudFront (globale, us-east-1)
@@ -103,10 +104,13 @@ data "aws_iam_policy_document" "readonly" {
   }
 
   statement {
-    sid       = "LogsReadOnly" # pannello "Log recenti" (on-demand): ultimi eventi CloudWatch Logs
-    effect    = "Allow"
+    sid    = "LogsReadOnly" # pannello "Log recenti" (on-demand): ultimi eventi CloudWatch Logs
+    effect = "Allow"
     # DescribeLogStreams: le corse dei job ECS e il loro storico (pagina Cron), senza leggere righe.
-    actions   = ["logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogGroups", "logs:DescribeLogStreams"]
+    # DescribeMetricFilters e le query Logs Insights: le righe di log nel thread di un allarme acceso
+    # (server/notify/allarmi.js). Il metric filter dice da quale log group nasce la metrica di un allarme.
+    actions = ["logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogGroups", "logs:DescribeLogStreams",
+    "logs:DescribeMetricFilters", "logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery"]
     resources = ["*"]
   }
 
