@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { violazione } from './vietati.js'
+import { LISTA_PRESENTE, violazione } from './vietati.js'
 
 // Il guardiano su TUTTO quello che il repo pubblica: sorgenti, test, docs, esempi, workflow.
 //
@@ -11,7 +11,8 @@ import { violazione } from './vietati.js'
 // Il punto non è che qualcuno sbagli: è che il repo è pubblico e chi scrive un test pensa al test,
 // non a chi leggerà quel nome su GitHub. Quindi lo controlla una macchina, su tutti i file tracciati.
 //
-// L'elenco di ciò che non deve comparire sta in `vietati.js`, condiviso con gli altri due guardiani.
+// L'elenco di ciò che non deve comparire lo carica `vietati.js` (da fuori dal repo), condiviso con gli
+// altri due guardiani.
 // Se questo test cade: NON allentarlo, cambia il nome. Un identificativo inventato prova esattamente
 // le stesse cose — e se la forma del nome è ciò che il test dimostra (un prefisso da spogliare, per
 // esempio), la si tiene: cambia la parola, non la forma.
@@ -39,6 +40,12 @@ const tracciati = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
 
 test('il repo pubblica solo file tracciati, e ce ne sono (il test guarda qualcosa)', () => {
   assert.ok(tracciati.length > 50, `attesi >50 file tracciati, trovati ${tracciati.length}`)
+})
+
+// Senza la lista dei nomi (una PR da un fork, un clone senza `test/vietati.local.json`) restano le
+// regole generiche: lo si dice, invece di passare verdi come se avessimo guardato tutto.
+test('la lista dei nomi da vietare c’è', { skip: !LISTA_PRESENTE && 'manca DADAGUARD_VIETATI o test/vietati.local.json: guardate solo le regole generiche' }, () => {
+  assert.ok(LISTA_PRESENTE)
 })
 
 test('nessun nome interno nei file tracciati', () => {

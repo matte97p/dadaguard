@@ -37,6 +37,9 @@ jobs:
   # rende visibile il rosso; questo lo rende BLOCCANTE, che è la parte che conta.
   test:
     uses: ./.github/workflows/test.yml
+    # La lista dei nomi da vietare (DADAGUARD_VIETATI): un workflow chiamato non vede i secret di chi
+    # lo chiama, se non glieli passa.
+    secrets: inherit
 
   deploy:
     needs: test

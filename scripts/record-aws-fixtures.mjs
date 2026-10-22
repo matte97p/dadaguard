@@ -51,8 +51,13 @@ const region = arg('region', 'eu-central-1')
 const opts = { region }
 
 // --- sanificazione: la forma resta, l'identita' va via ---------------------------------------------
-// I nomi veri arrivano da `test/vietati.js`, che li tiene in base64 e non in chiaro: il sanificatore
-// deve nominarli per toglierli, ma scriverli qui li rimetterebbe nel repo pubblico che sta ripulendo.
+// I nomi veri arrivano da `test/vietati.js`, che li legge da fuori dal repo: il sanificatore deve
+// nominarli per toglierli, ma scriverli qui li rimetterebbe nel repo pubblico che sta ripulendo.
+// Senza la lista non si registra niente: le fixture uscirebbero coi nomi veri dentro.
+if (!ORGANIZZAZIONE || !DOMINIO_INTERNO) {
+  console.error('Manca la lista dei nomi da vietare (test/vietati.local.json o DADAGUARD_VIETATI): niente registrazione.')
+  process.exit(1)
+}
 const RE = [
   [/\b\d{12}\b/g, '111122223333'], // account id
   [new RegExp(`/${ORGANIZZAZIONE}/`, 'g'), '/acme/'], // path SSM/param: /acme/<env>/...
