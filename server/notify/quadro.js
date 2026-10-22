@@ -1793,11 +1793,13 @@ function allarmiTest(qa, { ora, url, ore }) {
           ? `check di CI ${t.checks.length === 1 ? 'rosso' : 'rossi'}: ${checks}`
           : 'i check di CI sono rossi'
     const commit = sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)
+    // I campi e l'ordine della riga che la CI scrive in #aws-deploy (`notifica-check-rossi`): lo stesso
+    // rosso in #aws-deploy-status diceva meno, senza oggetto del commit, errore e autore (22/10/2026).
     const x = {
       emoji: '🔴',
       nome: r.nome,
       stato: 'deploy NON avviato',
-      dettagli: [`${motivo}, ${dove}`, commit],
+      dettagli: [`${motivo}, ${dove}`, t.oggetto, t.dettaglio, commit, t.autore && `da \`${t.autore}\``],
       link: r.link,
     }
     // La firma è la risorsa, non il run: un commit nuovo con la CI ancora rossa è lo stesso «deploy NON

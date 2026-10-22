@@ -234,3 +234,20 @@ test('checks della CI: gli id dei job rossi passano, il resto no, e GitHub li pr
   const daGithub = new Map([[k, { stato: 'fallito', da: senza.da, sha: senza.sha, checks: ['lint'] }]])
   assert.deepEqual(unisciTest(daGithub, [[k, { ...senza, ricevuto: ORA }]], { lettoAlle: ORA }).get(k).checks, ['lint'], 'stesso commit: i nomi letti da GitHub restano')
 })
+
+test('oggetto, autore ed errore della CI: ripuliti come in #aws-deploy, e GitHub li presta allo stesso commit', () => {
+  const ev = normalizza(ci({ evento: 'test_falliti', oggetto: 'feat: togli <!channel> & `x` [qui](https://evil) (#1251)\n\n* corpo', autore: '81815192+matte97p@users.noreply.github.com', dettaglio: 'column "y" does not exist\naltro' }))
+  assert.equal(ev.oggetto, 'feat: togli &lt;!channel&gt; &amp; x [qui] (https://evil)')
+  assert.equal(ev.autore, 'matte97p')
+  assert.equal(ev.dettaglio, 'column "y" does not exist')
+  assert.equal(normalizza(ci({ evento: 'test_falliti', autore: 'a b<!here>' })).autore, undefined, 'non un utente GitHub: niente')
+  assert.equal(normalizza(ci({ evento: 'test_avviati', dettaglio: 'x' })).dettaglio, undefined, 'l’errore solo su un rosso')
+  assert.equal(normalizza(ci({ evento: 'test_falliti', oggetto: 'x'.repeat(200) })).oggetto.length, 90)
+  const k = 'staging|acme/agentic-chat'
+  const uniti = unisciTest(new Map(), [[k, { ...ev, ricevuto: ORA }]], { lettoAlle: ORA }).get(k)
+  assert.deepEqual([uniti.oggetto, uniti.autore, uniti.dettaglio], [ev.oggetto, 'matte97p', ev.dettaglio])
+  const senza = normalizza(ci({ evento: 'test_falliti' }))
+  const daGithub = new Map([[k, { stato: 'fallito', da: senza.da, sha: senza.sha, oggetto: 'fix: y', autore: 'BonfantiStefano' }]])
+  const prestati = unisciTest(daGithub, [[k, { ...senza, ricevuto: ORA }]], { lettoAlle: ORA }).get(k)
+  assert.deepEqual([prestati.oggetto, prestati.autore], ['fix: y', 'BonfantiStefano'], 'stesso commit: oggetto e autore letti da GitHub restano')
+})

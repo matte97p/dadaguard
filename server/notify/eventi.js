@@ -2,6 +2,7 @@ import { SQSClient, ReceiveMessageCommand, DeleteMessageBatchCommand } from '@aw
 import { clientOpts } from '../runtime/awsClient.js'
 import { log } from '../log.js'
 import { stripOrgEnv } from '../util/envToken.js'
+import { autoreGithub, oggettoCommit, testoBreve } from '../util/campiRiga.js'
 
 // Gli EVENTI del quadro: quello che succede a un rilascio, detto nel momento in cui succede invece di
 // essere scoperto al giro dopo. Il giro legge CodeBuild, ECS e GitHub da sé, ma è lento e irregolare
@@ -13,7 +14,9 @@ import { stripOrgEnv } from '../util/envToken.js'
 //                  e `notifica-check-rossi` della CI, nello stesso momento della riga su Slack.
 //                  `migration_fallita` (PLA-733) e' un check rosso anche lui, ma il job fallito e' quello
 //                  delle migration del database: `run` porta a quel job e `motivo` nomina il file.
-//                  `checks` (facoltativo) sono gli id dei job rossi, dal `needs` del chiamante
+//                  `checks` (facoltativo) sono gli id dei job rossi, dal `needs` del chiamante.
+//                  `oggetto`, `autore` e `dettaglio` (facoltativi) sono i campi della riga che la CI
+//                  scrive in #aws-deploy: servono alla riga dell'allarme, che deve dire le stesse cose
 //   CodeBuild      l'evento EventBridge `CodeBuild Build State Change` dei progetti `*-deploy`
 //   ECS            l'evento EventBridge `ECS Deployment State Change`
 //
@@ -26,7 +29,8 @@ import { stripOrgEnv } from '../util/envToken.js'
 //
 // I messaggi della CI vengono da chiunque possa spingere su un ramo di rilascio, quindi si trattano
 // come dati non fidati: entra solo quello che passa la forma (nomi, sha, indirizzi di github.com), e
-// niente testo libero finisce sul canvas.
+// niente testo libero finisce sul canvas. L'oggetto del commit e l'errore sono testo libero: ripuliti
+// come li ripulisce la CI (util/campiRiga.js), vanno solo nella riga dell'allarme.
 //
 // Configurazione:
 //   DADAGUARD_QUADRO_CODA   l'indirizzo della coda (`https://sqs.<regione>.amazonaws.com/<conto>/<nome>`).
@@ -92,6 +96,12 @@ export function normalizza(corpo) {
     if (m.evento === 'migration_fallita') Object.assign(ev, { causa: 'migration', file: fileMigration(m.motivo) })
     const checks = soloChecks(m.checks)
     if (stato === 'fallito' && checks.length) ev.checks = checks
+    const oggetto = oggettoCommit(m.oggetto)
+    const autore = autoreGithub(m.autore)
+    const dettaglio = stato === 'fallito' ? testoBreve(m.dettaglio) : null
+    if (oggetto) ev.oggetto = oggetto
+    if (autore) ev.autore = autore
+    if (dettaglio) ev.dettaglio = dettaglio
     return ev
   }
 
@@ -187,9 +197,23 @@ export function unisciTest(daGithub, eventiTest, { lettoAlle = null } = {}) {
     if (g && stesso(g.sha, ev.sha) && ev.stato !== 'fallito') continue
     if (g && !stesso(g.sha, ev.sha) && Date.parse(g.da) >= Date.parse(ev.da)) continue
     if (!g && lettoAlle && lettoAlle - ev.ricevuto > RITARDO_GITHUB_MS) continue
-    // I job rossi: quelli dell'evento, o quelli che GitHub ha letto per lo stesso commit.
-    const checks = ev.checks ?? (g && stesso(g.sha, ev.sha) ? g.checks : null)
-    out.set(k, { stato: ev.stato, da: ev.da, url: ev.url ?? null, sha: ev.sha ?? null, ...(ev.causa ? { causa: ev.causa, file: ev.file ?? null } : {}), ...(checks?.length ? { checks } : {}) })
+    // I job rossi, l'oggetto del commit e chi l'ha spinto: quelli dell'evento, o quelli che GitHub ha
+    // letto per lo stesso commit.
+    const gStesso = g && stesso(g.sha, ev.sha) ? g : null
+    const checks = ev.checks ?? gStesso?.checks
+    const oggetto = ev.oggetto ?? gStesso?.oggetto
+    const autore = ev.autore ?? gStesso?.autore
+    out.set(k, {
+      stato: ev.stato,
+      da: ev.da,
+      url: ev.url ?? null,
+      sha: ev.sha ?? null,
+      ...(ev.causa ? { causa: ev.causa, file: ev.file ?? null } : {}),
+      ...(checks?.length ? { checks } : {}),
+      ...(oggetto ? { oggetto } : {}),
+      ...(autore ? { autore } : {}),
+      ...(ev.dettaglio ? { dettaglio: ev.dettaglio } : {}),
+    })
   }
   return out
 }
