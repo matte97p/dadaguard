@@ -44,7 +44,7 @@ function TabellaTempi({ righe, t, d }) {
   return (
     <Lista
       colonne={[col('servizio'), col('solito'), col('lenti'), col('fase'), col('falliti'), col('settimana'), col('verde'), col('daStaging')]}
-      griglia="minmax(0,1.4fr) repeat(7, minmax(80px,1fr))"
+      griglia="minmax(120px,1.4fr) repeat(7, minmax(56px,1fr))"
       grigliaMobile="minmax(0,1fr) minmax(0,1fr)"
       vuoto={t('rilasci.dep.tempi.vuoto')}
     >

@@ -63,7 +63,7 @@ function TabellaServizi({ righe, etichettaConto, t, lang }) {
   return (
     <Lista
       colonne={[col('servizio'), col('richieste'), col('errori'), col('solito'), col('lenti')]}
-      griglia="minmax(0,1.6fr) repeat(4, minmax(80px,1fr))"
+      griglia="minmax(120px,1.6fr) repeat(4, minmax(56px,1fr))"
       grigliaMobile="minmax(0,1fr) minmax(0,1fr)"
       vuoto={t('andamento.tab.vuoto')}
     >
