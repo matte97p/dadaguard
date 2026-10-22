@@ -99,6 +99,7 @@ export default function ServicesTable({ services, onOpen, t }) {
   return (
     <div className="sv-lista">
       <Lista
+        compatta
         colonne={[
           t('svc.col.stato'),
           t('svc.col.servizio'),

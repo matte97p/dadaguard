@@ -10,11 +10,14 @@ export function stileGriglia(desktop, mobile) {
 // Contenitore delle righe, con un'intestazione di colonne opzionale e il messaggio da mostrare quando
 // e' vuota: una lista vuota senza parole si legge «non funziona», non «niente da fare».
 // `griglia` e `grigliaMobile` arrivano a intestazione e righe per eredita': le righe non le ripetono.
-export default function Lista({ colonne, griglia, grigliaMobile, vuoto, children }) {
+// `compatta`: righe su due linee, coi nomi lunghi tagliati dai puntini (vedi «vista compatta» in
+// ui.css). Si accende lista per lista, solo dove le colonne del nome sono `fr`: in una colonna `auto`
+// un nome che non va più a capo non ha larghezza minima, e la colonna si stringe fino a sparire.
+export default function Lista({ colonne, griglia, grigliaMobile, vuoto, compatta = false, children }) {
   const righe = Array.isArray(children) ? children.filter(Boolean) : children
   const vuota = righe == null || (Array.isArray(righe) && righe.length === 0)
   return (
-    <div className="ui-lista" style={stileGriglia(griglia, grigliaMobile)}>
+    <div className={compatta ? 'ui-lista ui-lista-compatta' : 'ui-lista'} style={stileGriglia(griglia, grigliaMobile)}>
       {colonne && !vuota && (
         <div className="ui-thead">
           {colonne.map((c, i) => (
