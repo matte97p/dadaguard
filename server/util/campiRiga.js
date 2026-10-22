@@ -1,5 +1,5 @@
 // I campi di testo libero di una riga di #aws-deploy, ripuliti come li ripulisce la CI
-// (`notifica-check-rossi` di cato-actions): la stessa riga esce in #aws-deploy dal webhook della CI e
+// (l'azione `notifica-check-rossi`): la stessa riga esce in #aws-deploy dal webhook della CI e
 // in #aws-deploy-status da qui, e due pulizie diverse la facevano leggere diversa (22/10/2026).
 // Vengono da chi spinge su un ramo di rilascio, quindi sono dati non fidati: escape dei caratteri con
 // cui Slack costruisce link e menzioni (un oggetto «togli <!channel>» taggherebbe il canale), niente

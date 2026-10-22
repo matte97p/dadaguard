@@ -76,9 +76,9 @@ test('dai run allo stato: in corso 🧪, fallito ❌, verde niente; conta l’ul
 })
 
 test('dai run allo stato: oggetto del commit e chi l’ha spinto, per la riga dell’allarme', () => {
-  const s = statoDaRun(new Map([['acme/api', [run(1, { conclusion: 'failure', head_commit: { message: 'feat(monitoring): show a link (#1251)\n\ncorpo' }, actor: { login: 'BonfantiStefano' }, triggering_actor: { login: 'altro' } })]]]), RAMI).get('produzione|acme/api')
+  const s = statoDaRun(new Map([['acme/api', [run(1, { conclusion: 'failure', head_commit: { message: 'feat(monitoring): show a link (#1251)\n\ncorpo' }, actor: { login: 'rossi-dev' }, triggering_actor: { login: 'altro' } })]]]), RAMI).get('produzione|acme/api')
   assert.equal(s.oggetto, 'feat(monitoring): show a link')
-  assert.equal(s.autore, 'BonfantiStefano', 'chi ha spinto, non chi ha rilanciato')
+  assert.equal(s.autore, 'rossi-dev', 'chi ha spinto, non chi ha rilanciato')
 })
 
 test('le righe del quadro: i repository dalle build, lo stato su ogni riga di quel repository e ambiente', () => {

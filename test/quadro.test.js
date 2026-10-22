@@ -652,10 +652,10 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
   assert.match(due.rotti[0].testo, /check di CI rossi: `validate`, `secret-scan`, niente/)
   assert.equal(uno.rotti[0].firma, dati.rotti[0].firma, 'il nome dei job non fa un guasto nuovo')
   // Gli stessi campi, nello stesso ordine, della riga della CI in #aws-deploy (`notifica-check-rossi`).
-  const pieno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['test'], oggetto: 'feat(monitoring): show a link', dettaglio: 'column "y" does not exist', autore: 'BonfantiStefano' }), { ora: ORA })
+  const pieno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['test'], oggetto: 'feat(monitoring): show a link', dettaglio: 'column "y" does not exist', autore: 'rossi-dev' }), { ora: ORA })
   assert.equal(
     pieno.rotti[0].testo,
-    '🔴 `backend` [STAGING] deploy NON avviato \u2014 check di CI rosso: `test`, niente è andato su staging · feat(monitoring): show a link · column "y" does not exist · <https://github.com/x/b/actions/runs/1|bbbbbbb> · da `BonfantiStefano`',
+    '🔴 `backend` [STAGING] deploy NON avviato \u2014 check di CI rosso: `test`, niente è andato su staging · feat(monitoring): show a link · column "y" does not exist · <https://github.com/x/b/actions/runs/1|bbbbbbb> · da `rossi-dev`',
   )
   assert.equal(pieno.rotti[0].firma, dati.rotti[0].firma, 'oggetto e autore non fanno un guasto nuovo')
 })
