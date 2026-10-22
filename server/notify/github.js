@@ -1,6 +1,7 @@
 import { createPrivateKey, sign } from 'node:crypto'
 import { log } from '../log.js'
 import { ripulisci } from '../util/ripulisci.js'
+import { autoreGithub, oggettoCommit } from '../util/campiRiga.js'
 
 // Lo stato dei TEST di una riga del quadro, letto da GitHub Actions. I test non li vede né ECS né
 // CodeBuild: girano prima che la build esista, nel workflow del repository, e il quadro li chiede a
@@ -148,7 +149,19 @@ export function statoDaRun(perRepo, rami) {
       const da = delCommit.map((r) => r.run_started_at ?? r.created_at).sort()[0]
       // Gli id dei run falliti servono a chiedere quali job sono rossi (`jobsRossi`); non si scrivono.
       const runFalliti = stato === 'fallito' ? falliti.map((r) => r.id).filter(Boolean) : []
-      out.set(`${amb}|${chiave}`, { stato, da, url: (inCorso[0] ?? falliti[0]).html_url ?? null, sha: ultimo.head_sha, ...(runFalliti.length ? { runFalliti } : {}) })
+      // L'oggetto del commit e chi l'ha spinto (`actor`, non chi ha rilanciato il run: è quello che
+      // scrive la CI in #aws-deploy), per la riga dell'allarme.
+      const oggetto = oggettoCommit(ultimo.head_commit?.message)
+      const autore = autoreGithub(ultimo.actor?.login)
+      out.set(`${amb}|${chiave}`, {
+        stato,
+        da,
+        url: (inCorso[0] ?? falliti[0]).html_url ?? null,
+        sha: ultimo.head_sha,
+        ...(runFalliti.length ? { runFalliti } : {}),
+        ...(oggetto ? { oggetto } : {}),
+        ...(autore ? { autore } : {}),
+      })
     }
   }
   return out

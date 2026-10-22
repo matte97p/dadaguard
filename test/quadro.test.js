@@ -651,6 +651,13 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
   const due = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['validate', 'secret-scan'] }), { ora: ORA })
   assert.match(due.rotti[0].testo, /check di CI rossi: `validate`, `secret-scan`, niente/)
   assert.equal(uno.rotti[0].firma, dati.rotti[0].firma, 'il nome dei job non fa un guasto nuovo')
+  // Gli stessi campi, nello stesso ordine, della riga della CI in #aws-deploy (`notifica-check-rossi`).
+  const pieno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['test'], oggetto: 'feat(monitoring): show a link', dettaglio: 'column "y" does not exist', autore: 'BianchiLuca' }), { ora: ORA })
+  assert.equal(
+    pieno.rotti[0].testo,
+    '🔴 `backend` [STAGING] deploy NON avviato \u2014 check di CI rosso: `test`, niente è andato su staging · feat(monitoring): show a link · column "y" does not exist · <https://github.com/x/b/actions/runs/1|bbbbbbb> · da `BianchiLuca`',
+  )
+  assert.equal(pieno.rotti[0].firma, dati.rotti[0].firma, 'oggetto e autore non fanno un guasto nuovo')
 })
 
 test('allarmi dopo un riavvio: si rileggono dal canale, e chiudono col ✅ senza riscrivere il rosso', async () => {
