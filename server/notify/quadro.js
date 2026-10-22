@@ -323,6 +323,9 @@ function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
     // Un riavvio non è una build nostra: con `builds.length` un orchestratore riavviato a mano smetteva
     // di essere un componente esterno per sette giorni.
     esterno: !builds.some((x) => x.kind !== 'restart') && tagDiVersione(ecs?.tag),
+    // Ogni build l'ha lanciata una persona: il servizio si rilascia a mano, e un push sul suo repo non lo
+    // rilascia nemmeno coi test verdi (22/10/2026, PLA-924). Senza build non si sa: false.
+    aMano: builds.some((x) => x.kind !== 'restart') && builds.every((x) => x.kind === 'restart' || x.trigger === 'manuale'),
     immagine: ecs?.repo ?? null,
     // Senza ECS dietro è una risorsa che si conosce solo dalle build: un sito statico.
     ecs: Boolean(ecs),
@@ -1779,6 +1782,8 @@ function allarmiTest(qa, { ora, url, ore }) {
     const r = rigaRisorsa(v, { ora, url, ore })
     if (!r) continue
     ultimo[r.nome] = new Date(Math.max(tempo(v.quando), tempo(v.tentativo?.da), tempo(v.test?.da))).toISOString()
+    // Un servizio rilasciato a mano non aspetta la CI: «deploy NON avviato» sarebbe falso anche col verde.
+    if (v.aMano) continue
     if (r.stato === 'test_avviati') inCorso.push(r.nome)
     if (r.stato !== 'test_falliti') continue
     const t = v.test
