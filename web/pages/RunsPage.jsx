@@ -283,7 +283,7 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
       >
         <span className="ui-nm">
           <span className="ui-kicon">⏱</span>
-          <span className="ui-name" title={nomeCron(c) !== c.name ? c.name : undefined}>
+          <span className="ui-name" title={c.name}>
             {nomeCron(c)}
             <small>
               {[

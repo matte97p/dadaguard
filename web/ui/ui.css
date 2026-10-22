@@ -1503,3 +1503,52 @@
     width: 64px;
   }
 }
+
+/* ── vista compatta, sullo schermo largo ──
+   Una riga di lista deve stare in due linee: il nome (con il contesto piccolo sotto) e cosa è
+   successo. Col nome che andava a capo dove capitava (`overflow-wrap: anywhere`) una colonna stretta
+   spezzava un nome lungo su quattro linee, e qualche decina di cron faceva una pagina lunghissima:
+   per sapere se era andato tutto bene bisognava scorrerla. Il nome intero resta nel `title`
+   e nel dettaglio che la riga apre. Sotto gli 860px vale la disposizione del telefono, più sopra. */
+@media (min-width: 861px) {
+  .ui-row {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .ui-row .ui-name,
+  .ui-row .ui-name small,
+  .ui-row .ui-hint {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: normal;
+  }
+  .ui-row .ui-nm > .ui-name {
+    min-width: 0;
+  }
+  /* «Cosa è successo» al massimo su due linee: la terza era quasi sempre la stessa frase ripetuta. */
+  .ui-row > .ui-what {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+}
+/* L'icona del tipo davanti al nome costa 40px a riga: sotto i 1280px sono 40px tolti al nome. */
+@media (min-width: 861px) and (max-width: 1280px) {
+  .ui-row .ui-nm > .ui-kicon {
+    display: none;
+  }
+}
+/* Quattro tessere in una fila, o due per due: con `auto-fit` a 180px, sulla larghezza di un portatile
+   ne stavano tre, e la quarta restava da sola su una riga mezza vuota. */
+@media (min-width: 721px) {
+  .ui-tessere:has(> .ui-tessera:nth-child(4):last-child) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  .ui-tessere:has(> .ui-tessera:nth-child(4):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
