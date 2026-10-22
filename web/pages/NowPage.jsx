@@ -295,7 +295,7 @@ export default function NowPage({
       {solo && <PannelloAree conta={contaPerArea(righe)} area={area} onArea={(a) => setArea((x) => (x === a ? null : a))} t={t} />}
 
       <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
-        <Lista vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
+        <Lista compatta vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
           {righe.filter((r) => !solo || !area || areaDi(r) === area).map((r) => (
             <RigaProblema
               key={r.id}
