@@ -359,7 +359,7 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
           La barra dice quanto e' passato rispetto al solito, e diventa arancio quando lo supera. */}
       {inCorso.length > 0 && (
         <Sezione titolo={t('runs.nowTitle')} sotto={t('rilasci.cron.inCorsoSotto')}>
-          <Lista griglia={COLONNE_IN_CORSO} grigliaMobile={COLONNE_IN_CORSO_M}>
+          <Lista compatta griglia={COLONNE_IN_CORSO} grigliaMobile={COLONNE_IN_CORSO_M}>
             {inCorso.map((c) => {
               const viva = c.runs.find((r) => r.running)
               const da = durataCorsa(viva, now) ?? 0
@@ -408,13 +408,13 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
       ) : vista === 'cron' ? (
         <>
           {(listaProdotto.length > 0 || listaInfra.length === 0) && (
-            <Lista colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M} vuoto={vuoto}>
+            <Lista compatta colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M} vuoto={vuoto}>
               {listaProdotto.map(rigaCron)}
             </Lista>
           )}
           {listaInfra.length > 0 && (
             <Sezione titolo={t('rilasci.cron.infra')} sotto={t('rilasci.cron.infraSotto')}>
-              <Lista colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M}>
+              <Lista compatta colonne={colonneCron} griglia={COLONNE_CRON} grigliaMobile={COLONNE_CRON_M}>
                 {listaInfra.map(rigaCron)}
               </Lista>
             </Sezione>
@@ -422,6 +422,7 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
         </>
       ) : (
         <Lista
+          compatta
           colonne={[t('rilasci.cron.col.esito'), t('rilasci.cron.col.cron'), t('rilasci.cron.col.cosa'), t('runs.col.duration'), '']}
           griglia={COLONNE_CORSE}
           grigliaMobile={COLONNE_CORSE_M}

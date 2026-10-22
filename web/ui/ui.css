@@ -1509,34 +1509,30 @@
    successo. Col nome che andava a capo dove capitava (`overflow-wrap: anywhere`) una colonna stretta
    spezzava un nome lungo su quattro linee, e qualche decina di cron faceva una pagina lunghissima:
    per sapere se era andato tutto bene bisognava scorrerla. Il nome intero resta nel `title`
-   e nel dettaglio che la riga apre. Sotto gli 860px vale la disposizione del telefono, più sopra. */
+   e nel dettaglio che la riga apre. Sotto gli 860px vale la disposizione del telefono, più sopra.
+   ⚠️ Solo nelle liste che la chiedono (`<Lista compatta>`): applicata a tutte, in una colonna `auto`
+   il nome che non va più a capo perdeva la larghezza minima e la colonna si stringeva fino a zero, e
+   su Deploy e IAM i nomi sparivano. «Cosa è successo» non si taglia: lì sta il motivo di un errore. */
 @media (min-width: 861px) {
-  .ui-row {
+  .ui-lista-compatta .ui-row {
     padding-top: 7px;
     padding-bottom: 7px;
   }
-  .ui-row .ui-name,
-  .ui-row .ui-name small,
-  .ui-row .ui-hint {
+  .ui-lista-compatta .ui-row .ui-name,
+  .ui-lista-compatta .ui-row .ui-name small,
+  .ui-lista-compatta .ui-row .ui-hint {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     overflow-wrap: normal;
   }
-  .ui-row .ui-nm > .ui-name {
+  .ui-lista-compatta .ui-row .ui-nm > .ui-name {
     min-width: 0;
-  }
-  /* «Cosa è successo» al massimo su due linee: la terza era quasi sempre la stessa frase ripetuta. */
-  .ui-row > .ui-what {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
   }
 }
 /* L'icona del tipo davanti al nome costa 40px a riga: sotto i 1280px sono 40px tolti al nome. */
 @media (min-width: 861px) and (max-width: 1280px) {
-  .ui-row .ui-nm > .ui-kicon {
+  .ui-lista-compatta .ui-row .ui-nm > .ui-kicon {
     display: none;
   }
 }
