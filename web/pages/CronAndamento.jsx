@@ -53,7 +53,7 @@ function TabellaCron({ righe, t, d, lang, passoMs, etichettaConto, onApri }) {
   return (
     <Lista
       colonne={[col('cron'), col('corse'), col('fallite'), col('saltate'), col('solito'), col('lenti'), col('ultima')]}
-      griglia="minmax(0,1.5fr) repeat(6, minmax(80px,1fr))"
+      griglia="minmax(120px,1.5fr) repeat(6, minmax(56px,1fr))"
       grigliaMobile="minmax(0,1fr) minmax(0,1fr)"
       vuoto={t('cronStorico.vuoto')}
     >
