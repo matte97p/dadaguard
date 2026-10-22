@@ -611,6 +611,23 @@ test('allarmi: dai dati del quadro, rotti e in corso, con una firma che non camb
   assert.equal(datiAllarmi(undefined), null)
 })
 
+test('allarmi: un servizio rilasciato solo a mano non dice «deploy NON avviato» per i test del suo repo', () => {
+  const rosso = { stato: 'fallito', da: '2026-10-03T11:00:00Z', url: 'https://github.com/x/b/actions/runs/1', sha: 'bbbbbbbcccc' }
+  const qa = (trigger, test = rosso) => {
+    const q = quadroAmbiente('produzione', {
+      deploys: { production: { builds: [b('scraper', 'aaaaaaa', '2026-10-02T10:00:00Z', 'SUCCEEDED', { trigger })] } },
+      servizi: [svc('scraper', 'production', { tag: 'aaaaaaa', da: '2026-10-02T10:00:00Z' })],
+    })
+    q.app[0].test = test
+    return q
+  }
+  assert.equal(qa('manuale').app[0].aMano, true)
+  assert.deepEqual(datiAllarmi(qa('manuale'), { ora: ORA }).rotti, [])
+  assert.deepEqual(datiAllarmi(qa('manuale', { ...rosso, stato: 'in_corso' }), { ora: ORA }).inCorso, [])
+  assert.deepEqual(datiAllarmi(qa('auto'), { ora: ORA }).rotti.map((r) => r.nome), ['scraper'], 'una build della CI basta')
+  assert.deepEqual(datiAllarmi(qa('hotfix'), { ora: ORA }).rotti.map((r) => r.nome), ['scraper'], 'un hotfix non dice che il servizio si rilascia a mano')
+})
+
 test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio che segue', () => {
   const qa = (deploy) =>
     quadroAmbiente('staging', {
