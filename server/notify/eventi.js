@@ -155,11 +155,20 @@ export function normalizza(corpo) {
 // La memoria degli eventi: per ogni riga l'ultimo, quello che conta. `registra` dice se l'evento ha
 // cambiato qualcosa (un doppione o uno più vecchio no), così chi lo riceve aggiorna il quadro solo
 // quando serve.
+//
+// Accanto, il REPOSITORY di ogni servizio nominato dalla CI (`repo`): una riga lo sa solo dalle sue
+// build CodeBuild, e una risorsa che la sua CI pubblica senza CodeBuild (un cron ECS che registra da sé
+// la revisione nuova) non ne ha. Senza repository i test della CI non trovano la riga e GitHub non la
+// guarda: il rosso arrivava in coda e si perdeva. Non scade come gli eventi: è un fatto, non uno stato,
+// e lo corregge solo un evento che dice un repository diverso. Si perde a un riavvio, e il primo
+// evento dopo lo rimette.
 export function nuoviEventi() {
   const deploy = new Map() // ambiente|servizio → evento
   const test = new Map() // ambiente|owner/repo → evento
+  const repo = new Map() // ambiente|servizio → owner/repo
   return {
     registra(ev, ora = Date.now()) {
+      if (ev?.fonte === 'ci' && ev.servizio && ev.repo) repo.set(`${ev.ambiente}|${ev.servizio}`, ev.repo)
       if (!ev?.da) return false
       const [mappa, chiave] = ev.tipo === 'test' ? [test, `${ev.ambiente}|${ev.repo}`] : [deploy, `${ev.ambiente}|${ev.servizio}`]
       const prima = mappa.get(chiave)
@@ -175,9 +184,24 @@ export function nuoviEventi() {
         [test, TTL_TEST_MS],
       ])
         for (const [k, ev] of m) if (ora - ev.ricevuto > ttl) m.delete(k)
-      return { deploy, test }
+      return { deploy, test, repo }
     },
+    // Senza potare: la lettura di GitHub chiede solo i repository, e non deve far scadere gli eventi.
+    repo: () => repo,
   }
+}
+
+// Il repository della CI sulle righe che non ne hanno uno (vedi `repo` in `nuoviEventi`), nella forma
+// delle build (`https://github.com/<owner>/<repo>`): da lì lo leggono `repoDelQuadro` e `applicaTest`.
+// Una riga che il repository lo sa dalle sue build tiene il suo. Puro/testabile.
+export function applicaRepo(q, repoPerServizio) {
+  if (!repoPerServizio?.size) return q
+  for (const [amb, qa] of Object.entries(q ?? {}))
+    for (const a of qa?.app ?? []) {
+      const r = a.repo ? null : repoPerServizio.get(`${amb}|${a.servizio}`)
+      if (r) a.repo = `https://github.com/${r}`
+    }
+  return q
 }
 
 // Gli stati dei test da GitHub con quelli arrivati dalla CI: `ambiente|owner/repo` → `{ stato, da,

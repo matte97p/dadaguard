@@ -5,7 +5,7 @@ import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 import { postSlack } from './slack.js'
 import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.js'
-import { applicaEventi, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js'
+import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js'
 
 // Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
 // posto del registro in cui ogni build lascia due messaggi (`⏳` all'avvio, `🚀`/`🔴` alla fine), ogni
@@ -1316,12 +1316,14 @@ export async function aggiornaQuadri(cfg, deps = {}) {
   const dati = await deps.leggiDati()
   const ora = deps.ora ?? Date.now()
   const q = quadro({ ...dati, persone: deps.persone ?? null }, cfg.ambienti)
+  // Gli eventi arrivati dalla coda (vedi server/notify/eventi.js) anticipano quello che il giro saprà
+  // dopo: i test della CI si uniscono a quelli di GitHub, i deploy cambiano i dati delle righe. Prima di
+  // tutto il repository che la CI ha nominato, alle righe senza build: è la chiave dei test.
+  const ev = deps.eventi?.attivi(ora) ?? null
+  if (ev) applicaRepo(q, ev.repo)
   // Lo stato dei test non ferma mai il giro (`leggi` non lancia): senza GitHub il quadro dice tutto
   // il resto, come prima che ci fosse.
   const daGithub = deps.github ? await deps.github.leggi(repoDelQuadro(q, { org: deps.github.org ?? null }), { ora }) : null
-  // Gli eventi arrivati dalla coda (vedi server/notify/eventi.js) anticipano quello che il giro saprà
-  // dopo: i test della CI si uniscono a quelli di GitHub, i deploy cambiano i dati delle righe.
-  const ev = deps.eventi?.attivi(ora) ?? null
   applicaTest(q, ev ? unisciTest(daGithub, ev.test, { lettoAlle: deps.github?.lettoAlle?.() ?? null }) : daGithub)
   if (ev) applicaEventi(q, ev.deploy)
   const { info, leggiHtml } = lettoreCanali(api, scarica)
@@ -2095,7 +2097,10 @@ export function startQuadro(leggiDati, env = process.env) {
   }
   const leggi = async () => {
     const dati = await leggiDati()
-    const stati = github ? await github.leggi(repoDelQuadro(quadro({ ...dati, persone: null }, cfg.ambienti), { org: github.org ?? null }), { ora: Date.now() }) : null
+    // Coi repository nominati dalla CI (vedi `applicaRepo`): senza, una riga che li conosce solo da lì
+    // non avrebbe mai i suoi run, e il rosso della coda scadrebbe dopo un minuto e mezzo come «verde».
+    const qLetto = applicaRepo(quadro({ ...dati, persone: null }, cfg.ambienti), eventi.repo())
+    const stati = github ? await github.leggi(repoDelQuadro(qLetto, { org: github.org ?? null }), { ora: Date.now() }) : null
     letti = { dati, stati }
   }
   const tick = () => {
