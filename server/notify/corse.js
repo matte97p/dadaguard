@@ -111,17 +111,19 @@ export const MAX_MODIFICHE_CORSE = 8
 export const MAX_RIGHE_NUOVE_CORSE = 30
 export const TUTTI = 'tutti'
 export const SQUADRA_INFRA = 'infra'
-export const INTESTAZIONE_CORSE = ['Cron', 'Stato', 'Ultima corsa', 'Prossima']
+export const INTESTAZIONE_CORSE = ['Cron', 'Status', 'Last run', 'Next']
 // Quanti cron il paragrafo «Da guardare» nomina: oltre, li conta.
 const MAX_DA_GUARDARE = 12
 const MOTIVO_BREVE = 60
-const VUOTO = 'n/d'
+const VUOTO = 'n/a'
 const SEP = ' · '
 
-export const titoloCorse = (chiave) => `Corse cron ${String(chiave).toUpperCase()}`
+// La chiave nel titolo, in inglese come il resto del canale: `tutti` resta la chiave della configurazione.
+const chiaveTitolo = (chiave) => (chiave === TUTTI ? 'ALL' : String(chiave).toUpperCase())
+export const titoloCorse = (chiave) => `Cron runs ${chiaveTitolo(chiave)}`
 // La List ha un titolo suo, come quelle del quadro («Lista deploy …» accanto a «Quadro deploy …»): nel
 // canale, fra le schede e nella ricerca, canvas e List con lo stesso nome non si distinguerebbero.
-export const titoloListaCorse = (chiave) => `Lista corse cron ${String(chiave).toUpperCase()}`
+export const titoloListaCorse = (chiave) => `Cron runs list ${chiaveTitolo(chiave)}`
 
 export function corseConfig(env = process.env) {
   const q = quadroConfig(env)
@@ -218,9 +220,9 @@ export function durataCorsaTesto(ms) {
 // La cadenza di uno schedule `rate(...)`, quando l'ora della prossima corsa non si sa. Puro.
 function ogni(minuti) {
   if (!(minuti > 0)) return null
-  if (minuti < 60) return `ogni ${minuti} min`
-  if (minuti % 1440 === 0) return minuti === 1440 ? 'ogni giorno' : `ogni ${minuti / 1440} g`
-  return minuti % 60 === 0 ? `ogni ${minuti / 60} h` : `ogni ${minuti} min`
+  if (minuti < 60) return `every ${minuti} min`
+  if (minuti % 1440 === 0) return minuti === 1440 ? 'every day' : `every ${minuti / 1440} d`
+  return minuti % 60 === 0 ? `every ${minuti / 60} h` : `every ${minuti} min`
 }
 
 const durataDi = (r) => (r?.durationMs != null ? r.durationMs : r?.startedAt && r?.endedAt ? r.endedAt - r.startedAt : null)
@@ -236,18 +238,18 @@ export const linkCron = (cron, url) => (url && cron?.key ? `${url}/cron?cron=${e
 
 // «Cosa è successo» di un cron, come lo dice la pagina (`cosaCron` in web/pages/RunsPage.jsx), con
 // l'orario fisso al posto di «X fa». Puro/testabile.
-export function ultimaCorsaTesto(c, stato, { ora = Date.now(), t = makeT('it') } = {}) {
+export function ultimaCorsaTesto(c, stato, { ora = Date.now(), t = makeT('en') } = {}) {
   const runs = c.runs ?? []
   const viva = runs.find((r) => r.running)
   const ultima = runs.find((r) => !r.running)
   if (viva) {
     // «dalle 08:41» e non «da 12 min»: fisso, come ogni tempo del canvas.
-    const prima = ultima?.outcome === 'failed' ? `prima: ${tronca(motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit'), MOTIVO_BREVE)}` : null
-    return [`In corso ${viva.startedAt ? dalle(viva.startedAt, ora) : ''}`.trim(), prima].filter(Boolean).join(SEP)
+    const prima = ultima?.outcome === 'failed' ? `before: ${tronca(motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit'), MOTIVO_BREVE)}` : null
+    return [`${t('rilasci.cron.stato.info')} ${viva.startedAt ? dalle(viva.startedAt, ora) : ''}`.trim(), prima].filter(Boolean).join(SEP)
   }
   if (!runs.length) {
     if (stato === 'off') return t('rilasci.cron.spentoHint')
-    return [t('rilasci.cron.nonPartito'), c.error && `errore: ${tronca(c.error, MOTIVO_BREVE)}`].filter(Boolean).join(SEP)
+    return [t('rilasci.cron.nonPartito'), c.error && `error: ${tronca(c.error, MOTIVO_BREVE)}`].filter(Boolean).join(SEP)
   }
   const quando = quandoBreve(ultima?.startedAt, ora) ?? '?'
   if (ultima?.outcome === 'failed') return [t('rilasci.cron.fallito', { quando }), tronca(motivoCorsa(ultima, t), MOTIVO_BREVE)].filter(Boolean).join(SEP)
@@ -257,7 +259,7 @@ export function ultimaCorsaTesto(c, stato, { ora = Date.now(), t = makeT('it') }
 
 // Una riga della tabella: nome, stato, ultima corsa, prossima, e le celle pronte per il canvas.
 // Puro/testabile.
-export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('it') } = {}) {
+export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('en') } = {}) {
   const stato = statoCron(c)
   // L'etichetta la decide `canvasCorse` sulla lista del canvas (percorso del codice, distinto se due
   // job lanciano lo stesso script); chiamata da sola, la riga ha il nome breve di oggi.
@@ -276,7 +278,7 @@ export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('it') } =
     account: c.account ?? null,
     link,
     celle: [
-      cella(c.codiceUrl ? `${nomeCella}${SEP}[codice](${c.codiceUrl})` : nomeCella),
+      cella(c.codiceUrl ? `${nomeCella}${SEP}[code](${c.codiceUrl})` : nomeCella),
       cella(`${EMOJI_LIVELLO[stato]} ${t(`rilasci.cron.stato.${stato}`)}`),
       cella(ultima),
       cella(prossima),
@@ -286,7 +288,7 @@ export function rigaCorsa(c, { ora = Date.now(), url = null, t = makeT('it') } =
 
 // Il verdetto su un gruppo di cron, in una riga: la parte forte in grassetto, come in cima alla pagina.
 // Puro/testabile.
-export function verdettoTesto(crons = [], { t = makeT('it') } = {}) {
+export function verdettoTesto(crons = [], { t = makeT('en') } = {}) {
   const conti = contaCron(crons)
   const v = verdettoCron(conti)
   return { livello: v.livello, conti, testo: `${EMOJI_LIVELLO[v.livello]} **${t(...v.forte)}**${v.resto ? t(...v.resto) : ''}` }
@@ -297,14 +299,14 @@ export function verdettoTesto(crons = [], { t = makeT('it') } = {}) {
 // cui schedule non si sono lette (`problemi`) ha la sua sezione lo stesso, senza righe: le righe che
 // il canvas ha già restano com'erano (vedi `tollera` in `pianoCelle`), e il paragrafo lo dice.
 // Puro/testabile.
-export function sezioniCorse(crons = [], { etichette = {}, problemi = [], ora = Date.now(), url = null, t = makeT('it') } = {}) {
+export function sezioniCorse(crons = [], { etichette = {}, problemi = [], ora = Date.now(), url = null, t = makeT('en') } = {}) {
   const perAccount = new Map()
   for (const c of crons) {
     const k = c.account ?? '?'
     if (!perAccount.has(k)) perAccount.set(k, [])
     perAccount.get(k).push(c)
   }
-  const errori = new Map(problemi.filter((p) => p?.account).map((p) => [p.account, p.error ?? 'non letto']))
+  const errori = new Map(problemi.filter((p) => p?.account).map((p) => [p.account, p.error ?? 'not read']))
   for (const k of errori.keys()) if (!perAccount.has(k)) perAccount.set(k, [])
   const chiavi = [...perAccount.keys()].sort((a, b) => rangoAmbiente(a) - rangoAmbiente(b) || perNome(etichette[a] ?? a, etichette[b] ?? b))
   const quantiPerAmbiente = new Map()
@@ -320,7 +322,7 @@ export function sezioniCorse(crons = [], { etichette = {}, problemi = [], ora = 
     const righe = lista.map((c) => rigaCorsa(c, { ora, url, t })).sort((a, b) => perNome(a.nome, b.nome))
     const errore = errori.get(k)
     const sintesi = errore
-      ? `⚠️ **cron non letti**: ${cella(tronca(errore, 200))}`
+      ? `⚠️ **crons not read**: ${cella(tronca(errore, 200))}`
       : `${verdettoTesto(lista, { t }).testo}${SEP}${lista.length} cron`
     return { account: k, ambiente: amb, tag: amb ? AMBIENTI[amb].tag : etichetta, titolo, sintesi, righe, tollera: Boolean(errore) }
   })
@@ -333,10 +335,10 @@ export function daGuardare(sezioni = [], { max = MAX_DA_GUARDARE } = {}) {
   const voci = sezioni
     .flatMap((s, i) => s.righe.filter((r) => ['crit', 'warn', 'info'].includes(r.stato)).map((r) => ({ ...r, tag: s.tag, ordine: i })))
     .sort((a, b) => RANGO_LIVELLO[a.stato] - RANGO_LIVELLO[b.stato] || a.ordine - b.ordine || perNome(a.nome, b.nome))
-  if (!voci.length) return 'Da guardare: niente'
+  if (!voci.length) return 'To check: nothing'
   const nomi = voci.slice(0, max).map((r) => `${EMOJI_LIVELLO[r.stato]} ${r.link ? `[${r.nome}](${r.link})` : r.nome} (${r.tag})`)
-  const altri = voci.length > max ? ` e altri ${voci.length - max}` : ''
-  return `**Da guardare**: ${nomi.join(SEP)}${altri}`
+  const altri = voci.length > max ? ` and ${voci.length - max} more` : ''
+  return `**To check**: ${nomi.join(SEP)}${altri}`
 }
 
 // Il canvas di una chiave: il riepilogo (verdetto, «Da guardare» e il link alla List del canale) e,
@@ -355,7 +357,7 @@ export function daGuardare(sezioni = [], { max = MAX_DA_GUARDARE } = {}) {
 export function canvasCorse(
   chiave,
   crons = [],
-  { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('it'), squadre = {}, infra = null, lista = null, tabelle = false } = {},
+  { etichette = {}, problemi = [], ora = Date.now(), url = null, finestraOre = 24, t = makeT('en'), squadre = {}, infra = null, lista = null, tabelle = false } = {},
 ) {
   const breve = (c) => nomeBreve(c.name)
   const nomi = etichetteCron(crons, { nome: breve, breve })
@@ -368,16 +370,16 @@ export function canvasCorse(
   const verdetto = verdettoTesto(crons, { t })
   // La List prima del link a Dadaguard: è il dettaglio di questo canvas, e un'API per metterla fra le
   // schede del canale non c'è (vedi `creaLista` in quadro.js), quindi da qui la si apre a un clic.
-  const link = [lista?.url && `[${titoloListaCorse(chiave)}](${lista.url})`, url && `[Cron su Dadaguard](${url}/cron)`].filter(Boolean)
+  const link = [lista?.url && `[${titoloListaCorse(chiave)}](${lista.url})`, url && `[Crons on Dadaguard](${url}/cron)`].filter(Boolean)
   // «Tutti i cron sono a posto» su zero cron sarebbe vero e inutile, e con un account non letto non lo
   // si sa: lo si dice accanto al verdetto, che vale solo per i cron letti.
   const nonLetti = sezioni.filter((s) => s.tollera).map((s) => s.titolo)
-  const sintesi = crons.length ? `${verdetto.testo}${SEP}${crons.length} cron` : '➖ **nessun cron**'
+  const sintesi = crons.length ? `${verdetto.testo}${SEP}${crons.length} cron` : '➖ **no crons**'
   const riepilogo = {
-    titolo: 'Riepilogo',
-    sintesi: nonLetti.length ? `${sintesi}${SEP}⚠️ non letti: ${nonLetti.join(', ')}` : sintesi,
+    titolo: 'Summary',
+    sintesi: nonLetti.length ? `${sintesi}${SEP}⚠️ not read: ${nonLetti.join(', ')}` : sintesi,
     righe: [],
-    fondo: `${daGuardare(sezioni)}  |  ultime ${finestraOre} h${link.length ? `${SEP}${link.join(SEP)}` : ''}`,
+    fondo: `${daGuardare(sezioni)}  |  last ${finestraOre} h${link.length ? `${SEP}${link.join(SEP)}` : ''}`,
   }
   const modello = {
     sezioni: [
@@ -398,7 +400,7 @@ export function canvasCorse(
 // Tutti i canvas di un giro, uno per canale, dalla STESSA lettura: i cron si leggono una volta e si
 // filtrano per canale, quindi tre canali non sono tre giri sui log. Puro/testabile.
 // `liste`: chiave → indirizzo della List del canale, per il link in fondo al riepilogo.
-export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('it'), liste = {} } = {}) {
+export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('en'), liste = {} } = {}) {
   const ov = dati?.overview ?? {}
   // Solo i cron di AWS: l'orchestratore non ha un account, e la sua lista non la legge questo giro.
   const crons = (ov.crons ?? []).filter((c) => c.type !== 'prefect')
@@ -433,22 +435,22 @@ export function canvasCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('
 // creazione della List e l'API non li cambia più (vedi `listaVecchia` in quadro.js): cambiarli vuol
 // dire cancellare la List a mano e lasciare che il giro dopo ne crei una nuova.
 
-const T_IT = makeT('it')
+const T_EN = makeT('en')
 const COLORE_LIVELLO = { crit: 'red', warn: 'yellow', info: 'blue', ok: 'green', off: 'gray' }
 // Le scelte della colonna Stato: i `value` sono i livelli di `statoCron`, dal più grave, le etichette
 // le parole della pagina («❌ Fallito», «⚠️ Non partito», «⏳ In corso», «✅ Ok», «➖ Spento»).
 export const STATI_CORSE = Object.fromEntries(
-  Object.keys(RANGO_LIVELLO).map((l) => [l, { emoji: EMOJI_LIVELLO[l], etichetta: T_IT(`rilasci.cron.stato.${l}`), colore: COLORE_LIVELLO[l] }]),
+  Object.keys(RANGO_LIVELLO).map((l) => [l, { emoji: EMOJI_LIVELLO[l], etichetta: T_EN(`rilasci.cron.stato.${l}`), colore: COLORE_LIVELLO[l] }]),
 )
 // L'ambiente dell'account, coi colori del quadro. Un account che non è né produzione né staging (uno
 // di servizio) è `altro`, e il suo nome va accanto a quello del cron (vedi `nomiLista`).
 export const AMBIENTE_ALTRO = 'altro'
 const AMBIENTI_CORSE = {
-  produzione: { etichetta: 'produzione', colore: 'red' },
+  produzione: { etichetta: 'production', colore: 'red' },
   staging: { etichetta: 'staging', colore: 'yellow' },
-  [AMBIENTE_ALTRO]: { etichetta: 'altro', colore: 'gray' },
+  [AMBIENTE_ALTRO]: { etichetta: 'other', colore: 'gray' },
 }
-const SEZIONI_CORSE = { prodotto: { etichetta: 'prodotto', colore: 'blue' }, infra: { etichetta: 'infra', colore: 'purple' } }
+const SEZIONI_CORSE = { prodotto: { etichetta: 'product', colore: 'blue' }, infra: { etichetta: 'infra', colore: 'purple' } }
 export const ambienteLista = (account) => ambienteDi(account ?? '') ?? AMBIENTE_ALTRO
 
 // Lo schema di una List delle corse. La colonna Sezione c'è solo nella List di tutti, e solo con una
@@ -457,13 +459,13 @@ export const ambienteLista = (account) => ambienteDi(account ?? '') ?? AMBIENTE_
 export function schemaCorse({ sezione = false } = {}) {
   return [
     { key: 'cron', name: 'Cron', type: 'text', is_primary_column: true },
-    { key: 'ambiente', name: 'Ambiente', type: 'select', options: scelte(AMBIENTI_CORSE) },
-    { key: 'stato', name: 'Stato', type: 'select', options: scelte(STATI_CORSE) },
-    ...(sezione ? [{ key: 'sezione', name: 'Sezione', type: 'select', options: scelte(SEZIONI_CORSE) }] : []),
-    { key: 'ultima', name: 'Ultima corsa', type: 'text' },
-    { key: 'prossima', name: 'Prossima', type: 'text' },
-    { key: 'dettagli', name: 'Dettagli', type: 'text' },
-    { key: 'codice', name: 'Codice', type: 'text' },
+    { key: 'ambiente', name: 'Environment', type: 'select', options: scelte(AMBIENTI_CORSE) },
+    { key: 'stato', name: 'Status', type: 'select', options: scelte(STATI_CORSE) },
+    ...(sezione ? [{ key: 'sezione', name: 'Section', type: 'select', options: scelte(SEZIONI_CORSE) }] : []),
+    { key: 'ultima', name: 'Last run', type: 'text' },
+    { key: 'prossima', name: 'Next', type: 'text' },
+    { key: 'dettagli', name: 'Details', type: 'text' },
+    { key: 'codice', name: 'Code', type: 'text' },
   ]
 }
 
@@ -507,7 +509,7 @@ const DETTAGLI_BREVI = 150
 
 // L'ultima corsa a orario fisso, come nel canvas: «oggi 03:10 · 45 s», «In corso dalle 08:41». Com'è
 // finita lo dice la colonna Stato, il perché i Dettagli. Puro/testabile.
-export function ultimaCorsaLista(c, { ora = Date.now(), t = makeT('it') } = {}) {
+export function ultimaCorsaLista(c, { ora = Date.now(), t = makeT('en') } = {}) {
   const runs = c.runs ?? []
   const viva = runs.find((r) => r.running)
   if (viva) return `${t('rilasci.cron.stato.info')} ${viva.startedAt ? dalle(viva.startedAt, ora) : ''}`.trim()
@@ -520,13 +522,13 @@ export function ultimaCorsaLista(c, { ora = Date.now(), t = makeT('it') } = {}) 
 // corsa in corso, «non è partito», «spento di proposito», il reaper quando è un problema. Niente da
 // dire (una corsa andata bene) è `n/d`, perché una cella di testo vuota la List la disegna con
 // un'icona segnaposto. Puro/testabile.
-export function dettagliCorsa(c, stato, { ora = Date.now(), t = makeT('it') } = {}) {
+export function dettagliCorsa(c, stato, { ora = Date.now(), t = makeT('en') } = {}) {
   const runs = c.runs ?? []
   const viva = runs.find((r) => r.running)
   const ultima = runs.find((r) => !r.running)
   let proprio = null
-  if (viva) proprio = ultima?.outcome === 'failed' ? `prima: ${motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit')}` : null
-  else if (!runs.length) proprio = stato === 'off' ? t('rilasci.cron.spentoHint') : [t('rilasci.cron.nonPartito'), c.error && `errore: ${c.error}`].filter(Boolean).join(SEP)
+  if (viva) proprio = ultima?.outcome === 'failed' ? `before: ${motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit')}` : null
+  else if (!runs.length) proprio = stato === 'off' ? t('rilasci.cron.spentoHint') : [t('rilasci.cron.nonPartito'), c.error && `error: ${c.error}`].filter(Boolean).join(SEP)
   else proprio = motivoCorsa(ultima, t)
   const sr = statoReaper(c)
   const reaper = sr && stato !== 'off' && (sr === 'crit' || sr === 'warn') ? `reaper: ${ultimaCorsaTesto(c.reaper, sr, { ora, t })}` : null
@@ -554,7 +556,7 @@ export function nomiLista(crons = [], { etichette = {}, problemi = [], tutti = c
 }
 
 // Una riga della List, coi valori pronti per `celleCorsa`. Puro/testabile.
-export function voceLista(c, { nome, ora = Date.now(), url = null, t = makeT('it'), sezione = null } = {}) {
+export function voceLista(c, { nome, ora = Date.now(), url = null, t = makeT('en'), sezione = null } = {}) {
   const stato = statoCron(c)
   return {
     nome: nome ?? nomeBreve(c.name),
@@ -567,7 +569,7 @@ export function voceLista(c, { nome, ora = Date.now(), url = null, t = makeT('it
     dettagli: dettagliCorsa(c, stato, { ora, t }),
     // Il repository del codice come testo, col link al percorso: si ordina e si filtra per repository,
     // e il percorso intero è già il nome della riga. Senza org il repository resta senza link.
-    codice: repoDelCodice(c.codice) ?? (c.codiceUrl ? 'codice' : VUOTO),
+    codice: repoDelCodice(c.codice) ?? (c.codiceUrl ? 'code' : VUOTO),
     codiceUrl: c.codiceUrl ?? null,
   }
 }
@@ -581,7 +583,7 @@ export function voceLista(c, { nome, ora = Date.now(), url = null, t = makeT('it
 // pur avendo un account (`etichette`): un ambiente intero vuoto è quasi sempre una lettura andata
 // male, e allinearsi vorrebbe dire cancellare tutte le sue righe per ricrearle al giro dopo. Lo stesso
 // criterio delle List del quadro (`listeDaScrivere`).
-export function listeCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('it') } = {}) {
+export function listeCorseDaScrivere(dati, cfg, { ora = Date.now(), t = makeT('en') } = {}) {
   const ov = dati?.overview ?? {}
   const crons = (ov.crons ?? []).filter((c) => c.type !== 'prefect')
   const etichette = dati?.etichette ?? {}
@@ -660,10 +662,10 @@ export async function aggiornaCorse(cfg, deps = {}) {
 // si dice «la List», non «il canvas». Puro/testabile.
 export function testoAvvisoCorse(a, { ora = Date.now(), url = null } = {}) {
   const lista = String(a.ambiente).startsWith('corse-lista-')
-  const tag = `${lista ? 'LISTA ' : ''}${String(a.ambiente).replace(/^corse-(lista-)?/, '').toUpperCase()}`
-  if (a.tipo === 'rientrato') return `✅ \`corse cron\` [${tag}] rientrato · di nuovo aggiornato dopo ${eta(a.fermoDa, ora)} fermo`
-  const link = url ? `${SEP}<${url}/cron|cron su Dadaguard>` : ''
-  return `⚠️ \`corse cron\` [${tag}] FERMO · ${lista ? 'la List' : 'il canvas'} non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
+  const tag = `${lista ? 'LIST ' : ''}${chiaveTitolo(String(a.ambiente).replace(/^corse-(lista-)?/, ''))}`
+  if (a.tipo === 'rientrato') return `✅ \`cron runs\` [${tag}] recovered · updating again after ${eta(a.fermoDa, ora)} stopped`
+  const link = url ? `${SEP}<${url}/cron|crons on Dadaguard>` : ''
+  return `⚠️ \`cron runs\` [${tag}] STOPPED · ${lista ? 'the List' : 'the canvas'} has not updated for ${eta(a.fermoDa, ora)}${SEP}last error: ${tronca(a.errore ?? 'unknown', 200)}${link}`
 }
 
 export function startCorse(leggiDati, env = process.env) {

@@ -117,12 +117,12 @@ const FALLITI = new Set(['FAILED', 'FAULT', 'TIMED_OUT', 'STOPPED'])
 // emoji restano dove dicono qualcosa, cioè sullo STATO di una riga. I canvas e le List nati coi titoli
 // vecchi si riconoscono lo stesso (`stessoTitolo`) e si rinominano sul posto al primo giro.
 export const AMBIENTI = {
-  produzione: { titolo: 'Quadro deploy PRODUZIONE', tag: 'PROD', sezione: 'Produzione' },
-  staging: { titolo: 'Quadro deploy STAGING', tag: 'STAGING', sezione: 'Staging' },
+  produzione: { titolo: 'Deploy board PRODUCTION', tag: 'PROD', sezione: 'Production' },
+  staging: { titolo: 'Deploy board STAGING', tag: 'STAGING', sezione: 'Staging' },
 }
 // Le schede che attraversano gli ambienti, una sezione per ambiente dentro.
-export const TITOLO_CRON = 'Quadro deploy CRON'
-export const titoloSquadra = (s) => `Quadro deploy ${String(s).toUpperCase()}`
+export const TITOLO_CRON = 'Deploy board CRON'
+export const titoloSquadra = (s) => `Deploy board ${String(s).toUpperCase()}`
 
 export function quadroConfig(env = process.env) {
   // `produzione=C0123,staging=C0456`. L'ordine è quello dei giri; un ambiente che non conosciamo si
@@ -189,7 +189,7 @@ export function chiLeggibile(chi) {
 
 const daIac = (chi) => /^IaC\b/.test(chi ?? '')
 // «da matte97p», ma «dall'IaC»: la preposizione si lega alla vocale.
-export const daChi = (chi) => (chi ? (daIac(chi) ? `dall'${chi}` : `da ${chi}`) : null)
+export const daChi = (chi) => (chi ? `by ${chi}` : null)
 
 // ── I dati ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -588,7 +588,7 @@ export function eta(iso, ora = Date.now()) {
   if (min < 60) return `${min} min`
   const ore = Math.round(min / 60)
   if (ore < 24) return `${ore} h`
-  return `${Math.round(ore / 24)} g`
+  return `${Math.round(ore / 24)} d`
 }
 
 // Quando, con l'orario e non «X min fa» (Europe/Rome): «alle 08:10», «ieri alle 18:30», «il 03/10 alle
@@ -602,13 +602,13 @@ export function alle(iso, ora = Date.now()) {
   const giorno = (d) => fmt(d, { year: 'numeric', month: '2-digit', day: '2-digit' })
   const d = new Date(iso)
   const ore = fmt(d, { hour: '2-digit', minute: '2-digit' })
-  if (giorno(d) === giorno(new Date(ora))) return `alle ${ore}`
-  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `ieri alle ${ore}`
-  return `il ${fmt(d, { day: '2-digit', month: '2-digit' })} alle ${ore}`
+  if (giorno(d) === giorno(new Date(ora))) return `at ${ore}`
+  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `yesterday at ${ore}`
+  return `on ${fmt(d, { day: '2-digit', month: '2-digit' })} at ${ore}`
 }
 
 // «dalle 08:41», «da ieri alle 22:07»: l'inizio di qualcosa in corso, fisso come `alle`. Puro.
-export const dalle = (iso, ora = Date.now()) => alle(iso, ora).replace(/^alle /, 'dalle ').replace(/^(ieri|il) /, 'da $1 ')
+export const dalle = (iso, ora = Date.now()) => alle(iso, ora).replace(/^(at|on) /, 'since ').replace(/^yesterday /, 'since yesterday ')
 
 // La durata di una build: «45 s», «6 min». Puro.
 export function durata(ms) {
@@ -624,7 +624,7 @@ const sha = (c, repo) => (c ? (repo && tagDiCommit(c) ? `[${c}](${repo}/commit/$
 const linkCommit = (c, repo) => (c && repo && tagDiCommit(c) ? { url: `${repo}/commit/${c}`, nome: c } : null)
 const tronca = (s, n) => (String(s).length > n ? `${String(s).slice(0, n - 1)}…` : String(s))
 // Un elenco di nomi lungo si accorcia: i primi, poi quanti altri.
-const elenco = (nomi, n = 6) => (nomi.length > n ? `${nomi.slice(0, n).join(', ')} e altri ${nomi.length - n}` : nomi.join(', '))
+const elenco = (nomi, n = 6) => (nomi.length > n ? `${nomi.slice(0, n).join(', ')} and ${nomi.length - n} more` : nomi.join(', '))
 const plurale = (n, uno, tanti) => `${n} ${n === 1 ? uno : tanti}`
 export const cella = (t) => String(t ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|')
 
@@ -646,11 +646,11 @@ export function linkRisorsa(v, url) {
 function comeTesto(c) {
   if (!c) return null
   const chi = c.chi ? ` ${daChi(c.chi)}` : ''
-  if (c.tipo === 'ci') return `build #${c.build ?? '?'} della CI${durata(c.durataMs) ? ` in ${durata(c.durataMs)}` : ''}`
-  if (c.tipo === 'hotfix') return `hotfix forzato${chi}, build #${c.build ?? '?'}`
-  if (c.tipo === 'manuale') return `build #${c.build ?? '?'} avviata a mano${chi}`
-  if (c.tipo === 'riavvio') return `riavviato a mano${chi}`
-  return `revisione registrata${chi}${c.build ? `, immagine della build #${c.build}` : ', nessuna build'}`
+  if (c.tipo === 'ci') return `CI build #${c.build ?? '?'}${durata(c.durataMs) ? ` in ${durata(c.durataMs)}` : ''}`
+  if (c.tipo === 'hotfix') return `forced hotfix${chi}, build #${c.build ?? '?'}`
+  if (c.tipo === 'manuale') return `build #${c.build ?? '?'} started manually${chi}`
+  if (c.tipo === 'riavvio') return `restarted manually${chi}`
+  return `revision registered${chi}${c.build ? `, image from build #${c.build}` : ', no build'}`
 }
 
 // Una «voce» del quadro: dove va (`adesso` o `recente`), quanto pesa, e cosa dire (emoji e nome,
@@ -666,17 +666,17 @@ export function voce(v, { ora = Date.now() } = {}) {
       quando: v.quando,
       emoji: '⚙️',
       nome: v.n === 1 ? v.nomi[0] : `${v.n} Lambda`,
-      stato: `${v.n === 1 ? 'Lambda aggiornata' : 'aggiornate insieme'}${SEP}${alle(v.quando, ora)}`,
+      stato: `${v.n === 1 ? 'Lambda updated' : 'updated together'}${SEP}${alle(v.quando, ora)}`,
       dettagli: [daChi(v.chi), v.n > 1 && elenco(v.nomi)],
     }
   if (v.tipo === 'esterno') {
-    const tag = `\`${v.tag}\`${v.nomi.length > 1 ? ` su ${v.nomi.length}` : ''}`
+    const tag = `\`${v.tag}\`${v.nomi.length > 1 ? ` on ${v.nomi.length}` : ''}`
     const base = { quando: v.quando, emoji: '📦', nome: v.nome }
-    if (v.giu) return { ...base, livello: 'adesso', gravita: 0, emoji: '🚨', stato: 'giù', dettagli: [tag, 'componente esterno'] }
+    if (v.giu) return { ...base, livello: 'adesso', gravita: 0, emoji: '🚨', stato: 'down', dettagli: [tag, 'external component'] }
     if (v.inRollout)
-      return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in corso', dettagli: [tag, 'componente esterno, versione fissata dall’IaC'] }
+      return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: 'rollout in progress', dettagli: [tag, 'external component, version pinned by IaC'] }
     // Chi l'ha cambiato si dice solo se non è l'IaC stessa: «fissata dall'IaC, dall'IaC» non informa.
-    return { ...base, livello: 'recente', gravita: 4, stato: `${tag}${SEP}${alle(v.quando, ora)}`, dettagli: ['componente esterno, versione fissata dall’IaC', !daIac(v.chi) && daChi(v.chi)] }
+    return { ...base, livello: 'recente', gravita: 4, stato: `${tag}${SEP}${alle(v.quando, ora)}`, dettagli: ['external component, version pinned by IaC', !daIac(v.chi) && daChi(v.chi)] }
   }
   if (v.tipo === 'iac') return voceIac(v, ora)
   return null
@@ -685,7 +685,7 @@ export function voce(v, { ora = Date.now() } = {}) {
 function voceApp(r, ora) {
   const c = sha(r.commit, r.repo)
   const rev = r.revisione ? `rev ${r.revisione}` : null
-  const salute = [r.task && `${r.task} task`, r.target && `${r.target} target sani`].filter(Boolean).join(', ') || null
+  const salute = [r.task && `${r.task} tasks`, r.target && `${r.target} healthy targets`].filter(Boolean).join(', ') || null
   const t = r.tentativo
   const base = { nome: r.servizio }
   if (r.stato === 'giu')
@@ -695,15 +695,15 @@ function voceApp(r, ora) {
       gravita: 0,
       quando: r.quando,
       emoji: '🚨',
-      stato: `giù: ${r.task ?? '?'} task attivi`,
-      dettagli: [`gira ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} target sani`, r.quando && `ultimo cambio ${alle(r.quando, ora)}`],
+      stato: `down: ${r.task ?? '?'} tasks running`,
+      dettagli: [`running ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} healthy targets`, r.quando && `last change ${alle(r.quando, ora)}`],
     }
   if (r.stato === 'fallito') {
     // Un rosso da solo fa credere il servizio giù: si dice cosa sta ancora girando.
-    const gira = r.commit ? `gira ancora ${c}${rev ? ` (${rev})` : ''}` : 'nessun rilascio riuscito visto'
-    const motivo = t.motivo && `motivo: ${tronca(t.motivo, 140)}`
+    const gira = r.commit ? `still running ${c}${rev ? ` (${rev})` : ''}` : 'no successful release seen'
+    const motivo = t.motivo && `reason: ${tronca(t.motivo, 140)}`
     if (t.riavvio)
-      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `riavvio a mano fallito ${alle(t.da, ora)}`, dettagli: [daChi(t.chi), motivo, gira] }
+      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `manual restart failed ${alle(t.da, ora)}`, dettagli: [daChi(t.chi), motivo, gira] }
     return {
       ...base,
       livello: 'adesso',
@@ -712,25 +712,25 @@ function voceApp(r, ora) {
       emoji: '❌',
       // Il guasto è LA build: l'evento e il giro la vedono con orari diversi di qualche secondo.
       guasto: t.numero ? `build#${t.numero}` : null,
-      stato: `build${t.numero ? ` #${t.numero}` : ''} fallita${t.fase ? ` al ${t.fase}` : ''} ${alle(t.da, ora)}`,
-      dettagli: [gira, t.commit && `tentava ${sha(t.commit, r.repo)}`, t.chi && `di ${t.chi}`, motivo, t.log && `[log della build](${t.log})`],
+      stato: `build${t.numero ? ` #${t.numero}` : ''} failed${t.fase ? ` in ${t.fase}` : ''} ${alle(t.da, ora)}`,
+      dettagli: [gira, t.commit && `was trying ${sha(t.commit, r.repo)}`, t.chi && `by ${t.chi}`, motivo, t.log && `[build log](${t.log})`],
     }
   }
   if (r.stato === 'in_corso') {
     if (t) {
-      const tipico = durata(r.durataTipica) ? `, di solito ${durata(r.durataTipica)}` : ''
-      const verso = t.commit && !stessoCommit(t.commit, r.commit) ? `da ${c} a ${sha(t.commit, r.repo)}` : `commit ${sha(t.commit ?? r.commit, r.repo)}`
+      const tipico = durata(r.durataTipica) ? `, usually ${durata(r.durataTipica)}` : ''
+      const verso = t.commit && !stessoCommit(t.commit, r.commit) ? `from ${c} to ${sha(t.commit, r.repo)}` : `commit ${sha(t.commit ?? r.commit, r.repo)}`
       return {
         ...base,
         livello: 'adesso',
         gravita: 3,
         quando: t.da,
         emoji: '⏳',
-        stato: `build${t.numero ? ` #${t.numero}` : ''} in corso ${dalle(t.da, ora)}${tipico}`,
-        dettagli: [t.fase && `fase ${t.fase}`, verso, t.chi && `di ${t.chi}`, salute],
+        stato: `build${t.numero ? ` #${t.numero}` : ''} running ${dalle(t.da, ora)}${tipico}`,
+        dettagli: [t.fase && `phase ${t.fase}`, verso, t.chi && `by ${t.chi}`, salute],
       }
     }
-    return { ...base, livello: 'adesso', gravita: 3, quando: r.quando, emoji: '⏳', stato: 'rollout in corso', dettagli: [`${c}${rev ? ` (${rev})` : ''}`, salute, comeTesto(r.come)] }
+    return { ...base, livello: 'adesso', gravita: 3, quando: r.quando, emoji: '⏳', stato: 'rollout in progress', dettagli: [`${c}${rev ? ` (${rev})` : ''}`, salute, comeTesto(r.come)] }
   }
   // Un'immagine condivisa su cui questa risorsa è rimasta indietro rispetto alle altre.
   const cond = r.condivisa
@@ -741,8 +741,8 @@ function voceApp(r, ora) {
       gravita: 2,
       quando: r.quando,
       emoji: '⚠️',
-      stato: 'su un’immagine più vecchia',
-      dettagli: [`gira ${c}`, `la più recente è ${sha(cond.tag, r.repo)}`, `stessa immagine di ${cond.n}`],
+      stato: 'on an older image',
+      dettagli: [`running ${c}`, `the newest is ${sha(cond.tag, r.repo)}`, `image shared by ${cond.n}`],
     }
   return {
     ...base,
@@ -751,7 +751,7 @@ function voceApp(r, ora) {
     quando: r.quando,
     emoji: '🚀',
     stato: `${c}${SEP}${alle(r.quando, ora)}`,
-    dettagli: [rev, salute, comeTesto(r.come), r.autore && `commit di ${r.autore}`, r.staging && `staging su \`${r.staging}\``],
+    dettagli: [rev, salute, comeTesto(r.come), r.autore && `commit by ${r.autore}`, r.staging && `staging on \`${r.staging}\``],
   }
 }
 
@@ -760,8 +760,8 @@ function voceIac(i, ora) {
   const build = i.numero ? `build #${i.numero}` : null
   const base = { nome: 'IaC', quando: i.quando }
   if (i.stato === 'in_corso') {
-    const tipico = durata(i.durataTipica) ? `, di solito ${durata(i.durataTipica)}` : ''
-    return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: `apply in corso ${dalle(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `fase ${i.fase}`, i.chi && `di ${i.chi}`] }
+    const tipico = durata(i.durataTipica) ? `, usually ${durata(i.durataTipica)}` : ''
+    return { ...base, livello: 'adesso', gravita: 3, emoji: '⏳', stato: `apply running ${dalle(i.quando, ora)}${tipico}`, dettagli: [c, build, i.fase && `phase ${i.fase}`, i.chi && `by ${i.chi}`] }
   }
   if (i.stato === 'fallito')
     return {
@@ -770,10 +770,10 @@ function voceIac(i, ora) {
       gravita: 1,
       emoji: '❌',
       guasto: i.numero ? `apply#${i.numero}` : null,
-      stato: `apply fallito${i.fase ? ` al ${i.fase}` : ''} ${alle(i.quando, ora)}`,
-      dettagli: [c, build, i.chi && `di ${i.chi}`, i.motivo && `motivo: ${tronca(i.motivo, 140)}`, i.log && `[log della build](${i.log})`],
+      stato: `apply failed${i.fase ? ` in ${i.fase}` : ''} ${alle(i.quando, ora)}`,
+      dettagli: [c, build, i.chi && `by ${i.chi}`, i.motivo && `reason: ${tronca(i.motivo, 140)}`, i.log && `[build log](${i.log})`],
     }
-  return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply riuscito${SEP}${alle(i.quando, ora)}`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `di ${i.chi}`] }
+  return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply OK${SEP}${alle(i.quando, ora)}`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `by ${i.chi}`] }
 }
 
 // Ogni risorsa diventa una voce, e la voce finisce in uno dei tre piani: «adesso», recente, o il
@@ -809,15 +809,15 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
   const inCorso = adesso.length - rotti - avvisi
   const diversi = app.filter((r) => r.staging)
   const pezzi = [
-    rotti && `❌ ${plurale(rotti, 'rotto', 'rotti')}`,
-    avvisi && `⚠️ ${avvisi} da guardare`,
-    inCorso && `⏳ ${inCorso} in corso`,
-    `🚀 ${plurale(recenti.length, 'rilascio', 'rilasci')} nelle ultime ${ore} h`,
-    diversi.length && `${diversi.length} su un commit diverso da staging`,
-    buildIgnote && '⚠️ build non lette',
+    rotti && `❌ ${rotti} broken`,
+    avvisi && `⚠️ ${avvisi} to check`,
+    inCorso && `⏳ ${inCorso} in progress`,
+    `🚀 ${plurale(recenti.length, 'release', 'releases')} in the last ${ore} h`,
+    diversi.length && `${diversi.length} on a different commit than staging`,
+    buildIgnote && '⚠️ builds not read',
   ].filter(Boolean)
   // «Niente di rotto» si dice solo se lo sappiamo: con le build non lette un fallimento non si vede.
-  const sintesi = adesso.length || buildIgnote ? pezzi : ['✅ niente di rotto, niente in corso', ...pezzi]
+  const sintesi = adesso.length || buildIgnote ? pezzi : ['✅ nothing broken, nothing in progress', ...pezzi]
   return { adesso, recenti, resto, sintesi, diversi }
 }
 
@@ -828,14 +828,14 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
 // creazione). I primi sei sono quelli del canale dei rilasci; `giu` e `indietro` sono i due «da
 // guardare» che il quadro diceva già prima, e toglierli avrebbe nascosto un servizio giù dietro un 🚀.
 export const STATI = {
-  test_avviati: { emoji: '🧪', etichetta: 'test', colore: 'blue' },
-  test_falliti: { emoji: '❌', etichetta: 'test KO', colore: 'red' },
-  deploy_avviato: { emoji: '⏳', etichetta: 'in corso', colore: 'yellow' },
+  test_avviati: { emoji: '🧪', etichetta: 'tests', colore: 'blue' },
+  test_falliti: { emoji: '❌', etichetta: 'tests failed', colore: 'red' },
+  deploy_avviato: { emoji: '⏳', etichetta: 'running', colore: 'yellow' },
   deploy_ok: { emoji: '🚀', etichetta: 'OK', colore: 'green' },
-  deploy_fallito: { emoji: '❌', etichetta: 'fallito', colore: 'red' },
-  giu: { emoji: '🚨', etichetta: 'giù', colore: 'red' },
-  indietro: { emoji: '⚠️', etichetta: 'indietro', colore: 'yellow' },
-  invariato: { emoji: '➖', etichetta: 'fermo', colore: 'gray' },
+  deploy_fallito: { emoji: '❌', etichetta: 'failed', colore: 'red' },
+  giu: { emoji: '🚨', etichetta: 'down', colore: 'red' },
+  indietro: { emoji: '⚠️', etichetta: 'behind', colore: 'yellow' },
+  invariato: { emoji: '➖', etichetta: 'unchanged', colore: 'gray' },
 }
 // Il TIPO di una riga, cioè che risorsa è: la colonna Tipo della List, per filtrare. Lo decide la
 // risorsa e non il suo stato, come la scheda (vedi `dividi`), e i `value` si fissano alla creazione
@@ -847,11 +847,11 @@ export const STATI = {
 //   statico    una risorsa che si conosce solo dalle build, senza ECS dietro: un sito statico
 //   iac        l'apply dell'infrastruttura
 export const TIPI = {
-  servizio: { etichetta: 'servizio', colore: 'blue' },
-  cron_ecs: { etichetta: 'cron ECS', colore: 'purple' },
+  servizio: { etichetta: 'service', colore: 'blue' },
+  cron_ecs: { etichetta: 'ECS cron', colore: 'purple' },
   lambda: { etichetta: 'Lambda', colore: 'orange' },
-  esterno: { etichetta: 'componente esterno', colore: 'gray' },
-  statico: { etichetta: 'sito/statico', colore: 'green' },
+  esterno: { etichetta: 'external component', colore: 'gray' },
+  statico: { etichetta: 'site/static', colore: 'green' },
   iac: { etichetta: 'IaC', colore: 'pink' },
 }
 // Il tipo di una voce del quadro (`quadroAmbiente`). Puro/testabile.
@@ -865,10 +865,10 @@ export function tipoRisorsa(v) {
 // Tre colonne e non quattro: la Versione sta in testa ai Dettagli. Con quattro la tabella era più
 // larga del canvas e Slack, che non manda a capo abbastanza, tagliava i Dettagli a destra
 // (05/10/2026).
-export const INTESTAZIONE = ['Risorsa', 'Stato', 'Dettagli']
+export const INTESTAZIONE = ['Resource', 'Status', 'Details']
 // Una cella vuota non si scrive: la List rifiuta un testo di zero caratteri, e un `replace` vuoto nel
 // canvas lascerebbe una cella che non si distingue da una non letta. Dove non c'è niente da dire, questo.
-const VUOTO = 'n/d'
+const VUOTO = 'n/a'
 // Il motivo di un fallimento: tagliato corto, il resto è nel log della build.
 const MOTIVO_BREVE = 40
 
@@ -881,8 +881,8 @@ export function quandoBreve(iso, ora = Date.now()) {
   const giorno = (d) => fmt(d, { year: 'numeric', month: '2-digit', day: '2-digit' })
   const d = new Date(iso)
   const ore = fmt(d, { hour: '2-digit', minute: '2-digit' })
-  if (giorno(d) === giorno(new Date(ora))) return `oggi ${ore}`
-  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `ieri ${ore}`
+  if (giorno(d) === giorno(new Date(ora))) return `today ${ore}`
+  if (giorno(d) === giorno(new Date(ora - 86_400_000))) return `yesterday ${ore}`
   return `${fmt(d, { day: '2-digit', month: '2-digit' })} ${ore}`
 }
 
@@ -917,11 +917,11 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
       stato: v.giu ? 'giu' : v.inRollout ? 'deploy_avviato' : fermo(v.quando),
       quando: v.quando,
       versione: `\`${v.tag ?? '?'}\``,
-      dettagli: ['esterno', v.condivisa && `stessa immagine di ${v.condivisa.n}`],
+      dettagli: ['external', v.condivisa && `image shared by ${v.condivisa.n}`],
     }
   else if (v.tipo === 'lambda')
     // Una Lambda dice di sé solo quando è stata aggiornata e da chi: niente versione, niente «in corso».
-    r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'data non letta'] }
+    r = { nome: v.nomi[0], stato: fermo(v.quando), quando: v.quando, versione: VUOTO, dettagli: [v.quando ? daChi(v.chi) : 'date not read'] }
   else if (v.tipo === 'iac') {
     const stato = v.stato === 'in_corso' ? 'deploy_avviato' : v.stato === 'fallito' ? 'deploy_fallito' : fermo(v.quando)
     r = {
@@ -962,15 +962,15 @@ export function rigaRisorsa(v, { ora = Date.now(), url = null, ore = DEFAULT_ORE
 function rigaDiApp(a, fermo) {
   const c = sha(a.commit, a.repo)
   const rev = a.revisione ? `rev ${a.revisione}` : null
-  const task = a.task ? `${a.task} task` : null
+  const task = a.task ? `${a.task} tasks` : null
   const t = a.tentativo
   const build = (n, log) => (n ? (log ? `[build #${n}](${log})` : `build #${n}`) : 'build')
   const base = { nome: a.servizio, versione: a.commit ? c : VUOTO, versioneLink: linkCommit(a.commit, a.repo) }
-  if (a.stato === 'giu') return { ...base, stato: 'giu', quando: null, suffisso: `${a.task ?? '?'} task attivi`, dettagli: [rev, a.target && `${a.target} target`] }
+  if (a.stato === 'giu') return { ...base, stato: 'giu', quando: null, suffisso: `${a.task ?? '?'} tasks running`, dettagli: [rev, a.target && `${a.target} targets`] }
   if (a.stato === 'fallito') {
     const motivo = t.motivo && tronca(t.motivo, MOTIVO_BREVE)
-    if (t.riavvio) return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: ['riavvio', motivo ?? (t.chi && daChi(t.chi))] }
-    return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: [build(t.numero, t.log), motivo ?? (t.fase && `al ${t.fase}`)] }
+    if (t.riavvio) return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: ['restart', motivo ?? (t.chi && daChi(t.chi))] }
+    return { ...base, stato: 'deploy_fallito', quando: t.da, dettagli: [build(t.numero, t.log), motivo ?? (t.fase && `in ${t.fase}`)] }
   }
   if (a.stato === 'in_corso') {
     if (t)
@@ -978,7 +978,7 @@ function rigaDiApp(a, fermo) {
         ...base,
         stato: 'deploy_avviato',
         quando: t.da,
-        dettagli: [build(t.numero), t.commit && !stessoCommit(t.commit, a.commit) ? `verso ${sha(t.commit, a.repo)}` : t.fase],
+        dettagli: [build(t.numero), t.commit && !stessoCommit(t.commit, a.commit) ? `to ${sha(t.commit, a.repo)}` : t.fase],
       }
     return { ...base, stato: 'deploy_avviato', quando: a.quando, dettagli: ['rollout', task] }
   }
@@ -986,19 +986,19 @@ function rigaDiApp(a, fermo) {
   // Un'immagine condivisa con altre risorse lo dice in fondo: è il raggruppamento che una volta faceva
   // una riga sola, e qui non cambia la forma della tabella.
   const come = a.come
-  const stessa = a.condivisa && `stessa immagine di ${a.condivisa.n}`
+  const stessa = a.condivisa && `image shared by ${a.condivisa.n}`
   if (a.condivisa?.indietro)
-    return { ...base, stato: 'indietro', quando: a.quando, dettagli: [`la più recente è ${sha(a.condivisa.tag, a.repo)}`, stessa] }
+    return { ...base, stato: 'indietro', quando: a.quando, dettagli: [`the newest is ${sha(a.condivisa.tag, a.repo)}`, stessa] }
   const dettagli =
-    come?.tipo === 'riavvio' ? ['riavvio', task] : rev || task ? [rev, task] : come?.build ? [`build #${come.build}`, durata(come.durataMs)] : [comeBreve(come)]
+    come?.tipo === 'riavvio' ? ['restart', task] : rev || task ? [rev, task] : come?.build ? [`build #${come.build}`, durata(come.durataMs)] : [comeBreve(come)]
   return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli: [...dettagli, stessa] }
 }
 
 // Come è arrivato, in due parole: «build #661», «riavvio», «hotfix #12». Puro.
 function comeBreve(c) {
   if (!c) return null
-  if (c.tipo === 'riavvio') return 'riavvio'
-  if (c.tipo === 'revisione') return c.build ? `revisione, build #${c.build}` : 'revisione a mano'
+  if (c.tipo === 'riavvio') return 'restart'
+  if (c.tipo === 'revisione') return c.build ? `revision, build #${c.build}` : 'manual revision'
   return `${c.tipo === 'hotfix' ? 'hotfix' : 'build'} #${c.build ?? '?'}`
 }
 
@@ -1024,7 +1024,7 @@ export function righeTabella(q, opts = {}) {
 // paragrafi: un paragrafo in più è una struttura diversa, e una struttura diversa vuol dire riscrivere
 // il canvas intero, cioè lo sdoppio.
 function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, lista = null } = {}) {
-  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Deploy board ${String(q.ambiente).toUpperCase()}`, tag: String(q.ambiente).toUpperCase(), sezione: String(q.ambiente) }
   const { sintesi, diversi } = smista(q, { ora, url, ore })
   const tuttiDeploy = url && q.chiave ? `${url}/deploy?account=${encodeURIComponent(q.chiave)}` : null
   const tuttiServizi = url && q.chiave ? `${url}/servizi?account=${encodeURIComponent(q.chiave)}` : null
@@ -1033,15 +1033,15 @@ function sezioniAmbiente(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE, l
   // deploy di quei servizi nei due ambienti insieme, cioè il confronto che serve.
   const link = [
     tuttiDeploy && `[Deploy ${meta.tag}](${tuttiDeploy})`,
-    tuttiServizi && `[Servizi ${meta.tag}](${tuttiServizi})`,
-    url && diversi.length && `[${diversi.length} diversi da staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
+    tuttiServizi && `[Services ${meta.tag}](${tuttiServizi})`,
+    url && diversi.length && `[${diversi.length} different from staging](${url}/deploy?service=${encodeURIComponent(diversi.map((r) => r.servizio).join(','))})`,
   ].filter(Boolean)
   const ignote =
     q.buildIgnote &&
-    `⚠️ **Build non lette**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. Quello che gira lo dice ECS, ma commit, autori e build in corso o fallite mancano finché non tornano leggibili.`
+    `⚠️ **Builds not read**${q.erroreBuild ? `: ${cella(tronca(q.erroreBuild, 200))}` : ''}. ECS still says what is running, but commits, authors and running or failed builds are missing until they can be read again.`
   // La List dell'area della scheda, per prima: una scheda per una List l'API non la crea (vedi
   // `creaLista`), quindi da qui la si apre a un clic finché qualcuno non l'aggiunge a mano al canale.
-  const linkLista = lista?.url && `[Lista ${lista.nome}](${lista.url})`
+  const linkLista = lista?.url && `[List ${lista.nome}](${lista.url})`
   const fondo = [ignote, linkLista, link.length && `Dadaguard: ${link.join(SEP)}`].filter(Boolean).join('  |  ') || null
   return { meta, sintesi, righe: righeTabella(q, { ora, url, ore }), fondo }
 }
@@ -1073,7 +1073,7 @@ export function canvasSezioni(titolo, perAmbiente = [], { ora = Date.now(), url 
 
 // La scheda di un ambiente. Puro/testabile.
 export function canvasQuadro(q, opts = {}) {
-  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Quadro deploy ${String(q.ambiente).toUpperCase()}` }
+  const meta = AMBIENTI[q.ambiente] ?? { titolo: `Deploy board ${String(q.ambiente).toUpperCase()}` }
   return canvasSezioni(meta.titolo, [q], opts)
 }
 
@@ -1103,8 +1103,9 @@ export function canvasDaScrivere(q, cfg, { ora = Date.now(), liste = {} } = {}) 
 // dentro tutte le schede, e chi cercava i cron o le risorse della sua squadra doveva filtrarle a mano
 // in mezzo alle altre: adesso l'area è la List, e ambiente e tipo sono colonne da filtrare.
 export const AREA_PRINCIPALE = 'prodotto'
-const etichettaArea = (area) => String(area).toUpperCase()
-export const titoloLista = (area) => `Lista deploy ${etichettaArea(area)}`
+// L'area nel titolo, in inglese come il resto del canale: la chiave resta `prodotto` (è l'id dell'area).
+const etichettaArea = (area) => (area === AREA_PRINCIPALE ? 'PRODUCT' : String(area).toUpperCase())
+export const titoloLista = (area) => `Deploy list ${etichettaArea(area)}`
 
 // La chiave di una riga della List: la stessa risorsa c'è una volta per ambiente.
 const chiaveRiga = (ambiente, nome) => `${ambiente}|${nome}`
@@ -1183,7 +1184,29 @@ const senzaEmoji = (t) =>
     .trim()
     .replace(/^(?::[a-z0-9_+-]+:|\p{Extended_Pictographic}\uFE0F?)\s*/u, '')
     .trim()
-export const stessoTitolo = (etichetta, titolo) => Boolean(senzaEmoji(titolo)) && senzaEmoji(etichetta) === senzaEmoji(titolo)
+// I titoli in italiano di prima del 23/10/2026, dal titolo inglese di adesso. L'etichetta della SCHEDA del
+// canale non segue il rename (vedi `allineaCanvas`), quindi un canvas nato col titolo italiano si
+// riconosce solo così; ritrovato, il canvas e la List si rinominano sul posto come per l'emoji. Puro.
+const TITOLI_DI_PRIMA = [
+  [/^Deploy board PRODUCTION$/, 'Quadro deploy PRODUZIONE'],
+  [/^Deploy board (.+)$/, 'Quadro deploy $1'],
+  [/^Deploy list PRODUCT$/, 'Lista deploy PRODOTTO'],
+  [/^Deploy list (.+)$/, 'Lista deploy $1'],
+  [/^Cron runs list ALL$/, 'Lista corse cron TUTTI'],
+  [/^Cron runs list (.+)$/, 'Lista corse cron $1'],
+  [/^Cron runs ALL$/, 'Corse cron TUTTI'],
+  [/^Cron runs (.+)$/, 'Corse cron $1'],
+]
+export function titoloDiPrima(titolo) {
+  const t = senzaEmoji(titolo)
+  const r = TITOLI_DI_PRIMA.find(([re]) => re.test(t))
+  return r ? t.replace(r[0], r[1]) : null
+}
+export const stessoTitolo = (etichetta, titolo) => {
+  const e = senzaEmoji(etichetta)
+  const t = senzaEmoji(titolo)
+  return Boolean(t) && (e === t || (Boolean(e) && e === titoloDiPrima(t)))
+}
 
 // Il NOSTRO canvas fra quelli del canale. Puro/testabile.
 //
@@ -1477,15 +1500,15 @@ export async function allineaCanvas(api, c, { info, leggiHtml, ultimi = new Map(
 export const scelte = (voci) => ({ format: 'single_select', choices: Object.entries(voci).map(([value, s]) => ({ value, label: s.emoji ? `${s.emoji} ${s.etichetta}` : s.etichetta, color: s.colore })) })
 // L'ambiente col suo colore di sempre: rosso la produzione, giallo staging, come i quadrati che i
 // titoli avevano fino al 05/10/2026.
-const AMBIENTI_LISTA = { produzione: { etichetta: 'produzione', colore: 'red' }, staging: { etichetta: 'staging', colore: 'yellow' } }
+const AMBIENTI_LISTA = { produzione: { etichetta: 'production', colore: 'red' }, staging: { etichetta: 'staging', colore: 'yellow' } }
 export const SCHEMA_LISTA = [
-  { key: 'risorsa', name: 'Risorsa', type: 'text', is_primary_column: true },
-  { key: 'ambiente', name: 'Ambiente', type: 'select', options: scelte(AMBIENTI_LISTA) },
-  { key: 'tipo', name: 'Tipo', type: 'select', options: scelte(TIPI) },
-  { key: 'stato', name: 'Stato', type: 'select', options: scelte(STATI) },
-  { key: 'quando', name: 'Quando', type: 'text' },
-  { key: 'dettagli', name: 'Dettagli', type: 'text' },
-  { key: 'versione', name: 'Versione', type: 'text' },
+  { key: 'risorsa', name: 'Resource', type: 'text', is_primary_column: true },
+  { key: 'ambiente', name: 'Environment', type: 'select', options: scelte(AMBIENTI_LISTA) },
+  { key: 'tipo', name: 'Type', type: 'select', options: scelte(TIPI) },
+  { key: 'stato', name: 'Status', type: 'select', options: scelte(STATI) },
+  { key: 'quando', name: 'When', type: 'text' },
+  { key: 'dettagli', name: 'Details', type: 'text' },
+  { key: 'versione', name: 'Version', type: 'text' },
   { key: 'dadaguard', name: 'Dadaguard', type: 'link' },
 ]
 const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
@@ -1531,7 +1554,7 @@ export function celleLista(r) {
     quando: { firma: quando, valore: testoLista(quando) },
     dettagli: { firma: dettagli, valore: testoLista(dettagli) },
     versione: { firma: versione, valore: v?.url ? testoConLink(v.url, versione) : testoLista(versione) },
-    dadaguard: { firma: r.link ? `${r.link}|apri` : '', valore: linkLista(r.link, 'apri') },
+    dadaguard: { firma: r.link ? `${r.link}|open` : '', valore: linkLista(r.link, 'open') },
   }
 }
 
@@ -1769,9 +1792,9 @@ export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_OR
 // arriva nel thread. Puro.
 export function logDelJob(e) {
   if (!e?.righe?.length) return {}
-  const dove = [e.job && `\`${e.job}\``, e.passo && `passo \`${String(e.passo).replace(/`/g, "'")}\``].filter(Boolean).join(', ')
+  const dove = [e.job && `\`${e.job}\``, e.passo && `step \`${String(e.passo).replace(/`/g, "'")}\``].filter(Boolean).join(', ')
   const corpo = e.righe.join('\n').replace(/```/g, "'''")
-  return { log: `perché è rosso${dove ? ` (${dove})` : ''}:\n\`\`\`\n${corpo}\n\`\`\``, chiaveLog: String(e.id ?? corpo) }
+  return { log: `why it is red${dove ? ` (${dove})` : ''}:\n\`\`\`\n${corpo}\n\`\`\``, chiaveLog: String(e.id ?? corpo) }
 }
 
 function allarmiTest(qa, { ora, url, ore }) {
@@ -1779,7 +1802,7 @@ function allarmiTest(qa, { ora, url, ore }) {
   const inCorso = []
   const ultimo = {}
   const tag = AMBIENTI[qa.ambiente]?.tag ?? String(qa.ambiente).toUpperCase()
-  const dove = tag === 'PROD' ? 'niente è andato in produzione' : `niente è andato su ${String(qa.ambiente).toLowerCase()}`
+  const dove = tag === 'PROD' ? 'nothing reached production' : `nothing reached ${String(qa.ambiente).toLowerCase()}`
   for (const v of [...(qa.app ?? []), ...(qa.infra ? [qa.infra] : [])]) {
     const r = rigaRisorsa(v, { ora, url, ore })
     if (!r) continue
@@ -1795,18 +1818,18 @@ function allarmiTest(qa, { ora, url, ore }) {
     const checks = (t.checks ?? []).map((c) => `\`${c}\``).join(', ')
     const motivo =
       t.causa === 'migration'
-        ? `migration fallita${t.file ? `: \`${t.file}\`` : ''}`
+        ? `migration failed${t.file ? `: ${t.file}` : ''}`
         : checks
-          ? `check di CI ${t.checks.length === 1 ? 'rosso' : 'rossi'}: ${checks}`
-          : 'i check di CI sono rossi'
+          ? `${t.checks.length === 1 ? 'CI check' : 'CI checks'} failed: ${checks}`
+          : 'CI checks failed'
     const commit = sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)
     // I campi e l'ordine della riga che la CI scrive in #aws-deploy (`notifica-check-rossi`): lo stesso
     // rosso in #aws-deploy-status diceva meno, senza oggetto del commit, errore e autore (22/10/2026).
     const x = {
       emoji: '🔴',
       nome: r.nome,
-      stato: 'deploy NON avviato',
-      dettagli: [`${motivo}, ${dove}`, t.oggetto, t.dettaglio, commit, t.autore && `da \`${t.autore}\``],
+      stato: 'deploy NOT started',
+      dettagli: [`${motivo}, ${dove}`, t.oggetto, t.dettaglio, commit, t.autore && `by \`${t.autore}\``],
       link: r.link,
     }
     // La firma è la risorsa, non il run: un commit nuovo con la CI ancora rossa è lo stesso «deploy NON
@@ -1815,7 +1838,7 @@ function allarmiTest(qa, { ora, url, ore }) {
     // `testoCon` rifà il testo coi commit rossi di prima, che `pianoAllarmi` ricorda: corretto il
     // messaggio, il primo commit spariva e non si capiva più chi l'aveva aperto (21/10/2026).
     const testoCon = (prima = []) =>
-      testoAllarme(prima.length ? { ...x, dettagli: [...x.dettagli, `prima ${prima.join(', ')}`] } : x, qa.ambiente)
+      testoAllarme(prima.length ? { ...x, dettagli: [...x.dettagli, `earlier ${prima.join(', ')}`] } : x, qa.ambiente)
     rotti.push({ nome: r.nome, firma: 'test', testo: testoCon(), commit, testoCon, da: t.da, ...logDelJob(t.errore) })
   }
   return { rotti, inCorso, ultimo }
@@ -1906,8 +1929,8 @@ export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {
         await api('chat.update', { channel: canale, ts: z.ts, text: z.testo })
       } else if (z.tipo === 'chiudi' && z.ts) {
         const quando = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
-        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ risolto alle ${quando}`, ...senzaAnteprime })
-        await api('chat.update', { channel: canale, ts: z.ts, text: `✅ ${z.testo.replace(/^\S+\s+/u, '')}${SEP}risolto alle ${quando}` })
+        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ resolved at ${quando}`, ...senzaAnteprime })
+        await api('chat.update', { channel: canale, ts: z.ts, text: `✅ ${z.testo.replace(/^\S+\s+/u, '')}${SEP}resolved at ${quando}` })
       }
     } catch (err) {
       log.error('quadro: allarme non scritto', { canale, azione: z.tipo, risorsa: z.nome, err: err.message })
@@ -1937,7 +1960,8 @@ export function allarmiDalCanale(messaggi = [], { bot = {}, tag } = {}) {
     if (!x || x[3] !== tag || visti.has(x[2])) continue
     visti.add(x[2])
     if (x[1] === '✅' || x[1] === ':white_check_mark:') continue
-    const da = / deploy NON avviato /.test(m.text) ? new Date(Number(m.ts) * 1000).toISOString() : null
+    // Il messaggio può essere di prima del passaggio all'inglese (23/10/2026): le due forme valgono uguali.
+    const da = / deploy (?:NON avviato|NOT started) /.test(m.text) ? new Date(Number(m.ts) * 1000).toISOString() : null
     aperti[x[2]] = { ts: m.ts, testo: m.text, firma: null, da }
   }
   return aperti
@@ -1989,10 +2013,10 @@ export function guardiaQuadro(stato = {}, esiti = [], { ora = Date.now(), avvio 
 export function testoAvviso(a, { ora = Date.now(), url = null } = {}) {
   const lista = String(a.ambiente).startsWith('lista-')
   const amb = lista ? String(a.ambiente).slice('lista-'.length) : a.ambiente
-  const tag = `${lista ? 'LISTA ' : ''}${AMBIENTI[amb]?.tag ?? String(amb).toUpperCase()}`
-  if (a.tipo === 'rientrato') return `✅ \`quadro deploy\` [${tag}] rientrato · di nuovo aggiornato dopo ${eta(a.fermoDa, ora)} fermo`
-  const link = url ? `${SEP}<${url}/deploy|deploy su Dadaguard>` : ''
-  return `⚠️ \`quadro deploy\` [${tag}] FERMO · ${lista ? 'la List' : 'il canvas'} non si aggiorna da ${eta(a.fermoDa, ora)}${SEP}ultimo errore: ${tronca(a.errore ?? 'sconosciuto', 200)}${link}`
+  const tag = `${lista ? 'LIST ' : ''}${AMBIENTI[amb]?.tag ?? String(amb).toUpperCase()}`
+  if (a.tipo === 'rientrato') return `✅ \`deploy board\` [${tag}] recovered · updating again after ${eta(a.fermoDa, ora)} stopped`
+  const link = url ? `${SEP}<${url}/deploy|deploys on Dadaguard>` : ''
+  return `⚠️ \`deploy board\` [${tag}] STOPPED · ${lista ? 'the List' : 'the canvas'} has not updated for ${eta(a.fermoDa, ora)}${SEP}last error: ${tronca(a.errore ?? 'unknown', 200)}${link}`
 }
 
 export function startQuadro(leggiDati, env = process.env) {

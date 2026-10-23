@@ -104,9 +104,9 @@ test('messaggio: memoria finita dice quanti processi, la VM e chi e stato ucciso
     { tipo: 'oom', livello: 'attenzione', bersaglio: 'mac-di-gio', chi: ['gio'], quante: 3, vmMemGb: 7.7, ramMacGb: 24, uccisi: ['realtime'] },
     { publicUrl: 'https://dg' },
   )
-  assert.match(m, /MEMORIA FINITA NEL DEV-ENV/)
-  assert.match(m, /3 processi/)
-  assert.match(m, /VM da 7\.7 GB su 24 del Mac/)
+  assert.match(m, /DEV-ENV OUT OF MEMORY/)
+  assert.match(m, /3 processes/)
+  assert.match(m, /7\.7 GB VM on a 24 GB Mac/)
   assert.match(m, /realtime/)
   assert.equal(m.includes('\n'), false)
 })
@@ -116,9 +116,9 @@ test('messaggio: container non sani dice quali e da quanti controlli', () => {
     { tipo: 'container', livello: 'attenzione', bersaglio: 'mac-di-gio', chi: ['gio'], dettaglio: 'kong: unhealthy', giri: 3 },
     { publicUrl: 'https://dg' },
   )
-  assert.match(m, /CONTAINER DEL DEV-ENV NON SANI/)
+  assert.match(m, /DEV-ENV CONTAINERS UNHEALTHY/)
   assert.match(m, /kong: unhealthy/)
-  assert.match(m, /3 controlli di fila/)
+  assert.match(m, /3 checks in a row/)
 })
 
 test('pagina: le app piu pesanti in GB, senza «altro»', () => {

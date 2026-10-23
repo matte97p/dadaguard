@@ -165,8 +165,10 @@ export async function postSlack(webhook, payload, { timeoutMs = 5000 } = {}) {
 // dove per ora legge una persona sola: strappare tutti dal lavoro per una cosa che non e' un guasto del
 // prodotto e' il modo di far silenziare il canale prima che serva davvero.
 const EMOJI_ACCESSI = { allarme: '🚨', attenzione: '⚠️', info: 'ℹ️' }
+// La parola sulla stima del numero, come la sceglie `daAnnunciare` (server/accessi.js), detta in inglese.
+const STIMA = { almeno: 'at least', circa: 'about' }
 
-const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'qualcuno che non so nominare')
+const elenco = (nomi = []) => (nomi.length ? nomi.join(', ') : 'someone I cannot name')
 
 // La riga d'errore che finisce in chat, messa in FORMA di riga: niente a capo (un messaggio Slack e'
 // una riga sola, e una riga d'errore multilinea sfonda il formato di tutti gli altri segnali), niente
@@ -193,8 +195,8 @@ const rigaSicura = (t, tetto = 160) => {
 // insegnare a non fidarsi del colore.
 function sommarioAzioni(azioni = [], natura) {
   const righe = azioni.filter((a) => a?.etichetta)
-  const insieme = natura === 'struttura' ? 'DDL' : 'scritture'
-  if (!righe.length) return natura === 'struttura' ? 'DDL' : 'statement di scrittura'
+  const insieme = natura === 'struttura' ? 'DDL' : 'writes'
+  if (!righe.length) return natura === 'struttura' ? 'DDL' : 'write statements'
   const ordinate =
     natura === 'struttura'
       ? righe
@@ -210,7 +212,7 @@ function sommarioAzioni(azioni = [], natura) {
 function sommarioTabelle(tabelle = []) {
   if (!tabelle.length) return ''
   const resto = tabelle.length - 2
-  return ` su ${tabelle.slice(0, 2).join(', ')}${resto > 0 ? ` e altre ${resto}` : ''}`
+  return ` on ${tabelle.slice(0, 2).join(', ')}${resto > 0 ? ` and ${resto} more` : ''}`
 }
 
 // Su COSA, per le DDL: il nome dell'oggetto creato o modificato. Senza, la riga dice che due funzioni
@@ -219,7 +221,7 @@ function sommarioTabelle(tabelle = []) {
 function sommarioOggetti(oggetti = []) {
   if (!oggetti.length) return ''
   const resto = oggetti.length - 2
-  return ` su ${oggetti.slice(0, 2).join(', ')}${resto > 0 ? ` e altri ${resto}` : ''}`
+  return ` on ${oggetti.slice(0, 2).join(', ')}${resto > 0 ? ` and ${resto} more` : ''}`
 }
 
 // Quali login sono il nome di chi ha scritto lo decide server/loginPersonali.js, che e' la stessa
@@ -243,7 +245,7 @@ function sommarioLogin(utentiDb = [], chi = []) {
   const estranei = [...new Set(voci.filter((u) => !suoLogin(u.utente, chi)).map((u) => u.utente))]
   const pezzi = []
   if (estranei.length) pezzi.push(estranei.join(', '))
-  if (endpoint.length) pezzi.push(`su ${endpoint.join(', ')}`)
+  if (endpoint.length) pezzi.push(`on ${endpoint.join(', ')}`)
   if (!pezzi.length) return ''
   return ` (${pezzi.join(' ')})`
 }
@@ -258,7 +260,7 @@ function sommarioTentate(segnale) {
   const n = segnale.tentate ?? 0
   if (n <= 0) return ''
   const perche = (segnale.motiviTentate ?? [])[0]
-  return ` · ${n} rifiutate${perche ? ` (${perche})` : ''}`
+  return ` · ${n} rejected${perche ? ` (${perche})` : ''}`
 }
 
 export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
@@ -279,8 +281,8 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // com'e' andato il giro PRIMA e non da come si scrive la riga. ⚠️ Non si deduce da `parziale`:
     // sotto troncamento il ripiego ridice la finestra, e «almeno» su un numero che sovrastima e'
     // una bugia nell'altro verso.
-    const stima = segnale.stima ? `${segnale.stima} ` : ''
-    const titolo = segnale.natura === 'struttura' ? 'STRUTTURA' : 'SCRITTURE'
+    const stima = segnale.stima ? `${STIMA[segnale.stima] ?? segnale.stima} ` : ''
+    const titolo = segnale.natura === 'struttura' ? 'SCHEMA CHANGES' : 'WRITES'
     const cosa = sommarioAzioni(segnale.azioni, segnale.natura)
     // Le tabelle solo sulla riga dei DATI (🚨 o ℹ️, vedi `segnali()`): sono i bersagli di quelle
     // scritture, e accanto a un elenco di DDL si leggerebbero come la tabella che le DDL hanno
@@ -296,25 +298,25 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // etichette, gli oggetti, le tabelle e l'elenco di CHI ha scritto, e un nome che manca da un
     // allarme rosso di produzione non lascia nessun segno. Il numero da solo hedgiato direbbe che il
     // resto e' esatto.
-    const campione = segnale.parziale ? ' · letti solo gli eventi più recenti, quindi nomi e numeri possono essere incompleti' : ''
-    return `${testa}${envTag(segnale.ambiente)} ${titolo} — ${stima}+${quante} ${cosa}${su} da ${elenco(segnale.chi)}${come}${respinte}${campione}${coda}`
+    const campione = segnale.parziale ? ' · only the most recent events were read, so names and numbers may be incomplete' : ''
+    return `${testa}${envTag(segnale.ambiente)} ${titolo} — ${stima}+${quante} ${cosa}${su} by ${elenco(segnale.chi)}${come}${respinte}${campione}${coda}`
   }
   if (segnale.tipo === 'ssh') {
-    const di = segnale.diChi?.length ? `una macchina di ${elenco(segnale.diChi)}` : 'una macchina che non ha mai mandato un avvio'
-    return `${testa} SESSIONE SSH APERTA — ${elenco(segnale.chi)} su ${di}${coda}`
+    const di = segnale.diChi?.length ? `a machine belonging to ${elenco(segnale.diChi)}` : 'a machine that never sent a startup'
+    return `${testa} SSH SESSION OPENED — ${elenco(segnale.chi)} on ${di}${coda}`
   }
   if (segnale.tipo === 'versione') {
-    const q = segnale.quante === 1 ? "l'unica macchina" : `nessuna delle ${segnale.quante} macchine`
-    return `${testa} VERSIONE ATTESA — non ce l'ha ${q}${coda}`
+    const q = segnale.quante === 1 ? 'the only machine does not have it' : `none of the ${segnale.quante} machines has it`
+    return `${testa} EXPECTED VERSION — ${q}${coda}`
   }
   if (segnale.tipo === 'guasto') {
     // La CLASSE per prima: e' il nome con cui quel guasto tornera' domani, e quello che si cerca in
     // chat fra un mese. La riga d'errore in coda arriva gia' ripulita dal dev-env, e serve a capire in
     // un secondo se e' roba nostra o del Mac di quella persona.
-    const dove = segnale.passo ? ` nel passo \`${segnale.passo}\`` : ''
-    const chi = segnale.chi?.length ? ` da ${elenco(segnale.chi)}` : ''
+    const dove = segnale.passo ? ` in step \`${segnale.passo}\`` : ''
+    const chi = segnale.chi?.length ? ` by ${elenco(segnale.chi)}` : ''
     const riga = segnale.dettaglio ? ` · \`${rigaSicura(segnale.dettaglio)}\`` : ''
-    return `${testa} GUASTO MAI VISTO — \`${segnale.classe}\`${dove}${chi}${riga}${coda}`
+    return `${testa} NEVER-SEEN FAILURE — \`${segnale.classe}\`${dove}${chi}${riga}${coda}`
   }
   if (segnale.tipo === 'dev-fermo') {
     // ⚠️ Due avvii falliti di fila, non uno: qui si sta dicendo che una persona non sta lavorando, e
@@ -325,75 +327,75 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     // La riga d'errore in coda come nel ramo qui sopra: la classe dice che tipo di guasto e', il
     // dettaglio dice su cosa, e senza quello un `porta-occupata` non ha un primo passo.
     const riga = segnale.dettaglio ? ` · \`${rigaSicura(segnale.dettaglio)}\`` : ''
-    return `${testa} IL DEV-ENV NON PARTE${chi}${perche}${riga} · due avvii di fila${coda}`
+    return `${testa} DEV-ENV DOES NOT START${chi}${perche}${riga} · two starts in a row${coda}`
   }
   if (segnale.tipo === 'oom') {
     // Il numero, e dove: «la VM da 8 GB su un Mac da 24» dice gia' il primo passo (alzarla).
     const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
-    const vm = segnale.vmMemGb != null ? ` · VM da ${segnale.vmMemGb} GB${segnale.ramMacGb != null ? ` su ${segnale.ramMacGb} del Mac` : ''}` : ''
-    const chiUcciso = segnale.uccisi?.length ? ` · uccisi: ${segnale.uccisi.join(', ')}` : ''
-    const n = segnale.quante === 1 ? 'un processo' : `${segnale.quante} processi`
-    return `${testa} MEMORIA FINITA NEL DEV-ENV${chi} — il kernel della VM ha ucciso ${n}${vm}${chiUcciso}${coda}`
+    const vm = segnale.vmMemGb != null ? ` · ${segnale.vmMemGb} GB VM${segnale.ramMacGb != null ? ` on a ${segnale.ramMacGb} GB Mac` : ''}` : ''
+    const chiUcciso = segnale.uccisi?.length ? ` · killed: ${segnale.uccisi.join(', ')}` : ''
+    const n = segnale.quante === 1 ? 'one process' : `${segnale.quante} processes`
+    return `${testa} DEV-ENV OUT OF MEMORY${chi} — the VM kernel killed ${n}${vm}${chiUcciso}${coda}`
   }
   if (segnale.tipo === 'container') {
     const chi = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
     const riga = segnale.dettaglio ? ` — \`${rigaSicura(segnale.dettaglio)}\`` : ''
-    return `${testa} CONTAINER DEL DEV-ENV NON SANI${chi}${riga} · ${segnale.giri ?? 2} controlli di fila${coda}`
+    return `${testa} DEV-ENV CONTAINERS UNHEALTHY${chi}${riga} · ${segnale.giri ?? 2} checks in a row${coda}`
   }
   // Gli avvisi sul dev-env del 07/10/2026: stessa forma degli altri, la persona fra parentesi, poi il
   // numero o il nome, e il primo passo quando ce n'e' uno solo.
   const chiTra = segnale.chi?.length ? ` (${elenco(segnale.chi)})` : ''
   if (segnale.tipo === 'immagine-vecchia') {
-    const g = segnale.giorni === 1 ? 'un giorno' : `${segnale.giorni} giorni`
-    return `${testa} IMMAGINE DEL DEV-ENV VECCHIA${chiTra}: costruita ${g} prima della più nuova in giro · va aggiornato il dev-env${coda}`
+    const g = segnale.giorni === 1 ? 'one day' : `${segnale.giorni} days`
+    return `${testa} DEV-ENV IMAGE OUT OF DATE${chiTra}: built ${g} before the newest one in use · update the dev-env${coda}`
   }
   if (segnale.tipo === 'salute-muta') {
-    return `${testa} SALUTE DEL DEV-ENV MUTA${chiTra}: nessuna riga da ${segnale.oreZitta} ore, ma il dev-env è partito ${quanteOre(segnale.oreDallAvvio)} fa · l'agent del login non manda${coda}`
+    return `${testa} DEV-ENV HEALTH SILENT${chiTra}: no line for ${quanteOre(segnale.oreZitta)}, but the dev-env started ${quanteOre(segnale.oreDallAvvio)} ago · the login agent is not sending${coda}`
   }
   if (segnale.tipo === 'motore-non-supportato') {
     const quale = segnale.motore
       ? `\`${rigaSicura(segnale.motore, 40)}\``
-      : `non Docker Desktop (${(segnale.candidati ?? []).map((c) => rigaSicura(c, 40)).join(' o ')})`
-    return `${testa} MOTORE DI DOCKER NON SUPPORTATO${chiTra}: ${quale} · ammessi: ${(segnale.ammessi ?? []).join(', ')}${coda}`
+      : `not Docker Desktop (${(segnale.candidati ?? []).map((c) => rigaSicura(c, 40)).join(' or ')})`
+    return `${testa} UNSUPPORTED DOCKER ENGINE${chiTra}: ${quale} · allowed: ${(segnale.ammessi ?? []).join(', ')}${coda}`
   }
   if (segnale.tipo === 'vm-sotto-obiettivo') {
-    const vm = `${segnale.vmGb}${segnale.stimata ? ' circa' : ''}`
-    return `${testa} VM DEL DEV-ENV SOTTO L'OBIETTIVO${chiTra}: ${vm} GB su ${segnale.obiettivoGb} · la alza l'update del dev-env${coda}`
+    const vm = `${segnale.stimata ? 'about ' : ''}${segnale.vmGb}`
+    return `${testa} DEV-ENV VM BELOW TARGET${chiTra}: ${vm} GB of ${segnale.obiettivoGb} · the dev-env update raises it${coda}`
   }
   if (segnale.tipo === 'opt-out-attivi') {
     const nomi = (segnale.nomi ?? []).map((n) => `\`${rigaSicura(n, 60)}\``).join(', ')
-    return `${testa} OPT-OUT DEL DEV-ENV ACCESI${chiTra}: ${nomi}${coda}`
+    return `${testa} DEV-ENV OPT-OUTS ON${chiTra}: ${nomi}${coda}`
   }
   if (segnale.tipo === 'lavoro-sul-mac') {
     // Una frase che si legge senza conoscere l'hook: chi ha lanciato cosa, dove doveva andare, com'e'
     // finita e la causa solita. «bloccati» e «forzati» erano i nomi dei contatori, non parole.
     const { bloccati = 0, forzati = 0 } = segnale
     const esito = !forzati
-      ? 'tutte fermate prima di partire'
+      ? 'all stopped before running'
       : !bloccati
-        ? 'tutte eseguite lo stesso sul Mac'
-        : `${bloccati} fermate prima di partire, ${forzati} eseguite lo stesso sul Mac`
-    return `${testa} CLAUDE LANCIA I COMANDI DEI REPO SUL MAC INVECE CHE NEL CONTAINER${chiTra}: ${segnale.quante} volte in 24 ore, ${esito} · di solito vuol dire che il container è spento e va riacceso${coda}`
+        ? 'all run on the Mac anyway'
+        : `${bloccati} stopped before running, ${forzati} run on the Mac anyway`
+    return `${testa} CLAUDE RUNS REPO COMMANDS ON THE MAC INSTEAD OF THE CONTAINER${chiTra}: ${segnale.quante === 1 ? 'once' : `${segnale.quante} times`} in 24 hours, ${esito} · usually the container is off and needs restarting${coda}`
   }
   if (segnale.tipo === 'doctor-ko') {
-    const n = segnale.quante === 1 ? 'un controllo fallito' : `${segnale.quante} controlli falliti`
+    const n = segnale.quante === 1 ? 'one failed check' : `${segnale.quante} failed checks`
     const quali = segnale.falliti?.length ? ` · \`${rigaSicura(segnale.falliti.join(', '))}\`` : ''
-    return `${testa} DOCTOR DEL DEV-ENV KO${chiTra}: ${n}${quali}${coda}`
+    return `${testa} DEV-ENV DOCTOR FAILED${chiTra}: ${n}${quali}${coda}`
   }
   return `${testa} — ${segnale.tipo}${coda}`
 }
 
-const quanteOre = (n) => (n === 1 ? "un'ora" : `${n} ore`)
+const quanteOre = (n) => (n === 1 ? 'one hour' : `${n} hours`)
 
 // Dove porta il link in fondo al messaggio. Dal 07/10/2026 le due domande hanno due pagine: chi entra
 // dove sta su Accessi (con un'ancora sulla voce giusta dell'elenco «da sistemare»), come sta un Mac sta
 // sulla Flotta, gia' aperta sul pannello di QUELLA macchina. I link vecchi (`/accessi?vista=…`) restano
 // validi: la pagina li rimanda da se', quindi i messaggi gia' nel canale non si rompono.
 export function linkPagina(segnale, publicUrl) {
-  if (segnale.tipo === 'scrittura') return `<${publicUrl}/accessi#scritture|Accessi>`
-  if (segnale.tipo === 'ssh') return `<${publicUrl}/accessi#ssh|Accessi>`
+  if (segnale.tipo === 'scrittura') return `<${publicUrl}/accessi#scritture|Access>`
+  if (segnale.tipo === 'ssh') return `<${publicUrl}/accessi#ssh|Access>`
   // I guasti nuovi hanno per bersaglio il dev-env intero e la macchina a parte; la versione che non ha
   // nessuno e' una notizia di flotta, senza macchina.
   const mac = segnale.tipo === 'guasto' ? segnale.macchina : segnale.bersaglio && segnale.bersaglio !== 'dev-env' ? segnale.bersaglio : null
-  return `<${publicUrl}/flotta${mac ? `?mac=${encodeURIComponent(mac)}` : ''}|Flotta>`
+  return `<${publicUrl}/flotta${mac ? `?mac=${encodeURIComponent(mac)}` : ''}|Fleet>`
 }

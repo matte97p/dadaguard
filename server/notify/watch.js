@@ -52,7 +52,7 @@ export function watchConfig(env = process.env) {
     confirmations: Math.max(1, Number(env.DADAGUARD_WATCH_CONFIRM) || DEFAULT_CONFIRMATIONS),
     stateFile: env.DADAGUARD_STATE_FILE || '.dadaguard-state.json',
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
-    lang: env.DADAGUARD_LANG || 'it',
+    lang: env.DADAGUARD_LANG || 'en',
     linear: linearConfig(env),
   }
 }
@@ -97,6 +97,14 @@ const postBot = (cfg) => (canale, payload) =>
 // rispondeva in 0,1 s. Il risultato finisce in cache da solo, quindi qui non c'e' niente da pubblicare.
 const statoCondiviso = async (lang) => (await statusFor(lang, { fresh: true })).value
 
+// La lingua del GIRO, che non è quella dei messaggi. Il giro si legge con la chiave della dashboard
+// (`/api/status` senza `lang` chiede `it`): con `cfg.lang` il watchdog, che scrive su Slack in inglese
+// dal 23/10/2026, avrebbe acceso una seconda chiave e un secondo giro completo ogni 300 secondi, cioè
+// il doppio delle letture CloudWatch e la CPU del 12/10/2026. `cfg.lang` vale solo per i testi che il
+// watchdog scrive lui (`makeT` qui sotto). Il prezzo: il dettaglio di un allarme (`detail`, il summary
+// del check) arriva dal giro e resta in italiano.
+export const LINGUA_GIRO = 'it'
+
 export async function runOnce(cfg, deps = {}) {
   const fetchStatus = deps.getStatus ?? statoCondiviso
   // Il giro del watchdog costa quanto quello della dashboard, e finiva solo in un confronto con lo
@@ -109,8 +117,8 @@ export async function runOnce(cfg, deps = {}) {
   const writeState = deps.saveState ?? saveState
   const t = makeT(cfg.lang)
 
-  const status = await fetchStatus(cfg.lang)
-  if (fetchStatus !== statoCondiviso) pubblica(cfg.lang, status)
+  const status = await fetchStatus(LINGUA_GIRO)
+  if (fetchStatus !== statoCondiviso) pubblica(LINGUA_GIRO, status)
   const prev = await readState(cfg.stateFile)
   const ora = snapshot(status.services ?? [])
   const { transitions, next } = diffStates(prev, ora, {

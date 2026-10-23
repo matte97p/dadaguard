@@ -14,7 +14,7 @@ import { makeT } from '../server/i18n.js'
 
 const ORA = Date.parse('2026-10-03T12:00:00Z')
 const DG = 'https://dg.example.com'
-const t = makeT('it')
+const t = makeT('en')
 const ESTERNO = 'https://github.com/acme-upstream/terraform-acme-runner/tree/v7.4.0/lambdas/functions'
 const ok = (startedAt = '2026-10-03T11:00:00Z', ms = 240_000) => ({ outcome: 'ok', startedAt: Date.parse(startedAt), endedAt: Date.parse(startedAt) + ms, durationMs: ms })
 const fallita = (exitCode = 1) => ({ outcome: 'failed', exitCode, startedAt: ORA - 3_600_000, endedAt: ORA - 3_000_000 })
@@ -217,17 +217,17 @@ test('rigaCorsa: il nome porta alla pagina Cron, il codice ha il suo link accant
   assert.equal(r.nome, 'acme-crons/email-clienti')
   assert.equal(
     r.celle[0],
-    `[**acme-crons/email-clienti**](${DG}/cron?cron=production%2Facme-production-email-clienti) · [codice](https://github.com/acme/acme-crons/tree/main/email-clienti)`,
+    `[**acme-crons/email-clienti**](${DG}/cron?cron=production%2Facme-production-email-clienti) · [code](https://github.com/acme/acme-crons/tree/main/email-clienti)`,
   )
   // Senza etichetta né link: la riga di prima.
   assert.equal(rigaCorsa(cron('production', 'acme-production-cron-report'), { ora: ORA, t }).celle[0], '**report**')
 
   const conReaper = (runs) => rigaCorsa({ ...c, reaper: cron('production', 'acme-production-email-clienti-reaper', { runs }) }, { ora: ORA, t })
-  assert.equal(conReaper([ok()]).celle[2], 'Ok oggi 13:00, 4 min')
+  assert.equal(conReaper([ok()]).celle[2], 'Ok today 13:00, 4 min')
   const guasto = conReaper([fallita(3)])
   assert.equal(guasto.stato, 'crit')
-  assert.equal(guasto.celle[1], '❌ Fallito')
-  assert.equal(guasto.celle[2], 'Ok oggi 13:00, 4 min · reaper: Fallito oggi 13:00 · exit 3')
+  assert.equal(guasto.celle[1], '❌ Failed')
+  assert.equal(guasto.celle[2], 'Ok today 13:00, 4 min · reaper: Failed today 13:00 · exit 3')
 })
 
 test('canvasCorse: etichette del SUO elenco, e i cron infra in sezioni «Infra» in fondo, contati nel verdetto', () => {
@@ -241,7 +241,7 @@ test('canvasCorse: etichette del SUO elenco, e i cron infra in sezioni «Infra»
   const squadre = { infra: ['terraform-acme-runner', 'ssm-*'] }
   // Con le tabelle (List spente): è lì che si vedono le etichette e le sezioni.
   const c = canvasCorse(TUTTI, crons, { ora: ORA, t, squadre, infra: 'infra', tabelle: true })
-  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Infra · Produzione', 'Infra · Staging'])
+  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Summary', 'Production', 'Infra · Production', 'Infra · Staging'])
   // Due job sullo stesso script: distinti col nome breve del job.
   assert.deepEqual(
     c.modello.sezioni[1].righe.map((r) => r[0]),
@@ -255,17 +255,17 @@ test('canvasCorse: etichette del SUO elenco, e i cron infra in sezioni «Infra»
   assert.match(c.modello.sezioni[0].fondo, /❌ ssm-housekeeper \(PROD\)/)
 
   // Senza squadra infra, nessuna sezione a parte.
-  assert.deepEqual(canvasCorse(TUTTI, crons, { ora: ORA, t, tabelle: true }).modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Staging'])
+  assert.deepEqual(canvasCorse(TUTTI, crons, { ora: ORA, t, tabelle: true }).modello.sezioni.map((s) => s.titolo), ['Summary', 'Production', 'Staging'])
 })
 
 test('canvasCorseDaScrivere: le sezioni «Infra» solo nel canvas di tutti; con le List, solo il riepilogo', () => {
   const overview = { window: 1440, problems: [], crons: [cron('production', 'acme-production-ssm-housekeeper'), cron('production', 'acme-production-email-clienti')] }
   const env = { DADAGUARD_SLACK_BOT_TOKEN: 'xoxb-finto', DADAGUARD_CORSE_CANALI: 'tutti=C0TUTTI,infra=C0INFRA', DADAGUARD_QUADRO_SQUADRE: 'infra=ssm-*' }
   const [tutti, infra] = canvasCorseDaScrivere({ overview, etichette: {} }, corseConfig({ ...env, DADAGUARD_CORSE_LISTE: '0' }), { ora: ORA })
-  assert.deepEqual(tutti.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Infra · Produzione'])
-  assert.deepEqual(infra.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione'])
+  assert.deepEqual(tutti.modello.sezioni.map((s) => s.titolo), ['Summary', 'Production', 'Infra · Production'])
+  assert.deepEqual(infra.modello.sezioni.map((s) => s.titolo), ['Summary', 'Production'])
   const conListe = canvasCorseDaScrivere({ overview, etichette: {} }, corseConfig(env), { ora: ORA, liste: { tutti: 'https://x.slack.com/lists/T1/FL1' } })
-  assert.deepEqual(conListe.map((c) => c.modello.sezioni.map((s) => s.titolo)), [['Riepilogo'], ['Riepilogo']])
-  assert.match(conListe[0].markdown, /\[Lista corse cron TUTTI\]\(https:\/\/x\.slack\.com\/lists\/T1\/FL1\)/)
+  assert.deepEqual(conListe.map((c) => c.modello.sezioni.map((s) => s.titolo)), [['Summary'], ['Summary']])
+  assert.match(conListe[0].markdown, /\[Cron runs list ALL\]\(https:\/\/x\.slack\.com\/lists\/T1\/FL1\)/)
   assert.doesNotMatch(conListe[1].markdown, /Lista corse/, 'la List di un altro canale non si linka')
 })
