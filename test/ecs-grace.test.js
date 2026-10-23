@@ -72,3 +72,43 @@ test('rollout FAILED → resta guasto (down), niente grace', () => {
   assert.equal(r.status, 'down')
   assert.equal(r.deploying, false)
 })
+
+test('rolling deploy con la copia nuova accanto alla vecchia (running > desired) → up ma deploying', () => {
+  const r = classifyEcs(
+    {
+      desiredCount: 1,
+      runningCount: 2,
+      deployments: [
+        { status: 'PRIMARY', rolloutState: 'IN_PROGRESS', createdAt: ago(180_000) },
+        { status: 'ACTIVE', rolloutState: 'COMPLETED', createdAt: ago(3_600_000) },
+      ],
+    },
+    NOW,
+  )
+  assert.equal(r.status, 'up')
+  assert.equal(r.deploying, true)
+})
+
+test('up a regime, deploy finito da un pezzo → non deploying (i target si giudicano)', () => {
+  const r = classifyEcs(
+    { desiredCount: 2, runningCount: 2, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED', createdAt: ago(60_000) }] },
+    NOW,
+  )
+  assert.equal(r.status, 'up')
+  assert.equal(r.deploying, false)
+})
+
+test('up con rollout FAILED → non deploying', () => {
+  const r = classifyEcs(
+    {
+      desiredCount: 1,
+      runningCount: 2,
+      deployments: [
+        { status: 'PRIMARY', rolloutState: 'FAILED', createdAt: ago(60_000) },
+        { status: 'ACTIVE', rolloutState: 'COMPLETED', createdAt: ago(3_600_000) },
+      ],
+    },
+    NOW,
+  )
+  assert.equal(r.deploying, false)
+})

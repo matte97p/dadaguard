@@ -93,11 +93,11 @@ export function classifyEcs(svc, now = Date.now(), graceMs = GRACE_MS) {
   else status = 'degraded'
 
   let deploying = false
-  if ((status === 'degraded' || status === 'down') && desiredCount > 0) {
-    const failed = deployments.some((d) => d.rolloutState === 'FAILED')
-    if (!failed) {
-      const inProgress = deployments.some((d) => d.rolloutState === 'IN_PROGRESS')
-      const multi = deployments.length > 1 // nuovo PRIMARY + vecchio ACTIVE che drena
+  const failed = deployments.some((d) => d.rolloutState === 'FAILED')
+  if (desiredCount > 0 && !failed) {
+    const inProgress = deployments.some((d) => d.rolloutState === 'IN_PROGRESS')
+    const multi = deployments.length > 1 // nuovo PRIMARY + vecchio ACTIVE che drena
+    if (status === 'degraded' || status === 'down') {
       const primary = deployments.find((d) => d.status === 'PRIMARY') ?? deployments[0]
       const startedAt = primary?.createdAt ? new Date(primary.createdAt).getTime() : null
       const recent = startedAt != null && now - startedAt < graceMs
@@ -105,6 +105,14 @@ export function classifyEcs(svc, now = Date.now(), graceMs = GRACE_MS) {
         status = 'idle' // transitorio: grigio, non rosso
         deploying = true
       }
+    } else if (status === 'up' && (inProgress || multi)) {
+      // Rolling deploy con maximumPercent > 100: la copia nuova parte ACCANTO alla vecchia, quindi
+      // running SUPERA desired (2/1) e il ramo sopra non scatta mai. Ma è proprio la finestra in cui
+      // la copia nuova si è registrata nel target group e non ha ancora finito di avviarsi: senza
+      // `deploying` i suoi health check falliti diventavano un ATTENZIONE a ogni rilascio di un
+      // servizio lento a partire. Il colore resta quello dei task (verde): si spegne solo il giudizio
+      // sui target, che `applyTargetHealth` salta durante un rilascio.
+      deploying = true
     }
   }
   return { status, desiredCount, runningCount, pendingCount, deploying }
