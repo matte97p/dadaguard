@@ -634,19 +634,23 @@ test('serviceKey: senza resourceId resta la chiave vecchia (servizi dichiarati a
 // ⚠️ Il giro del watchdog costa quanto quello della dashboard (fra 7,6 e 28,2 secondi, misurati sul
 // servizio vero) e finiva solo in un confronto con lo stato precedente: se non lo regala alla cache
 // che serve le pagine, quel lavoro non lo vede nessuno e chi apre paga un giro suo.
-test('runOnce: lo stato appena calcolato finisce nella cache che serve le pagine', async () => {
+// La lingua dei messaggi non sposta la chiave: il giro resta quello della dashboard (`it`), altrimenti
+// il watchdog in inglese accenderebbe un secondo giro completo ogni 300 secondi (23/10/2026).
+test('runOnce: lo stato appena calcolato finisce nella cache che serve le pagine, con la chiave della dashboard', async () => {
   const pubblicati = []
+  const chiesti = []
   const stat = { services: [svc('cron', 'Production', 'up')] }
   await runOnce(
-    { ...watchConfig({}), webhook: 'https://hooks.example/x', lang: 'it' },
+    { ...watchConfig({}), webhook: 'https://hooks.example/x', lang: 'en' },
     {
-      getStatus: async () => stat,
+      getStatus: async (lang) => (chiesti.push(lang), stat),
       loadState: async () => null,
       saveState: async () => {},
       postSlack: async () => true,
       publishStatus: (lang, payload) => pubblicati.push([lang, payload]),
     },
   )
+  assert.deepEqual(chiesti, ['it'], 'il giro si legge con la chiave della dashboard')
   assert.deepEqual(pubblicati, [['it', stat]])
 })
 

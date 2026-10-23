@@ -643,7 +643,7 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
 
   const dati = datiAllarmi(conTestSu(qa(prima), rosso), { ora: ORA })
   assert.deepEqual(dati.rotti.map((r) => r.nome), ['backend'])
-  assert.equal(dati.rotti[0].testo, '🔴 `backend` [STAGING] deploy NOT started \u2014 the CI checks are red, nothing went to staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>')
+  assert.equal(dati.rotti[0].testo, '🔴 `backend` [STAGING] deploy NOT started \u2014 CI checks failed, nothing reached staging · <https://github.com/x/b/actions/runs/1|bbbbbbb>')
   const { aperti, azioni } = pianoAllarmi({}, dati)
   assert.deepEqual(azioni.map((z) => z.tipo), ['apri'])
 
@@ -659,20 +659,20 @@ test('allarmi: un check rosso della CI si apre, e si chiude solo col rilascio ch
   assert.deepEqual(chiuso.aperti, {})
 
   const migr = datiAllarmi(conTestSu(qa(prima), { ...rosso, causa: 'migration', file: '20261016_00_x.sql' }), { ora: ORA })
-  assert.match(migr.rotti[0].testo, /deploy NOT started \u2014 migration failed: `20261016_00_x.sql`, nothing went to staging · /)
+  assert.match(migr.rotti[0].testo, /deploy NOT started \u2014 migration failed: 20261016_00_x.sql, nothing reached staging · /)
   const prod = quadroAmbiente('produzione', { deploys: { production: { builds: [b('api', 'aaaaaaa', prima.da)] } }, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: prima.da })] })
-  assert.match(datiAllarmi(conTestSu(prod, rosso), { ora: ORA }).rotti[0].testo, /^🔴 `api` \[PROD\] deploy NOT started \u2014 the CI checks are red, nothing went to production · /)
+  assert.match(datiAllarmi(conTestSu(prod, rosso), { ora: ORA }).rotti[0].testo, /^🔴 `api` \[PROD\] deploy NOT started \u2014 CI checks failed, nothing reached production · /)
   // I job rossi per nome, quando si sanno: uno al singolare, più d'uno al plurale.
   const uno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['dependency-audit'] }), { ora: ORA })
-  assert.match(uno.rotti[0].testo, /deploy NOT started \u2014 CI check red: `dependency-audit`, nothing went to staging · /)
+  assert.match(uno.rotti[0].testo, /deploy NOT started \u2014 CI check failed: `dependency-audit`, nothing reached staging · /)
   const due = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['validate', 'secret-scan'] }), { ora: ORA })
-  assert.match(due.rotti[0].testo, /CI checks red: `validate`, `secret-scan`, nothing/)
+  assert.match(due.rotti[0].testo, /CI checks failed: `validate`, `secret-scan`, nothing/)
   assert.equal(uno.rotti[0].firma, dati.rotti[0].firma, 'il nome dei job non fa un guasto nuovo')
   // Gli stessi campi, nello stesso ordine, della riga della CI in #aws-deploy (`notifica-check-rossi`).
   const pieno = datiAllarmi(conTestSu(qa(prima), { ...rosso, checks: ['test'], oggetto: 'feat(monitoring): show a link', dettaglio: 'column "y" does not exist', autore: 'rossi-dev' }), { ora: ORA })
   assert.equal(
     pieno.rotti[0].testo,
-    '🔴 `backend` [STAGING] deploy NOT started \u2014 CI check red: `test`, nothing went to staging · feat(monitoring): show a link · column "y" does not exist · <https://github.com/x/b/actions/runs/1|bbbbbbb> · by `rossi-dev`',
+    '🔴 `backend` [STAGING] deploy NOT started \u2014 CI check failed: `test`, nothing reached staging · feat(monitoring): show a link · column "y" does not exist · <https://github.com/x/b/actions/runs/1|bbbbbbb> · by `rossi-dev`',
   )
   assert.equal(pieno.rotti[0].firma, dati.rotti[0].firma, 'oggetto e autore non fanno un guasto nuovo')
 })
@@ -720,7 +720,7 @@ test('allarmi dopo un riavvio: si rileggono dal canale, e chiudono col ✅ senza
 test('allarmi dopo un riavvio: il rosso della CI si riconosce in inglese e nell’italiano dei messaggi di prima', () => {
   const bot = { user: 'UBOT', bot: 'BBOT' }
   const messaggi = [
-    { ts: '1759492800.000100', user: 'UBOT', text: '🔴 `backend` [STAGING] deploy NOT started \u2014 the CI checks are red, nothing went to staging' },
+    { ts: '1759492800.000100', user: 'UBOT', text: '🔴 `backend` [STAGING] deploy NOT started \u2014 CI checks failed, nothing reached staging' },
     { ts: '1759492700.000100', user: 'UBOT', text: '🔴 `web` [STAGING] deploy NON avviato \u2014 i check di CI sono rossi, niente è andato su staging' },
     { ts: '1759492600.000100', user: 'UBOT', text: '❌ `api` [STAGING] build #3 failed in BUILD at 10:00' },
   ]
@@ -1249,7 +1249,7 @@ test('lo stato dei test è predisposto: vale solo se più recente dell’ultimo 
   assert.equal(conTest(ok, null), ok, 'oggi nessuno li riempie: la riga resta com’è')
   const q = quadroAmbiente('produzione', { deploys: LETTE_PROD, servizi: [svc('api', 'production', { tag: 'aaaaaaa', da: '2026-10-03T10:00:00Z' })] })
   q.app[0].test = { stato: 'fallito', da: '2026-10-03T11:30:00Z' }
-  assert.equal(righeTabella(q, { ora: ORA })[0].celle[1], '❌ tests KO · today 13:30', 'la riga lo mostra quando la risorsa lo porta')
+  assert.equal(righeTabella(q, { ora: ORA })[0].celle[1], '❌ tests failed · today 13:30', 'la riga lo mostra quando la risorsa lo porta')
 })
 
 const LISTA_CFG = { DADAGUARD_QUADRO_CANALI: 'produzione=CP' }

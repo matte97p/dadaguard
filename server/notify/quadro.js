@@ -829,7 +829,7 @@ export function smista(q, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = 
 // guardare» che il quadro diceva già prima, e toglierli avrebbe nascosto un servizio giù dietro un 🚀.
 export const STATI = {
   test_avviati: { emoji: '🧪', etichetta: 'tests', colore: 'blue' },
-  test_falliti: { emoji: '❌', etichetta: 'tests KO', colore: 'red' },
+  test_falliti: { emoji: '❌', etichetta: 'tests failed', colore: 'red' },
   deploy_avviato: { emoji: '⏳', etichetta: 'running', colore: 'yellow' },
   deploy_ok: { emoji: '🚀', etichetta: 'OK', colore: 'green' },
   deploy_fallito: { emoji: '❌', etichetta: 'failed', colore: 'red' },
@@ -1802,7 +1802,7 @@ function allarmiTest(qa, { ora, url, ore }) {
   const inCorso = []
   const ultimo = {}
   const tag = AMBIENTI[qa.ambiente]?.tag ?? String(qa.ambiente).toUpperCase()
-  const dove = tag === 'PROD' ? 'nothing went to production' : `nothing went to ${String(qa.ambiente).toLowerCase()}`
+  const dove = tag === 'PROD' ? 'nothing reached production' : `nothing reached ${String(qa.ambiente).toLowerCase()}`
   for (const v of [...(qa.app ?? []), ...(qa.infra ? [qa.infra] : [])]) {
     const r = rigaRisorsa(v, { ora, url, ore })
     if (!r) continue
@@ -1818,10 +1818,10 @@ function allarmiTest(qa, { ora, url, ore }) {
     const checks = (t.checks ?? []).map((c) => `\`${c}\``).join(', ')
     const motivo =
       t.causa === 'migration'
-        ? `migration failed${t.file ? `: \`${t.file}\`` : ''}`
+        ? `migration failed${t.file ? `: ${t.file}` : ''}`
         : checks
-          ? `${t.checks.length === 1 ? 'CI check' : 'CI checks'} red: ${checks}`
-          : 'the CI checks are red'
+          ? `${t.checks.length === 1 ? 'CI check' : 'CI checks'} failed: ${checks}`
+          : 'CI checks failed'
     const commit = sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)
     // I campi e l'ordine della riga che la CI scrive in #aws-deploy (`notifica-check-rossi`): lo stesso
     // rosso in #aws-deploy-status diceva meno, senza oggetto del commit, errore e autore (22/10/2026).
