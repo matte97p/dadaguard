@@ -17,6 +17,9 @@ import {
   gestisci,
   logGroupDi,
   zittito,
+  ritmoDaSerie,
+  durata,
+  testoContesto,
 } from '../server/notify/allarmi.js'
 import { makeT } from '../server/i18n.js'
 
@@ -147,6 +150,40 @@ test('riassumiRighe: gruppi dal più numeroso, e le 5xx per rotta', () => {
   assert.deepEqual(r.rotte, [{ rotta: 'POST /api/run 504', n: 2 }])
 })
 
+test('riassumiRighe: un traceback concatenato dice la causa, una volta per catena', () => {
+  const catena = [
+    'Traceback (most recent call last):',
+    '  File "/app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 87, in _handle_exception',
+    'asyncpg.exceptions.QueryCanceledError: canceling statement due to statement timeout',
+    'The above exception was the direct cause of the following exception:',
+    "sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.QueryCanceledError'>: canceling statement due to statement timeout",
+    "acme.clients.bi.BIQueryTimeoutError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.QueryCanceledError'>: canceling statement due to statement timeout",
+    '    ^^^^^^^^^^',
+  ]
+  const r = riassumiRighe([...catena, ...catena].map((message) => ({ message, stream: 's' })))
+  assert.equal(r.errori.length, 1)
+  assert.equal(r.errori[0].n, 2)
+  assert.equal(r.errori[0].esempio, 'asyncpg.exceptions.QueryCanceledError: canceling statement due to statement timeout')
+})
+
+test('riassumiRighe: niente righe INFO del logging, e l esempio senza data e contesto', () => {
+  const r = riassumiRighe([
+    { message: '2026-03-10 09:01:45,649 - acme.chat - INFO - [7b577a0a:background:-:-] - Upstream closed (reason=idle_timeout)' },
+    { message: '2026-03-10 09:05:09,787 - acme.server - WARNING - [a1b2c3d4:request:ab12:cd34] - BI query hit the statement timeout: POST /api/run' },
+  ])
+  assert.deepEqual(r.errori.map((g) => g.esempio), ['acme.server - WARNING - BI query hit the statement timeout: POST /api/run'])
+})
+
+test('testoLog: prima le rotte in 5xx, poi gli errori', () => {
+  const finestra = { da: Date.parse('2026-10-21T07:44:00Z'), a: Date.parse('2026-10-21T07:52:08Z') }
+  const riassunto = riassumiRighe([
+    { message: 'ERROR timeout calling upstream', stream: 's' },
+    { message: 'INFO: 1.2.3.4:0 - "POST /api/run HTTP/1.1" 504 Gateway Timeout', stream: 's' },
+  ])
+  const s = testoLog({ logGroup: 'g', finestra, riassunto, regione: 'eu-central-1', t: makeT('en') })
+  assert.match(s, /UTC:\n• 1× 5xx responses on `POST \/api\/run 504`\n• 1× `ERROR timeout calling upstream`/)
+})
+
 test('testoLog: testata, righe col task, link', () => {
   const t = makeT('en')
   const finestra = { da: Date.parse('2026-10-21T07:44:00Z'), a: Date.parse('2026-10-21T07:52:08Z') }
@@ -208,7 +245,7 @@ test('logGroupDi: un cron dal servizio il cui nome apre quello dell allarme', as
 })
 
 // `gestisci` con tutto finto: cosa parte, dove, e il thread.
-const finti = ({ tag = [], storia = [], allarme = { ActionsEnabled: true, AlarmActions: ['arn:aws:sns:eu-central-1:1:t'] } } = {}) => {
+const finti = ({ tag = [], storia = [], allarme = { ActionsEnabled: true, AlarmActions: ['arn:aws:sns:eu-central-1:1:t'] }, ritmo = null, rilascio = null } = {}) => {
   const inviati = []
   return {
     inviati,
@@ -217,6 +254,8 @@ const finti = ({ tag = [], storia = [], allarme = { ActionsEnabled: true, AlarmA
       cw: { send: async (c) => (c.constructor.name === 'ListTagsForResourceCommand' ? { Tags: tag } : c.constructor.name === 'DescribeAlarmsCommand' ? { MetricAlarms: [allarme] } : { AlarmHistoryItems: storia }) },
       logGroupDi: async () => ({ logGroup: '/ecs/acme-production/backend', pattern: null }),
       leggiRighe: async () => [{ message: 'Child process [32] died', stream: 'backend/backend/b7dd03d3' }],
+      ritmoMetrica: async () => ritmo,
+      ultimoRilascio: async () => rilascio,
       chiamaSlack: async (_m, corpo) => (inviati.push({ via: 'bot', ...corpo }), { ts: '123.456' }),
       postSlack: async (hook, p) => (inviati.push({ via: 'hook', hook, ...p }), true),
     },
@@ -232,6 +271,13 @@ test('gestisci: acceso → riga nel canale principale e log nel thread', async (
   assert.match(f.inviati[0].text, /^🚨 `ecs-backend-memoria` \[PROD\] alarm firing/)
   assert.equal(f.inviati[1].thread_ts, '123.456')
   assert.match(f.inviati[1].text, /Child process \[32\] died/)
+})
+
+test('gestisci: acceso → il contesto sotto il titolo', async () => {
+  const a = normalizzaAllarme(evento())
+  const f = finti({ ritmo: { oggi: 40, media: 5.5 }, rilascio: { servizio: 'api', quando: Date.parse(a.quando) - 15 * 3_600_000 } })
+  await gestisci(a, cfg, f.deps)
+  assert.match(f.inviati[0].text, /alarm firing.*\nToday: 40 · daily average over the last 7 days: 5\.5\nLast deploy of `api`: 15h before the alarm/)
 })
 
 test('gestisci: tag team=data → canale data', async () => {
@@ -282,4 +328,36 @@ test('gestisci: un allarme zittito non si dice, e la coda lo cancella', async ()
   const f = finti({ allarme: { ActionsEnabled: false, AlarmActions: ['arn:aws:sns:x'] } })
   assert.equal(await gestisci(normalizzaAllarme(evento()), cfg, f.deps), true)
   assert.equal(f.inviati.length, 0)
+})
+
+test('ritmoDaSerie: oggi e la media dei sette giorni prima, i giorni vuoti valgono zero', () => {
+  const oggi = Date.parse('2026-03-10T00:00:00Z')
+  const g = (d) => new Date(oggi - d * 86_400_000)
+  assert.deepEqual(ritmoDaSerie({ Timestamps: [g(0), g(1), g(3), g(9)], Values: [40, 7, 7, 100] }, oggi), { oggi: 40, media: 2 })
+  assert.deepEqual(ritmoDaSerie(undefined, oggi), { oggi: 0, media: 0 })
+})
+
+test('durata: minuti, ore, giorni', () => {
+  assert.equal(durata(3 * 60_000), '3 min')
+  assert.equal(durata(15 * 3_600_000), '15h')
+  assert.equal(durata(3 * 86_400_000), '3d')
+})
+
+test('testoContesto: ultimo errore, ritmo, rilascio', () => {
+  const t = makeT('en')
+  const quando = '2026-03-10T09:12:00Z'
+  const righe = testoContesto({
+    ultima: Date.parse('2026-03-10T09:09:00Z'),
+    ritmo: { oggi: 40, media: 5.5 },
+    rilascio: { servizio: 'api', quando: Date.parse('2026-03-09T17:05:00Z') },
+    quando,
+    t,
+  })
+  assert.deepEqual(righe, [
+    'Last error in the logs: 09:09 UTC, 3 min before the alarm',
+    'Today: 40 · daily average over the last 7 days: 5.5',
+    'Last deploy of `api`: 16h before the alarm (09/03 17:05 UTC)',
+  ])
+  assert.deepEqual(testoContesto({ ultima: Date.parse('2026-03-10T09:11:30Z'), quando, t }), ['Last error in the logs: 09:11 UTC, still happening when the alarm fired'])
+  assert.deepEqual(testoContesto({ quando, t }), [])
 })
