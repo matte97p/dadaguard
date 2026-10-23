@@ -200,7 +200,7 @@ test('segnali: dati scritti SOLO con login personali sono ℹ️, e il messaggio
   }))[0]
   assert.equal(tre.livello, 'info')
   const testo = messaggioAccessi({ ...riga, nuove: 2 })
-  assert.match(testo, /^ℹ️ `prod-db\/postgres` \[PROD\] SCRITTURE — \+2 INSERT su ordini da Tizio \(su writer\)/)
+  assert.match(testo, /^ℹ️ `prod-db\/postgres` \[PROD\] WRITES — \+2 INSERT on ordini by Tizio \(on writer\)/)
   assert.doesNotMatch(testo, /🚨/)
 })
 
@@ -208,7 +208,7 @@ test('segnali: un login che non e il nome di nessuno tiene la riga dei dati 🚨
   // Un login condiviso accanto a quello personale: basta uno.
   const condiviso = segnali(dbDati({ utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }, { utente: 'postgres', endpoint: 'writer' }] }))[0]
   assert.equal(condiviso.livello, 'allarme')
-  assert.match(messaggioAccessi(condiviso), /^🚨 .*\(postgres su writer\)/)
+  assert.match(messaggioAccessi(condiviso), /^🚨 .*\(postgres on writer\)/)
   // Il login personale di qualcuno che NON ha scritto: e' il nome sbagliato accanto alla scrittura.
   assert.equal(segnali(dbDati({ utentiDb: [{ utente: 'dev_caio', endpoint: 'writer' }] }))[0].livello, 'allarme')
   // Login sconosciuti (lista vuota): non sapere non e' sapere che era personale.
@@ -493,7 +493,7 @@ test('messaggio: un guasto mai visto porta classe, passo e riga d errore', () =>
       chi: ['gio'], dettaglio: 'listen tcp4 <host>:<n>: bind: address already in use' },
     { publicUrl: 'https://dg' },
   )
-  assert.match(m, /GUASTO MAI VISTO/)
+  assert.match(m, /NEVER-SEEN FAILURE/)
   assert.match(m, /`compose-up`/)
   assert.match(m, /`avvio-stack`/)
   assert.match(m, /bind: address already in use/)
@@ -504,8 +504,8 @@ test('messaggio: due avvii falliti di fila dicono che quella persona e ferma', (
     { tipo: 'dev-fermo', livello: 'allarme', bersaglio: 'mac-di-ste', classe: 'compose-up', chi: ['ste'] },
     { publicUrl: 'https://dg' },
   )
-  assert.match(m, /IL DEV-ENV NON PARTE/)
-  assert.match(m, /due avvii di fila/)
+  assert.match(m, /DEV-ENV DOES NOT START/)
+  assert.match(m, /two starts in a row/)
   assert.match(m, /ste/)
 })
 
@@ -563,8 +563,8 @@ const RIGA = (dentro) => ({
 })
 
 test('messaggioAccessi: la parola della stima e quella decisa a monte, e una lettura esatta non ne ha', () => {
-  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /— almeno \+324 /)
-  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'circa' })), /— circa \+324 /)
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /— at least \+324 /)
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'circa' })), /— about \+324 /)
   const esatta = messaggioAccessi(RIGA({ parziale: false, stima: null }))
   assert.match(esatta, /— \+324 /)
   assert.doesNotMatch(esatta, /almeno|circa|lettura parziale/)
@@ -573,7 +573,7 @@ test('messaggioAccessi: la parola della stima e quella decisa a monte, e una let
 // ⚠️ Non e' solo il numero a venire da un campione: le etichette, gli oggetti e soprattutto l'elenco
 // di CHI ha scritto. Un nome che manca da un allarme rosso di produzione non lascia nessun segno.
 test('messaggioAccessi: una lettura parziale lo dice per tutta la riga, non solo per il numero', () => {
-  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /letti solo gli eventi più recenti, quindi nomi e numeri possono essere incompleti/)
+  assert.match(messaggioAccessi(RIGA({ parziale: true, stima: 'almeno' })), /only the most recent events were read, so names and numbers may be incomplete/)
 })
 
 // ⚠️ «almeno» e' una promessa: il numero non puo' essere piu' basso del vero. Il ripiego della
@@ -668,7 +668,7 @@ test('messaggioAccessi: il login di chi non e nel delta non torna fra parentesi'
     tabelle: ['ordini'],
   })
   const testo = messaggioAccessi(riga)
-  assert.match(testo, /da tizio \(su writer\)/)
+  assert.match(testo, /by tizio \(on writer\)/)
   assert.doesNotMatch(testo, /dev_caio/)
 })
 
@@ -680,5 +680,5 @@ test('messaggioAccessi: un login condiviso resta, perche il nome della persona n
     chiTutti: ['tizio'],
     utentiDb: [{ utente: 'dev_readwrite', endpoint: 'writer' }],
   })
-  assert.match(messaggioAccessi(riga), /dev_readwrite su writer/)
+  assert.match(messaggioAccessi(riga), /dev_readwrite on writer/)
 })

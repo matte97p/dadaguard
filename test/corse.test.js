@@ -37,7 +37,7 @@ import { makeT, hasKey } from '../server/i18n.js'
 
 const ORA = Date.parse('2026-10-03T12:00:00Z')
 const DG = 'https://dg.example.com'
-const t = makeT('it')
+const t = makeT('en')
 const ok = (startedAt, ms = 240_000) => ({ outcome: 'ok', startedAt: Date.parse(startedAt), endedAt: Date.parse(startedAt) + ms, durationMs: ms })
 const cron = (account, name, extra = {}) => ({
   key: `${account}/${name}`,
@@ -119,10 +119,10 @@ test('verdetto: le stesse frasi della pagina («1 cron fallito, 3 in corso»)', 
     cron('staging', 'e', { runs: [] }),
   ]
   assert.deepEqual(contaCron(crons), { totale: 5, falliti: 1, nonPartiti: 1, inCorso: 3 })
-  assert.equal(verdettoTesto(crons, { t }).testo, '❌ **1 cron fallito**, 3 in corso')
-  assert.equal(verdettoTesto(crons.slice(4), { t }).testo, '⚠️ **1 cron non è partito**')
-  assert.equal(verdettoTesto(crons.slice(1, 3), { t }).testo, '⏳ **2 cron in corso**, gli altri a posto')
-  assert.equal(verdettoTesto([cron('production', 'f')], { t }).testo, '✅ **Tutti i cron sono a posto**')
+  assert.equal(verdettoTesto(crons, { t }).testo, '❌ **1 cron failed**, 3 running')
+  assert.equal(verdettoTesto(crons.slice(4), { t }).testo, '⚠️ **1 cron did not start**')
+  assert.equal(verdettoTesto(crons.slice(1, 3), { t }).testo, '⏳ **2 crons running**, the rest are fine')
+  assert.equal(verdettoTesto([cron('production', 'f')], { t }).testo, '✅ **All crons are fine**')
   assert.equal(verdettoCron({ falliti: 2, nonPartiti: 1 }).resto[0], 'rilasci.cron.v.eNonPartiti')
 })
 
@@ -157,10 +157,10 @@ test('rigaCorsa: stato, ultima corsa a orario fisso, prossima, link al cron', ()
   const r = rigaCorsa(cron('production', 'acme-production-cron-report'), { ora: ORA, url: DG, t })
   assert.equal(r.nome, 'report')
   assert.equal(r.link, `${DG}/cron?cron=production%2Facme-production-cron-report`)
-  assert.deepEqual(r.celle, [`[**report**](${DG}/cron?cron=production%2Facme-production-cron-report)`, '✅ Ok', 'Ok oggi 13:00, 4 min', 'oggi 15:00'])
+  assert.deepEqual(r.celle, [`[**report**](${DG}/cron?cron=production%2Facme-production-cron-report)`, '✅ Ok', 'Ok today 13:00, 4 min', 'today 15:00'])
 
   const fallito = rigaCorsa(cron('production', 'x', { runs: [{ outcome: 'failed', exitCode: 137, stopReason: 'OutOfMemoryError: killed', startedAt: Date.parse('2026-10-02T21:10:00Z') }] }), { ora: ORA, t })
-  assert.deepEqual(fallito.celle.slice(1, 3), ['❌ Fallito', 'Fallito ieri 23:10 · memoria esaurita'])
+  assert.deepEqual(fallito.celle.slice(1, 3), ['❌ Failed', 'Failed yesterday 23:10 · out of memory'])
 
   // In corso dopo un fallimento: è ancora rosso (come sulla pagina), e il motivo si vede.
   const ripartito = rigaCorsa(
@@ -168,13 +168,13 @@ test('rigaCorsa: stato, ultima corsa a orario fisso, prossima, link al cron', ()
     { ora: ORA, t },
   )
   assert.equal(ripartito.stato, 'crit')
-  assert.equal(ripartito.celle[2], 'In corso dalle 13:41 · prima: exit 2')
+  assert.equal(ripartito.celle[2], 'Running since 13:41 · before: exit 2')
 
   const spento = rigaCorsa(cron('staging', 'y', { enabled: false, runs: [], nextRunAt: null }), { ora: ORA, t })
-  assert.deepEqual(spento.celle.slice(1), ['➖ Spento', 'Spento di proposito: non è un guasto', 'Spento'])
+  assert.deepEqual(spento.celle.slice(1), ['➖ Off', 'Turned off on purpose: not a failure', 'Turned off'])
 
   const nonPartito = rigaCorsa(cron('staging', 'z', { runs: [], nextRunAt: null, scheduleMinutes: 5, error: 'ThrottlingException: rate exceeded' }), { ora: ORA, t })
-  assert.deepEqual(nonPartito.celle.slice(1), ['⚠️ Non partito', 'Non è partito in questa finestra · errore: ThrottlingException: rate exceeded', 'ogni 5 min'])
+  assert.deepEqual(nonPartito.celle.slice(1), ['⚠️ Not started', 'Did not start in this window · error: ThrottlingException: rate exceeded', 'every 5 min'])
 
   // Un `|` arrivato da fuori non rompe la tabella.
   assert.ok(rigaCorsa(cron('production', 'w', { runs: [{ outcome: 'failed', stopReason: 'a | b', startedAt: ORA - 1000 }] }), { ora: ORA, t }).celle[2].includes('a \\| b'))
@@ -198,22 +198,22 @@ test('sezioni: produzione prima di staging, righe in ordine di nome (non di stat
     cron('production', 'acme-production-cron-alfa'),
     cron('management', 'acme-management-cron-c'),
   ]
-  const s = sezioniCorse(crons, { etichette: { production: 'Produzione', staging: 'Staging', management: 'Gestione' }, ora: ORA, t })
-  assert.deepEqual(s.map((x) => x.titolo), ['Produzione', 'Staging', 'Gestione'])
+  const s = sezioniCorse(crons, { etichette: { production: 'Production', staging: 'Staging', management: 'Gestione' }, ora: ORA, t })
+  assert.deepEqual(s.map((x) => x.titolo), ['Production', 'Staging', 'Gestione'])
   assert.deepEqual(s[0].righe.map((r) => r.nome), ['alfa', 'zeta'])
-  assert.equal(s[0].sintesi, '❌ **1 cron fallito** · 2 cron')
+  assert.equal(s[0].sintesi, '❌ **1 cron failed** · 2 cron')
   // Due account nello stesso ambiente: il titolo dice anche quale.
   const due = sezioniCorse([cron('production', 'a'), cron('prod-data', 'b')], { etichette: { production: 'principale', 'prod-data': 'dati' }, ora: ORA, t })
-  assert.deepEqual(due.map((x) => x.titolo), ['Produzione · dati', 'Produzione · principale'])
+  assert.deepEqual(due.map((x) => x.titolo), ['Production · dati', 'Production · principale'])
 })
 
 test('sezioni: un account non letto ha la sua sezione senza righe, che tollera quelle che il canvas ha', () => {
   const s = sezioniCorse([cron('production', 'a')], { problemi: [{ account: 'staging', error: 'AccessDenied' }], ora: ORA, t })
   assert.deepEqual(s.map((x) => [x.titolo, x.righe.length, x.tollera]), [
-    ['Produzione', 1, false],
+    ['Production', 1, false],
     ['Staging', 0, true],
   ])
-  assert.match(s[1].sintesi, /cron non letti.*AccessDenied/)
+  assert.match(s[1].sintesi, /crons not read.*AccessDenied/)
 })
 
 test('daGuardare: falliti, poi non partiti, poi in corso; produzione prima di staging', () => {
@@ -225,9 +225,9 @@ test('daGuardare: falliti, poi non partiti, poi in corso; produzione prima di st
     cron('production', 'acme-production-cron-sano'),
   ]
   const s = sezioniCorse(crons, { ora: ORA, t })
-  assert.equal(daGuardare(s), '**Da guardare**: ❌ quattro (PROD) · ❌ uno (STAGING) · ⚠️ tre (PROD) · ⏳ due (PROD)')
-  assert.equal(daGuardare(s, { max: 2 }), '**Da guardare**: ❌ quattro (PROD) · ❌ uno (STAGING) e altri 2')
-  assert.equal(daGuardare(sezioniCorse([cron('production', 'a')], { ora: ORA, t })), 'Da guardare: niente')
+  assert.equal(daGuardare(s), '**To check**: ❌ quattro (PROD) · ❌ uno (STAGING) · ⚠️ tre (PROD) · ⏳ due (PROD)')
+  assert.equal(daGuardare(s, { max: 2 }), '**To check**: ❌ quattro (PROD) · ❌ uno (STAGING) and 2 more')
+  assert.equal(daGuardare(sezioniCorse([cron('production', 'a')], { ora: ORA, t })), 'To check: nothing')
 })
 
 // ── Canvas ───────────────────────────────────────────────────────────────────────────────────────
@@ -236,27 +236,27 @@ test('canvasCorse con le List spente: riepilogo col verdetto del SUO sottoinsiem
   const crons = [cron('production', 'acme-production-cron-a'), cron('staging', 'acme-staging-cron-a', { runs: [] })]
   const c = canvasCorse('data', crons, { ora: ORA, url: DG, t, tabelle: true })
   assert.equal(c.titolo, titoloCorse('data'))
-  assert.equal(c.titolo, 'Corse cron DATA')
-  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo', 'Produzione', 'Staging'])
-  assert.equal(c.modello.sezioni[0].sintesi, '⚠️ **1 cron non è partito** · 2 cron')
-  assert.match(c.markdown, /^## Riepilogo\n\n⚠️ \*\*1 cron non è partito\*\*/)
-  assert.match(c.markdown, /\| Cron \| Stato \| Ultima corsa \| Prossima \|/)
-  assert.match(c.markdown, /\[Cron su Dadaguard\]\(https:\/\/dg\.example\.com\/cron\)/)
+  assert.equal(c.titolo, 'Cron runs DATA')
+  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Summary', 'Production', 'Staging'])
+  assert.equal(c.modello.sezioni[0].sintesi, '⚠️ **1 cron did not start** · 2 cron')
+  assert.match(c.markdown, /^## Summary\n\n⚠️ \*\*1 cron did not start\*\*/)
+  assert.match(c.markdown, /\| Cron \| Status \| Last run \| Next \|/)
+  assert.match(c.markdown, /\[Crons on Dadaguard\]\(https:\/\/dg\.example\.com\/cron\)/)
   // Un canvas di squadra senza cron non dice «tutti a posto».
-  assert.match(canvasCorse('plat', [], { ora: ORA, t }).markdown, /nessun cron/)
+  assert.match(canvasCorse('plat', [], { ora: ORA, t }).markdown, /no crons/)
 })
 
 test('canvasCorse con le List: solo il riepilogo, cioè verdetto, «Da guardare» e il link alla List', () => {
   const crons = [cron('production', 'acme-production-cron-a', { runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 1000 }] }), cron('staging', 'acme-staging-cron-a')]
   const c = canvasCorse('tutti', crons, { ora: ORA, url: DG, t, lista: { url: 'https://x.slack.com/lists/T1/FL1' } })
-  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Riepilogo'])
+  assert.deepEqual(c.modello.sezioni.map((s) => s.titolo), ['Summary'])
   assert.doesNotMatch(c.markdown, /\| Cron \|/, 'niente tabelle: il dettaglio sta nella List')
   assert.equal(
     c.markdown,
     [
-      '## Riepilogo',
-      '❌ **1 cron fallito** · 2 cron',
-      `**Da guardare**: ❌ [a](${DG}/cron?cron=production%2Facme-production-cron-a) (PROD)  |  ultime 24 h · [Lista corse cron TUTTI](https://x.slack.com/lists/T1/FL1) · [Cron su Dadaguard](${DG}/cron)`,
+      '## Summary',
+      '❌ **1 cron failed** · 2 cron',
+      `**To check**: ❌ [a](${DG}/cron?cron=production%2Facme-production-cron-a) (PROD)  |  last 24 h · [Cron runs list ALL](https://x.slack.com/lists/T1/FL1) · [Crons on Dadaguard](${DG}/cron)`,
     ].join('\n\n'),
   )
   // Senza List (non ancora creata, o un errore) il riepilogo resta, senza il link.
@@ -290,14 +290,14 @@ test('canvasCorseDaScrivere: UNA lettura, un canvas per canale, ognuno col verde
 // ── La List ──────────────────────────────────────────────────────────────────────────────────────
 
 test('la List delle corse: colonne da filtrare dopo il nome, Stato con le parole e i colori della pagina', () => {
-  assert.deepEqual(schemaCorse().map((c) => `${c.name}:${c.type}`), ['Cron:text', 'Ambiente:select', 'Stato:select', 'Ultima corsa:text', 'Prossima:text', 'Dettagli:text', 'Codice:text'])
+  assert.deepEqual(schemaCorse().map((c) => `${c.name}:${c.type}`), ['Cron:text', 'Environment:select', 'Status:select', 'Last run:text', 'Next:text', 'Details:text', 'Code:text'])
   assert.deepEqual(schemaCorse({ sezione: true }).map((c) => c.key), ['cron', 'ambiente', 'stato', 'sezione', 'ultima', 'prossima', 'dettagli', 'codice'])
   const stato = schemaCorse().find((c) => c.key === 'stato').options.choices
   // I `value` sono i livelli di `statoCron`, dal più grave; le etichette le parole della pagina.
-  assert.deepEqual(stato.map((c) => `${c.value}:${c.label}:${c.color}`), ['crit:❌ Fallito:red', 'warn:⚠️ Non partito:yellow', 'info:⏳ In corso:blue', 'ok:✅ Ok:green', 'off:➖ Spento:gray'])
+  assert.deepEqual(stato.map((c) => `${c.value}:${c.label}:${c.color}`), ['crit:❌ Failed:red', 'warn:⚠️ Not started:yellow', 'info:⏳ Running:blue', 'ok:✅ Ok:green', 'off:➖ Off:gray'])
   assert.deepEqual(Object.keys(STATI_CORSE), ['crit', 'warn', 'info', 'ok', 'off'])
   assert.deepEqual(schemaCorse().find((c) => c.key === 'ambiente').options.choices.map((c) => c.value), ['produzione', 'staging', 'altro'])
-  assert.equal(titoloListaCorse('data'), 'Lista corse cron DATA')
+  assert.equal(titoloListaCorse('data'), 'Cron runs list DATA')
 })
 
 test('voceLista: stato, ultima corsa a orario fisso con la durata, prossima, il perché nei Dettagli, il repository del codice', () => {
@@ -309,9 +309,9 @@ test('voceLista: stato, ultima corsa a orario fisso con la durata, prossima, il 
     ambiente: 'produzione',
     stato: 'ok',
     sezione: null,
-    ultima: 'oggi 13:00 · 4 min',
-    prossima: 'oggi 15:00',
-    dettagli: 'n/d',
+    ultima: 'today 13:00 · 4 min',
+    prossima: 'today 15:00',
+    dettagli: 'n/a',
     codice: 'acme-crons',
     codiceUrl: codice.codiceUrl,
   })
@@ -325,21 +325,21 @@ test('voceLista: stato, ultima corsa a orario fisso con la durata, prossima, il 
   assert.equal(c.dettagli.valore.rich_text[0].elements[0].elements[0].type, 'text')
 
   const oom = voceLista(cron('staging', 'x', { runs: [{ outcome: 'failed', exitCode: 137, stopReason: 'OutOfMemoryError: killed', startedAt: Date.parse('2026-10-02T21:10:00Z'), durationMs: 45_000 }] }), { ora: ORA, t })
-  assert.deepEqual([oom.ambiente, oom.stato, oom.ultima, oom.dettagli, oom.codice], ['staging', 'crit', 'ieri 23:10 · 45 s', 'memoria esaurita', 'n/d'])
+  assert.deepEqual([oom.ambiente, oom.stato, oom.ultima, oom.dettagli, oom.codice], ['staging', 'crit', 'yesterday 23:10 · 45 s', 'out of memory', 'n/a'])
 
   const ripartito = voceLista(cron('production', 'x', { runs: [{ running: true, startedAt: Date.parse('2026-10-03T11:41:00Z') }, { outcome: 'failed', exitCode: 2, startedAt: ORA - 7_200_000 }] }), { ora: ORA, t })
-  assert.deepEqual([ripartito.stato, ripartito.ultima, ripartito.dettagli], ['crit', 'In corso dalle 13:41', 'prima: exit 2'])
+  assert.deepEqual([ripartito.stato, ripartito.ultima, ripartito.dettagli], ['crit', 'Running since 13:41', 'before: exit 2'])
 
   const spento = voceLista(cron('management', 'y', { enabled: false, runs: [], nextRunAt: null }), { ora: ORA, t })
-  assert.deepEqual([spento.ambiente, spento.stato, spento.ultima, spento.prossima, spento.dettagli], ['altro', 'off', 'n/d', 'Spento', 'Spento di proposito: non è un guasto'])
+  assert.deepEqual([spento.ambiente, spento.stato, spento.ultima, spento.prossima, spento.dettagli], ['altro', 'off', 'n/a', 'Turned off', 'Turned off on purpose: not a failure'])
 
   const fermo = voceLista(cron('staging', 'z', { runs: [], nextRunAt: null, scheduleMinutes: 5 }), { ora: ORA, t })
-  assert.deepEqual([fermo.stato, fermo.prossima, fermo.dettagli], ['warn', 'ogni 5 min', 'Non è partito in questa finestra'])
+  assert.deepEqual([fermo.stato, fermo.prossima, fermo.dettagli], ['warn', 'every 5 min', 'Did not start in this window'])
 
   // Il reaper piegato nel job: il suo guasto sta nello stato e nei Dettagli del job.
   const conReaper = voceLista(cron('production', 'job', { reaper: cron('production', 'job-reaper', { runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 60_000 }] }) }), { ora: ORA, t })
   assert.equal(conReaper.stato, 'crit')
-  assert.match(conReaper.dettagli, /^reaper: Fallito oggi 13:59/)
+  assert.match(conReaper.dettagli, /^reaper: Failed today 13:59/)
 })
 
 test('nomiLista: il nome del canvas, con l’account accanto solo dove lo stesso ambiente ne ha più d’uno', () => {
@@ -376,7 +376,7 @@ test('listeCorseDaScrivere: una List per canale con gli stessi cron del canvas, 
     DADAGUARD_PUBLIC_URL: DG,
   })
   const [tutti, data] = listeCorseDaScrivere({ overview, etichette: { production: 'production', staging: 'staging' } }, cfg, { ora: ORA })
-  assert.equal(tutti.titolo, 'Lista corse cron TUTTI')
+  assert.equal(tutti.titolo, 'Cron runs list ALL')
   assert.deepEqual(tutti.canali, ['C0TUTTI'])
   assert.deepEqual(tutti.righe.map((r) => `${r.ambiente}|${r.nome}|${r.sezione}`), [
     'produzione|report|prodotto',
@@ -539,7 +539,7 @@ test('aggiornaCorse: crea il canvas, poi riscrive solo le celle cambiate; uno ca
   assert.equal(e.celle, 5)
   const edits = s.chiamate.filter(([m]) => m === 'canvases.edit').map(([, c]) => c.changes[0])
   assert.ok(edits.every((x) => x.section_id), 'solo modifiche per cella')
-  assert.ok(edits.some((x) => x.document_content.markdown === '❌ Fallito'))
+  assert.ok(edits.some((x) => x.document_content.markdown === '❌ Failed'))
   // Quello che si legge ora nel canvas è il modello del giro: nessuna cella da riscrivere.
   const modello = canvasCorseDaScrivere({ overview: { window: 1440, crons: rotto, problems: [] }, etichette: {} }, cfg, { ora: ORA })[0].modello
   assert.deepEqual(pianoCelle(modello, leggiCanvasHtml(s.html(s.canvas.get(id).blocchi))), [])
@@ -571,9 +571,9 @@ test('aggiornaCorse: il tetto di modifiche vale per giro, il resto va al giro do
 })
 
 test('testoAvvisoCorse: fermo e rientrato, con la grammatica del canale; la List si chiama per nome', () => {
-  assert.match(testoAvvisoCorse({ ambiente: 'corse-lista-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'x' }, { ora: ORA }), /^⚠️ `corse cron` \[LISTA DATA\] FERMO · la List non si aggiorna da 20 min/)
-  assert.match(testoAvvisoCorse({ ambiente: 'corse-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'not_in_channel' }, { ora: ORA, url: DG }), /^⚠️ `corse cron` \[DATA\] FERMO · il canvas non si aggiorna da 20 min · ultimo errore: not_in_channel/)
-  assert.match(testoAvvisoCorse({ ambiente: 'corse-tutti', tipo: 'rientrato', fermoDa: ORA - 60 * 60_000 }, { ora: ORA }), /^✅ `corse cron` \[TUTTI\] rientrato/)
+  assert.match(testoAvvisoCorse({ ambiente: 'corse-lista-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'x' }, { ora: ORA }), /^⚠️ `cron runs` \[LIST DATA\] STOPPED · the List has not updated for 20 min/)
+  assert.match(testoAvvisoCorse({ ambiente: 'corse-data', tipo: 'fermo', fermoDa: ORA - 20 * 60_000, errore: 'not_in_channel' }, { ora: ORA, url: DG }), /^⚠️ `cron runs` \[DATA\] STOPPED · the canvas has not updated for 20 min · last error: not_in_channel/)
+  assert.match(testoAvvisoCorse({ ambiente: 'corse-tutti', tipo: 'rientrato', fermoDa: ORA - 60 * 60_000 }, { ora: ORA }), /^✅ `cron runs` \[ALL\] recovered/)
 })
 
 test('statoCron condiviso: la pagina e il canvas usano la stessa funzione', async () => {
@@ -605,12 +605,12 @@ test('aggiornaCorse con le List: una List per canale, poi solo le celle cambiate
   assert.equal(letture, 1, 'una lettura sola per canvas e List')
   assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.azione}`), ['corse-tutti:creato', 'corse-lista-tutti:creata'])
   const lista = [...s.liste.values()][0]
-  assert.equal(lista.titolo, 'Lista corse cron TUTTI')
+  assert.equal(lista.titolo, 'Cron runs list ALL')
   assert.deepEqual(lista.canali, ['C0TUTTI'], 'in sola lettura per il suo canale')
-  assert.deepEqual(righeLista(lista).map((r) => `${r.cron}|${r.ambiente}|${r.stato}|${r.ultima}`), ['a|produzione|ok|oggi 13:00 · 4 min', 'b|produzione|ok|oggi 13:00 · 4 min', 'a|staging|ok|oggi 13:00 · 4 min'])
+  assert.deepEqual(righeLista(lista).map((r) => `${r.cron}|${r.ambiente}|${r.stato}|${r.ultima}`), ['a|produzione|ok|today 13:00 · 4 min', 'b|produzione|ok|today 13:00 · 4 min', 'a|staging|ok|today 13:00 · 4 min'])
   // Il canvas è il riepilogo, col link alla List appena creata.
   const canvasMd = s.chiamate.find(([m]) => m === 'conversations.canvases.create')[1].document_content.markdown
-  assert.match(canvasMd, new RegExp(`\\[Lista corse cron TUTTI\\]\\(https://x\\.slack\\.com/lists/T1/${lista.id}\\)`))
+  assert.match(canvasMd, new RegExp(`\\[Cron runs list ALL\\]\\(https://x\\.slack\\.com/lists/T1/${lista.id}\\)`))
   assert.doesNotMatch(canvasMd, /\| Cron \|/)
 
   // Niente di cambiato: nessuna scrittura, e nemmeno una rilettura della List.
@@ -650,7 +650,7 @@ test('aggiornaCorse con le List: dopo un riavvio la ritrova, cancellata a mano l
   const primo = (await giro(memoria, 4)).filter((e) => e.ambiente.startsWith('corse-lista-'))
   assert.deepEqual(primo.map((e) => `${e.ambiente}:${e.nuove}+${e.restano}`), ['corse-lista-tutti:4+1', 'corse-lista-data:0+2'])
   await giro(memoria, 4)
-  assert.deepEqual([...s.liste.values()].map((l) => `${l.titolo}:${l.righe.size}`), ['Lista corse cron TUTTI:5', 'Lista corse cron DATA:2'])
+  assert.deepEqual([...s.liste.values()].map((l) => `${l.titolo}:${l.righe.size}`), ['Cron runs list ALL:5', 'Cron runs list DATA:2'])
   assert.ok(MAX_RIGHE_NUOVE_CORSE >= 20)
 
   // Riavvio: memoria vuota. Le List si ritrovano dal titolo e dal canale, nessuna riga nuova né cella.
@@ -661,14 +661,14 @@ test('aggiornaCorse con le List: dopo un riavvio la ritrova, cancellata a mano l
 
   // Cancellata a mano: il primo giro che ci scrive sbaglia sull'id che aveva e butta la memoria, il
   // secondo non la ritrova fra i file del bot e la ricrea, con tutte le righe.
-  const vecchia = [...s.liste.values()].find((l) => l.titolo === 'Lista corse cron DATA')
+  const vecchia = [...s.liste.values()].find((l) => l.titolo === 'Cron runs list DATA')
   s.liste.delete(vecchia.id)
   crons[4] = { ...crons[4], runs: [{ outcome: 'failed', exitCode: 1, startedAt: ORA - 1000 }] }
   const rotta = (await giro(memoria)).find((e) => e.ambiente === 'corse-lista-data')
   assert.equal(rotta.azione, 'errore')
   const rifatta = (await giro(memoria)).find((e) => e.ambiente === 'corse-lista-data')
   assert.equal(rifatta.azione, 'creata')
-  const rinata = [...s.liste.values()].find((l) => l.titolo === 'Lista corse cron DATA')
+  const rinata = [...s.liste.values()].find((l) => l.titolo === 'Cron runs list DATA')
   assert.notEqual(rinata.id, vecchia.id)
   assert.deepEqual(righeLista(rinata).map((r) => `${r.cron}|${r.stato}`), ['worker-d|ok', 'worker-e|crit'])
 })

@@ -60,8 +60,10 @@ const soloSe = (re, x) => (typeof x === 'string' && re.test(x) ? x : null)
 const linkGithub = (x) => (typeof x === 'string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(actions\/runs\/\d+(\/job\/\d+)?|commit\/[0-9a-f]{7,40})$/i.test(x) ? x : null)
 // Il file di una migration fallita, dal `motivo` della CI (`migration fallita: 20261016_00_x.sql`).
 // Solo il nome di un file .sql: il resto del motivo e' testo libero e sul canvas non ci va.
+// Le due lingue: la CI passa all'inglese (`migration failed: …`) e una coda o un runner vecchi possono
+// ancora mandare la forma italiana (23/10/2026).
 const fileMigration = (x) => {
-  const m = typeof x === 'string' && /^migration fallita: ([\w.-]{1,120}\.sql)$/.exec(x)
+  const m = typeof x === 'string' && /^migration (?:fallita|failed): ([\w.-]{1,120}\.sql)$/.exec(x)
   return m ? m[1] : null
 }
 // Gli id dei job rossi: solo nomi da identificatore (come li scrive un workflow), al massimo cinque.

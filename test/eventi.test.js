@@ -217,6 +217,7 @@ test('migration_fallita (PLA-733): un check rosso col job delle migration e il f
   assert.equal(ev.url, 'https://github.com/Acme/agentic-chat/actions/runs/123/job/456', 'il link al job passa')
   assert.equal(normalizza(ci({ evento: 'migration_fallita', motivo: 'migration fallita: <!channel> x.sql' })).file, null, 'un motivo che non e un nome di file non passa')
   assert.equal(normalizza(ci({ evento: 'migration_fallita', motivo: 'migration fallita' })).file, null, 'senza file resta la causa')
+  assert.equal(normalizza(ci({ evento: 'migration_fallita', motivo: 'migration failed: 20261016_00_x.sql' })).file, '20261016_00_x.sql', 'la CI in inglese dice lo stesso file')
   assert.equal(normalizza(ci({ evento: 'test_falliti' })).causa, undefined, 'i test rossi restano come erano')
   const uniti = unisciTest(new Map(), [['staging|acme/agentic-chat', { ...ev, ricevuto: ORA }]], { lettoAlle: ORA })
   assert.equal(uniti.get('staging|acme/agentic-chat').causa, 'migration')

@@ -665,7 +665,8 @@ async function datiCorse() {
     concorrenza: 3,
     fresh: true,
     prefect: false,
-    t: makeT('it'),
+    // In inglese come il resto del canale: gli errori di lettura finiscono nel canvas delle corse.
+    t: makeT('en'),
   })
   const etichette = Object.fromEntries(Object.entries(accounts ?? {}).map(([k, a]) => [k, a?.label ?? k]))
   return { overview, etichette }

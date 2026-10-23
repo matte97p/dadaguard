@@ -355,7 +355,7 @@ test('audit: una scrittura sul READER non e una scrittura, e dice perche', async
   const out = await audit({}, { logGroup: '/finto' })
   const d = out.database.find((x) => x.nome === 'tenders')
   assert.deepEqual([d.scritture, d.tentate], [1, 1], 'quella sul reader non e andata a buon fine')
-  assert.deepEqual(d.motiviTentate, ['sul reader, che e in sola lettura'])
+  assert.deepEqual(d.motiviTentate, ['on the reader, which is read-only'])
   // E chi ha solo tentato non finisce fra chi ha scritto.
   assert.deepEqual(d.utentiDb, [{ utente: 'dev_readwrite', endpoint: 'writer' }])
 })
@@ -386,7 +386,7 @@ test('audit: un utente dichiarato di sola lettura non scrive, per quanto ci prov
   // Con la dichiarazione, una sola.
   const con = await (await conEventi(eventi)).audit({}, { logGroup: '/finto', utentiSolaLettura: ['dev_solalettura'] })
   assert.deepEqual([con.database[0].scritture, con.database[0].tentate], [1, 1])
-  assert.deepEqual(con.database[0].motiviTentate, ['dev_solalettura non ha la scrittura'])
+  assert.deepEqual(con.database[0].motiviTentate, ['dev_solalettura cannot write'])
   assert.deepEqual(con.database[0].scriventi, ['utente-uno'])
 })
 

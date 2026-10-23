@@ -338,11 +338,11 @@ test('storiaImmagini: una voce per immagine, con la data di costruzione e da qua
 
 test('linkPagina: gli avvisi sul dev-env aprono il Mac nella Flotta, gli accessi la loro voce', () => {
   const u = 'https://dg'
-  assert.equal(linkPagina({ tipo: 'scrittura', bersaglio: 'postgres' }, u), '<https://dg/accessi#scritture|Accessi>')
-  assert.equal(linkPagina({ tipo: 'ssh', bersaglio: 'mac-di-x' }, u), '<https://dg/accessi#ssh|Accessi>')
-  assert.equal(linkPagina({ tipo: 'oom', bersaglio: 'Mac di x' }, u), '<https://dg/flotta?mac=Mac%20di%20x|Flotta>')
-  assert.equal(linkPagina({ tipo: 'guasto', bersaglio: 'dev-env', macchina: 'm1' }, u), '<https://dg/flotta?mac=m1|Flotta>')
-  assert.equal(linkPagina({ tipo: 'versione', bersaglio: 'dev-env' }, u), '<https://dg/flotta|Flotta>')
+  assert.equal(linkPagina({ tipo: 'scrittura', bersaglio: 'postgres' }, u), '<https://dg/accessi#scritture|Access>')
+  assert.equal(linkPagina({ tipo: 'ssh', bersaglio: 'mac-di-x' }, u), '<https://dg/accessi#ssh|Access>')
+  assert.equal(linkPagina({ tipo: 'oom', bersaglio: 'Mac di x' }, u), '<https://dg/flotta?mac=Mac%20di%20x|Fleet>')
+  assert.equal(linkPagina({ tipo: 'guasto', bersaglio: 'dev-env', macchina: 'm1' }, u), '<https://dg/flotta?mac=m1|Fleet>')
+  assert.equal(linkPagina({ tipo: 'versione', bersaglio: 'dev-env' }, u), '<https://dg/flotta|Fleet>')
 })
 
 // ── La demo ───────────────────────────────────────────────────────────────────────────────────────

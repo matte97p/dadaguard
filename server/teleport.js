@@ -228,8 +228,8 @@ function azione(query) {
 // Una scrittura rifiutata non conta fra le scritture: non e' successo niente, e un allarme rosso su
 // niente e' il modo piu' veloce per far ignorare gli allarmi rossi.
 export function rifiutata(campi, solaLettura = new Set()) {
-  if (campi.db_labels?.access === 'reader') return 'sul reader, che e in sola lettura'
-  if (campi.db_user && solaLettura.has(campi.db_user)) return `${campi.db_user} non ha la scrittura`
+  if (campi.db_labels?.access === 'reader') return 'on the reader, which is read-only'
+  if (campi.db_user && solaLettura.has(campi.db_user)) return `${campi.db_user} cannot write`
   return null
 }
 

@@ -52,7 +52,7 @@ export function watchConfig(env = process.env) {
     confirmations: Math.max(1, Number(env.DADAGUARD_WATCH_CONFIRM) || DEFAULT_CONFIRMATIONS),
     stateFile: env.DADAGUARD_STATE_FILE || '.dadaguard-state.json',
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
-    lang: env.DADAGUARD_LANG || 'it',
+    lang: env.DADAGUARD_LANG || 'en',
     linear: linearConfig(env),
   }
 }

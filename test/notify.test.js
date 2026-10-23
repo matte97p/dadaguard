@@ -461,6 +461,9 @@ test('watchConfig: valori di default sensati e limiti minimi', () => {
   assert.equal(d.intervalMs, 300_000)
   assert.equal(d.confirmations, 2)
   assert.equal(d.webhook, null)
+  // Slack in inglese di default (23/10/2026); `DADAGUARD_LANG=it` per tornare all'italiano.
+  assert.equal(d.lang, 'en')
+  assert.equal(watchConfig({ DADAGUARD_LANG: 'it' }).lang, 'it')
   // un intervallo assurdo non deve martellare AWS ogni secondo
   assert.equal(watchConfig({ DADAGUARD_WATCH_INTERVAL: '1' }).intervalMs, 30_000)
   assert.equal(watchConfig({ DADAGUARD_WATCH_CONFIRM: '0' }).confirmations, 2)
@@ -738,8 +741,8 @@ test('giroAccessi: annuncia il segnale nuovo, col messaggio nella grammatica del
   // COSA (`UPDATE`), su cosa (la tabella), chi, e con che utente da quale endpoint: senza queste
   // quattro cose il messaggio obbliga ad aprire i log per sapere se e' successo qualcosa o niente.
   // `+3` e non `4`: tre sono arrivate dall'ultimo messaggio, una era gia' stata detta.
-  assert.match(testo, /^🚨 `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(scrivente su writer\)/)
-  assert.match(testo, /esempio\.test\/accessi#scritture\|Accessi/)
+  assert.match(testo, /^🚨 `orders-prod-db-ro\/orders` \[PROD\] WRITES — \+3 UPDATE on ordini by tizio \(scrivente on writer\)/)
+  assert.match(testo, /esempio\.test\/accessi#scritture\|Access>/)
 })
 
 // ⚠️ La riga ℹ️ (08/10/2026: dati scritti solo con login personali) cambia faccia, non strada: va nel
@@ -761,7 +764,7 @@ test('giroAccessi: dati scritti col login personale escono ℹ️ e nello stesso
   )
   assert.equal(out.sent, true)
   assert.equal(webhook.length, 1)
-  assert.match(webhook[0], /^ℹ️ `orders-prod-db-ro\/orders` \[PROD\] SCRITTURE — \+3 UPDATE su ordini da tizio \(su writer\)/)
+  assert.match(webhook[0], /^ℹ️ `orders-prod-db-ro\/orders` \[PROD\] WRITES — \+3 UPDATE on ordini by tizio \(on writer\)/)
   assert.equal(out.stato['scrittura-dati:orders-prod-db-ro/orders'].livello, 'info')
 })
 
@@ -808,7 +811,7 @@ test('giroAccessi: le scritture sulla STRUTTURA hanno la loro riga, gialla e con
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0 } } },
   )
-  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) da tizio \(scrivente su writer\)/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] SCHEMA CHANGES — \+15 DDL \(7 ALTER INDEX, 5 CREATE INDEX, \+3\) by tizio \(scrivente on writer\)/)
 })
 
 // Se Slack non risponde lo stato non avanza: al giro dopo si riprova, invece di perdere la notizia
@@ -851,11 +854,11 @@ test('giroAccessi: con canaleFlotta le scritture restano nel webhook e il motore
   })
   assert.equal(out.sent, true)
   assert.equal(webhook.length, 1)
-  assert.match(webhook[0], /SCRITTURE/)
-  assert.doesNotMatch(webhook[0], /MOTORE/)
+  assert.match(webhook[0], /WRITES/)
+  assert.doesNotMatch(webhook[0], /DOCKER ENGINE/)
   assert.equal(bot.length, 1)
   assert.equal(bot[0][0], 'C0FLOTTA')
-  assert.match(bot[0][1], /MOTORE DI DOCKER NON SUPPORTATO/)
+  assert.match(bot[0][1], /UNSUPPORTED DOCKER ENGINE/)
 })
 
 test('giroAccessi: senza token del bot il canale della flotta non si usa, e tutto va nel webhook', async () => {
@@ -872,7 +875,7 @@ test('giroAccessi: senza token del bot il canale della flotta non si usa, e tutt
     { accessi: {} },
   )
   assert.equal(webhook.length, 1)
-  assert.match(webhook[0], /SCRITTURE[\s\S]*MOTORE/)
+  assert.match(webhook[0], /WRITES[\s\S]*DOCKER ENGINE/)
 })
 
 // Un canale che non risponde non deve far ripetere l'altro: al giro dopo si riprovano solo i suoi.
@@ -964,9 +967,9 @@ test('giroAccessi: sotto al rosso si leggono le scritture sui DATI, e i login no
   // Due righe, e il rosso e il motivo del rosso sono la stessa cosa: sotto `SCRITTURE` si legge
   // l'UPDATE, non le DDL, che hanno la loro riga gialla e non entrano piu' in quella rossa.
   const [rossa, gialla] = testo.split('\n')
-  assert.match(rossa, /^🚨 `main-prod-db\/postgres` \[PROD\] SCRITTURE — \+2 UPDATE su utenti da tizio, caio \(dev_readonly\)/)
+  assert.match(rossa, /^🚨 `main-prod-db\/postgres` \[PROD\] WRITES — \+2 UPDATE on utenti by tizio, caio \(dev_readonly\)/)
   assert.doesNotMatch(rossa, /CREATE FUNCTION|GRANT/)
-  assert.match(gialla, /^⚠️ `main-prod-db\/postgres` \[PROD\] STRUTTURA — /)
+  assert.match(gialla, /^⚠️ `main-prod-db\/postgres` \[PROD\] SCHEMA CHANGES — /)
   assert.doesNotMatch(gialla, /UPDATE|su utenti/)
   // I login che ripetono il nome di chi ha scritto non si ridicono, e «endpoint ignoto» non esiste.
   assert.doesNotMatch(testo, /dev_tizio|dev_caio|ignoto/)
@@ -1015,7 +1018,7 @@ test('giroAccessi: l endpoint si dice una volta sola, non per persona', async ()
     },
     { accessi: { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } } },
   )
-  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] STRUTTURA — \+3 CREATE INDEX da tizio \(dev_readwrite su writer\)/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/orders` \[PROD\] SCHEMA CHANGES — \+3 CREATE INDEX by tizio \(dev_readwrite on writer\)/)
   assert.doesNotMatch(testo, /su ordini/)
 })
 
@@ -1094,18 +1097,18 @@ test('giroAccessi: le scritture rifiutate si dicono in coda, e da sole non fanno
     )
   }
   // Solo tentativi: nessuna scrittura, quindi nessuna riga.
-  await manda(dati({ scritture: 0, scrittureDati: 0, scrittureStruttura: 0, azioni: [], tentate: 4, motiviTentate: ['sul reader, che e in sola lettura'] }), {})
+  await manda(dati({ scritture: 0, scrittureDati: 0, scrittureStruttura: 0, azioni: [], tentate: 4, motiviTentate: ['on the reader, which is read-only'] }), {})
   assert.equal(testo, null)
   // Con una scrittura vera, i tentativi si leggono in coda alla sua riga.
   await manda(
     dati({
       scritture: 3, scrittureDati: 0, scrittureStruttura: 3,
       azioni: [{ etichetta: 'CREATE INDEX', quante: 3, tipo: 'struttura' }],
-      tentate: 4, motiviTentate: ['dev_readonly non ha la scrittura'],
+      tentate: 4, motiviTentate: ['dev_readonly cannot write'],
     }),
     { 'scrittura-struttura:orders-prod-db/orders': { quando: 8000, quante: 0, azioni: {}, chi: ['tizio'], livello: 'attenzione' } },
   )
-  assert.match(testo, /\+3 CREATE INDEX da tizio \(su writer\) · 4 rifiutate \(dev_readonly non ha la scrittura\)/)
+  assert.match(testo, /\+3 CREATE INDEX by tizio \(on writer\) · 4 rejected \(dev_readonly cannot write\)/)
 })
 
 // Due cose che il messaggio non diceva e che sono la prima domanda di chi lo legge: QUALE cluster
@@ -1124,7 +1127,7 @@ test('messaggioAccessi: la riga porta il cluster e i nomi degli oggetti delle DD
     chi: ['tizio'],
     utentiDb: [{ utente: 'dev_tizio', endpoint: 'writer' }],
   })
-  assert.match(testo, /^⚠️ `orders-prod-db\/postgres` \[PROD\] STRUTTURA — \+2 CREATE FUNCTION su public\.una, public\.due da tizio \(su writer\)$/)
+  assert.match(testo, /^⚠️ `orders-prod-db\/postgres` \[PROD\] SCHEMA CHANGES — \+2 CREATE FUNCTION on public\.una, public\.due by tizio \(on writer\)$/)
 })
 
 // ⚠️ I login per persona sono TRE prefissi, non uno solo: `dev_` (scrittura), `adm_`
@@ -1145,10 +1148,10 @@ test('messaggioAccessi: un login per persona non si ripete fra parentesi, con og
     utentiDb: [{ utente, endpoint: 'writer' }],
   })
   for (const utente of ['dev_tizio', 'adm_tizio', 'data_tizio']) {
-    assert.match(riga(utente), /da Tizio \(su writer\)$/, utente)
+    assert.match(riga(utente), /by Tizio \(on writer\)$/, utente)
   }
   // E il condiviso invece si dice: e' l'informazione che il nome della persona non porta.
-  assert.match(riga('dev_readwrite'), /da Tizio \(dev_readwrite su writer\)$/)
+  assert.match(riga('dev_readwrite'), /by Tizio \(dev_readwrite on writer\)$/)
 })
 
 // Il cluster non si ripete quando e' gia' la parola che c'e': `dev-env/dev-env` sarebbe rumore, e la

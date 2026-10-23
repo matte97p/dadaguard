@@ -181,6 +181,7 @@ DADAGUARD_WATCH_INTERVAL=300   # secondi tra i giri (default 300; ogni giro cost
 DADAGUARD_WATCH_CONFIRM=2      # letture consecutive perché una transizione conti (anti-sfarfallio)
 DADAGUARD_STATE_FILE=.dadaguard-state.json   # dove ricorda l'ultimo stato annunciato
 DADAGUARD_PUBLIC_URL=https://dadaguard.example   # link in fondo al messaggio
+DADAGUARD_LANG=en              # lingua dei messaggi (default en; `it` per l'italiano)
 ```
 
 **Due destinazioni, perché non tutto va detto da Dadaguard.** Se i tuoi cron avvisano già da sé quando

@@ -419,17 +419,17 @@ test('messaggi: una riga sola, la persona, il numero e il link al Mac nella Flot
     assert.equal(m.includes('\n'), false, m)
     assert.equal(m.includes(String.fromCharCode(0x2014)), false, m)
     assert.match(m, /\(tizio\)/, m)
-    assert.match(m, /<https:\/\/dg\/flotta\?mac=mac-di-tizio\|Flotta>$/, m)
+    assert.match(m, /<https:\/\/dg\/flotta\?mac=mac-di-tizio\|Fleet>$/, m)
   }
-  assert.match(tutti[0], /IMMAGINE DEL DEV-ENV VECCHIA \(tizio\): costruita 9 giorni prima/)
-  assert.match(tutti[1], /SALUTE DEL DEV-ENV MUTA \(tizio\): nessuna riga da 31 ore, ma il dev-env è partito 2 ore fa/)
-  assert.match(tutti[2], /^ℹ️ `mac-di-tizio` MOTORE DI DOCKER NON SUPPORTATO \(tizio\): `colima` · ammessi: docker-desktop/)
-  assert.match(tutti[3], /non Docker Desktop \(colima o orbstack\)/)
-  assert.match(tutti[4], /VM DEL DEV-ENV SOTTO L'OBIETTIVO \(tizio\): 11\.9 circa GB su 14/)
+  assert.match(tutti[0], /DEV-ENV IMAGE OUT OF DATE \(tizio\): built 9 days before/)
+  assert.match(tutti[1], /DEV-ENV HEALTH SILENT \(tizio\): no line for 31 hours, but the dev-env started 2 hours ago/)
+  assert.match(tutti[2], /^ℹ️ `mac-di-tizio` UNSUPPORTED DOCKER ENGINE \(tizio\): `colima` · allowed: docker-desktop/)
+  assert.match(tutti[3], /not Docker Desktop \(colima or orbstack\)/)
+  assert.match(tutti[4], /DEV-ENV VM BELOW TARGET \(tizio\): about 11\.9 GB of 14/)
   // Un backtick che arriva da un'altra macchina non apre un code span.
   assert.match(tutti[5], /`X_NO_MIGRATE`, `X_'BAD'`/)
-  assert.match(tutti[6], /SUL MAC INVECE CHE NEL CONTAINER \(tizio\): 14 volte in 24 ore, 11 fermate prima di partire, 3 eseguite lo stesso sul Mac · di solito/)
-  assert.match(tutti[7], /DOCTOR DEL DEV-ENV KO \(tizio\): 2 controlli falliti · `docker, doppler`/)
+  assert.match(tutti[6], /ON THE MAC INSTEAD OF THE CONTAINER \(tizio\): 14 times in 24 hours, 11 stopped before running, 3 run on the Mac anyway · usually/)
+  assert.match(tutti[7], /DEV-ENV DOCTOR FAILED \(tizio\): 2 failed checks · `docker, doppler`/)
 })
 
 // ── La pagina ─────────────────────────────────────────────────────────────────────────────────────

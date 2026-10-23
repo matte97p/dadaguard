@@ -21,9 +21,20 @@ import { log } from './log.js'
 // di servire un dato non appena calcolato.
 const TTL_MS = Number(process.env.DADAGUARD_STATUS_TTL_MS ?? 120_000)
 
+// Un giro alla volta, anche fra lingue diverse. Dal 23/10/2026 il watchdog scrive su Slack in inglese
+// (`DADAGUARD_LANG`, default `en`) mentre la dashboard chiede di solito `it`: sono due chiavi diverse,
+// e senza questa coda i due giri completi possono partire insieme, che è proprio la CPU satura del
+// 12/10/2026 (vedi server/notify/watch.js). In coda il secondo aspetta il primo invece di rubargli la CPU.
+let coda = Promise.resolve()
+const unoAllaVolta = (fn) => {
+  const p = coda.then(fn, fn)
+  coda = p.catch(() => {})
+  return p
+}
+
 const cache = swrCache({
   ttlMs: TTL_MS,
-  compute: (lang) => getStatus(lang),
+  compute: (lang) => unoAllaVolta(() => getStatus(lang)),
   onError: (err, lang) => log.error('status: rinfresco in background fallito', { lang, err: err.message }),
 })
 
