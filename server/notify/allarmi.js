@@ -1,5 +1,6 @@
 import { SQSClient, ReceiveMessageCommand, DeleteMessageBatchCommand } from '@aws-sdk/client-sqs'
-import { CloudWatchClient, DescribeAlarmHistoryCommand, DescribeAlarmsCommand, ListTagsForResourceCommand } from '@aws-sdk/client-cloudwatch'
+import { CloudWatchClient, DescribeAlarmHistoryCommand, DescribeAlarmsCommand, GetMetricDataCommand, ListTagsForResourceCommand } from '@aws-sdk/client-cloudwatch'
+import { DescribeServicesCommand, ECSClient } from '@aws-sdk/client-ecs'
 import {
   CloudWatchLogsClient,
   DescribeLogGroupsCommand,
@@ -107,6 +108,7 @@ export function normalizzaAllarme(corpo) {
       nome: stringa(s.metric?.name, 255),
       dimensioni: Object.fromEntries(Object.entries(s.metric?.dimensions ?? {}).map(([k, v]) => [String(k), String(v)])),
       periodo: Number(s.period) || 60,
+      stat: stringa(s.stat, 50),
     }))
   let dati = null
   try {
@@ -239,32 +241,69 @@ export function forma(riga = '') {
     .trim()
 }
 
+// Le righe di contorno di un traceback Python: dicono DOVE, non COSA. Contate da sole riempivano il
+// messaggio (`38× File "…", line 513`) e lasciavano fuori l'eccezione, che è l'unica riga che spiega.
+// Anche le righe di codice che il traceback cita, rientrate di quattro spazi o più, e il rimando di
+// SQLAlchemy alla sua documentazione.
+const RE_CONTORNO = /^(\s{4}|\s*(Traceback \(most recent call last\)|File ".*", line \d+|The above exception was the direct cause|During handling of the above exception|\(Background on this error at|\^+\s*$|~+\s*$))/
+
+// La riga finale di un'eccezione: `modulo.Classe: messaggio`. Con le eccezioni concatenate la stessa
+// causa arriva tre o quattro volte, una per classe (asyncpg, sqlalchemy, la nostra): il messaggio dopo
+// l'ultimo `: ` è lo stesso, e lì si raggruppano.
+const RE_ECCEZIONE = /^[\w.]*(Error|Exception|Timeout|Interrupt|Exit)\b[^:]*: (.+)$/
+
+// Una riga del logging Python a livello INFO o DEBUG non dice un guasto anche quando contiene «timeout»
+// (`reason=idle_timeout`): entrava solo per la parola. Le righe `INFO:` di uvicorn restano.
+const RE_INFO = / - (INFO|DEBUG) - /
+
+// L'esempio senza la testa del logging Python (data, ora e il blocco di contesto fra quadre): resta
+// `modulo - LIVELLO - messaggio`, che è la parte che si legge. Pura.
+const senzaTesta = (s) => s.replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '').replace(/ - \[[^\]]*\] - /, ' - ')
+
 // Le righe lette diventano al massimo `max` gruppi, dal più numeroso: `{ n, esempio, stream }`. Le
 // richieste in 5xx si contano per rotta e stato, a parte. Pura/testabile.
 export function riassumiRighe(righe = [], { max = 4 } = {}) {
   const gruppi = new Map()
   const rotte = new Map()
+  let ultima = null
+  const vista = (r) => {
+    if (Number.isFinite(r?.quando) && (ultima === null || r.quando > ultima)) ultima = r.quando
+  }
   for (const r of righe) {
     const msg = String(r?.message ?? '')
-    if (!msg.trim()) continue
+    if (!/[A-Za-z]/.test(msg) || RE_CONTORNO.test(msg)) continue
     const h = RE_5XX.exec(msg)
     if (h) {
       const k = `${h[1]} ${h[2]} ${h[3]}`
       rotte.set(k, (rotte.get(k) ?? 0) + 1)
+      vista(r)
       continue
     }
-    const k = forma(msg)
-    const g = gruppi.get(k)
-    if (g) {
+    if (RE_INFO.test(msg)) continue
+    vista(r)
+    const e = RE_ECCEZIONE.exec(msg.trim())
+    const k = e ? `eccezione:${forma(e[2].split(': ').pop())}` : forma(msg)
+    const classe = e ? msg.trim().split(':')[0] : null
+    const pulita = ripulisci(senzaTesta(msg))
+    const g = gruppi.get(k) ?? { n: 0, esempio: pulita, stream: null, perClasse: new Map() }
+    gruppi.set(k, g)
+    g.stream = r.stream ?? g.stream
+    if (!classe) {
       g.n += 1
-      g.esempio = ripulisci(msg)
-      g.stream = r.stream ?? g.stream
-    } else gruppi.set(k, { n: 1, esempio: ripulisci(msg), stream: r.stream ?? null })
+      g.esempio = pulita
+      continue
+    }
+    // Una catena conta una volta: il numero è quello della classe vista più spesso, non la somma.
+    g.perClasse.set(classe, (g.perClasse.get(classe) ?? 0) + 1)
+    g.n = Math.max(...g.perClasse.values())
+    // L'esempio più corto: nella catena è quello che dice la causa senza il nome dell'altra classe.
+    if (pulita.length < g.esempio.length) g.esempio = pulita
   }
   const ordina = (a, b) => b.n - a.n
   return {
-    errori: [...gruppi.values()].sort(ordina).slice(0, max),
+    errori: [...gruppi.values()].map(({ perClasse, ...g }) => g).sort(ordina).slice(0, max),
     rotte: [...rotte.entries()].map(([rotta, n]) => ({ rotta, n })).sort(ordina).slice(0, 3),
+    ultima,
   }
 }
 
@@ -276,6 +315,23 @@ export function finestraLog(a, { margineMs = 2 * 60_000, defaultMs = 15 * 60_000
   const periodo = (a?.metriche?.[0]?.periodo ?? 60) * 1000
   const inizio = a?.valutati?.length ? Math.min(...a.valutati) - margineMs : fine - defaultMs
   return { da: Math.min(inizio, fine - periodo), a: fine + 60_000 }
+}
+
+// La risorsa a cui l'allarme appartiene, come configurazione `aws` di Dadaguard: il servizio che la card
+// già gli attribuisce (per dimensione o per nome), sennò la Lambda o il servizio ECS nelle dimensioni.
+// `null` se l'allarme non ne nomina una. Pura.
+export function servizioDi(a, servizi = []) {
+  const m = a.metriche?.[0]
+  const finto = { AlarmName: a.nome, Dimensions: Object.entries(m?.dimensioni ?? {}).map(([Name, Value]) => ({ Name, Value })) }
+  const nomi = (s) => [s?.aws?.function, s?.aws?.taskDefinition, s?.aws?.service, s?.name].filter(Boolean).map(String)
+  const candidato =
+    servizi.find((s) => s?.aws && alarmDelServizio(finto, s.aws)) ??
+    servizi
+      .filter((s) => nomi(s).some((n) => n.length > 3 && a.nome.startsWith(`${n}-`)))
+      .sort((x, y) => Math.max(...nomi(y).map((n) => n.length)) - Math.max(...nomi(x).map((n) => n.length)))[0]
+  const dim = m?.dimensioni ?? {}
+  const cfg = candidato?.aws ?? (dim.FunctionName ? { type: 'lambda', function: dim.FunctionName } : dim.ClusterName && dim.ServiceName ? { type: 'ecs', cluster: dim.ClusterName, service: dim.ServiceName } : null)
+  return cfg
 }
 
 // Il log group di un allarme, dedotto da quello che l'allarme già dice (nessun tag da scrivere a mano):
@@ -299,15 +355,7 @@ export async function logGroupDi(a, { aws, servizi = [], deps = {} } = {}) {
       log.warn('allarmi: metric filter non letto', { allarme: a.nome, err: err.message })
     }
   }
-  const finto = { AlarmName: a.nome, Dimensions: Object.entries(m?.dimensioni ?? {}).map(([Name, Value]) => ({ Name, Value })) }
-  const nomi = (s) => [s?.aws?.function, s?.aws?.taskDefinition, s?.aws?.service, s?.name].filter(Boolean).map(String)
-  const candidato =
-    servizi.find((s) => s?.aws && alarmDelServizio(finto, s.aws)) ??
-    servizi
-      .filter((s) => nomi(s).some((n) => n.length > 3 && a.nome.startsWith(`${n}-`)))
-      .sort((x, y) => Math.max(...nomi(y).map((n) => n.length)) - Math.max(...nomi(x).map((n) => n.length)))[0]
-  const dim = m?.dimensioni ?? {}
-  const cfg = candidato?.aws ?? (dim.FunctionName ? { type: 'lambda', function: dim.FunctionName } : dim.ClusterName && dim.ServiceName ? { type: 'ecs', cluster: dim.ClusterName, service: dim.ServiceName } : null)
+  const cfg = servizioDi(a, servizi)
   if (cfg) {
     try {
       const r = await risolvi({ aws: cfg }, aws)
@@ -349,7 +397,9 @@ export async function leggiRighe({ logGroup, pattern }, { da, a }, { aws, deps =
   const logs = deps.logs ?? new CloudWatchLogsClient(clientOpts(aws))
   const dormi = deps.dormi ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
   const filtro = filtroDaPattern(pattern) ?? `@message like /${RE_RIGHE}/ or @message like /" 5\\d\\d /`
-  const query = `fields @timestamp, @message, @logStream | filter ${filtro} | sort @timestamp desc | limit 300`
+  // Il contorno dei traceback fuori già dalla query: sennò occupa le 300 righe e le 5xx restano fuori.
+  const contorno = String.raw`@message not like /^(\s{4}|\s*(Traceback \(most recent|File ".*", line \d|The above exception|During handling of the above|\(Background on this error at))/`
+  const query = `fields @timestamp, @message, @logStream | filter ${filtro} | filter ${contorno} | sort @timestamp desc | limit 300`
   const { queryId } = await logs.send(
     new StartQueryCommand({ logGroupName: logGroup, startTime: Math.floor(da / 1000), endTime: Math.ceil(a / 1000), queryString: query }),
   )
@@ -359,7 +409,9 @@ export async function leggiRighe({ logGroup, pattern }, { da, a }, { aws, deps =
     const r = await logs.send(new GetQueryResultsCommand({ queryId }))
     if (r.status === 'Complete') {
       const campo = (riga, nome) => riga.find((c) => c.field === nome)?.value ?? null
-      return (r.results ?? []).map((riga) => ({ message: campo(riga, '@message'), stream: campo(riga, '@logStream') }))
+      // `@timestamp` arriva come `2026-03-10 09:05:09.787`, in UTC ma senza la zona.
+      const quando = (v) => (v ? Date.parse(`${v.replace(' ', 'T')}Z`) : NaN)
+      return (r.results ?? []).map((riga) => ({ message: campo(riga, '@message'), stream: campo(riga, '@logStream'), quando: quando(campo(riga, '@timestamp')) }))
     }
     if (['Failed', 'Cancelled', 'Timeout'].includes(r.status)) throw new Error(`query ${r.status}`)
   }
@@ -383,12 +435,92 @@ export function testoLog({ logGroup, finestra, riassunto, regione, t = (k) => k,
   const link = linkInsights(regione, logGroup, finestra)
   const coda = link ? `\n<${link}|${t('allarmi.log.apri')}>` : ''
   if (errore) return `${testa}\n${t('allarmi.log.errore', { errore })}${coda}`
+  // Prima le rotte in 5xx: per un allarme sulle risposte sono la risposta, e gli errori dicono perché.
   const righe = [
-    ...riassunto.errori.map((g) => `• ${g.n}× \`${g.esempio.replace(/`/g, "'")}\`${replica(g.stream) ? ` (${replica(g.stream)})` : ''}`),
     ...riassunto.rotte.map((r) => `• ${r.n}× ${t('allarmi.log.rotta')} \`${r.rotta}\``),
+    ...riassunto.errori.map((g) => `• ${g.n}× \`${g.esempio.replace(/`/g, "'")}\`${replica(g.stream) ? ` (${replica(g.stream)})` : ''}`),
   ]
   if (!righe.length) return `${testa}\n${t('allarmi.log.niente')}${coda}`
   return `${testa}\n${righe.join('\n')}${coda}`
+}
+
+// ── Il contesto ────────────────────────────────────────────────────────────────────────────────────
+
+// Tre righe sotto il titolo, perché le prime tre domande davanti a un allarme sono sempre le stesse: è
+// ancora in corso? è tanto rispetto al solito? è uscito un rilascio poco prima? Rispondere a mano
+// vuol dire una query per domanda. Ognuna è best-effort: se non si legge, la riga non c'è e il
+// messaggio parte lo stesso.
+
+const DAY_MS = 86_400_000
+
+// Il ritmo della metrica dell'allarme: il totale di oggi (UTC, fin qui) e la media dei sette giorni
+// prima. Solo per le metriche che si contano (`Sum`, `SampleCount`): una media di medie o di massimi
+// non dice niente. `null` se non si conta o non si legge.
+export async function ritmoMetrica(a, { cw, ora = Date.now() } = {}) {
+  const m = a.metriche?.[0]
+  if (!m?.namespace || !m?.nome || !['Sum', 'SampleCount'].includes(m.stat)) return null
+  const oggi = Math.floor(ora / DAY_MS) * DAY_MS
+  const r = await cw.send(
+    new GetMetricDataCommand({
+      StartTime: new Date(oggi - 7 * DAY_MS),
+      EndTime: new Date(ora),
+      MetricDataQueries: [
+        {
+          Id: 'm',
+          MetricStat: {
+            Metric: { Namespace: m.namespace, MetricName: m.nome, Dimensions: Object.entries(m.dimensioni ?? {}).map(([Name, Value]) => ({ Name, Value })) },
+            Period: 86_400,
+            Stat: m.stat,
+          },
+        },
+      ],
+    }),
+  )
+  return ritmoDaSerie(r.MetricDataResults?.[0], oggi)
+}
+
+// La serie giornaliera → `{ oggi, media }`. Un giorno senza punti vale zero: per una metrica che conta
+// errori, nessun punto vuol dire nessun errore. Pura/testabile.
+export function ritmoDaSerie(serie, oggi) {
+  const giorni = new Map((serie?.Timestamps ?? []).map((ts, i) => [Math.floor(new Date(ts).getTime() / DAY_MS) * DAY_MS, serie.Values[i] ?? 0]))
+  let somma = 0
+  for (let g = 1; g <= 7; g++) somma += giorni.get(oggi - g * DAY_MS) ?? 0
+  return { oggi: Math.round(giorni.get(oggi) ?? 0), media: Math.round((somma / 7) * 10) / 10 }
+}
+
+// L'ultimo rilascio del servizio ECS a cui l'allarme appartiene: il deployment più recente. `null` se
+// l'allarme non è di un servizio ECS.
+export async function ultimoRilascio(a, { aws, servizi = [], deps = {} } = {}) {
+  const cfg = servizioDi(a, servizi)
+  if (cfg?.type !== 'ecs' || !cfg.cluster || !cfg.service) return null
+  const ecs = deps.ecs ?? new ECSClient(clientOpts(aws))
+  const svc = (await ecs.send(new DescribeServicesCommand({ cluster: cfg.cluster, services: [cfg.service] }))).services?.[0]
+  const quando = Math.max(...(svc?.deployments ?? []).map((d) => new Date(d.createdAt).getTime()).filter(Number.isFinite))
+  return Number.isFinite(quando) ? { servizio: cfg.service, quando } : null
+}
+
+// Una durata leggibile: `40 min`, `15h`, `3d`. Pura.
+export function durata(ms) {
+  const min = Math.max(0, Math.round(ms / 60_000))
+  if (min < 120) return `${min} min`
+  const ore = Math.round(min / 60)
+  return ore < 48 ? `${ore}h` : `${Math.round(ore / 24)}d`
+}
+
+// Le righe del contesto, nell'ordine delle domande. Pura/testabile.
+export function testoContesto({ ultima = null, ritmo = null, rilascio = null, quando, t = (k) => k }) {
+  const allarme = Date.parse(quando) || Date.now()
+  const righe = []
+  if (Number.isFinite(ultima)) {
+    const prima = allarme - ultima
+    righe.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
+  }
+  if (ritmo) righe.push(t('allarmi.ctx.ritmo', { oggi: ritmo.oggi, media: ritmo.media }))
+  if (rilascio) {
+    const giorno = new Date(rilascio.quando).toISOString()
+    righe.push(t('allarmi.ctx.rilascio', { servizio: rilascio.servizio, quanto: durata(allarme - rilascio.quando), quando: `${giorno.slice(8, 10)}/${giorno.slice(5, 7)} ${ora(rilascio.quando)}` }))
+  }
+  return righe
 }
 
 // ── Il giro di un messaggio ────────────────────────────────────────────────────────────────────────
@@ -468,8 +600,9 @@ export async function gestisci(a, cfg, deps = {}) {
   }
   const testo = testoAllarme(a, decisione, { ambiente: etichettaAmbiente(conto?.chiave, a.nome), t, url: cfg.publicUrl })
 
-  // I log solo su un allarme acceso: su un rientro o un buco di dati non c'è niente da cercare.
+  // I log e il contesto solo su un allarme acceso: su un rientro o un buco di dati non c'è niente da cercare.
   let thread = null
+  let ultima = null
   if (decisione.tipo === 'acceso') {
     try {
       const gruppo = await (deps.logGroupDi ?? logGroupDi)(a, { aws, servizi: servizi.services ?? [] })
@@ -477,7 +610,9 @@ export async function gestisci(a, cfg, deps = {}) {
         const finestra = finestraLog(a)
         try {
           const righe = await (deps.leggiRighe ?? leggiRighe)(gruppo, finestra, { aws })
-          thread = testoLog({ logGroup: gruppo.logGroup, finestra, riassunto: riassumiRighe(righe), regione: a.regione, t })
+          const riassunto = riassumiRighe(righe)
+          ultima = riassunto.ultima
+          thread = testoLog({ logGroup: gruppo.logGroup, finestra, riassunto, regione: a.regione, t })
         } catch (err) {
           thread = testoLog({ logGroup: gruppo.logGroup, finestra, riassunto: null, regione: a.regione, t, errore: err.message })
         }
@@ -486,12 +621,21 @@ export async function gestisci(a, cfg, deps = {}) {
       log.warn('allarmi: log non letti', { allarme: a.nome, err: err.message })
     }
   }
+  let testoIntero = testo
+  if (decisione.tipo === 'acceso') {
+    const [ritmo, rilascio] = await Promise.all([
+      (deps.ritmoMetrica ?? ritmoMetrica)(a, { cw }).catch((err) => (log.warn('allarmi: ritmo non letto', { allarme: a.nome, err: err.message }), null)),
+      (deps.ultimoRilascio ?? ultimoRilascio)(a, { aws, servizi: servizi.services ?? [] }).catch((err) => (log.warn('allarmi: rilascio non letto', { allarme: a.nome, err: err.message }), null)),
+    ])
+    const contesto = testoContesto({ ultima, ritmo, rilascio, quando: a.quando, t })
+    if (contesto.length) testoIntero = `${testo}\n${contesto.join('\n')}`
+  }
 
   const inviaBot = deps.chiamaSlack ?? chiamaSlack
   const inviaHook = deps.postSlack ?? postSlack
   if (dove.canale) {
     try {
-      const r = await inviaBot('chat.postMessage', { channel: dove.canale, text: testo, unfurl_links: false }, cfg.botToken)
+      const r = await inviaBot('chat.postMessage', { channel: dove.canale, text: testoIntero, unfurl_links: false }, cfg.botToken)
       if (thread) await inviaBot('chat.postMessage', { channel: dove.canale, thread_ts: r.ts, text: thread, unfurl_links: false }, cfg.botToken).catch((err) => log.warn('allarmi: thread non scritto', { allarme: a.nome, err: err.message }))
       log.info('allarmi: detto', { allarme: a.nome, stato: a.stato, canale: dove.canale, log: Boolean(thread) })
       return true
@@ -501,7 +645,7 @@ export async function gestisci(a, cfg, deps = {}) {
     }
   }
   // Senza thread i log vanno in coda al messaggio, a capo.
-  const ok = await inviaHook(cfg.webhook, { text: thread ? `${testo}\n${thread}` : testo })
+  const ok = await inviaHook(cfg.webhook, { text: thread ? `${testoIntero}\n${thread}` : testoIntero })
   log.info('allarmi: detto col webhook', { allarme: a.nome, stato: a.stato, inviato: ok })
   return ok
 }
