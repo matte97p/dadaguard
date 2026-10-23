@@ -453,39 +453,49 @@ export function testoLog({ logGroup, finestra, riassunto, regione, t = (k) => k,
 
 const DAY_MS = 86_400_000
 
-// Il ritmo della metrica dell'allarme: il totale di oggi (UTC, fin qui) e la media dei sette giorni
-// prima. Solo per le metriche che si contano (`Sum`, `SampleCount`): una media di medie o di massimi
-// non dice niente. `null` se non si conta o non si legge.
+const HOUR_MS = 3_600_000
+
+// Il ritmo della metrica dell'allarme: il totale delle ultime 24 ore e la media delle sette finestre di
+// 24 ore prima. Finestre della stessa lunghezza: un «oggi» da mezzanotte, la mattina, avrebbe contato
+// poche ore contro giorni interi e fatto sembrare normale un picco. Solo per le metriche che si
+// contano (`Sum`, `SampleCount`): una media di medie o di massimi non dice niente. `null` se non si
+// conta o non si legge.
 export async function ritmoMetrica(a, { cw, ora = Date.now() } = {}) {
   const m = a.metriche?.[0]
   if (!m?.namespace || !m?.nome || !['Sum', 'SampleCount'].includes(m.stat)) return null
-  const oggi = Math.floor(ora / DAY_MS) * DAY_MS
+  // Punti orari allineati all'ora: la fine è l'ora in corso compresa, così le finestre si tagliano
+  // sui bordi dei punti.
+  const fine = Math.floor(ora / HOUR_MS) * HOUR_MS + HOUR_MS
   const r = await cw.send(
     new GetMetricDataCommand({
-      StartTime: new Date(oggi - 7 * DAY_MS),
-      EndTime: new Date(ora),
+      StartTime: new Date(fine - 8 * DAY_MS),
+      EndTime: new Date(fine),
       MetricDataQueries: [
         {
           Id: 'm',
           MetricStat: {
             Metric: { Namespace: m.namespace, MetricName: m.nome, Dimensions: Object.entries(m.dimensioni ?? {}).map(([Name, Value]) => ({ Name, Value })) },
-            Period: 86_400,
+            Period: 3_600,
             Stat: m.stat,
           },
         },
       ],
     }),
   )
-  return ritmoDaSerie(r.MetricDataResults?.[0], oggi)
+  return ritmoDaSerie(r.MetricDataResults?.[0], fine)
 }
 
-// La serie giornaliera → `{ oggi, media }`. Un giorno senza punti vale zero: per una metrica che conta
-// errori, nessun punto vuol dire nessun errore. Pura/testabile.
-export function ritmoDaSerie(serie, oggi) {
-  const giorni = new Map((serie?.Timestamps ?? []).map((ts, i) => [Math.floor(new Date(ts).getTime() / DAY_MS) * DAY_MS, serie.Values[i] ?? 0]))
-  let somma = 0
-  for (let g = 1; g <= 7; g++) somma += giorni.get(oggi - g * DAY_MS) ?? 0
-  return { oggi: Math.round(giorni.get(oggi) ?? 0), media: Math.round((somma / 7) * 10) / 10 }
+// La serie oraria → `{ ultime, media }`: la somma delle 24 ore prima di `fine` e la media delle sette
+// finestre di 24 ore precedenti. Un'ora senza punti vale zero: per una metrica che conta errori,
+// nessun punto vuol dire nessun errore. Pura/testabile.
+export function ritmoDaSerie(serie, fine) {
+  const finestre = new Array(8).fill(0)
+  ;(serie?.Timestamps ?? []).forEach((ts, i) => {
+    const k = Math.floor((fine - 1 - new Date(ts).getTime()) / DAY_MS)
+    if (k >= 0 && k < 8) finestre[k] += serie.Values[i] ?? 0
+  })
+  const somma = finestre.slice(1).reduce((x, y) => x + y, 0)
+  return { ultime: Math.round(finestre[0]), media: Math.round((somma / 7) * 10) / 10 }
 }
 
 // L'ultimo rilascio del servizio ECS a cui l'allarme appartiene: il deployment più recente. `null` se
@@ -515,7 +525,7 @@ export function testoContesto({ ultima = null, ritmo = null, rilascio = null, qu
     const prima = allarme - ultima
     righe.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
   }
-  if (ritmo) righe.push(t('allarmi.ctx.ritmo', { oggi: ritmo.oggi, media: ritmo.media }))
+  if (ritmo) righe.push(t('allarmi.ctx.ritmo', { ultime: ritmo.ultime, media: ritmo.media }))
   if (rilascio) {
     const giorno = new Date(rilascio.quando).toISOString()
     righe.push(t('allarmi.ctx.rilascio', { servizio: rilascio.servizio, quanto: durata(allarme - rilascio.quando), quando: `${giorno.slice(8, 10)}/${giorno.slice(5, 7)} ${ora(rilascio.quando)}` }))
