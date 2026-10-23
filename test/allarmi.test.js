@@ -275,9 +275,9 @@ test('gestisci: acceso → riga nel canale principale e log nel thread', async (
 
 test('gestisci: acceso → il contesto sotto il titolo', async () => {
   const a = normalizzaAllarme(evento())
-  const f = finti({ ritmo: { oggi: 40, media: 5.5 }, rilascio: { servizio: 'api', quando: Date.parse(a.quando) - 15 * 3_600_000 } })
+  const f = finti({ ritmo: { ultime: 40, media: 5.5 }, rilascio: { servizio: 'api', quando: Date.parse(a.quando) - 15 * 3_600_000 } })
   await gestisci(a, cfg, f.deps)
-  assert.match(f.inviati[0].text, /alarm firing.*\nToday: 40 · daily average over the last 7 days: 5\.5\nLast deploy of `api`: 15h before the alarm/)
+  assert.match(f.inviati[0].text, /alarm firing.*\nLast 24h: 40 · average per 24h over the previous 7 days: 5\.5\nLast deploy of `api`: 15h before the alarm/)
 })
 
 test('gestisci: tag team=data → canale data', async () => {
@@ -330,11 +330,13 @@ test('gestisci: un allarme zittito non si dice, e la coda lo cancella', async ()
   assert.equal(f.inviati.length, 0)
 })
 
-test('ritmoDaSerie: oggi e la media dei sette giorni prima, i giorni vuoti valgono zero', () => {
-  const oggi = Date.parse('2026-03-10T00:00:00Z')
-  const g = (d) => new Date(oggi - d * 86_400_000)
-  assert.deepEqual(ritmoDaSerie({ Timestamps: [g(0), g(1), g(3), g(9)], Values: [40, 7, 7, 100] }, oggi), { oggi: 40, media: 2 })
-  assert.deepEqual(ritmoDaSerie(undefined, oggi), { oggi: 0, media: 0 })
+test('ritmoDaSerie: le ultime 24 ore contro la media delle sette finestre prima, le ore vuote valgono zero', () => {
+  const fine = Date.parse('2026-03-10T10:00:00Z')
+  const h = (ore) => new Date(fine - ore * 3_600_000)
+  // 1h e 23h prima della fine: nelle ultime 24 ore. 25h e 49h: la seconda e la terza finestra. 200h: fuori.
+  const serie = { Timestamps: [h(1), h(23), h(25), h(49), h(200)], Values: [30, 10, 7, 7, 100] }
+  assert.deepEqual(ritmoDaSerie(serie, fine), { ultime: 40, media: 2 })
+  assert.deepEqual(ritmoDaSerie(undefined, fine), { ultime: 0, media: 0 })
 })
 
 test('durata: minuti, ore, giorni', () => {
@@ -348,14 +350,14 @@ test('testoContesto: ultimo errore, ritmo, rilascio', () => {
   const quando = '2026-03-10T09:12:00Z'
   const righe = testoContesto({
     ultima: Date.parse('2026-03-10T09:09:00Z'),
-    ritmo: { oggi: 40, media: 5.5 },
+    ritmo: { ultime: 40, media: 5.5 },
     rilascio: { servizio: 'api', quando: Date.parse('2026-03-09T17:05:00Z') },
     quando,
     t,
   })
   assert.deepEqual(righe, [
     'Last error in the logs: 09:09 UTC, 3 min before the alarm',
-    'Today: 40 · daily average over the last 7 days: 5.5',
+    'Last 24h: 40 · average per 24h over the previous 7 days: 5.5',
     'Last deploy of `api`: 16h before the alarm (09/03 17:05 UTC)',
   ])
   assert.deepEqual(testoContesto({ ultima: Date.parse('2026-03-10T09:11:30Z'), quando, t }), ['Last error in the logs: 09:11 UTC, still happening when the alarm fired'])
