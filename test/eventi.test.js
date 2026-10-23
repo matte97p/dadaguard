@@ -4,7 +4,8 @@
 // il lettore della coda (che cancella tutto quello che legge).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ambienteDaNome, applicaEventi, ascoltaCoda, normalizza, nuoviEventi, regioneDaUrl, unisciTest, TTL_DEPLOY_MS } from '../server/notify/eventi.js'
+import { ambienteDaNome, applicaEventi, applicaRepo, ascoltaCoda, normalizza, nuoviEventi, regioneDaUrl, unisciTest, TTL_DEPLOY_MS, TTL_TEST_MS } from '../server/notify/eventi.js'
+import { applicaTest, repoDelQuadro } from '../server/notify/github.js'
 
 const ORA = Date.parse('2026-10-08T10:20:00Z')
 const ci = (extra = {}) => ({
@@ -250,4 +251,47 @@ test('oggetto, autore ed errore della CI: ripuliti come in #aws-deploy, e GitHub
   const daGithub = new Map([[k, { stato: 'fallito', da: senza.da, sha: senza.sha, oggetto: 'fix: y', autore: 'rossi-dev' }]])
   const prestati = unisciTest(daGithub, [[k, { ...senza, ricevuto: ORA }]], { lettoAlle: ORA }).get(k)
   assert.deepEqual([prestati.oggetto, prestati.autore], ['fix: y', 'rossi-dev'], 'stesso commit: oggetto e autore letti da GitHub restano')
+})
+
+// Una risorsa che la sua CI pubblica senza CodeBuild (un cron ECS che registra da sé la revisione) non ha
+// build, quindi la sua riga non ha repository: il rosso della CI arrivava in coda e non trovava la riga.
+const rossoSenzaBuild = (extra = {}) =>
+  ci({ evento: 'test_falliti', progetto: 'acme-production-report-mattutino-deploy', repo: 'Acme/report-mattutino', run: 'https://github.com/Acme/report-mattutino/actions/runs/9', ...extra })
+const cronSenzaBuild = (extra = {}) => ({ servizio: 'report-mattutino', stato: 'ok', quando: '2026-10-07T07:30:00Z', tentativo: null, repo: null, ...extra })
+
+test('la memoria impara il repository di un servizio dalla CI, non da CodeBuild, e non lo fa scadere', () => {
+  const e = nuoviEventi()
+  e.registra(normalizza(cb('IN_PROGRESS')), ORA)
+  assert.equal(e.repo().size, 0, 'una build non dice il repository: lo sa già la riga')
+  e.registra(normalizza(rossoSenzaBuild()), ORA)
+  assert.equal(e.repo().get('produzione|report-mattutino'), 'acme/report-mattutino')
+  assert.equal(e.attivi(ORA + TTL_TEST_MS + 1).test.size, 0, 'l’evento scade')
+  assert.equal(e.repo().get('produzione|report-mattutino'), 'acme/report-mattutino', 'il repository resta')
+  e.registra(normalizza(rossoSenzaBuild({ repo: 'Acme/report-nuovo', quando: '2026-10-08T10:19:00Z' })), ORA)
+  assert.equal(e.repo().get('produzione|report-mattutino'), 'acme/report-nuovo', 'un evento con un repository diverso lo corregge')
+})
+
+test('il repository della CI va solo sulle righe senza, dello stesso ambiente e servizio', () => {
+  const repo = new Map([['produzione|report-mattutino', 'acme/report-mattutino'], ['produzione|agentic-chat', 'acme/altro']])
+  const q = {
+    produzione: { app: [cronSenzaBuild(), appFerma({ servizio: 'agentic-chat', repo: 'https://github.com/acme/agentic-chat.git' })] },
+    staging: { app: [cronSenzaBuild()] },
+  }
+  applicaRepo(q, repo)
+  assert.equal(q.produzione.app[0].repo, 'https://github.com/acme/report-mattutino')
+  assert.equal(q.produzione.app[1].repo, 'https://github.com/acme/agentic-chat.git', 'una riga che lo sa dalle build tiene il suo')
+  assert.equal(q.staging.app[0].repo, null, 'un altro ambiente non lo prende')
+  assert.equal(applicaRepo(q, null), q)
+})
+
+test('un rosso della CI su una riga senza build: arriva sulla riga e GitHub comincia a guardare quel repository', () => {
+  const e = nuoviEventi()
+  e.registra(normalizza(rossoSenzaBuild()), ORA)
+  const q = { produzione: { app: [cronSenzaBuild()] } }
+  assert.deepEqual(repoDelQuadro(q), [], 'prima: nessun repository da leggere')
+  applicaRepo(q, e.attivi(ORA).repo)
+  assert.deepEqual(repoDelQuadro(q, { org: 'acme' }), [{ owner: 'acme', repo: 'report-mattutino' }])
+  applicaTest(q, unisciTest(new Map(), e.attivi(ORA).test, { lettoAlle: ORA }))
+  assert.equal(q.produzione.app[0].test?.stato, 'fallito')
+  assert.equal(q.produzione.app[0].test?.url, 'https://github.com/Acme/report-mattutino/actions/runs/9')
 })
