@@ -119,6 +119,12 @@ All notable changes to Dadaguard are documented here. Format based on
   `DADAGUARD_SLACK_BOT_TOKEN`, tutto resta nel webhook. Se uno dei due invii fallisce si riprovano al
   giro dopo i soli suoi segnali, senza ripetere l'altro canale.
 
+### Fixed
+- **Un allarme col tag `team` e senza azioni SNS si dice** (27/10/2026). La regola degli allarmi zittiti
+  taceva anche quelli costruiti apposta senza azioni, che si affidano al tag `team` per arrivare al canale
+  della squadra: non li diceva nessuno. Ora si tace solo un allarme con le notifiche spente
+  (`ActionsEnabled` falso), oppure senza azioni e senza tag `team`.
+
 ### Changed
 - **Il dettaglio di un Mac, sullo schermo largo, è una finestra al centro** (07/10/2026). Il pannello
   laterale su un monitor si leggeva male: una colonna stretta contro il bordo, i grafici schiacciati e

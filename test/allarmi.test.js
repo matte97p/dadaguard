@@ -324,10 +324,22 @@ test('zittito: notifiche spente o nessuna azione', () => {
   assert.equal(zittito({ ActionsEnabled: true, AlarmActions: ['arn:aws:sns:x'] }), false)
 })
 
+test('zittito: senza azioni ma col tag team parla, con le notifiche spente no', () => {
+  assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [] }, { team: 'data' }), false)
+  assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [] }, { team: ' ' }), true)
+  assert.equal(zittito({ ActionsEnabled: false, AlarmActions: [] }, { team: 'data' }), true)
+})
+
 test('gestisci: un allarme zittito non si dice, e la coda lo cancella', async () => {
   const f = finti({ allarme: { ActionsEnabled: false, AlarmActions: ['arn:aws:sns:x'] } })
   assert.equal(await gestisci(normalizzaAllarme(evento()), cfg, f.deps), true)
   assert.equal(f.inviati.length, 0)
+})
+
+test('gestisci: senza azioni SNS ma col tag team si dice nel canale della squadra', async () => {
+  const f = finti({ tag: [{ Key: 'team', Value: 'data' }], allarme: { ActionsEnabled: true, AlarmActions: [] } })
+  assert.equal(await gestisci(normalizzaAllarme(evento()), cfg, f.deps), true)
+  assert.equal(f.inviati[0].channel, 'CDATA')
 })
 
 test('ritmoDaSerie: le ultime 24 ore contro la media delle sette finestre prima, le ore vuote valgono zero', () => {
