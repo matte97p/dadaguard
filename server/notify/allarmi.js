@@ -180,9 +180,12 @@ export function decidi(a, { storia = null, severita = null } = {}) {
   return null
 }
 
-// Un allarme zittito da chi l'ha creato: notifiche spente, o nessuna azione su nessuno stato. Puro.
-export function zittito(x) {
+// Un allarme zittito da chi l'ha creato: notifiche spente, o nessuna azione su nessuno stato e nessun
+// tag `team`. Il tag e' il recapito per Dadaguard: un allarme che lo porta senza azioni SNS e' fatto
+// apposta per parlare solo da qui, e tacerlo vorrebbe dire non dirlo a nessuno. Puro.
+export function zittito(x, tag = {}) {
   if (x?.ActionsEnabled === false) return true
+  if (String(tag.team ?? '').trim()) return false
   return ![...(x?.AlarmActions ?? []), ...(x?.OKActions ?? []), ...(x?.InsufficientDataActions ?? [])].length
 }
 
@@ -560,21 +563,6 @@ export async function gestisci(a, cfg, deps = {}) {
   const aws = conto ? { profile: conto.a.profile, roleArn: conto.a.roleArn, externalId: conto.a.externalId, region: a.regione || conto.a.region } : { region: a.regione }
   const cw = deps.cw ?? new CloudWatchClient(clientOpts(aws))
 
-  // EventBridge manda il cambio di stato anche degli allarmi ZITTITI: notifiche spente apposta
-  // (`ActionsEnabled` falso, un job in prova) o nessuna azione del tutto. Chi li ha zittiti ha deciso
-  // che non parlano, e Dadaguard non li fa parlare. Se non si riesce a leggere l'allarme si dice lo
-  // stesso: un allarme vero taciuto per un errore di lettura è peggio di uno di troppo.
-  try {
-    const conf = (await cw.send(new DescribeAlarmsCommand({ AlarmNames: [a.nome], AlarmTypes: ['MetricAlarm', 'CompositeAlarm'] })))
-    const x = conf.MetricAlarms?.[0] ?? conf.CompositeAlarms?.[0]
-    if (x && zittito(x)) {
-      log.info('allarmi: zittito da chi l ha creato, non si dice', { allarme: a.nome })
-      return true
-    }
-  } catch (err) {
-    log.warn('allarmi: configurazione non letta', { allarme: a.nome, err: err.message })
-  }
-
   let tag = {}
   if (a.arn) {
     try {
@@ -582,6 +570,21 @@ export async function gestisci(a, cfg, deps = {}) {
     } catch (err) {
       log.warn('allarmi: tag non letti', { allarme: a.nome, err: err.message })
     }
+  }
+
+  // EventBridge manda il cambio di stato anche degli allarmi ZITTITI: notifiche spente apposta
+  // (`ActionsEnabled` falso, un job in prova) o nessuna azione e nessun tag `team`. Chi li ha zittiti ha
+  // deciso che non parlano, e Dadaguard non li fa parlare. Se non si riesce a leggere l'allarme si dice
+  // lo stesso: un allarme vero taciuto per un errore di lettura è peggio di uno di troppo.
+  try {
+    const conf = (await cw.send(new DescribeAlarmsCommand({ AlarmNames: [a.nome], AlarmTypes: ['MetricAlarm', 'CompositeAlarm'] })))
+    const x = conf.MetricAlarms?.[0] ?? conf.CompositeAlarms?.[0]
+    if (x && zittito(x, tag)) {
+      log.info('allarmi: zittito da chi l ha creato, non si dice', { allarme: a.nome })
+      return true
+    }
+  } catch (err) {
+    log.warn('allarmi: configurazione non letta', { allarme: a.nome, err: err.message })
   }
   let storia = null
   if (a.stato === 'OK') {
