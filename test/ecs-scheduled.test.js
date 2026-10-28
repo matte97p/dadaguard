@@ -34,12 +34,12 @@ test('pickLastRun: prende lo stream più recente anche se l API li restituisce i
     { logStreamName: 'fam/c/ultimo', lastEventTimestamp: ora - 11 * 3600 * 1000 },
     { logStreamName: 'fam/c/mezzo', lastEventTimestamp: ora - 20 * 3600 * 1000 },
   ]
-  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/ultimo', ran: true })
+  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/ultimo', ran: true, at: 1785114000000 })
 })
 
 test('pickLastRun: ultima run FUORI dalla finestra attesa → non è partita (dead-man)', () => {
   const streams = [{ logStreamName: 'fam/c/vecchio', lastEventTimestamp: ora - 30 * 3600 * 1000 }]
-  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/vecchio', ran: false })
+  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/vecchio', ran: false, at: 1785045600000 })
 })
 
 test('pickLastRun: stream creati ma senza eventi vengono ignorati', () => {
@@ -47,7 +47,7 @@ test('pickLastRun: stream creati ma senza eventi vengono ignorati', () => {
     { logStreamName: 'fam/c/vuoto' }, // creato e mai scritto: nessun lastEventTimestamp
     { logStreamName: 'fam/c/buono', lastEventTimestamp: ora - 2 * 3600 * 1000 },
   ]
-  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/buono', ran: true })
+  assert.deepEqual(pickLastRun(streams, finestra), { stream: 'fam/c/buono', ran: true, at: 1785146400000 })
   assert.deepEqual(pickLastRun([{ logStreamName: 'fam/c/vuoto' }], finestra), { stream: null, ran: false })
 })
 
@@ -81,18 +81,18 @@ const dentro = [{ logStreamName: 'fam/c/ultima', lastEventTimestamp: start + 360
 
 test('runOutcome: il match a pagina 2 NON deve sfuggire (era il falso verde)', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [{ message: 'Traceback' }] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000 })
 })
 
 test('runOutcome: pagine tutte vuote e token finito → nessun errore trovato', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000 })
 })
 
 test('runOutcome: budget di pagine esaurito → "non trovato", mai un fallimento inventato', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'sempre' }] })
   const out = await runOutcome(logs, '/gruppo', start)
-  assert.deepEqual(out, { ran: true, failed: false })
+  assert.deepEqual(out, { ran: true, failed: false, at: 1785114000000 })
   assert.ok(logs.chiamate.filter <= 15, `pagine ${logs.chiamate.filter}: deve fermarsi al tetto`)
 })
 
@@ -165,12 +165,12 @@ function logsConParams({ streams, pagine }) {
 test('runOutcome: una run riuscita che stampa un errore ATTESO resta riuscita', async () => {
   // Il caso vero: `db-restore-test` del 25/08/2026, ripristino completato in 7m03s, dato per fallito.
   const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, done] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000 })
 })
 
 test('runOutcome: riga attesa PIU una vera → fallita lo stesso, il silenzio non si eredita', async () => {
   const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, veraLivello] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000 })
 })
 
 test('runOutcome: la riga vera oltre la prima non deve sfuggire → pagina vera sul pattern di guasto', async () => {

@@ -145,7 +145,8 @@ export default function NowPage({
   }, [services])
 
   // «Da sistemare»: i segnali che mordono (rossi e arancio), dal piu' grave, filtrati per ambiente e
-  // ruolo. Quelli informativi (un deploy in corso, un riavvio) stanno in «Cosa e' cambiato».
+  // ruolo, e in fondo i fallimenti gia' rilasciati che aspettano il giro dopo (`fixed`, in blu).
+  // Quelli informativi (un deploy in corso, un riavvio) stanno in «Cosa e' cambiato».
   const righe = useMemo(() => {
     const tutti = buildSignals({ services, deploys: deploys ?? {}, waf, budgets, alarmi: alarmiOrfani, tempi, cron, web, spesa, hours: ORE, t, nameOf: displayName })
     return tutti
@@ -154,14 +155,15 @@ export default function NowPage({
         const servizio = s.kind === 'service' ? perChiave.get(s.id) : null
         return { ...s, servizio, livello: livelloSegnale(s), owner: ownerSegnale(s, servizio), comando: s.comando ?? (servizio ? comandoServizio(servizio) : null) }
       })
-      .filter((r) => (r.livello === 'crit' || r.livello === 'warn') && (ruolo === 'ops' || r.owner === 'dev'))
+      .filter((r) => (r.livello === 'crit' || r.livello === 'warn' || r.level === 'fixed') && (ruolo === 'ops' || r.owner === 'dev'))
       .sort((a, b) => rangoLivello(a.livello) - rangoLivello(b.livello))
   }, [services, deploys, waf, budgets, alarmiOrfani, tempi, cron, web, spesa, accountFilter, ruolo, perChiave, t])
 
   const conta = contaLivelli(nelFiltro)
   const serviziRotti = righe.filter((r) => r.kind === 'service' && r.livello === 'crit').length
   const deployFalliti = righe.filter((r) => r.kind === 'deploy' && r.livello === 'crit').length
-  const daGuardare = righe.length - righe.filter((r) => r.livello === 'crit').length
+  const daGuardare = righe.filter((r) => r.livello === 'warn').length
+  const rilasciati = righe.filter((r) => r.level === 'fixed').length
   const altriRotti = righe.filter((r) => r.livello === 'crit').length - serviziRotti - deployFalliti
 
   const build = useMemo(() => buildRecenti(deploys ?? {}, { ore: ORE, accountKeys: accountFilter }), [deploys, accountFilter])
@@ -176,6 +178,8 @@ export default function NowPage({
   })()
   const loginFalliti = Number.isFinite(metaOps?.login?.loginFalliti) ? metaOps.login.loginFalliti : null
 
+  const resto = () =>
+    [daGuardare ? t('home.v.eDaGuardare', { n: daGuardare }) : '', rilasciati ? t('home.v.eRilasciati', { n: rilasciati }) : ''].join('')
   const verdetto = (() => {
     if (!statusReady) return { forte: null, resto: t('home.v.attesa') }
     if (serviziRotti || deployFalliti || altriRotti) {
@@ -184,14 +188,16 @@ export default function NowPage({
         deployFalliti && t('home.v.deployFalliti', { n: deployFalliti }),
         altriRotti && t('home.v.altriRotti', { n: altriRotti }),
       ].filter(Boolean)
-      return { livello: 'crit', forte: pezzi.join(', '), resto: daGuardare ? t('home.v.eDaGuardare', { n: daGuardare }) : '' }
+      return { livello: 'crit', forte: pezzi.join(', '), resto: resto() }
     }
-    if (righe.length) return { livello: 'warn', forte: t('home.v.nienteRotto'), resto: t('home.v.eDaGuardare', { n: righe.length }) }
+    if (daGuardare) return { livello: 'warn', forte: t('home.v.nienteRotto'), resto: resto() }
+    if (rilasciati) return { livello: 'info', forte: t('home.v.nienteRotto'), resto: resto() }
     return { livello: 'ok', forte: t('home.v.tuttoOk'), resto: '' }
   })()
 
   const etichetta = (r) => {
     if (r.kind === 'deploy') return r.livello === 'crit' ? t('home.pill.deployFallito') : t('home.pill.deploy')
+    if (r.level === 'fixed') return t('home.pill.rilasciato')
     if (r.kind === 'budget' || r.kind === 'anomaly') return t('home.pill.spesa')
     return t(`home.liv.${r.livello}`)
   }

@@ -5,6 +5,7 @@ import { imageTag } from './ecs.js'
 import { principalName } from '../util/principal.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
+import { statoRilascio } from '../../shared/rilascio.js'
 
 // #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
 // quindi leggiamo direttamente la sua revision → tag immagine + quando/chi l'ha registrata.
@@ -92,7 +93,7 @@ export function pickLastRun(streams = [], startTimeMs) {
   const withEvents = (streams ?? []).filter((s) => Number.isFinite(s?.lastEventTimestamp))
   if (!withEvents.length) return { stream: null, ran: false }
   const last = withEvents.reduce((a, b) => (b.lastEventTimestamp > a.lastEventTimestamp ? b : a))
-  return { stream: last.logStreamName ?? null, ran: last.lastEventTimestamp >= startTimeMs }
+  return { stream: last.logStreamName ?? null, ran: last.lastEventTimestamp >= startTimeMs, at: last.lastEventTimestamp }
 }
 
 // "C'è almeno un evento?" SEGUENDO le pagine: con `FilterLogEvents` una pagina vuota NON è una
@@ -128,14 +129,15 @@ export async function runOutcome(logs, logGroup, startTime) {
     const streams = await logs.send(
       new DescribeLogStreamsCommand({ logGroupName: logGroup, orderBy: 'LastEventTime', descending: true, limit: 5 }),
     )
-    const { stream, ran } = pickLastRun(streams.logStreams ?? [], startTime)
+    const { stream, ran, at } = pickLastRun(streams.logStreams ?? [], startTime)
     if (!ran || !stream) return { ran: false, failed: false }
     const failed = await anyEvent(
       logs,
       { logGroupName: logGroup, logStreamNames: [stream], startTime, filterPattern: FAILURE_PATTERN },
       { filtra: true },
     )
-    return { ran: true, failed }
+    // `at` = l'ultimo evento della corsa: serve a dire se un rilascio e' arrivato DOPO un fallimento.
+    return { ran: true, failed, at }
   } catch (err) {
     if (!isDenied(err)) throw err
     const [ran, failed] = await Promise.all([
@@ -183,7 +185,7 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
 
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const startTime = Date.now() - windowMin * 60 * 1000
-  const { ran, failed } = await runOutcome(logs, logGroup, startTime)
+  const { ran, failed, at } = await runOutcome(logs, logGroup, startTime)
   const outcome = classifyEcsRun({ ran, failed })
 
   const now = Date.now()
@@ -203,7 +205,11 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
     return { status: 'down', summary, ...base }
   }
   if (outcome === 'failed') {
-    return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }) + dur, ...base }
+    // Una revision registrata dopo la corsa fallita = la correzione e' gia' rilasciata e aspetta il
+    // giro dopo. Lo stato resta `down` (il lavoro non e' stato fatto), la home lo dice in un altro modo.
+    const registrata = td.taskDefinition?.registeredAt ?? null
+    const rilasciatoAt = statoRilascio({ rilascio: registrata, ultimaFallita: at }) ? new Date(registrata).getTime() : null
+    return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }) + dur, ...base, ...(rilasciatoAt ? { rilasciatoAt } : {}) }
   }
   return { status: 'up', summary: t('ecssched.ok', { sched: fmtDur(schedMin, t) }) + dur, ...base }
 }

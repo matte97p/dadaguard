@@ -92,7 +92,7 @@ test('WAF: una zona che ha fermato traffico; una pulita o in errore no', () => {
   assert.match(out[0].detail, /\/api\/v1\/tenders/)
 })
 
-test('budget: sforato e "sforerà" compaiono, quelli a posto no', () => {
+test('budget: sforato e "sforerà" compaiono gialli, quelli a posto no', () => {
   const budgets = {
     accounts: {
       mgmt: {
@@ -111,7 +111,7 @@ test('budget: sforato e "sforerà" compaiono, quelli a posto no', () => {
   assert.deepEqual(
     out.map((s) => [s.title, s.level]),
     [
-      ['org', 'bad'],
+      ['org', 'warn'],
       ['llms', 'warn'],
     ],
   )
@@ -124,12 +124,16 @@ test('anomalie: grosse warn, piccole info, già marcate come attese sempre info'
       { id: 'big', service: 'Bedrock', impact: 412, impactPct: 229, start: hoursAgo(6) },
       { id: 'small', service: 'Lambda', impact: 8, impactPct: 449, start: hoursAgo(5) },
       { id: 'known', service: 'S3', impact: 900, impactPct: 300, feedback: 'YES', start: hoursAgo(4) },
+      { id: 'old', service: 'ECS', impact: 400, impactPct: 60, start: hoursAgo(20 * 24), end: hoursAgo(8 * 24) },
+      { id: 'long', service: 'VPC', impact: 300, impactPct: 90, start: hoursAgo(20 * 24), end: hoursAgo(24) },
     ],
   }
   const byId = Object.fromEntries(buildSignals({ budgets, now: NOW, t }).map((s) => [s.id, s.level]))
   assert.equal(byId['anom:big'], 'warn')
   assert.equal(byId['anom:small'], 'info')
   assert.equal(byId['anom:known'], 'info')
+  assert.equal(byId['anom:old'], 'info', 'finita da piu\' di una settimana: storia')
+  assert.equal(byId['anom:long'], 'warn', 'cominciata da tempo ma ancora in corso')
 })
 
 test('anomalie: portano la chiave dell\'account, così il filtro per ambiente le tiene fuori', () => {
@@ -140,7 +144,10 @@ test('anomalie: portano la chiave dell\'account, così il filtro per ambiente le
 })
 
 test('ordine: per gravità, e a pari gravità gli stati in corso prima degli eventi datati', () => {
-  const services = [{ name: 'giù', overall: 'down', account: { key: 'p' } }]
+  const services = [
+    { name: 'giù', overall: 'down', account: { key: 'p' } },
+    { name: 'job', type: 'ecs-scheduled', overall: 'down', account: { key: 'p' } },
+  ]
   const deploys = {
     p: {
       builds: [
@@ -149,16 +156,15 @@ test('ordine: per gravità, e a pari gravità gli stati in corso prima degli eve
       ],
     },
   }
-  const budgets = { accounts: { p: { budgets: [{ name: 'sforato', level: 'over' }] } }, anomalies: [] }
-  const out = buildSignals({ services, deploys, budgets, now: NOW, t, nameOf: (s) => s.name })
+  const out = buildSignals({ services, deploys, now: NOW, t, nameOf: (s) => s.name })
   assert.equal(out[0].title, 'giù') // crit
-  // poi i `bad`: il budget (stato, senza data) prima delle build, e fra le build la più recente
-  assert.deepEqual(out.slice(1, 4).map((s) => s.title), ['sforato', 'y', 'x'])
+  // poi i `bad`: il job schedulato (stato, senza data) prima delle build, e fra le build la più recente
+  assert.deepEqual(out.slice(1, 4).map((s) => s.title), ['job', 'y', 'x'])
 })
 
 test('countByLevel: conta solo i livelli noti', () => {
   const n = countByLevel([{ level: 'crit' }, { level: 'warn' }, { level: 'warn' }, { level: 'boh' }])
-  assert.deepEqual(n, { crit: 1, bad: 0, warn: 2, info: 0 })
+  assert.deepEqual(n, { crit: 1, bad: 0, warn: 2, fixed: 0, info: 0 })
 })
 
 test('nessuna fonte: nessun segnale, e non esplode', () => {
@@ -387,4 +393,73 @@ test('aree dei problemi: ogni segnale nella sua, conti per livello; i segnali co
   const now = Date.parse('2026-10-21T12:00:00Z')
   const cron = { inizio: now - 4 * 6 * 3_600_000, passoMs: 6 * 3_600_000, punti: 4, crons: [{ k: 'p/x', nome: 'x', corse: [1, 1, 1, 1], fallite: [0, 1, 0, 1], saltate: [0, 0, 0, 0] }] }
   assert.deepEqual(buildSignals({ cron, now })[0].serie, [0, 1, 0, 1])
+})
+
+test('un job schedulato giu\' e\' rosso ma sotto un servizio giu\'; con una versione nuova dopo il fallimento e\' «rilasciato»', () => {
+  const services = [
+    { name: 'api', overall: 'down', account: { key: 'p' } },
+    { name: 'settimanale', type: 'ecs-scheduled', overall: 'down', cause: 'runtime', account: { key: 'p' }, checks: { runtime: { status: 'down', summary: 'fallita' } } },
+    {
+      name: 'notturno',
+      type: 'ecs-scheduled',
+      overall: 'down',
+      cause: 'runtime',
+      account: { key: 'p' },
+      checks: { runtime: { status: 'down', summary: 'fallita', rilasciatoAt: NOW - 3600_000, nextRunLabel: 'tra 5h' } },
+    },
+    { name: 'pulizia', type: 'lambda', overall: 'down', account: { key: 'p' }, checks: { runtime: { schedule: '1d' } } },
+  ]
+  const out = buildSignals({ services, now: NOW, t, nameOf: (s) => s.name })
+  assert.deepEqual(out.map((s) => [s.title, s.level]), [['api', 'crit'], ['settimanale', 'bad'], ['pulizia', 'bad'], ['notturno', 'fixed']])
+  const fixed = out.find((s) => s.title === 'notturno')
+  assert.equal(fixed.when, NOW - 3600_000, 'la data e\' quella del rilascio')
+  assert.match(fixed.detail, /now\.rilasciato · tra 5h$/)
+})
+
+test('cron: rilasciato dopo il fallimento = «rilasciato»; un giro riuscito dopo il rilascio lo toglie; un fallimento dopo lo riporta rosso', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z')
+  const H = 3_600_000
+  const inizio = now - 28 * 6 * H
+  const fasce = (pos) => Array.from({ length: 28 }, (_, i) => (pos.includes(i) ? 1 : 0))
+  const riga = (nome, extra) => ({ k: `prod/${nome}`, nome, account: 'prod', corse: fasce([26]), fallite: fasce([26]), saltate: fasce([]), ...extra })
+  const fallita = inizio + 26 * 6 * H + H
+  const cron = {
+    inizio,
+    passoMs: 6 * H,
+    punti: 28,
+    account: {},
+    crons: [
+      riga('in-attesa', { rilascio: fallita + H, ultimaFallita: fallita }),
+      riga('provato', { rilascio: fallita + H, ultimaFallita: fallita, ultimaRiuscita: fallita + 2 * H }),
+      riga('ricaduto', { rilascio: fallita - H, ultimaFallita: fallita }),
+      riga('provato-ma-saltato', { saltate: fasce([27]), rilascio: fallita + H, ultimaFallita: fallita, ultimaRiuscita: fallita + 2 * H }),
+    ],
+  }
+  const c = buildSignals({ cron, now, t }).filter((s) => s.kind === 'cron')
+  assert.deepEqual(c.map((s) => [s.title, s.level]), [['ricaduto', 'bad'], ['provato-ma-saltato', 'warn'], ['in-attesa', 'fixed']])
+  assert.equal(c.find((s) => s.title === 'in-attesa').when, fallita + H)
+  assert.doesNotMatch(c.find((s) => s.title === 'provato-ma-saltato').detail, /cronFallito/)
+})
+
+test('un allarme col nome di un cron piu\' un suffisso entra nella riga del cron, nello stesso account e col cron piu\' lungo', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z')
+  const H = 3_600_000
+  const inizio = now - 28 * 6 * H
+  const fasce = (pos) => Array.from({ length: 28 }, (_, i) => (pos.includes(i) ? 1 : 0))
+  const riga = (nome) => ({ k: `prod/${nome}`, nome, account: 'prod', corse: fasce([26]), fallite: fasce([26]), saltate: fasce([]) })
+  const cron = { inizio, passoMs: 6 * H, punti: 28, account: {}, crons: [riga('job'), riga('job-notte')] }
+  const alarmi = [
+    { nome: 'job-notte-nessun-successo', account: 'prod', motivo: 'soglia' },
+    { nome: 'job-errori', account: 'prod', motivo: 'soglia' },
+    { nome: 'job-errori', account: 'staging', motivo: 'soglia' },
+    { nome: 'altro-allarme', account: 'prod', motivo: 'soglia' },
+  ]
+  const out = buildSignals({ cron, alarmi, now, t: (k, v) => (v?.nomi ? `${k} ${v.nomi}` : k) })
+  const per = Object.fromEntries(out.map((s) => [`${s.kind}:${s.title}:${s.accountKey}`, s]))
+  assert.match(per['cron:job-notte:prod'].detail, /now\.cronAllarme nessun-successo$/)
+  assert.match(per['cron:job:prod'].detail, /now\.cronAllarme errori$/)
+  assert.equal(per['alarm:job-notte-nessun-successo:prod'], undefined)
+  assert.equal(per['alarm:job-errori:prod'], undefined)
+  assert.ok(per['alarm:job-errori:staging'], 'un altro account non e\' lo stesso cron')
+  assert.ok(per['alarm:altro-allarme:prod'])
 })
