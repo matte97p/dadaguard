@@ -186,7 +186,8 @@ export default function NowPage({
       const pezzi = [
         serviziRotti && t('home.v.serviziRotti', { n: serviziRotti }),
         deployFalliti && t('home.v.deployFalliti', { n: deployFalliti }),
-        altriRotti && t('home.v.altriRotti', { n: altriRotti }),
+        // «altri» solo dopo qualcosa: da soli sono i problemi gravi e basta.
+        altriRotti && t(serviziRotti || deployFalliti ? 'home.v.altriRotti' : 'home.v.problemiGravi', { n: altriRotti }),
       ].filter(Boolean)
       return { livello: 'crit', forte: pezzi.join(', '), resto: resto() }
     }

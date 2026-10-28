@@ -189,6 +189,8 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
     return { Functions: [{ FunctionName: 'digest', LastModified: new Date(ADESSO - 2 * ORA).toISOString().replace('Z', '+0000') }] }
   }
   CloudWatchClient.prototype.send = async function (cmd) {
+    // Nessun allarme «battito» nell'account: gli esiti restano quelli del log.
+    if (cmd.constructor.name === 'DescribeAlarmsCommand') return (conti.allarmi = (conti.allarmi ?? 0) + 1), { MetricAlarms: [] }
     conti.metriche++
     assert.equal(cmd.input.MetricDataQueries.length, 12)
     return { MetricDataResults: [{ Id: 'f0n', Timestamps: [new Date(g.inizio + 27 * g.passoMs)], Values: [1] }] }
@@ -209,7 +211,7 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
   }
   try {
     const out = await leggiStoricoCron({ prod: { label: 'Production', region: 'eu-west-1' } }, { giorni: 7, tz: 'Europe/Rome', ora: ADESSO, leggiCron: async () => ({ crons, problems: [] }) })
-    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1, esiti: 1, rilasci: 1 })
+    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1, esiti: 1, rilasci: 1, allarmi: 1 })
     const per = Object.fromEntries(out.crons.map((c) => [c.nome, c]))
     assert.equal(per.digest.corse[27], 1)
     assert.equal(per.crawler.corse.at(-1), 1)
@@ -229,6 +231,58 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
     CloudWatchLogsClient.prototype.send = prima.logs
     ECSClient.prototype.send = prima.ecs
     LambdaClient.prototype.send = prima.lambda
+  }
+})
+
+test('battito: una corsa ECS morta senza errori nel log resta fallita anche senza codice d’uscita in memoria', async () => {
+  // Un job giornaliero con un allarme «battito»: la metrica che scrive a fine corsa buona. Due corse: quella
+  // di ieri ha battuto, quella di oggi no. Nessuna riga d'errore nel log, nessun codice d'uscita (un riavvio
+  // li ha persi): l'esito viene dal battito, e il log non si legge nemmeno.
+  const conti = { allarmi: 0, metriche: 0, esiti: 0 }
+  const oggi = ADESSO - 10 * ORA
+  const ieri = oggi - G
+  const cron = { key: 'prod/acme-cron-sweeper', name: 'acme-cron-sweeper', type: 'ecs-scheduled', account: 'prod', region: 'eu-west-1', enabled: true, scheduleTz: null, scheduleExpr: 'cron(30 3 * * ? *)', scheduleMinutes: 1440, taskDefinition: 'arn:aws:ecs:eu-west-1:000000000000:task-definition/sweeper:1' }
+  const prima = { cw: CloudWatchClient.prototype.send, logs: CloudWatchLogsClient.prototype.send, ecs: ECSClient.prototype.send }
+  CloudWatchClient.prototype.send = async function (cmd) {
+    if (cmd.constructor.name === 'DescribeAlarmsCommand') {
+      conti.allarmi++
+      return {
+        MetricAlarms: [
+          { AlarmName: 'acme-cron-sweeper-heartbeat', Namespace: 'Acme/Jobs', MetricName: 'Done', Dimensions: [{ Name: 'Job', Value: 'sweeper' }], Statistic: 'Sum', Period: 3600, EvaluationPeriods: 26, ComparisonOperator: 'LessThanThreshold', Threshold: 1, TreatMissingData: 'breaching' },
+          { AlarmName: 'acme-cron-sweeper-errors', Namespace: 'Acme/Jobs', MetricName: 'Errors', Statistic: 'Sum', Period: 300, EvaluationPeriods: 1, ComparisonOperator: 'GreaterThanThreshold', Threshold: 0, TreatMissingData: 'notBreaching' },
+        ],
+      }
+    }
+    conti.metriche++
+    assert.deepEqual(cmd.input.MetricDataQueries.map((q) => q.MetricStat.Metric.MetricName), ['Done'])
+    return { MetricDataResults: [{ Id: 'b0', Timestamps: [new Date(ieri + 20 * MIN)], Values: [1] }] }
+  }
+  CloudWatchLogsClient.prototype.send = async function (cmd) {
+    if (cmd.constructor.name === 'DescribeLogGroupsCommand') return { logGroups: [{ logGroupName: '/ecs/sweeper', retentionInDays: 30 }] }
+    if (cmd.constructor.name === 'FilterLogEventsCommand') return conti.esiti++, { events: [] }
+    return {
+      logStreams: [
+        { logStreamName: 'cron/job/oggi', firstEventTimestamp: oggi, lastEventTimestamp: oggi + MIN },
+        { logStreamName: 'cron/job/ieri', firstEventTimestamp: ieri, lastEventTimestamp: ieri + MIN },
+      ],
+    }
+  }
+  ECSClient.prototype.send = async function () {
+    return { taskDefinition: { registeredAt: new Date(ieri - G), containerDefinitions: [{ name: 'job', logConfiguration: { logDriver: 'awslogs', options: { 'awslogs-group': '/ecs/sweeper', 'awslogs-stream-prefix': 'cron' } } }] }, tags: [] }
+  }
+  try {
+    // Un profilo suo: la cache degli allarmi e' per account, e quella del test di prima direbbe «nessuno».
+    const out = await leggiStoricoCron({ prod: { label: 'Production', profile: 'prova-battito', region: 'eu-west-1' } }, { giorni: 7, tz: 'Europe/Rome', ora: ADESSO, leggiCron: async () => ({ crons: [cron], problems: [] }) })
+    const r = out.crons[0]
+    const somma = (k) => r[k].reduce((a, v) => a + (v ?? 0), 0)
+    assert.equal(somma('fallite'), 1, 'la corsa di oggi non ha battuto')
+    assert.equal(somma('riuscite'), 1, 'quella di ieri si')
+    assert.equal(r.ultimaFallita, oggi + MIN)
+    assert.deepEqual(conti, { allarmi: 1, metriche: 1, esiti: 0 }, 'il battito decide: il log non si legge')
+  } finally {
+    CloudWatchClient.prototype.send = prima.cw
+    CloudWatchLogsClient.prototype.send = prima.logs
+    ECSClient.prototype.send = prima.ecs
   }
 })
 

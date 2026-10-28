@@ -20,7 +20,10 @@
 //    corsa finita non cambia piu': il suo esito si tiene in memoria e non si rilegge. Prima del log
 //    vale il codice d'uscita, quando l'API ECS l'ha dato a qualcuno nella prima ora (la lista delle
 //    corse e il giro del canvas Slack lo annotano in `esitiEcs`): e' l'unico modo di vedere un container
-//    ucciso per memoria finita, che non scrive errori. Senza, «nessun errore nel log» vale riuscita. Al piu'
+//    ucciso per memoria finita, che non scrive errori. Quella memoria si svuota a ogni riavvio: fra il
+//    codice d'uscita e il log vale il BATTITO, la metrica di successo che il cron scrive da se' e che il
+//    suo allarme guarda (server/battitoCron.js), e che un riavvio non cancella. Senza nessuno dei due,
+//    «nessun errore nel log» vale riuscita. Al piu'
 //    `SCANSIONI_PER_CRON` corse nuove a cron per giro, dalla piu' recente: le altre restano «esito non
 //    letto» (MAI riuscite per omissione) fino ai giri dopo.
 //
@@ -43,6 +46,7 @@ import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { listCrons } from './crons.js'
 import { anyFailure, esitiEcs, leggiTaskDef, runsFromStreams } from './runs.js'
+import { esitiDaBattito, leggiBattiti } from './battitoCron.js'
 import { awslogsFromTaskDef } from './logs.js'
 import { espandiCron, cadenzaRate, safeTz, zoneFields } from './util/nextrun.js'
 import { griglia, quantile, riassunto } from '../shared/tempiSerie.js'
@@ -382,7 +386,10 @@ export const SCANSIONI_PER_CRON = 30
 // deciderne l'esito, altrimenti resterebbe «riuscita» in memoria per sempre.
 const ASSESTAMENTO_MS = 5 * 60_000
 
-export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca = anyFailure, tetto = SCANSIONI_PER_CRON } = {}) {
+// `noti` = gli esiti dal battito del cron (server/battitoCron.js), per stream: vengono dopo il codice
+// d'uscita, che e' certo, e prima del log, che e' una deduzione. Non si tengono in memoria come quelli
+// del log: l'ultima corsa puo' passare da «non si sa» a riuscita al giro dopo.
+export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca = anyFailure, tetto = SCANSIONI_PER_CRON, noti = null } = {}) {
   let letti = 0
   const out = []
   for (const r of corse) {
@@ -391,6 +398,10 @@ export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca 
     // c'era: vince anche su un esito dal log gia' in memoria, che senza errori diceva «riuscita».
     if (esitiEcs.has(k)) {
       out.push({ ...r, esito: esitiEcs.get(k), fonteEsito: 'ecs' })
+      continue
+    }
+    if (noti?.has(r.stream)) {
+      out.push({ ...r, esito: noti.get(r.stream), fonteEsito: 'battito' })
       continue
     }
     if (esitiCorse.has(k)) {
@@ -417,13 +428,15 @@ export async function conEsito(logs, logGroup, corse, ora = Date.now(), { cerca 
   return out
 }
 
-async function rigaDaLog(cron, aws, g, ora) {
+async function rigaDaLog(cron, aws, g, ora, battito = null) {
   const { td } = await leggiTaskDef(aws, cron.taskDefinition)
   const { logGroup, streamPrefix, container } = awslogsFromTaskDef(td, cron.container)
   if (!logGroup) return rigaIllegibile(cron, g, 'senza log group')
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const [letti, retention] = await Promise.all([streamDelJob(logs, logGroup, { da: g.inizio }), retentionGiorni(logs, aws, logGroup).catch(() => null)])
-  const corse = await conEsito(logs, logGroup, runsFromStreams(letti.streams, { streamPrefix, container, since: g.inizio }), ora)
+  const lette = runsFromStreams(letti.streams, { streamPrefix, container, since: g.inizio })
+  const noti = battito ? esitiDaBattito(lette, battito, { ora, cadenzaMs: (cron.scheduleMinutes ?? 0) * MIN }) : null
+  const corse = await conEsito(logs, logGroup, lette, ora, { noti })
   const daRetention = retention ? ora - retention * GIORNO : null
   const copertoDa = Math.max(letti.copertoDa ?? -Infinity, daRetention ?? -Infinity)
   // La revision della task definition e' il rilascio: la registra ogni deploy del job.
@@ -485,10 +498,12 @@ export async function leggiStoricoCron(accounts, { giorni = 7, tz = null, t = (k
           for (const c of lambda) righe.push(rigaIllegibile(c, g, errore))
         }
       }
+      // I battiti dei cron ECS dell'account, in una chiamata: l'esito che un riavvio non cancella.
+      const battiti = ecs.length ? await leggiBattiti(aws, ecs, { da: g.inizio, a: ora }) : new Map()
       righe.push(
         ...(await mapLimit(ecs, 4, async (c) => {
           try {
-            return await rigaDaLog(c, aws, g, ora)
+            return await rigaDaLog(c, aws, g, ora, battiti.get(c.key) ?? null)
           } catch (err) {
             return rigaIllegibile(c, g, cleanAwsReason(err, t))
           }

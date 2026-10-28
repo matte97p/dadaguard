@@ -150,3 +150,10 @@ test('login falliti: dal payload Accessi, null se non letto', () => {
   assert.equal(r.loginFalliti, 4)
   assert.deepEqual(r.persone, ['a'])
 })
+
+test('un job schedulato fallito con una versione nuova dopo il fallimento e\' giallo, non rosso', () => {
+  const r = { name: 'job', type: 'ecs-scheduled', overall: 'down', cause: 'runtime', checks: { runtime: { status: 'down', rilasciatoAt: 1000 } } }
+  assert.equal(arricchisciServizio(r).livello, 'warn')
+  assert.equal(arricchisciServizio({ ...r, checks: { runtime: { status: 'down' } } }).livello, 'crit')
+  assert.equal(arricchisciServizio(r).checks.runtime.livello, 'crit', 'il check resta rosso: il giro non e\' riuscito')
+})
