@@ -97,8 +97,11 @@ export function arricchisciServizio(r, { aws = {}, accesso = null, profile = nul
       ]
     }),
   )
-  const livello = livelloDi(r.overall)
   const causa = r.cause ? checks[r.cause] : null
+  // Un job schedulato fallito con una versione nuova arrivata dopo il fallimento (`rilasciatoAt`, vedi
+  // runtime/ecsScheduled.js) non e' un servizio rotto: aspetta il giro dopo. Giallo, come lo conta la
+  // home in alto, invece di un rosso che le tessere dicevano e la frase in cima no.
+  const livello = r.overall === 'down' && Number.isFinite(causa?.rilasciatoAt) ? 'warn' : livelloDi(r.overall)
   // Senza causa (servizio verde o spento) a chi tocca lo dice il primo check: e' comunque utile per
   // il filtro Sviluppo/DevOps, che altrimenti non saprebbe dove mettere un servizio a posto.
   const owner = causa?.owner ?? ownerDi(Object.keys(checks)[0] ?? 'runtime', tipo)
