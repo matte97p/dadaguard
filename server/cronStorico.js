@@ -39,6 +39,7 @@
 // `FilterLogEvents`): per questo si leggono quattro cron alla volta e c'e' il tetto di scansioni.
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
 import { CloudWatchLogsClient, DescribeLogStreamsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda'
 import { clientOpts, cleanAwsReason } from './runtime/awsClient.js'
 import { listCrons } from './crons.js'
 import { anyFailure, esitiEcs, leggiTaskDef, runsFromStreams } from './runs.js'
@@ -194,9 +195,14 @@ export function saltatePerScatto(scatti, inizi, corse, g, { coperto = vuote(g, t
 }
 
 // La riga di un cron Lambda, dalle sue serie. Pura: la usa anche la demo.
-export function rigaLambda(cron, s, g, { ora = Date.now() } = {}) {
+export function rigaLambda(cron, s, g, { ora = Date.now(), rilascio = null } = {}) {
   const { attese } = cron.enabled ? attesePerFascia(cron, g, { ora }) : { attese: vuote(g) }
   const ultima = s.corse.reduce((u, v, i) => (v > 0 ? i : u), -1)
+  const riuscite = s.corse.map((c, i) => Math.max(0, c - s.fallite[i]))
+  // Le metriche dicono la fascia, non l'istante: il fallimento si mette alla FINE della sua fascia e la
+  // riuscita all'INIZIO della sua, cosi' un rilascio dentro la stessa fascia non passa per una correzione.
+  const ultimaKo = s.fallite.reduce((u, v, i) => (v > 0 ? i : u), -1)
+  const ultimaOk = riuscite.reduce((u, v, i) => (v > 0 ? i : u), -1)
   const n = s.corse.reduce((a, b) => a + b, 0)
   // Senza le metriche sulla finestra, la stima dalle fasce: ogni fascia pesa quante corse ha avuto.
   const pesata = (valori, q) => quantilePesato(valori.map((v, i) => ({ v, w: s.corse[i] })), q)
@@ -206,7 +212,7 @@ export function rigaLambda(cron, s, g, { ora = Date.now() } = {}) {
     fonte: 'metriche',
     esitoLetto: true,
     corse: s.corse,
-    riuscite: s.corse.map((c, i) => Math.max(0, c - s.fallite[i])),
+    riuscite,
     fallite: s.fallite,
     nonLette: vuote(g, 0),
     saltate: saltatePerConteggio(attese, s.corse),
@@ -215,13 +221,16 @@ export function rigaLambda(cron, s, g, { ora = Date.now() } = {}) {
     finestra,
     // Dalle metriche si sa la FASCIA dell'ultima corsa, non l'ora: si dice la fascia.
     ultima: ultima >= 0 ? { t: g.inizio + ultima * g.passoMs, esatta: false } : null,
+    rilascio,
+    ultimaFallita: ultimaKo >= 0 ? Math.min(ora, g.inizio + (ultimaKo + 1) * g.passoMs) : null,
+    ultimaRiuscita: ultimaOk >= 0 ? g.inizio + ultimaOk * g.passoMs : null,
   }
 }
 
 // La riga di un cron ECS, dagli stream letti. `copertoDa` = da quando in poi lo storico e' completo
 // (retention dei log, o tetto di pagine): le fasce che cominciano prima restano null. Pura.
 // Ogni corsa puo' portare `esito` ('ok' | 'ko', dal suo log): senza, e' «esito non letto».
-export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = null, troncato = false } = {}) {
+export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = null, troncato = false, rilascio = null } = {}) {
   const coperto = Array.from({ length: g.punti }, (_, i) => copertoDa == null || g.inizio + i * g.passoMs >= copertoDa)
   const fasce = Array.from({ length: g.punti }, () => [])
   for (const r of corseLette) {
@@ -243,6 +252,11 @@ export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = nul
   const conta = (esito) => fasce.map((f, i) => (coperto[i] ? f.filter((r) => (esito ? r.esito === esito : r.esito !== 'ok' && r.esito !== 'ko')).length : null))
   const riuscite = conta('ok')
   const fallite = conta('ko')
+  const ultimaCon = (esito, campo) => nelleFasce.filter((r) => r.esito === esito).reduce((u, r) => Math.max(u, campo(r)), -Infinity)
+  // Il fallimento conta da quando la corsa e' FINITA, la riuscita da quando e' PARTITA: una corsa partita
+  // prima del rilascio non prova la versione nuova.
+  const ultimaKo = ultimaCon('ko', (r) => r.endedAt ?? r.startedAt)
+  const ultimaOk = ultimaCon('ok', (r) => r.startedAt)
   return {
     ...base(cron),
     fonte: 'log',
@@ -260,6 +274,9 @@ export function rigaEcs(cron, corseLette, g, { ora = Date.now(), copertoDa = nul
     ultima: Number.isFinite(ultima) ? { t: ultima, esatta: true } : null,
     copertoDa: copertoDa != null && copertoDa > g.inizio ? copertoDa : null,
     troncato,
+    rilascio,
+    ultimaFallita: Number.isFinite(ultimaKo) ? ultimaKo : null,
+    ultimaRiuscita: Number.isFinite(ultimaOk) ? ultimaOk : null,
   }
 }
 
@@ -409,7 +426,32 @@ async function rigaDaLog(cron, aws, g, ora) {
   const corse = await conEsito(logs, logGroup, runsFromStreams(letti.streams, { streamPrefix, container, since: g.inizio }), ora)
   const daRetention = retention ? ora - retention * GIORNO : null
   const copertoDa = Math.max(letti.copertoDa ?? -Infinity, daRetention ?? -Infinity)
-  return rigaEcs(cron, corse, g, { ora, copertoDa: Number.isFinite(copertoDa) ? copertoDa : null, troncato: letti.troncato })
+  // La revision della task definition e' il rilascio: la registra ogni deploy del job.
+  const rilascio = td?.registeredAt ? new Date(td.registeredAt).getTime() : null
+  return rigaEcs(cron, corse, g, { ora, copertoDa: Number.isFinite(copertoDa) ? copertoDa : null, troncato: letti.troncato, rilascio })
+}
+
+// Quando e' stata rilasciata l'ultima volta ogni Lambda: `LastModified` di `ListFunctions`, una pagina
+// ogni cinquanta funzioni per account. Serve solo a dire «rilasciato dopo il guasto», quindi un errore
+// (permesso, quota) non toglie lo storico: toglie quello stato, e la riga resta rossa.
+function rilasciLambda(aws) {
+  return cached(`rilasci-lambda:${aws?.roleArn ?? aws?.profile ?? 'default'}:${aws?.region ?? ''}`, 5 * MIN, async () => {
+    const client = new LambdaClient(clientOpts(aws))
+    const fuori = new Map()
+    let Marker
+    do {
+      const r = await client.send(new ListFunctionsCommand({ Marker, MaxItems: 50 }))
+      for (const f of r.Functions ?? []) {
+        const t = f.LastModified ? new Date(f.LastModified).getTime() : NaN
+        if (Number.isFinite(t)) fuori.set(f.FunctionName, t)
+      }
+      Marker = r.NextMarker
+    } while (Marker)
+    return fuori
+  }).catch((err) => {
+    log.warn('storico cron: rilasci delle Lambda non letti', { err: err.message })
+    return new Map()
+  })
 }
 
 // Lo storico di tutti gli account. Non lancia per un account o un cron: lo dice nella sua riga.
@@ -435,8 +477,8 @@ export async function leggiStoricoCron(accounts, { giorni = 7, tz = null, t = (k
     [...perGruppo.values()].map(async ({ aws, account: acc, lambda, ecs }) => {
       if (lambda.length) {
         try {
-          const serie = await metricheLambda(aws, lambda.map((c) => c.function), g)
-          lambda.forEach((c, i) => righe.push(rigaLambda(c, serie[i], g, { ora })))
+          const [serie, rilasci] = await Promise.all([metricheLambda(aws, lambda.map((c) => c.function), g), rilasciLambda(aws)])
+          lambda.forEach((c, i) => righe.push(rigaLambda(c, serie[i], g, { ora, rilascio: rilasci.get(c.function) ?? null })))
         } catch (err) {
           const errore = cleanAwsReason(err, t)
           account[acc] = { ...(account[acc] ?? { label: acc }), error: errore }

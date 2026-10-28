@@ -149,7 +149,8 @@ test('contratto: con DescribeLogStreams basta cercare nell’ultimo stream (2 ch
   const streams = fixture('describe-log-streams')
   const p2 = fixture('filter-log-events-page2') // lo stream più recente contiene il traceback
   const out = await runOutcome(logsDaFixture([p2], streams), '/gruppo', 0)
-  assert.deepEqual(out, { ran: true, failed: true })
+  const ultimo = streams.logStreams.reduce((a, b) => (b.lastEventTimestamp > a.lastEventTimestamp ? b : a))
+  assert.deepEqual(out, { ran: true, failed: true, at: ultimo.lastEventTimestamp })
 })
 
 test('contratto: scheduleExpressionToMinutes legge l’espressione registrata', () => {

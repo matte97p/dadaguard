@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch'
 import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs'
 import { ECSClient } from '@aws-sdk/client-ecs'
+import { LambdaClient } from '@aws-sdk/client-lambda'
 import { espandiCron, cadenzaRate } from '../server/util/nextrun.js'
 import {
   grigliaFuso,
@@ -144,6 +145,9 @@ test('riga Lambda e risposta: riuscite = chiamate meno errori; un cron spento se
   const s = { corse: [3, 2], fallite: [1, 0], p50: [100, 200], p90: [150, 250], finestra: { p50: 150, p90: 240 } }
   const r = rigaLambda({ key: 'p/a', name: 'a', type: 'lambda', account: 'p', enabled: true, scheduleExpr: 'rate(12 hours)' }, s, g, { ora: ADESSO })
   assert.deepEqual(r.riuscite, [2, 2])
+  // Le metriche dicono la fascia: il fallimento alla fine della sua, la riuscita all'inizio.
+  assert.equal(r.ultimaFallita, ADESSO - G)
+  assert.equal(r.ultimaRiuscita, ADESSO - G)
   assert.deepEqual(r.saltate, [0, null], 'la fascia in corso di un rate non si sa')
   assert.equal(r.finestra.n, 5)
   assert.equal(r.ultima.esatta, false)
@@ -178,7 +182,12 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
     cron({ name: 'crawler', type: 'ecs-scheduled', account: 'prod', taskDefinition: 'arn:aws:ecs:eu-west-1:000000000000:task-definition/crawler:3', scheduleExpr: 'cron(0 3 * * ? *)' }),
   ]
   const g = grigliaFuso({ giorni: 7, ora: ADESSO, tz: 'Europe/Rome' })
-  const prima = { cw: CloudWatchClient.prototype.send, logs: CloudWatchLogsClient.prototype.send, ecs: ECSClient.prototype.send }
+  const prima = { cw: CloudWatchClient.prototype.send, logs: CloudWatchLogsClient.prototype.send, ecs: ECSClient.prototype.send, lambda: LambdaClient.prototype.send }
+  // Le date di rilascio delle Lambda: una pagina sola di ListFunctions.
+  LambdaClient.prototype.send = async function () {
+    conti.rilasci = (conti.rilasci ?? 0) + 1
+    return { Functions: [{ FunctionName: 'digest', LastModified: new Date(ADESSO - 2 * ORA).toISOString().replace('Z', '+0000') }] }
+  }
   CloudWatchClient.prototype.send = async function (cmd) {
     conti.metriche++
     assert.equal(cmd.input.MetricDataQueries.length, 12)
@@ -196,11 +205,11 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
   }
   ECSClient.prototype.send = async function () {
     conti.taskdef++
-    return { taskDefinition: { containerDefinitions: [{ name: 'job', logConfiguration: { logDriver: 'awslogs', options: { 'awslogs-group': '/ecs/crawler', 'awslogs-stream-prefix': 'cron' } } }] }, tags: [] }
+    return { taskDefinition: { registeredAt: new Date(ADESSO - 10 * MIN), containerDefinitions: [{ name: 'job', logConfiguration: { logDriver: 'awslogs', options: { 'awslogs-group': '/ecs/crawler', 'awslogs-stream-prefix': 'cron' } } }] }, tags: [] }
   }
   try {
     const out = await leggiStoricoCron({ prod: { label: 'Production', region: 'eu-west-1' } }, { giorni: 7, tz: 'Europe/Rome', ora: ADESSO, leggiCron: async () => ({ crons, problems: [] }) })
-    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1, esiti: 1 })
+    assert.deepEqual(conti, { metriche: 1, stream: 1, gruppi: 1, taskdef: 1, esiti: 1, rilasci: 1 })
     const per = Object.fromEntries(out.crons.map((c) => [c.nome, c]))
     assert.equal(per.digest.corse[27], 1)
     assert.equal(per.crawler.corse.at(-1), 1)
@@ -208,11 +217,18 @@ test('giro intero con i client finti: una GetMetricData per account, stream e re
     assert.equal(per.crawler.fallite.at(-1), 1, 'l’esito del job ECS viene dal suo log')
     assert.equal(per.crawler.nonLette.at(-1), 0)
     assert.equal(per.crawler.esitoLetto, true)
+    // Il rilascio: la revision della task definition per ECS, `LastModified` per le Lambda.
+    assert.equal(per.crawler.rilascio, ADESSO - 10 * MIN)
+    assert.equal(per.crawler.ultimaFallita, ADESSO - 30 * MIN, 'il fallimento conta da quando la corsa e’ finita')
+    assert.equal(per.crawler.ultimaRiuscita, null)
+    assert.equal(per.digest.rilascio, ADESSO - 2 * ORA)
+    assert.equal(per.warmer.rilascio, null)
     assert.equal(out.account.prod.label, 'Production')
   } finally {
     CloudWatchClient.prototype.send = prima.cw
     CloudWatchLogsClient.prototype.send = prima.logs
     ECSClient.prototype.send = prima.ecs
+    LambdaClient.prototype.send = prima.lambda
   }
 })
 
@@ -220,6 +236,11 @@ test('metriche sulla finestra rifiutate: si rilegge senza, e la durata della fin
   const g = grigliaFuso({ giorni: 7, ora: ADESSO, tz: 'Europe/Rome' })
   const chiamate = []
   const prima = CloudWatchClient.prototype.send
+  const primaLambda = LambdaClient.prototype.send
+  // Senza permesso sulle Lambda lo storico resta: si perde solo la data di rilascio.
+  LambdaClient.prototype.send = async function () {
+    throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' })
+  }
   CloudWatchClient.prototype.send = async function (cmd) {
     const q = cmd.input.MetricDataQueries
     chiamate.push(q.length)
@@ -240,8 +261,10 @@ test('metriche sulla finestra rifiutate: si rilegge senza, e la durata della fin
     const r = out.crons[0]
     assert.equal(r.errore, null)
     assert.deepEqual(r.finestra, { p50: 1000, p90: 9500, n: 4 }, 'la fascia da tre corse pesa tre volte')
+    assert.equal(r.rilascio, null)
   } finally {
     CloudWatchClient.prototype.send = prima
+    LambdaClient.prototype.send = primaLambda
   }
 })
 

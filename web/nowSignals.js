@@ -15,6 +15,8 @@
 import { compactBuildReason } from './format.js'
 import { kpiAndamento, livelloErrori } from '../shared/serviziSerie.js'
 import { unisciConti, tabellaServizi } from '../shared/spesaSerie.js'
+import { statoRilascio } from '../shared/rilascio.js'
+import { haSchedule } from './topoGraph.js'
 
 const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 
@@ -22,8 +24,12 @@ const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 // dirla piano è diverso dal non dirla.
 const ANOMALY_LOUD = 50
 
-// Ordine dei livelli: è l'ordine in cui si legge la pagina.
-const LEVEL_RANK = { crit: 0, bad: 1, warn: 2, info: 3 }
+// Un'anomalia di costo piu' vecchia di cosi' e' storia: la pagina Spesa la tiene, «Da sistemare» no.
+const ANOMALY_OLD_MS = 7 * 24 * 3_600_000
+
+// Ordine dei livelli: è l'ordine in cui si legge la pagina. `fixed` = fallito, ma una versione nuova
+// e' arrivata dopo il fallimento (shared/rilascio.js): resta in elenco finche' un giro non la prova.
+const LEVEL_RANK = { crit: 0, bad: 1, warn: 2, fixed: 3, info: 4 }
 
 const ms = (v) => (v ? new Date(v).getTime() : null)
 
@@ -37,21 +43,29 @@ export function inWindow(when, { now, hours }) {
 
 // Un servizio giù o degradato è uno stato, non un evento: vale ADESSO, indipendentemente dalla
 // finestra. Il "perché" lo dice già il server (`cause` + il check colpevole), non lo si ricalcola qui.
+// Un job schedulato giu' e' `bad`, non `crit`: un'esecuzione fallita non ha fatto il suo lavoro, ma
+// nessuno sta aspettando una risposta, e con un job settimanale la riga resterebbe in cima sette giorni
+// sopra i servizi che servono traffico. Se dopo il fallimento e' arrivata una versione nuova, `fixed`.
 function serviceSignals(services = [], t, nameOf) {
   const out = []
   for (const s of services) {
     if (s?.overall !== 'down' && s?.overall !== 'degraded') continue
     const cause = s.cause ? s.checks?.[s.cause] : null
+    const schedulato = s.type === 'ecs-scheduled' || (s.type === 'lambda' && haSchedule(s))
+    const rilasciato = s.overall === 'down' && schedulato && Number.isFinite(cause?.rilasciatoAt)
+    const dettaglio = [s.cause ? t(`cause.${s.cause}`) : null, cause?.summary ?? cause?.reason].filter(Boolean).join(': ')
     out.push({
       // L'identità della RISORSA, non il nome: due risorse omonime dello stesso account (una ECS e il
       // suo ALB) davano due segnali con lo stesso id, che è la chiave React della riga in pagina, e
       // quando uno dei due rientrava restava una riga rossa appesa sulla pagina dei guasti.
       id: `svc:${s.account?.key ?? '-'}:${s.resourceId ?? s.name}`,
-      level: s.overall === 'down' ? 'crit' : 'warn',
+      level: s.overall !== 'down' ? 'warn' : rilasciato ? 'fixed' : schedulato ? 'bad' : 'crit',
       kind: 'service',
       title: nameOf(s),
-      detail: [s.cause ? t(`cause.${s.cause}`) : null, cause?.summary ?? cause?.reason].filter(Boolean).join(': '),
-      when: null, // stato in corso: "quanto fa" non si applica, e inventarlo sarebbe peggio
+      detail: rilasciato ? [dettaglio, t('now.rilasciato'), cause.nextRunLabel].filter(Boolean).join(' · ') : dettaglio,
+      // Stato in corso: "quanto fa" non si applica, e inventarlo sarebbe peggio. Per un job rilasciato
+      // invece c'e' una data vera, quella del rilascio.
+      when: rilasciato ? cause.rilasciatoAt : null,
       to: '/servizi',
       accountKey: s.account?.key ?? null,
       accountLabel: s.account?.label ?? null,
@@ -178,14 +192,16 @@ function wafSignals(waf, t) {
 
 // Budget: sforati e "sforerà". Quelli sotto controllo non compaiono — un budget al 30% non è una
 // notizia, e la pagina Spesa li mostra tutti quando la domanda è quella.
-function budgetSignals(budgets, t) {
+// Un budget sforato e' giallo: non ferma niente e nessun utente lo sente, e restando sforato fino a
+// fine mese, da rosso, stava sopra i guasti veri per settimane.
+function budgetSignals(budgets, { now }, t) {
   const out = []
   for (const [key, acc] of Object.entries(budgets?.accounts ?? {})) {
     for (const b of acc?.budgets ?? []) {
       if (b.level !== 'over' && b.level !== 'willOver') continue
       out.push({
         id: `bud:${key}:${b.name}`,
-        level: b.level === 'over' ? 'bad' : 'warn',
+        level: 'warn',
         kind: 'budget',
         title: b.name,
         detail:
@@ -200,10 +216,13 @@ function budgetSignals(budgets, t) {
     }
   }
   for (const a of budgets?.anomalies ?? []) {
+    // Già marcata come attesa da qualcuno, o finita da piu' di una settimana: resta in elenco (è
+    // successa) ma smette di allarmare. Senza date si tiene il livello: non si sa che e' vecchia.
+    const finita = ms(a.end ?? a.start)
+    const vecchia = finita != null && now - finita > ANOMALY_OLD_MS
     out.push({
       id: `anom:${a.id}`,
-      // Già marcata come attesa da qualcuno: resta in elenco (è successa) ma smette di allarmare.
-      level: a.feedback === 'YES' ? 'info' : (a.impact ?? 0) >= ANOMALY_LOUD ? 'warn' : 'info',
+      level: a.feedback === 'YES' || vecchia ? 'info' : (a.impact ?? 0) >= ANOMALY_LOUD ? 'warn' : 'info',
       kind: 'anomaly',
       title: a.service ?? t('now.anomaly'),
       detail: t('now.anomalyDetail', { amount: Math.round(a.impact ?? 0), pct: a.impactPct ?? '?' }),
@@ -292,6 +311,9 @@ function cronSignals(storico, { now }, t) {
     let fallite = 0
     let saltate = 0
     let ultima = null
+    // Rilasciato dopo l'ultimo fallimento (shared/rilascio.js): `verificato` chiude i fallimenti, un
+    // giro dopo il rilascio e' riuscito; `rilasciato` li tiene in elenco, sotto i gialli.
+    const rilascio = statoRilascio(c)
     ;(c.corse ?? []).forEach((_, i) => {
       if (!dentro(i)) return
       const f = c.fallite?.[i] ?? 0
@@ -300,17 +322,19 @@ function cronSignals(storico, { now }, t) {
       saltate += sa
       if (f || sa) ultima = storico.inizio + i * storico.passoMs
     })
+    if (rilascio === 'verificato') fallite = 0
     if (!fallite && !saltate) continue
+    const fixed = fallite > 0 && rilascio === 'rilasciato'
     out.push({
       id: `cron:${c.k}`,
-      level: fallite ? 'bad' : 'warn',
+      level: fixed ? 'fixed' : fallite ? 'bad' : 'warn',
       // L'andamento della settimana, fascia per fascia: un cron che fallisce da giorni e uno che e'
       // caduto stanotte si distinguono a colpo d'occhio.
       serie: (c.corse ?? []).map((_, i) => (fallite ? c.fallite?.[i] ?? 0 : c.saltate?.[i] ?? 0)),
       kind: 'cron',
       title: c.nome,
-      detail: [fallite ? t('now.cronFallito', { n: fallite }) : null, saltate ? t('now.cronSaltato', { n: saltate }) : null].filter(Boolean).join(' · '),
-      when: ultima,
+      detail: [fallite ? t('now.cronFallito', { n: fallite }) : null, saltate ? t('now.cronSaltato', { n: saltate }) : null, fixed ? t('now.rilasciato') : null].filter(Boolean).join(' · '),
+      when: fixed ? c.rilascio : ultima,
       to: `/cron?cron=${encodeURIComponent(c.k)}`,
       accountKey: c.account ?? null,
       accountLabel: storico.account?.[c.account]?.label ?? null,
@@ -412,14 +436,15 @@ export function buildSignals({
     ...serviceSignals(services ?? [], t, nameOf),
     ...deploySignals(deploys ?? {}, opts, t),
     ...wafSignals(waf, t),
-    ...budgetSignals(budgets, t),
+    ...budgetSignals(budgets, opts, t),
     ...alarmSignals(alarmi ?? [], t),
     ...lenteSignals(tempi, opts, t),
     ...cronSignals(cron, opts, t),
     ...serviziSignals(web, t),
     ...spesaSignals(spesa, t),
-  ].map((s) => (s.kind === 'service' && !s.serie ? { ...s, serie: serieServizio(s, services, web) } : s))
-  return all.sort((a, b) => {
+  ]
+    .map((s) => (s.kind === 'service' && !s.serie ? { ...s, serie: serieServizio(s, services, web) } : s))
+  return piegaAllarmiNeiCron(all, t).sort((a, b) => {
     const r = (LEVEL_RANK[a.level] ?? 9) - (LEVEL_RANK[b.level] ?? 9)
     if (r !== 0) return r
     const at = ms(a.when)
@@ -429,6 +454,31 @@ export function buildSignals({
     if (bt == null) return 1
     return bt - at
   })
+}
+
+// Un allarme CloudWatch che porta il nome di un cron piu' un suffisso (`<cron>-nessun-successo`) parla
+// di quel cron: se il cron ha gia' la sua riga, l'allarme ci entra come una nota invece di contare come
+// un secondo guasto. Si deduce dal nome che AWS restituisce, nello stesso account; vince il cron dal
+// nome piu' lungo (`job` e `job-notte` sono due cron). La riga del cron tiene il suo livello: un cron
+// rilasciato il cui allarme suona ancora aspetta lo stesso giro. Pura.
+export function piegaAllarmiNeiCron(segnali, t = (k) => k) {
+  const cron = segnali.filter((s) => s.kind === 'cron' && s.title)
+  if (!cron.length) return segnali
+  const note = new Map()
+  const piegati = new Set()
+  for (const a of segnali) {
+    if (a.kind !== 'alarm' || !a.title) continue
+    const suo = cron
+      .filter((c) => (c.accountKey ?? null) === (a.accountKey ?? null) && a.title.startsWith(`${c.title}-`))
+      .sort((x, y) => y.title.length - x.title.length)[0]
+    if (!suo) continue
+    piegati.add(a)
+    note.set(suo, [...(note.get(suo) ?? []), a.title.slice(suo.title.length + 1)])
+  }
+  if (!piegati.size) return segnali
+  return segnali
+    .filter((s) => !piegati.has(s))
+    .map((s) => (note.has(s) ? { ...s, detail: [s.detail, t('now.cronAllarme', { nomi: note.get(s).join(', ') })].filter(Boolean).join(' · ') } : s))
 }
 
 // L'andamento di un servizio rotto o da guardare, da dati che la home ha gia': lo spark del runtime
@@ -471,7 +521,7 @@ export function contaPerArea(righe = []) {
 
 // Quanti per livello, per la banda in cima. Puro/testabile.
 export function countByLevel(signals = []) {
-  const n = { crit: 0, bad: 0, warn: 0, info: 0 }
+  const n = { crit: 0, bad: 0, warn: 0, fixed: 0, info: 0 }
   for (const s of signals) if (s.level in n) n[s.level] += 1
   return n
 }
