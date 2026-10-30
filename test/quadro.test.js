@@ -1410,6 +1410,18 @@ test('la List dopo un riavvio: si ritrova dal titolo e dal canale, righe rilette
   assert.deepEqual(s.chiamate.filter(([m]) => m === 'slackLists.items.delete').map(([, c]) => c.id), ['RecDoppia'])
 })
 
+test('senza canvas (DADAGUARD_QUADRO_CANVAS=0): restano le List e gli allarmi degli ambienti, nessun canvas', async () => {
+  const s = slackFinto()
+  const cfg = quadroConfig({ ...LISTA_CFG, DADAGUARD_QUADRO_CANVAS: '0' })
+  const esiti = await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: nuovaMemoriaListe() })
+  assert.equal(s.chiamate.filter(([m]) => m.startsWith('canvases.') || m === 'conversations.canvases.create' || m === 'conversations.info').length, 0, 'il canale non si legge e nessun canvas si scrive')
+  assert.ok(listaDi(s, 'Deploy list PRODUCT'), 'la List c’è')
+  const prod = esiti.find((e) => e.ambiente === 'produzione')
+  assert.equal(prod.azione, 'spento')
+  assert.ok(prod.allarmi, 'gli allarmi del canale non dipendono dal canvas')
+  assert.equal(esiti.find((e) => e.ambiente === 'cron'), undefined, 'le schede trasversali senza canvas non hanno niente da dire')
+})
+
 test('la List: un errore la fa ritrovare al giro dopo, e la guardia la chiama per nome', async () => {
   const s = slackFinto()
   const cfg = quadroConfig(LISTA_CFG)

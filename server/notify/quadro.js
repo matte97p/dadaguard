@@ -68,6 +68,9 @@ import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from
 //                               canali. Un webhook NON basta: non scrive canvas e non modifica i
 //                               messaggi che ha mandato
 //   DADAGUARD_QUADRO_LISTE      `0` per non tenere le Slack List accanto ai canvas (default: accese)
+//   DADAGUARD_QUADRO_CANVAS     `0` per tenere le sole List, senza canvas (default: accesi). Gli
+//                               allarmi del canale restano: dipendono dai dati, non dal canvas. I
+//                               canvas già nel canale non si toccano, si tolgono a mano
 //   DADAGUARD_GITHUB_*          la GitHub App da cui viene lo stato dei test (vedi server/notify/github.js).
 //                               Senza, le righe non hanno mai uno stato di test
 //   DADAGUARD_QUADRO_CANALI     un canale per ambiente, nell'ordine dei giri:
@@ -154,6 +157,7 @@ export function quadroConfig(env = process.env) {
     ore: Number.isFinite(ore) && ore > 0 ? ore : DEFAULT_ORE,
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
     liste: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_LISTE ?? '').trim()),
+    canvas: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_CANVAS ?? '').trim()),
   }
 }
 
@@ -1390,6 +1394,12 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     // Gli allarmi dipendono dai DATI di un ambiente, non dal canvas: si calcolano prima, così un
     // canvas che non si riesce a scrivere non tace anche un servizio giù.
     const allarmi = AMBIENTI[c.chiave] ? { allarmi: datiAllarmi(q[c.chiave], { ora, url: cfg.publicUrl, ore: cfg.ore }) } : {}
+    // Senza canvas restano gli esiti degli ambienti, perché portano gli allarmi; le schede trasversali
+    // non ne hanno, quindi spariscono.
+    if (cfg.canvas === false) {
+      if (AMBIENTI[c.chiave]) esiti.push({ ambiente: c.chiave, azione: 'spento', ...allarmi })
+      continue
+    }
     try {
       const e = await allineaCanvas(api, c, { info, leggiHtml, ultimi, titoli, budget })
       budget -= e.celle ?? 0
@@ -2046,7 +2056,7 @@ export function startQuadro(leggiDati, env = process.env) {
     const errori = esiti.filter((e) => e.azione === 'errore')
     if (errori.length) log.error('quadro: giro con errori', { errori: errori.map((e) => `${e.ambiente}: ${e.errore}`) })
     // Ogni 15 secondi un log per giro sarebbero 5.760 righe al giorno: si scrive solo se qualcosa è cambiato.
-    if (esiti.some((e) => e.azione !== 'invariato')) log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
+    if (esiti.some((e) => e.azione !== 'invariato' && e.azione !== 'spento')) log.info('quadro: giro', { esiti: esiti.map((e) => `${e.ambiente}:${e.azione}`) })
     const g = guardiaQuadro(guardia, esiti, { avvio })
     guardia = g.stato
     for (const a of g.avvisi) {
