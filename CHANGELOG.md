@@ -120,6 +120,14 @@ All notable changes to Dadaguard are documented here. Format based on
   giro dopo i soli suoi segnali, senza ripetere l'altro canale.
 
 ### Fixed
+- **I log di un allarme si leggono in tutti i log group della metrica, e dicono dove si è fermato il
+  codice** (30/10/2026). Una metrica nata da più metric filter (lo stesso segnale da un servizio e dal
+  suo scheduler) faceva leggere solo il primo gruppo: il thread diceva «nessuna riga» mentre le righe
+  stavano nell'altro. Ora la query li legge tutti, la testata nomina quello in cui le righe ci sono e il
+  link li apre tutti. Sotto la prima riga c'è il frame più interno del codice del servizio, riletto
+  dallo stack che il processo ha scritto in quell'istante (un traceback, o lo stack di un watchdog). Il
+  link avvisa che serve l'accesso alla console AWS. Corretto anche un `ReferenceError` che lasciava
+  senza log gli allarmi di un'istanza RDS.
 - **Un allarme col tag `team` e senza azioni SNS si dice** (27/10/2026). La regola degli allarmi zittiti
   taceva anche quelli costruiti apposta senza azioni, che si affidano al tag `team` per arrivare al canale
   della squadra: non li diceva nessuno. Ora si tace solo un allarme con le notifiche spente

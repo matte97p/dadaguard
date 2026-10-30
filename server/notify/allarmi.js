@@ -5,6 +5,7 @@ import {
   CloudWatchLogsClient,
   DescribeLogGroupsCommand,
   DescribeMetricFiltersCommand,
+  FilterLogEventsCommand,
   GetQueryResultsCommand,
   StartQueryCommand,
   StopQueryCommand,
@@ -263,14 +264,18 @@ const RE_INFO = / - (INFO|DEBUG) - /
 // `modulo - LIVELLO - messaggio`, che è la parte che si legge. Pura.
 const senzaTesta = (s) => s.replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '').replace(/ - \[[^\]]*\] - /, ' - ')
 
-// Le righe lette diventano al massimo `max` gruppi, dal più numeroso: `{ n, esempio, stream }`. Le
+// Le righe lette diventano al massimo `max` gruppi, dal più numeroso: `{ n, esempio, stream, gruppo,
+// quando }`, più i log group in cui le righe stanno (`gruppi`). Le
 // richieste in 5xx si contano per rotta e stato, a parte. Pura/testabile.
 export function riassumiRighe(righe = [], { max = 4 } = {}) {
   const gruppi = new Map()
   const rotte = new Map()
   let ultima = null
+  // I log group in cui le righe contate stanno davvero, quando la query ne ha letti più d'uno.
+  const gruppiVisti = new Set()
   const vista = (r) => {
     if (Number.isFinite(r?.quando) && (ultima === null || r.quando > ultima)) ultima = r.quando
+    if (r?.gruppo) gruppiVisti.add(r.gruppo)
   }
   for (const r of righe) {
     const msg = String(r?.message ?? '')
@@ -288,9 +293,10 @@ export function riassumiRighe(righe = [], { max = 4 } = {}) {
     const k = e ? `eccezione:${forma(e[2].split(': ').pop())}` : forma(msg)
     const classe = e ? msg.trim().split(':')[0] : null
     const pulita = ripulisci(senzaTesta(msg))
-    const g = gruppi.get(k) ?? { n: 0, esempio: pulita, stream: null, perClasse: new Map() }
+    const g = gruppi.get(k) ?? { n: 0, esempio: pulita, stream: null, gruppo: null, quando: null, perClasse: new Map() }
     gruppi.set(k, g)
-    g.stream = r.stream ?? g.stream
+    // Stream, gruppo e istante della stessa riga: `puntoNelCodice` ci rilegge lo stack.
+    if (r.stream) Object.assign(g, { stream: r.stream, gruppo: r.gruppo ?? null, quando: r.quando ?? null })
     if (!classe) {
       g.n += 1
       g.esempio = pulita
@@ -306,6 +312,7 @@ export function riassumiRighe(righe = [], { max = 4 } = {}) {
   return {
     errori: [...gruppi.values()].map(({ perClasse, ...g }) => g).sort(ordina).slice(0, max),
     rotte: [...rotte.entries()].map(([rotta, n]) => ({ rotta, n })).sort(ordina).slice(0, 3),
+    gruppi: [...gruppiVisti],
     ultima,
   }
 }
@@ -339,21 +346,28 @@ export function servizioDi(a, servizi = []) {
 
 // Il log group di un allarme, dedotto da quello che l'allarme già dice (nessun tag da scrivere a mano):
 //   1. una metrica nata da un METRIC FILTER → il suo log group, e il pattern del filtro: le righe che
-//      hanno acceso l'allarme sono esattamente quelle
+//      hanno acceso l'allarme sono esattamente quelle. Una metrica può nascere da più filtri su più log
+//      group (lo stesso segnale da un'API e dal suo scheduler): si leggono TUTTI, sennò il messaggio
+//      guarda nel gruppo sbagliato e dice «nessuna riga» mentre le righe stanno nell'altro
 //   2. il servizio di Dadaguard a cui l'allarme appartiene (per dimensione, come fa la card) → il log
 //      group che il pannello dei log già usa
 //   3. una Lambda o un servizio ECS nominati nelle dimensioni, anche se Dadaguard non li conosce
 //   4. il servizio di Dadaguard il cui nome di risorsa apre il nome dell'allarme (un cron, i cui allarmi
 //      si chiamano `<funzione>-<verifica>`)
-// `null` se nessuna di queste strade porta a un log group.
+// `null` se nessuna di queste strade porta a un log group. Con più gruppi, `logGroups` li porta tutti e
+// `pattern` diventa la lista dei pattern (o `null` se uno dei filtri prende tutto).
 export async function logGroupDi(a, { aws, servizi = [], deps = {} } = {}) {
   const logs = deps.logs ?? new CloudWatchLogsClient(clientOpts(aws))
   const risolvi = deps.resolveLogGroup ?? resolveLogGroup
   const m = a.metriche?.[0]
+  const dim = m?.dimensioni ?? {}
   if (m?.nome && m?.namespace && !m.namespace.startsWith('AWS/')) {
     try {
-      const f = (await logs.send(new DescribeMetricFiltersCommand({ metricName: m.nome, metricNamespace: m.namespace }))).metricFilters?.[0]
-      if (f?.logGroupName) return { logGroup: f.logGroupName, pattern: f.filterPattern || null }
+      const filtri = (await logs.send(new DescribeMetricFiltersCommand({ metricName: m.nome, metricNamespace: m.namespace }))).metricFilters ?? []
+      const gruppi = [...new Set(filtri.map((f) => f.logGroupName).filter(Boolean))]
+      const pattern = [...new Set(filtri.map((f) => f.filterPattern || null))]
+      if (gruppi.length === 1 && pattern.length === 1) return { logGroup: gruppi[0], pattern: pattern[0] }
+      if (gruppi.length) return { logGroup: gruppi[0], logGroups: gruppi, pattern: pattern.includes(null) ? null : pattern }
     } catch (err) {
       log.warn('allarmi: metric filter non letto', { allarme: a.nome, err: err.message })
     }
@@ -396,15 +410,22 @@ const TETTO_QUERY_MS = 20_000
 // Le righe della finestra, con UNA query Logs Insights (non FilterLogEvents: su un servizio che scrive
 // migliaia di righe al minuto le pagine finiscono prima della finestra). Best-effort: una query che non
 // finisce in tempo si ferma, e il messaggio parte senza log.
-export async function leggiRighe({ logGroup, pattern }, { da, a }, { aws, deps = {} } = {}) {
+export async function leggiRighe({ logGroup, logGroups, pattern }, { da, a }, { aws, deps = {} } = {}) {
   const logs = deps.logs ?? new CloudWatchLogsClient(clientOpts(aws))
   const dormi = deps.dormi ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
-  const filtro = filtroDaPattern(pattern) ?? `@message like /${RE_RIGHE}/ or @message like /" 5\\d\\d /`
+  // Più filtri (uno per log group) → le loro condizioni in OR; se uno non si traduce, il filtro generico.
+  const filtri = [].concat(pattern ?? []).map(filtroDaPattern)
+  const filtro =
+    filtri.length && filtri.every(Boolean)
+      ? filtri.length === 1
+        ? filtri[0]
+        : filtri.map((f) => `(${f})`).join(' or ')
+      : `@message like /${RE_RIGHE}/ or @message like /" 5\\d\\d /`
   // Il contorno dei traceback fuori già dalla query: sennò occupa le 300 righe e le 5xx restano fuori.
   const contorno = String.raw`@message not like /^(\s{4}|\s*(Traceback \(most recent|File ".*", line \d|The above exception|During handling of the above|\(Background on this error at))/`
-  const query = `fields @timestamp, @message, @logStream | filter ${filtro} | filter ${contorno} | sort @timestamp desc | limit 300`
+  const query = `fields @timestamp, @message, @logStream, @log | filter ${filtro} | filter ${contorno} | sort @timestamp desc | limit 300`
   const { queryId } = await logs.send(
-    new StartQueryCommand({ logGroupName: logGroup, startTime: Math.floor(da / 1000), endTime: Math.ceil(a / 1000), queryString: query }),
+    new StartQueryCommand({ logGroupNames: logGroups ?? [logGroup], startTime: Math.floor(da / 1000), endTime: Math.ceil(a / 1000), queryString: query }),
   )
   const scade = Date.now() + TETTO_QUERY_MS
   while (Date.now() < scade) {
@@ -414,7 +435,14 @@ export async function leggiRighe({ logGroup, pattern }, { da, a }, { aws, deps =
       const campo = (riga, nome) => riga.find((c) => c.field === nome)?.value ?? null
       // `@timestamp` arriva come `2026-03-10 09:05:09.787`, in UTC ma senza la zona.
       const quando = (v) => (v ? Date.parse(`${v.replace(' ', 'T')}Z`) : NaN)
-      return (r.results ?? []).map((riga) => ({ message: campo(riga, '@message'), stream: campo(riga, '@logStream'), quando: quando(campo(riga, '@timestamp')) }))
+      // `@log` arriva come `<account>:<log group>`.
+      const gruppo = (v) => (v ? v.slice(v.indexOf(':') + 1) : null)
+      return (r.results ?? []).map((riga) => ({
+        message: campo(riga, '@message'),
+        stream: campo(riga, '@logStream'),
+        gruppo: gruppo(campo(riga, '@log')),
+        quando: quando(campo(riga, '@timestamp')),
+      }))
     }
     if (['Failed', 'Cancelled', 'Timeout'].includes(r.status)) throw new Error(`query ${r.status}`)
   }
@@ -422,27 +450,64 @@ export async function leggiRighe({ logGroup, pattern }, { da, a }, { aws, deps =
   throw new Error('query oltre il tempo')
 }
 
+// Una riga di uno stack Python: `File "<file>", line <n>, in <funzione>`.
+const RE_FRAME = /^\s*File "([^"]+)", line (\d+), in (\S+)/
+// I frame che non sono codice del servizio: librerie installate, la libreria standard, il codice che
+// l'interprete compila al volo (`<string>`, `<frozen …>`).
+const RE_NON_NOSTRO = /\/(site-packages|dist-packages)\/|\/lib\/python\d|^</
+
+// Il frame più interno che appartiene al codice del servizio, fra le righe di uno stack in ordine.
+// `{ file, riga, funzione }` o `null`. Pura/testabile.
+export function ultimoFrame(righe = []) {
+  let ultimo = null
+  for (const r of righe) {
+    const m = RE_FRAME.exec(String(r ?? ''))
+    if (m && !RE_NON_NOSTRO.test(m[1])) ultimo = { file: m[1], riga: Number(m[2]), funzione: m[3] }
+  }
+  return ultimo
+}
+
+// DOVE nel codice è nata la prima riga del riassunto: lo stack che il processo ha scritto nello stesso
+// istante (un traceback, o lo stack che un watchdog stampa quando un event loop è fermo). La query
+// principale lascia fuori quelle righe apposta, quindi si rileggono qui, sul solo stream e su un secondo.
+// Con FilterLogEvents e non Logs Insights: a parità di millisecondo Insights non tiene l'ordine delle
+// righe, e senza ordine non si sa quale frame è il più interno. Best-effort: `null` se non si legge.
+export async function puntoNelCodice(g, { aws, deps = {} } = {}) {
+  if (!g?.gruppo || !g?.stream || !Number.isFinite(g?.quando)) return null
+  const logs = deps.logs ?? new CloudWatchLogsClient(clientOpts(aws))
+  const r = await logs.send(
+    new FilterLogEventsCommand({ logGroupName: g.gruppo, logStreamNames: [g.stream], startTime: g.quando, endTime: g.quando + 1000, limit: 500 }),
+  )
+  return ultimoFrame((r.events ?? []).map((e) => e.message))
+}
+
 const ora = (ms) => new Date(ms).toISOString().slice(11, 16)
 // Lo stream di un task ECS finisce con l'id del task: le prime sei cifre bastano a distinguerne due.
 const replica = (stream) => (stream ? String(stream).split('/').pop().slice(0, 6) : null)
+// Un file del frame con le ultime tre parti del percorso: abbastanza per trovarlo, senza la radice
+// del container.
+const corto = (file) => String(file).split('/').slice(-3).join('/')
 
 export function linkInsights(regione, logGroup, { da, a }) {
-  if (!regione || !logGroup) return null
-  const g = encodeURIComponent(logGroup).replace(/%/g, '$25')
-  return `https://${regione}.console.aws.amazon.com/cloudwatch/home?region=${regione}#logsV2:logs-insights$3FqueryDetail$3D~(end~'${new Date(a).toISOString()}~start~'${new Date(da).toISOString()}~timeType~'ABSOLUTE~source~(~'${g}))`
+  const gruppi = [].concat(logGroup ?? []).filter(Boolean)
+  if (!regione || !gruppi.length) return null
+  const g = gruppi.map((x) => `~'${encodeURIComponent(x).replace(/%/g, '$25')}`).join('')
+  return `https://${regione}.console.aws.amazon.com/cloudwatch/home?region=${regione}#logsV2:logs-insights$3FqueryDetail$3D~(end~'${new Date(a).toISOString()}~start~'${new Date(da).toISOString()}~timeType~'ABSOLUTE~source~(${g}))`
 }
 
-// Il testo del thread: da dove, che ore, e i gruppi di righe. Pura/testabile.
-export function testoLog({ logGroup, finestra, riassunto, regione, t = (k) => k, errore = null }) {
-  const testa = t('allarmi.log.testa', { gruppo: logGroup, da: ora(finestra.da), a: ora(finestra.a) })
+// Il testo del thread: da dove, che ore, e i gruppi di righe. `logGroup` può essere una lista: la
+// testata nomina i gruppi in cui le righe ci sono (tutti, se non ce n'è nessuna), il link li apre tutti.
+// `punto` è il frame di `puntoNelCodice`, sotto la prima riga. Pura/testabile.
+export function testoLog({ logGroup, finestra, riassunto, regione, t = (k) => k, errore = null, punto = null }) {
+  const letti = riassunto?.gruppi?.length ? riassunto.gruppi : [].concat(logGroup)
+  const testa = t('allarmi.log.testa', { gruppo: letti.join('`, `'), da: ora(finestra.da), a: ora(finestra.a) })
   const link = linkInsights(regione, logGroup, finestra)
   const coda = link ? `\n<${link}|${t('allarmi.log.apri')}>` : ''
   if (errore) return `${testa}\n${t('allarmi.log.errore', { errore })}${coda}`
   // Prima le rotte in 5xx: per un allarme sulle risposte sono la risposta, e gli errori dicono perché.
-  const righe = [
-    ...riassunto.rotte.map((r) => `• ${r.n}× ${t('allarmi.log.rotta')} \`${r.rotta}\``),
-    ...riassunto.errori.map((g) => `• ${g.n}× \`${g.esempio.replace(/`/g, "'")}\`${replica(g.stream) ? ` (${replica(g.stream)})` : ''}`),
-  ]
+  const errori = riassunto.errori.map((g) => `• ${g.n}× \`${g.esempio.replace(/`/g, "'")}\`${replica(g.stream) ? ` (${replica(g.stream)})` : ''}`)
+  if (errori.length && punto) errori[0] += `\n   ↳ ${t('allarmi.log.punto')} \`${punto.funzione}\` (${corto(punto.file)}:${punto.riga})`
+  const righe = [...riassunto.rotte.map((r) => `• ${r.n}× ${t('allarmi.log.rotta')} \`${r.rotta}\``), ...errori]
   if (!righe.length) return `${testa}\n${t('allarmi.log.niente')}${coda}`
   return `${testa}\n${righe.join('\n')}${coda}`
 }
@@ -625,9 +690,12 @@ export async function gestisci(a, cfg, deps = {}) {
           const righe = await (deps.leggiRighe ?? leggiRighe)(gruppo, finestra, { aws })
           const riassunto = riassumiRighe(righe)
           ultima = riassunto.ultima
-          thread = testoLog({ logGroup: gruppo.logGroup, finestra, riassunto, regione: a.regione, t })
+          const punto = await (deps.puntoNelCodice ?? puntoNelCodice)(riassunto.errori[0], { aws }).catch(
+            (err) => (log.warn('allarmi: stack non letto', { allarme: a.nome, err: err.message }), null),
+          )
+          thread = testoLog({ logGroup: gruppo.logGroups ?? gruppo.logGroup, finestra, riassunto, regione: a.regione, t, punto })
         } catch (err) {
-          thread = testoLog({ logGroup: gruppo.logGroup, finestra, riassunto: null, regione: a.regione, t, errore: err.message })
+          thread = testoLog({ logGroup: gruppo.logGroups ?? gruppo.logGroup, finestra, riassunto: null, regione: a.regione, t, errore: err.message })
         }
       }
     } catch (err) {
