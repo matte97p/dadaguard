@@ -5,6 +5,12 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Le List del quadro stanno nello schermo** (30/10/2026). Due colonne in meno: il link a Dadaguard è sul
+  nome della risorsa e la versione (col link al commit) apre i Dettagli, come nel canvas. Lo schema di una
+  List esistente l'API non lo cambia: per avere quella nuova si cancella la vecchia, e al giro dopo
+  Dadaguard la ricrea; la scheda nel canale si rimette a mano.
+
 ### Added
 - **Il quadro dei deploy si può tenere senza canvas** (30/10/2026). `DADAGUARD_QUADRO_CANVAS=0` lascia
   nel canale le sole Slack List: gli allarmi di build e check rossi restano, perché dipendono dai dati e

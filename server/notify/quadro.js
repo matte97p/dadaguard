@@ -1501,10 +1501,12 @@ export async function allineaCanvas(api, c, { info, leggiHtml, ultimi = new Map(
 // nome). `bookmarks.list` sarebbe la strada diretta, ma vuole `bookmarks:read`, che l'app non ha.
 
 // L'ordine delle colonne è quello della creazione e l'API non lo cambia (né lo cambia la larghezza:
-// le viste di una List non hanno un metodo per scriverle, provato il 05/10/2026). Quindi le colonne da
-// filtrare (Ambiente, Tipo, Stato) vengono subito dopo il nome, Dettagli PRIMA di Versione, dove la si
-// legge senza scorrere, e Versione è un TESTO con dentro il link al commit, non una colonna di tipo
-// link: una cella link vuota mostrava comunque l'icona del link, vuota.
+// le viste di una List non hanno un metodo per scriverle, provato il 05/10/2026, e chi guarda una List in
+// sola lettura non può allargarle né stringerle a mano). Quindi le colonne da filtrare (Ambiente, Tipo,
+// Stato) vengono subito dopo il nome, e le colonne sono il meno possibile, perché la List stia nella
+// larghezza dello schermo senza scorrere di lato: il link a Dadaguard è sul nome (come nella List delle
+// corse) e la versione apre i Dettagli, col link al commit dentro il testo. Niente colonne di tipo link:
+// una cella link vuota mostrava comunque l'icona del link, vuota.
 // ⚠️ Una cella di TESTO vuota Slack la disegna con un'icona segnaposto (06/10/2026): dove non c'è niente
 // da dire si scrive `n/d`, come nel canvas (`VUOTO`).
 export const scelte = (voci) => ({ format: 'single_select', choices: Object.entries(voci).map(([value, s]) => ({ value, label: s.emoji ? `${s.emoji} ${s.etichetta}` : s.etichetta, color: s.colore })) })
@@ -1518,8 +1520,6 @@ export const SCHEMA_LISTA = [
   { key: 'stato', name: 'Status', type: 'select', options: scelte(STATI) },
   { key: 'quando', name: 'When', type: 'text' },
   { key: 'dettagli', name: 'Details', type: 'text' },
-  { key: 'versione', name: 'Version', type: 'text' },
-  { key: 'dadaguard', name: 'Dadaguard', type: 'link' },
 ]
 const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
 
@@ -1544,27 +1544,29 @@ export const nuovaMemoriaListe = () => ({ bot: null, aree: new Map() })
 export const testoLista = (t) => ({ rich_text: t ? [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: t }] }] }] : [] })
 // Un testo che è un link (`text` torna il testo del link, provato il 05/10/2026).
 export const testoConLink = (url, t) => ({ rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'link', url, text: t }] }] }] })
-const linkLista = (url, nome) => ({ link: url ? [{ original_url: url, display_as_url: false, display_name: nome }] : [] })
+// Un testo fatto di pezzi, ognuno col suo link o no: la List lo rilegge come i testi dei pezzi in fila.
+const testoAPezzi = (pezzi) => ({ rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: pezzi.map((p) => (p.url ? { type: 'link', url: p.url, text: p.t } : { type: 'text', text: p.t })) }] }] })
 export const selectLista = (v) => ({ firma: v ?? '', valore: { select: v ? [v] : [] } })
 
 // Le celle di una riga per la List: per ogni colonna la FIRMA (una stringa da confrontare con quella
-// riletta, vedi `firmeDaItem`) e il valore da mandare. La Versione è il link al commit quando c'è,
-// altrimenti il suo testo (un tag che non è un commit, la versione di un componente esterno), e `n/d`
-// quando non c'è niente. Puro/testabile.
+// riletta, vedi `firmeDaItem`) e il valore da mandare. Il nome porta il link a Dadaguard, e la List lo
+// rilegge col solo testo: la firma è il nome. I Dettagli si aprono con la versione, col link al commit
+// quando c'è (un tag che non è un commit, la versione di un componente esterno, resta testo), come nel
+// canvas; senza versione né dettagli, `n/d`. Puro/testabile.
 export function celleLista(r) {
-  const dettagli = testoPiatto(r.dettagli) || VUOTO
   const quando = r.quandoTesto || VUOTO
   const v = r.versioneLink
-  const versione = v?.nome || testoPiatto(r.versione) || VUOTO
+  const versione = [v?.nome, testoPiatto(r.versione)].find((t) => t && t !== VUOTO)
+  const resto = testoPiatto(r.dettagli)
+  const pezzi = [...(versione ? [{ t: versione, url: v?.url }] : []), ...(resto ? [{ t: versione ? ` · ${resto}` : resto }] : [])]
+  const dettagli = pezzi.length ? pezzi : [{ t: VUOTO }]
   return {
-    risorsa: { firma: r.nome, valore: testoLista(r.nome) },
+    risorsa: { firma: r.nome, valore: r.link ? testoConLink(r.link, r.nome) : testoLista(r.nome) },
     ambiente: selectLista(r.ambiente),
     tipo: selectLista(r.tipo),
     stato: selectLista(r.stato),
     quando: { firma: quando, valore: testoLista(quando) },
-    dettagli: { firma: dettagli, valore: testoLista(dettagli) },
-    versione: { firma: versione, valore: v?.url ? testoConLink(v.url, versione) : testoLista(versione) },
-    dadaguard: { firma: r.link ? `${r.link}|open` : '', valore: linkLista(r.link, 'open') },
+    dettagli: { firma: dettagli.map((p) => p.t).join(''), valore: testoAPezzi(dettagli) },
   }
 }
 
