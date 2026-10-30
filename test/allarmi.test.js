@@ -16,6 +16,9 @@ import {
   testoLog,
   gestisci,
   logGroupDi,
+  leggiRighe,
+  ultimoFrame,
+  puntoNelCodice,
   zittito,
   ritmoDaSerie,
   durata,
@@ -242,6 +245,91 @@ test('logGroupDi: un cron dal servizio il cui nome apre quello dell allarme', as
   const logs = { send: async () => ({ metricFilters: [] }) }
   const resolveLogGroup = async (s) => ({ logGroup: `/aws/lambda/${s.aws.function}` })
   assert.deepEqual(await logGroupDi(a, { servizi, deps: { logs, resolveLogGroup } }), { logGroup: '/aws/lambda/acme-production-cron-report', pattern: null })
+})
+
+test('logGroupDi: una metrica da due filtri su due log group li porta tutti e due', async () => {
+  const a = normalizzaAllarme(evento({ namespace: 'Acme/Workers', metrica: 'LoopStalled', dimensioni: {} }))
+  const logs = {
+    send: async () => ({
+      metricFilters: [
+        { logGroupName: '/ecs/acme-production/worker-scheduler', filterPattern: '"loop stalled"' },
+        { logGroupName: '/ecs/acme-production/worker', filterPattern: '"loop stalled"' },
+      ],
+    }),
+  }
+  assert.deepEqual(await logGroupDi(a, { deps: { logs } }), {
+    logGroup: '/ecs/acme-production/worker-scheduler',
+    logGroups: ['/ecs/acme-production/worker-scheduler', '/ecs/acme-production/worker'],
+    pattern: ['"loop stalled"'],
+  })
+})
+
+test('logGroupDi: un istanza RDS senza filtro e senza servizio arriva ai log di Postgres', async () => {
+  const a = normalizzaAllarme(evento({ nome: 'acme-production-db-cpu', namespace: 'AWS/RDS', metrica: 'CPUUtilization', dimensioni: { DBInstanceIdentifier: 'acme-db' } }))
+  const logs = { send: async () => ({ logGroups: [{ logGroupName: '/aws/rds/instance/acme-db/postgresql' }] }) }
+  assert.deepEqual(await logGroupDi(a, { deps: { logs } }), { logGroup: '/aws/rds/instance/acme-db/postgresql', pattern: null })
+})
+
+test('leggiRighe: interroga tutti i gruppi e dice in quale sta ogni riga', async () => {
+  const chieste = []
+  const logs = {
+    send: async (c) => {
+      chieste.push(c.input)
+      if (c.constructor.name === 'StartQueryCommand') return { queryId: 'q' }
+      return {
+        status: 'Complete',
+        results: [
+          [
+            { field: '@timestamp', value: '2026-03-10 09:05:09.787' },
+            { field: '@message', value: 'ERROR loop stalled for 31s (pid 7)' },
+            { field: '@logStream', value: 'worker/worker/c0ffee123456' },
+            { field: '@log', value: '000000000000:/ecs/acme-production/worker' },
+          ],
+        ],
+      }
+    },
+  }
+  const gruppo = { logGroup: '/ecs/acme-production/a', logGroups: ['/ecs/acme-production/a', '/ecs/acme-production/worker'], pattern: ['"loop stalled"', '"stalled"'] }
+  const righe = await leggiRighe(gruppo, { da: 0, a: 60_000 }, { deps: { logs, dormi: async () => {} } })
+  assert.deepEqual(chieste[0].logGroupNames, gruppo.logGroups)
+  assert.match(chieste[0].queryString, /filter \(@message like "loop stalled"\) or \(@message like "stalled"\) \|/)
+  assert.deepEqual(righe, [{ message: 'ERROR loop stalled for 31s (pid 7)', stream: 'worker/worker/c0ffee123456', gruppo: '/ecs/acme-production/worker', quando: Date.parse('2026-03-10T09:05:09.787Z') }])
+})
+
+test('ultimoFrame: il frame più interno del codice del servizio, non delle librerie', () => {
+  const stack = [
+    'ERROR loop stalled for 31s (pid 7); main thread stack:',
+    '  File "<string>", line 1, in <module>',
+    '  File "/usr/local/lib/python3.13/asyncio/runners.py", line 119, in run',
+    '  File "/app/acme/jobs/report.py", line 40, in build',
+    '    rows = expand(pages)',
+    '  File "/app/acme/jobs/pages.py", line 88, in expand',
+    '  File "/app/.venv/lib/python3.13/site-packages/regex/regex.py", line 10, in finditer',
+  ]
+  assert.deepEqual(ultimoFrame(stack), { file: '/app/acme/jobs/pages.py', riga: 88, funzione: 'expand' })
+  assert.equal(ultimoFrame(['nessuno stack qui']), null)
+})
+
+test('puntoNelCodice: rilegge lo stream in quell istante, e senza gruppo non chiede niente', async () => {
+  let chiesto
+  const logs = { send: async (c) => ((chiesto = c.input), { events: [{ message: '  File "/app/acme/jobs/pages.py", line 88, in expand' }] }) }
+  const g = { stream: 'worker/worker/c0ffee123456', gruppo: '/ecs/acme-production/worker', quando: 1_000 }
+  assert.deepEqual(await puntoNelCodice(g, { deps: { logs } }), { file: '/app/acme/jobs/pages.py', riga: 88, funzione: 'expand' })
+  assert.deepEqual(chiesto, { logGroupName: '/ecs/acme-production/worker', logStreamNames: ['worker/worker/c0ffee123456'], startTime: 1_000, endTime: 2_000, limit: 500 })
+  assert.equal(await puntoNelCodice({ ...g, gruppo: null }, { deps: { logs: { send: async () => assert.fail('non doveva chiedere') } } }), null)
+})
+
+test('testoLog: con più gruppi nomina quello delle righe, il link li apre tutti, e sotto il punto nel codice', () => {
+  const t = makeT('en')
+  const finestra = { da: Date.parse('2026-10-21T07:44:00Z'), a: Date.parse('2026-10-21T07:52:08Z') }
+  const riassunto = riassumiRighe([{ message: 'ERROR loop stalled for 31s (pid 7)', stream: 'worker/worker/c0ffee123456', gruppo: '/ecs/acme-production/worker', quando: 1_000 }])
+  const gruppi = ['/ecs/acme-production/worker-scheduler', '/ecs/acme-production/worker']
+  const punto = { file: '/app/acme/jobs/pages.py', riga: 88, funzione: 'expand' }
+  const s = testoLog({ logGroup: gruppi, finestra, riassunto, regione: 'eu-central-1', t, punto })
+  assert.match(s, /^Logs from `\/ecs\/acme-production\/worker`, 07:44 to 07:52 UTC:\n• 1× `ERROR loop stalled for 31s \(pid 7\)` \(c0ffee\)\n {3}↳ in code: `expand` \(acme\/jobs\/pages\.py:88\)\n/)
+  assert.match(s, /source~\(~'\$252Fecs\$252Facme-production\$252Fworker-scheduler~'\$252Fecs\$252Facme-production\$252Fworker\)\)\|open in Logs Insights \(needs AWS console access\)>$/)
+  // Senza righe, la testata li nomina tutti.
+  assert.match(testoLog({ logGroup: gruppi, finestra, riassunto: riassumiRighe([]), regione: 'eu-central-1', t }), /^Logs from `\/ecs\/acme-production\/worker-scheduler`, `\/ecs\/acme-production\/worker`, /)
 })
 
 // `gestisci` con tutto finto: cosa parte, dove, e il thread.
