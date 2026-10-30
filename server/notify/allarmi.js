@@ -209,11 +209,13 @@ export function linkAllarme(a) {
   return `https://${a.regione}.console.aws.amazon.com/cloudwatch/home?region=${a.regione}#alarmsV2:alarm/${encodeURIComponent(a.nome)}`
 }
 
-// La riga del canale: `🚨 \`<nome>\` [PROD] alarm firing: <descrizione> · <link>`. Il nome senza
-// organizzazione e ambiente, che l'etichetta dice già. Pura/testabile.
+// La riga del canale: `🚨 \`<nome>\` [PROD]: <descrizione> · <link>`. Il nome senza organizzazione e
+// ambiente, che l'etichetta dice già. Sull'allarme acceso niente «alarm firing»: lo dice l'emoji, e la
+// riga arriva prima alla descrizione; il rientro e gli altri stati la parola la tengono. Pura/testabile.
 export function testoAllarme(a, decisione, { ambiente = null, t = (k) => k, url = null } = {}) {
   const soggetto = stripOrgEnv(a.nome) || a.nome
-  const testa = `${decisione.emoji} \`${soggetto}\`${envTag(ambiente)} ${t(`allarmi.${decisione.tipo}`)}`
+  const stato = decisione.tipo === 'acceso' ? '' : ` ${t(`allarmi.${decisione.tipo}`)}`
+  const testa = `${decisione.emoji} \`${soggetto}\`${envTag(ambiente)}${stato}`
   const descr = a.descrizione || a.motivo
   const corpo =
     decisione.tipo === 'rientro'
@@ -262,7 +264,13 @@ const RE_INFO = / - (INFO|DEBUG) - /
 
 // L'esempio senza la testa del logging Python (data, ora e il blocco di contesto fra quadre): resta
 // `modulo - LIVELLO - messaggio`, che è la parte che si legge. Pura.
-const senzaTesta = (s) => s.replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '').replace(/ - \[[^\]]*\] - /, ' - ')
+// Anche la forma `data ora LIVELLO modulo: messaggio` (il formato di `logging.basicConfig` con
+// `%(asctime)s %(levelname)s %(name)s: %(message)s`): l'ora è già nella testata del thread.
+const senzaTesta = (s) =>
+  s
+    .replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '')
+    .replace(/^\d{4}-\d{2}-\d{2}[ T][\d:.,]+Z? (?=[A-Z]+ )/, '')
+    .replace(/ - \[[^\]]*\] - /, ' - ')
 
 // Le righe lette diventano al massimo `max` gruppi, dal più numeroso: `{ n, esempio, stream, gruppo,
 // quando }`, più i log group in cui le righe stanno (`gruppi`). Le
@@ -270,6 +278,7 @@ const senzaTesta = (s) => s.replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '').replac
 export function riassumiRighe(righe = [], { max = 4 } = {}) {
   const gruppi = new Map()
   const rotte = new Map()
+  const pulite = []
   let ultima = null
   // I log group in cui le righe contate stanno davvero, quando la query ne ha letti più d'uno.
   const gruppiVisti = new Set()
@@ -293,6 +302,7 @@ export function riassumiRighe(righe = [], { max = 4 } = {}) {
     const k = e ? `eccezione:${forma(e[2].split(': ').pop())}` : forma(msg)
     const classe = e ? msg.trim().split(':')[0] : null
     const pulita = ripulisci(senzaTesta(msg))
+    pulite.push(pulita)
     const g = gruppi.get(k) ?? { n: 0, esempio: pulita, stream: null, gruppo: null, quando: null, perClasse: new Map() }
     gruppi.set(k, g)
     // Stream, gruppo e istante della stessa riga: `puntoNelCodice` ci rilegge lo stack.
@@ -314,6 +324,51 @@ export function riassumiRighe(righe = [], { max = 4 } = {}) {
     rotte: [...rotte.entries()].map(([rotta, n]) => ({ rotta, n })).sort(ordina).slice(0, 3),
     gruppi: [...gruppiVisti],
     ultima,
+    cosa: cosaSiRompe(pulite),
+  }
+}
+
+// Chi scrive la riga e il resto: `LIVELLO modulo: messaggio` o `modulo - LIVELLO - messaggio`.
+const RE_CHI = /^(?:([\w.]+) - [A-Z]+ - |(?:[A-Z]+ )?([\w.]+): )(.+)$/
+// Il messaggio fino alla prima classe di eccezione: quello che il servizio stava facendo.
+const RE_PRIMA_ECCEZIONE = /^(.*?)[\s:]+([A-Z]\w*(?:Error|Exception))\b/
+// I valori dentro il messaggio: stringhe fra apici e numeri.
+const RE_VALORE = /'[^']*'|"[^"]*"|\b\d[\d.,:/]*\b/g
+const MAX_COSA = 120
+
+// COSA si rompe, per il titolo: il passo che il servizio stava facendo quando ha scritto le righe
+// (`normalize source 'x', record '…' parked`), dal gruppo di righe più numeroso con la stessa forma. I
+// valori uguali in tutte le righe restano (dicono dove: una fonte, un job), quelli che cambiano
+// diventano `…` (un id per riga). Accanto, quante righe e le classi di eccezione. `null` se le righe
+// non hanno la forma `modulo: messaggio`. Pura/testabile.
+export function cosaSiRompe(righe = []) {
+  const forme = new Map()
+  for (const riga of righe) {
+    const chi = RE_CHI.exec(riga)
+    if (!chi) continue
+    const modulo = chi[1] ?? chi[2]
+    const e = RE_PRIMA_ECCEZIONE.exec(chi[3])
+    const testa = (e ? e[1] : chi[3]).replace(/[\s:,]+$/, '')
+    if (!/[A-Za-z]/.test(testa.replace(RE_VALORE, ''))) continue
+    const chiave = `${modulo}|${testa.replace(RE_VALORE, '\0')}`
+    const f = forme.get(chiave) ?? { n: 0, testa, valori: [], classi: new Map() }
+    forme.set(chiave, f)
+    f.n += 1
+    ;(testa.match(RE_VALORE) ?? []).forEach((v, i) => (f.valori[i] ??= new Set()).add(v))
+    if (e) f.classi.set(e[2], (f.classi.get(e[2]) ?? 0) + 1)
+  }
+  const f = [...forme.values()].sort((x, y) => y.n - x.n)[0]
+  if (!f) return null
+  let i = 0
+  const testa = f.testa.replace(RE_VALORE, (v) => {
+    const visti = f.valori[i++]
+    if (visti.size === 1) return v
+    return /^['"]/.test(v) ? `${v[0]}…${v[0]}` : '…'
+  })
+  return {
+    testa: testa.length > MAX_COSA ? `${testa.slice(0, MAX_COSA - 1).trimEnd()}…` : testa,
+    n: f.n,
+    classi: [...f.classi.entries()].map(([classe, n]) => ({ classe, n })).sort((x, y) => y.n - x.n),
   }
 }
 
@@ -586,14 +641,23 @@ export function durata(ms) {
 }
 
 // Le righe del contesto, nell'ordine delle domande. Pura/testabile.
-export function testoContesto({ ultima = null, ritmo = null, rilascio = null, quando, t = (k) => k }) {
+export function testoContesto({ cosa = null, ultima = null, ritmo = null, rilascio = null, quando, t = (k) => k }) {
   const allarme = Date.parse(quando) || Date.now()
-  const righe = []
+  const prima = []
+  if (cosa) {
+    const testa = cosa.testa.replace(/`/g, "'")
+    const classi = cosa.classi.map((c) => `${c.classe} ${c.n}`).join(', ')
+    prima.push(classi ? t('allarmi.ctx.cosaClassi', { testa, n: cosa.n, classi }) : t('allarmi.ctx.cosa', { testa, n: cosa.n }))
+  }
+  // L'ultimo errore e il ritmo stanno su una riga sola: sono due numeri sulla stessa cosa.
+  const errori = []
   if (Number.isFinite(ultima)) {
     const prima = allarme - ultima
-    righe.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
+    errori.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
   }
-  if (ritmo) righe.push(t('allarmi.ctx.ritmo', { ultime: ritmo.ultime, media: ritmo.media }))
+  if (ritmo) errori.push(t('allarmi.ctx.ritmo', { ultime: ritmo.ultime, media: ritmo.media }))
+  const unita = errori.join(' · ')
+  const righe = [...prima, ...(unita ? [unita[0].toUpperCase() + unita.slice(1)] : [])]
   if (rilascio) {
     const giorno = new Date(rilascio.quando).toISOString()
     righe.push(t('allarmi.ctx.rilascio', { servizio: rilascio.servizio, quanto: durata(allarme - rilascio.quando), quando: `${giorno.slice(8, 10)}/${giorno.slice(5, 7)} ${ora(rilascio.quando)}` }))
@@ -681,6 +745,7 @@ export async function gestisci(a, cfg, deps = {}) {
   // I log e il contesto solo su un allarme acceso: su un rientro o un buco di dati non c'è niente da cercare.
   let thread = null
   let ultima = null
+  let cosa = null
   if (decisione.tipo === 'acceso') {
     try {
       const gruppo = await (deps.logGroupDi ?? logGroupDi)(a, { aws, servizi: servizi.services ?? [] })
@@ -690,6 +755,7 @@ export async function gestisci(a, cfg, deps = {}) {
           const righe = await (deps.leggiRighe ?? leggiRighe)(gruppo, finestra, { aws })
           const riassunto = riassumiRighe(righe)
           ultima = riassunto.ultima
+          cosa = riassunto.cosa
           const punto = await (deps.puntoNelCodice ?? puntoNelCodice)(riassunto.errori[0], { aws }).catch(
             (err) => (log.warn('allarmi: stack non letto', { allarme: a.nome, err: err.message }), null),
           )
@@ -708,7 +774,7 @@ export async function gestisci(a, cfg, deps = {}) {
       (deps.ritmoMetrica ?? ritmoMetrica)(a, { cw }).catch((err) => (log.warn('allarmi: ritmo non letto', { allarme: a.nome, err: err.message }), null)),
       (deps.ultimoRilascio ?? ultimoRilascio)(a, { aws, servizi: servizi.services ?? [] }).catch((err) => (log.warn('allarmi: rilascio non letto', { allarme: a.nome, err: err.message }), null)),
     ])
-    const contesto = testoContesto({ ultima, ritmo, rilascio, quando: a.quando, t })
+    const contesto = testoContesto({ cosa, ultima, ritmo, rilascio, quando: a.quando, t })
     if (contesto.length) testoIntero = `${testo}\n${contesto.join('\n')}`
   }
 
