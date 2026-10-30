@@ -26,7 +26,8 @@
 //    diventa 'unknown' invece di restare eternamente «in corso».
 //
 // Permessi: quelli che il ruolo read-only ha già, `ecs:ListTasks`, `ecs:DescribeTasks`,
-// `ecs:DescribeTaskDefinition`, `logs:DescribeLogStreams`, `logs:FilterLogEvents`. Nessun grant nuovo.
+// `ecs:DescribeTaskDefinition`, `logs:DescribeLogStreams`, `logs:FilterLogEvents`, e per l'esito
+// registrato delle corse `cloudwatch:DescribeAlarms` e `cloudwatch:GetMetricData`. Nessun grant nuovo.
 import {
   ECSClient,
   DescribeTaskDefinitionCommand,
@@ -45,6 +46,7 @@ import { FAILURE_PATTERN } from './runtime/ecsScheduled.js'
 import { mapLimit } from './util/pool.js'
 import { cached } from './util/ttlcache.js'
 import { imageRepo } from './checks/version.js'
+import { esitiDaBattito, leggiBattiti } from './battitoCron.js'
 
 // Family dalla task-def (ARN o `family:rev`): serve a `ListTasks`, che filtra per family e non per ARN.
 export function familyOfTaskDef(taskDefinition) {
@@ -317,9 +319,15 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
 
   const merged = mergeRuns(logRuns, apiRuns).filter((r) => r.running || (r.startedAt ?? 0) >= since).slice(0, limit)
 
+  // Le corse che l'API ECS ha gia' dimenticato (dopo circa un'ora) hanno solo il log, e un container
+  // ucciso per memoria finita nel log non scrive errori: qui tornava verde mentre la home lo diceva
+  // rosso. Prima del log valgono, come nella vista «Andamento», gli esiti registrati: vedi `esitiRegistrati`.
+  const registrati = await esitiRegistrati(cfg, aws, logGroup, merged, { da: since })
+  const registrato = (r) => (r.source === 'log' ? registrati.get(r.stream) : undefined)
+
   // Errori nei log, solo per le run in cima e solo dove servono davvero: se l'exit code c'è ed è ≠ 0
-  // la run è già fallita, e una chiamata in più non aggiunge niente.
-  const daScansionare = merged.filter((r) => r.stream && !r.running && r.exitCode !== 0).slice(0, scanFailures)
+  // la run è già fallita, e una chiamata in più non aggiunge niente; con un esito registrato, nemmeno.
+  const daScansionare = merged.filter((r) => r.stream && !r.running && r.exitCode !== 0 && !registrato(r)).slice(0, scanFailures)
   const failedById = new Map()
   await mapLimit(daScansionare, 4, async (r) => {
     try {
@@ -347,16 +355,42 @@ export async function ecsRuns(cfg, aws, { minutes = 1440, limit = 8, scanFailure
     container,
     immagine,
     runs: merged.map((r) => {
-      const failed = failedById.get(r.id)
+      const esito = registrato(r)
+      const failed = esito ? esito === 'ko' : failedById.get(r.id)
       return {
         ...r,
         // `failedScanned` dice al pannello se «nessun errore» è una risposta o solo una mancanza: senza,
-        // una run non scansionata sembrerebbe verde per averlo verificato.
-        failedScanned: failedById.has(r.id),
+        // una run non scansionata sembrerebbe verde per averlo verificato. Un esito registrato e' una
+        // risposta come la scansione.
+        failedScanned: failedById.has(r.id) || esito != null,
         outcome: classifyRun({ ...r, failed }),
       }
     }),
   }
+}
+
+// Gli esiti registrati delle corse, per stream: il codice d'uscita annotato in memoria finche' il task
+// c'era (`esitiEcs`), poi il battito e le corse fallite sulla metrica di successo del cron, se i suoi
+// allarmi li dichiarano (server/battitoCron.js). Lo stesso ordine della vista «Andamento». Senza la
+// chiave e il nome del cron restano gli esiti in memoria. Non lancia: in ogni caso resta il log.
+async function esitiRegistrati(cfg, aws, logGroup, corse, { da, ora = Date.now() } = {}) {
+  const fuori = new Map()
+  for (const r of corse) {
+    const k = `${logGroup}|${r.stream}`
+    if (r.stream && esitiEcs.has(k)) fuori.set(r.stream, esitiEcs.get(k))
+  }
+  if (!cfg?.key || !cfg?.name) return fuori
+  // Due minuti per cron: la pagina Cron e il canvas chiedono le corse di tutti i cron a ogni apertura e a
+  // ogni giro, e una `GetMetricData` a richiesta sarebbe solo traffico. La chiave porta la finestra.
+  const battiti = await cached(`corse-battito:${cfg.key}:${Math.floor(da / 300_000)}`, 2 * 60_000, () =>
+    leggiBattiti(aws, [cfg], { da, a: ora }),
+  )
+  const battito = battiti.get(cfg.key)
+  if (!battito) return fuori
+  for (const [stream, esito] of esitiDaBattito(corse, battito, { ora, cadenzaMs: (cfg.scheduleMinutes ?? 0) * 60_000 })) {
+    if (!fuori.has(stream)) fuori.set(stream, esito)
+  }
+  return fuori
 }
 
 // Righe di piattaforma e di errore che delimitano e qualificano una invocazione Lambda. Un solo
@@ -558,7 +592,8 @@ export async function lambdaRuns(
 // Run di un cron, qualunque sia il suo tipo. `cron` è la descrizione che ne fa `server/crons.js`.
 export async function cronRuns(cron, aws, opts = {}) {
   if (cron.type === 'ecs-scheduled') {
-    return ecsRuns({ cluster: cron.cluster, taskDefinition: cron.taskDefinition, container: cron.container }, aws, opts)
+    const cfg = { cluster: cron.cluster, taskDefinition: cron.taskDefinition, container: cron.container, key: cron.key, name: cron.name, scheduleMinutes: cron.scheduleMinutes }
+    return ecsRuns(cfg, aws, opts)
   }
   if (cron.type === 'lambda') return lambdaRuns({ function: cron.function }, aws, { ...opts, scheduleMinutes: cron.scheduleMinutes ?? null })
   return { runs: [], notApplicable: true }
