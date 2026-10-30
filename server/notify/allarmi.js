@@ -262,7 +262,13 @@ const RE_INFO = / - (INFO|DEBUG) - /
 
 // L'esempio senza la testa del logging Python (data, ora e il blocco di contesto fra quadre): resta
 // `modulo - LIVELLO - messaggio`, che è la parte che si legge. Pura.
-const senzaTesta = (s) => s.replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '').replace(/ - \[[^\]]*\] - /, ' - ')
+// Anche la forma `data ora LIVELLO modulo: messaggio` (il formato di `logging.basicConfig` con
+// `%(asctime)s %(levelname)s %(name)s: %(message)s`): l'ora è già nella testata del thread.
+const senzaTesta = (s) =>
+  s
+    .replace(/^\d{4}-\d{2}-\d{2} [\d:.,]+ - /, '')
+    .replace(/^\d{4}-\d{2}-\d{2}[ T][\d:.,]+Z? (?=[A-Z]+ )/, '')
+    .replace(/ - \[[^\]]*\] - /, ' - ')
 
 // Le righe lette diventano al massimo `max` gruppi, dal più numeroso: `{ n, esempio, stream, gruppo,
 // quando }`, più i log group in cui le righe stanno (`gruppi`). Le

@@ -133,6 +133,27 @@ test('ripulisci: query, parametri e credenziali non arrivano in chat', () => {
   assert.equal(ripulisci('a <b> & c'), 'a &lt;b&gt; &amp; c')
 })
 
+test('ripulisci: il testo fra due valori corti resta, è il tipo di errore', () => {
+  const s = ripulisci(
+    "normalize source 'fonte_esempio', record 'REC-0001' parked: ShapeError: record 'REC-0001': bad deadline: {'a': '01/02/03', 'b': \"Consegna entro l'ora indicata nel bando di gara\"}",
+  )
+  assert.equal(s, "normalize source 'fonte_esempio', record 'REC-0001' parked: ShapeError: record 'REC-0001': bad deadline: {'a': '01/02/03', 'b': \"…\"}")
+  // Un apostrofo dentro una parola non apre una stringa.
+  assert.equal(ripulisci("l'indirizzo 'Via degli Esempi 12, 00100 Paese Inventato'"), "l'indirizzo '…'")
+})
+
+test('ripulisci: una riga troppo lunga perde il mezzo, non il motivo in fondo', () => {
+  const s = ripulisci(`ERROR app.core.runner: ${'step ok, '.repeat(40)}ShapeError: bad shape for field`)
+  assert.equal(s.length, 220)
+  assert.match(s, /^ERROR app\.core\.runner: step ok/)
+  assert.match(s, / … .*ShapeError: bad shape for field$/)
+})
+
+test('riassumiRighe: senza data, ora e livello del formato `data ora LIVELLO modulo:`', () => {
+  const r = riassumiRighe([{ message: "2026-01-02 03:04:05,678 ERROR app.core.runner: record 'REC-0001' parked: ShapeError: bad shape" }])
+  assert.equal(r.errori[0].esempio, "ERROR app.core.runner: record 'REC-0001' parked: ShapeError: bad shape")
+})
+
 test('forma: righe uguali a meno di numeri e id hanno la stessa forma', () => {
   assert.equal(forma('2026-10-21 07:51:16,669 Child process [32] died'), forma('2026-10-21 08:01:02,001 Child process [3409] died'))
   assert.equal(forma('job 3f2a9c1e-1111-2222-3333-444455556666 failed'), forma('job aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee failed'))

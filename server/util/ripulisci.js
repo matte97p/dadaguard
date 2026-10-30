@@ -15,20 +15,32 @@ const DA_TAGLIARE = [/\s*\[SQL:.*$/s, /\s*\[parameters:.*$/s, /\s*\(Background o
 export function ripulisci(riga = '') {
   let s = String(riga)
   for (const re of DA_TAGLIARE) s = s.replace(re, '')
-  return s
-    .replace(/\s+/g, ' ')
-    .replace(/:\/\/[^/\s:@]+:[^/\s@]+@/g, '://***@')
-    .replace(/\b(password|passwd|pwd|token|secret|api_?key|authorization)(["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s)\]},;]+)/gi, '$1$2***')
-    .replace(/\?[^\s"']+/g, '?…')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
-    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]')
-    // Senza il trattino nella classe: un UUID non è un segreto, e resta leggibile (`forma` lo rende `[id]`).
-    .replace(/\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{32,}\b/g, '[token]')
-    .replace(/'[^']{25,}'/g, "'…'")
-    .replace(/"[^"]{25,}"/g, '"…"')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .trim()
-    .slice(0, MAX_RIGA)
+  return accorcia(
+    s
+      .replace(/\s+/g, ' ')
+      .replace(/:\/\/[^/\s:@]+:[^/\s@]+@/g, '://***@')
+      .replace(/\b(password|passwd|pwd|token|secret|api_?key|authorization)(["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s)\]},;]+)/gi, '$1$2***')
+      .replace(/\?[^\s"']+/g, '?…')
+      .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
+      .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]')
+      // Senza il trattino nella classe: un UUID non è un segreto, e resta leggibile (`forma` lo rende `[id]`).
+      .replace(/\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{32,}\b/g, '[token]')
+      // Le stringhe si leggono in coppia, da sinistra, e una corta resta com'è: con due passate separate
+      // (`'[^']{25,}'`) l'apice che chiude una stringa corta apriva la «stringa» successiva, e il testo
+      // FRA due valori (`' failed: ValueError: item '`), cioè il tipo di errore, diventava `'…'`.
+      // L'apice dopo una lettera è un apostrofo (`l'indirizzo`), non apre niente.
+      .replace(/(?<!\w)'[^']*'|"[^"]*"/g, (m) => (m.length > 26 ? `${m[0]}…${m[0]}` : m))
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .trim(),
+  )
+}
+
+// Una riga troppo lunga si taglia nel MEZZO: in testa c'è chi scrive (livello, modulo), in coda il
+// motivo dell'errore, che col taglio in fondo era la prima cosa a sparire. Pura.
+function accorcia(s) {
+  if (s.length <= MAX_RIGA) return s
+  const testa = Math.floor(MAX_RIGA * 0.4)
+  return `${s.slice(0, testa).trimEnd()} … ${s.slice(-(MAX_RIGA - testa - 3)).trimStart()}`
 }
