@@ -1302,8 +1302,8 @@ test('le List: una per area come le schede, con tutti e due gli ambienti dentro,
   const crea = s.chiamate.filter(([m]) => m === 'slackLists.create').map(([, c]) => c)
   assert.deepEqual(crea.map((c) => c.name), ['Deploy list PRODUCT', 'Deploy list CRON', 'Deploy list DATA'])
   const schema = crea[0].schema
-  assert.deepEqual(schema.map((c) => c.name), ['Resource', 'Environment', 'Type', 'Status', 'When', 'Details', 'Version', 'Dadaguard'])
-  assert.deepEqual(schema.map((c) => c.type), ['text', 'select', 'select', 'select', 'text', 'text', 'text', 'link'], 'Versione è un testo')
+  assert.deepEqual(schema.map((c) => c.name), ['Resource', 'Environment', 'Type', 'Status', 'When', 'Details'], 'poche colonne, perché la List stia nello schermo')
+  assert.deepEqual(schema.map((c) => c.type), ['text', 'select', 'select', 'select', 'text', 'text'], 'niente colonne di tipo link')
   assert.deepEqual(schema[1].options.choices.map((c) => c.value), ['produzione', 'staging'])
   assert.deepEqual(schema[2].options.choices.map((c) => `${c.value}:${c.label}`), ['servizio:service', 'cron_ecs:ECS cron', 'lambda:Lambda', 'esterno:external component', 'statico:site/static', 'iac:IaC'])
   assert.deepEqual(schema[3].options.choices.map((c) => c.value), Object.keys(STATI))
@@ -1331,12 +1331,12 @@ test('le List: una per area come le schede, con tutti e due gli ambienti dentro,
     stato: 'invariato',
     quando: 'n/a',
     dettagli: 'date not read',
-    versione: 'n/a',
-    dadaguard: `${URL}/servizi?account=production&q=notifier`,
-  }, 'nelle celle di testo senza valore n/a, non il vuoto')
-  assert.equal(riga('Deploy list PRODUCT', 'orch').versione, '3.6.26', 'la versione di un external component si legge')
-  assert.equal(riga('Deploy list PRODUCT', 'sito').versione, 'ccccccc')
-  assert.equal(riga('Deploy list PRODUCT', 'api', 'staging').versione, 'bbbbbbb')
+  }, 'nelle celle di testo senza valore n/a, non il vuoto, e senza versione i Dettagli non la nominano')
+  const notifier = [...listaDi(s, 'Deploy list PRODUCT').righe.values()].map((r) => r.get('Col0')).find((c) => testoCella(c) === 'notifier')
+  assert.equal(notifier.rich_text[0].elements[0].elements[0].url, `${URL}/servizi?account=production&q=notifier`, 'il nome porta a Dadaguard')
+  assert.equal(riga('Deploy list PRODUCT', 'orch').dettagli.split(' · ')[0], '3.6.26', 'la versione di un external component apre i Dettagli')
+  assert.equal(riga('Deploy list PRODUCT', 'sito').dettagli.split(' · ')[0], 'ccccccc')
+  assert.equal(riga('Deploy list PRODUCT', 'api', 'staging').dettagli.split(' · ')[0], 'bbbbbbb')
 
   s.chiamate.length = 0
   const secondo = await aggiornaQuadri(cfg, { api: s.api, scarica: s.scarica, leggiDati: datiAree, ora: ORA, liste })
@@ -1369,7 +1369,7 @@ test('la List: un cambio è UNA chiamata con le sole celle cambiate; una risorsa
   assert.equal(e.azione, 'aggiornata')
   const update = s.chiamate.filter(([m]) => m === 'slackLists.items.update')
   assert.equal(update.length, 1)
-  assert.deepEqual(update[0][1].cells.map((c) => c.column_id).sort(), ['Col3', 'Col4', 'Col6'], 'stato, quando e versione di web')
+  assert.deepEqual(update[0][1].cells.map((c) => c.column_id).sort(), ['Col3', 'Col4', 'Col5'], 'stato, quando e dettagli (con la versione) di web')
   assert.deepEqual(update[0][1].cells.find((c) => c.column_id === 'Col3').select, ['deploy_ok'])
 
   s.chiamate.length = 0
@@ -1580,15 +1580,15 @@ test('le celle della List: Versione è un testo col link dentro, il tag quando n
   })
   const [api, chat, giu] = righeTabella(q, { ora: ORA })
   const c = celleLista({ ...api, ambiente: 'produzione' })
-  assert.deepEqual(c.versione.valore.rich_text[0].elements[0].elements, [{ type: 'link', url: 'https://github.com/acme/api/commit/aaaaaaa', text: 'aaaaaaa' }])
-  assert.equal(c.versione.firma, 'aaaaaaa', 'la firma è il testo del link, com’è riletto')
-  assert.equal(c.dettagli.firma, 'rev 9 · 2/2 tasks', 'le due cose che contano, uguali al canvas')
+  assert.deepEqual(c.dettagli.valore.rich_text[0].elements[0].elements, [{ type: 'link', url: 'https://github.com/acme/api/commit/aaaaaaa', text: 'aaaaaaa' }, { type: 'text', text: ' · rev 9 · 2/2 tasks' }])
+  assert.equal(c.dettagli.firma, 'aaaaaaa · rev 9 · 2/2 tasks', 'la versione apre i Dettagli, e la firma è il testo com’è riletto')
   assert.deepEqual([c.ambiente.firma, c.tipo.firma, c.stato.firma], ['produzione', 'servizio', 'deploy_ok'])
   assert.equal(api.celle[2], '[aaaaaaa](https://github.com/acme/api/commit/aaaaaaa) · rev 9 · 2/2 tasks', 'anche nel canvas: versione e due voci corte')
-  assert.deepEqual(celleLista(chat).versione, { firma: 'latest', valore: { rich_text: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: 'latest' }] }] }] } }, 'un tag che non è un commit: testo, niente link')
+  assert.deepEqual(celleLista(chat).dettagli.valore.rich_text[0].elements[0].elements, [{ type: 'text', text: 'latest' }, { type: 'text', text: ' · 1/1 tasks' }], 'un tag che non è un commit: testo, niente link')
   assert.equal(chat.celle[2], '`latest` · 1/1 tasks', 'e nel canvas resta testo: /commit/latest porterebbe a un 404')
   const g = celleLista(giu)
-  assert.deepEqual([g.quando.firma, g.versione.firma], ['n/a', 'n/a'], 'un servizio giù senza ora né versione: n/a, non la cella vuota')
+  assert.equal(g.quando.firma, 'n/a', 'un servizio giù senza ora: n/a, non la cella vuota')
+  assert.ok(!g.dettagli.firma.startsWith(' · '), 'senza versione i Dettagli non si aprono col separatore')
   assert.equal(g.quando.valore.rich_text[0].elements[0].elements[0].text, 'n/a')
   assert.deepEqual(['servizio', 'cron_ecs', 'lambda', 'esterno', 'statico', 'iac'], Object.keys(TIPI))
 })
