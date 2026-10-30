@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { abbinaBattiti, eBattito, esitiDaBattito, istantiBattiti, queryBattiti, PERIODO_MS } from '../server/battitoCron.js'
+import { abbinaBattiti, abbinaFallimenti, eBattito, eFallimento, esitiDaBattito, istantiBattiti, istantiFallimenti, queryBattiti, PERIODO_MS } from '../server/battitoCron.js'
 
 const MIN = 60_000
 const ORA = 60 * MIN
@@ -84,4 +84,78 @@ test('esitiDaBattito: con un allarme che tollera piu’ giri il battito prova so
   const e = esitiDaBattito(corse, { istanti, finestraMs: 26 * ORA }, { ora, cadenzaMs: ORA })
   assert.deepEqual(Object.fromEntries(e), { s2: 'ok' })
   assert.equal(esitiDaBattito(corse, { istanti, finestraMs: 26 * ORA }, { ora, cadenzaMs: 0 }).size, 1, 'senza cadenza nota, lo stesso')
+})
+
+// Un allarme «corsa fallita»: il minimo della stessa metrica sotto uno, e il silenzio e' la salute.
+const fallimento = (o = {}) => ({
+  AlarmName: 'acme-cron-crawler-run-failed',
+  Namespace: 'Acme/Jobs',
+  MetricName: 'Done',
+  Dimensions: [{ Name: 'Job', Value: 'crawler' }],
+  Statistic: 'Minimum',
+  Period: 3600,
+  EvaluationPeriods: 1,
+  ComparisonOperator: 'LessThanThreshold',
+  Threshold: 1,
+  TreatMissingData: 'notBreaching',
+  ...o,
+})
+
+test('eFallimento: il minimo sotto uno con il silenzio che vale salute, e niente altro', () => {
+  assert.equal(eFallimento(fallimento()), true)
+  assert.equal(eFallimento(fallimento({ TreatMissingData: 'missing' })), true)
+  assert.equal(eFallimento(fallimento({ ComparisonOperator: 'LessThanOrEqualToThreshold', Threshold: 0 })), true)
+  assert.equal(eFallimento(fallimento({ TreatMissingData: 'breaching' })), false, 'il silenzio che allarma e’ un battito')
+  assert.equal(eFallimento(fallimento({ Statistic: 'Sum' })), false, 'una somma sotto uno e’ un giro senza successi, non un fallimento')
+  assert.equal(eFallimento(fallimento({ Threshold: 50 })), false, 'una percentuale sotto soglia non e’ una corsa')
+  assert.equal(eFallimento(fallimento({ ComparisonOperator: 'GreaterThanThreshold', Threshold: 0 })), false)
+  assert.equal(eBattito(fallimento()), false, 'le due forme non si confondono')
+})
+
+test('abbinaFallimenti: stessa regola del nome, accanto al battito dello stesso cron', () => {
+  const crons = [
+    { key: 'p/acme-cron-crawler', name: 'acme-cron-crawler' },
+    { key: 'p/acme-cron-crawler-night', name: 'acme-cron-crawler-night' },
+  ]
+  const allarmi = [battito(), fallimento(), fallimento({ AlarmName: 'acme-cron-crawler-night-run-failed', Dimensions: [{ Name: 'Job', Value: 'crawler-night' }] })]
+  const f = abbinaFallimenti(crons, allarmi)
+  assert.deepEqual([...f.keys()].sort(), ['p/acme-cron-crawler', 'p/acme-cron-crawler-night'])
+  assert.equal(f.get('p/acme-cron-crawler').stat, 'Minimum')
+  assert.equal(f.get('p/acme-cron-crawler-night').allarme, 'acme-cron-crawler-night-run-failed')
+  assert.deepEqual([...abbinaBattiti(crons, allarmi).keys()], ['p/acme-cron-crawler'], 'il battito resta solo dove c’e’')
+  assert.equal(queryBattiti([f.get('p/acme-cron-crawler')], 'f')[0].Id, 'f0')
+})
+
+test('istantiFallimenti: i punti che fanno suonare il loro allarme', () => {
+  const specifiche = [
+    { soglia: 1, operatore: 'LessThanThreshold' },
+    { soglia: 0, operatore: 'LessThanOrEqualToThreshold' },
+  ]
+  const r = [
+    { Id: 'f0', Timestamps: [new Date(2 * PERIODO_MS), new Date(PERIODO_MS)], Values: [0, 1] },
+    { Id: 'f1', Timestamps: [new Date(PERIODO_MS)], Values: [0] },
+    { Id: 'b0', Timestamps: [new Date(PERIODO_MS)], Values: [0] },
+  ]
+  assert.deepEqual(istantiFallimenti(r, specifiche), [[2 * PERIODO_MS], [PERIODO_MS]])
+})
+
+test('esitiDaBattito: un punto di fallimento decide anche dove il battito prova solo il successo', () => {
+  const ora = 2 * GIORNO
+  const corse = Array.from({ length: 4 }, (_, i) => ({ stream: `s${i}`, startedAt: GIORNO + i * ORA, endedAt: GIORNO + i * ORA + MIN }))
+  const fascia = (t) => Math.floor(t / PERIODO_MS) * PERIODO_MS
+  const istanti = [fascia(GIORNO + 2 * ORA + 5 * MIN)]
+  const fallite = [fascia(GIORNO + ORA + 10 * MIN), fascia(GIORNO + 2 * ORA + 20 * MIN)]
+  // Orario con un allarme a ventisei ore: senza il fallimento, s1 resterebbe «non si sa».
+  const e = esitiDaBattito(corse, { istanti, finestraMs: 26 * ORA, fallite }, { ora, cadenzaMs: ORA })
+  assert.deepEqual(Object.fromEntries(e), { s1: 'ko', s2: 'ok' }, 's2 ha battuto: il punto a zero dopo il battito non la ribalta')
+})
+
+test('esitiDaBattito: senza battito, la corsa con il punto di fallimento e’ fallita subito, le altre non si sanno', () => {
+  const ora = 20 * GIORNO
+  const corsa = (g) => ({ stream: `s${g}`, startedAt: g * GIORNO, endedAt: g * GIORNO + MIN })
+  const fallite = [Math.floor((19 * GIORNO + 2 * MIN) / PERIODO_MS) * PERIODO_MS]
+  // Settimanale: nessun battito possibile. L'ultima corsa ha il suo zero a due minuti dalla partenza.
+  const e = esitiDaBattito([corsa(12), corsa(19)], { fallite }, { ora: 19 * GIORNO + 10 * MIN, cadenzaMs: 7 * GIORNO })
+  assert.deepEqual(Object.fromEntries(e), { s19: 'ko' })
+  assert.equal(esitiDaBattito([corsa(12), corsa(19)], { fallite: [] }, { ora, cadenzaMs: 7 * GIORNO }).size, 0)
 })
