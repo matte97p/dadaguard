@@ -23,6 +23,7 @@ import {
   ritmoDaSerie,
   durata,
   testoContesto,
+  cosaSiRompe,
 } from '../server/notify/allarmi.js'
 import { makeT } from '../server/i18n.js'
 
@@ -482,4 +483,30 @@ test('testoContesto: ultimo errore, ritmo, rilascio', () => {
   ])
   assert.deepEqual(testoContesto({ ultima: Date.parse('2026-03-10T09:11:30Z'), quando, t }), ['Last error 09:11 UTC (still happening when the alarm fired)'])
   assert.deepEqual(testoContesto({ quando, t }), [])
+})
+
+test('cosaSiRompe: il passo che si rompe, coi valori fissi e senza quelli che cambiano', () => {
+  const righe = [
+    "ERROR app.core.runner: import source 'fonte_a', record 'REC-1' failed: ShapeError: bad shape",
+    "ERROR app.core.runner: import source 'fonte_a', record 'REC-2' failed: ShapeError: bad shape",
+    "ERROR app.core.runner: import source 'fonte_a', record 'REC-3' failed: CodeError: bad code",
+    'ERROR app.web: request 42 timed out',
+  ]
+  assert.deepEqual(cosaSiRompe(righe), {
+    testa: "import source 'fonte_a', record '…' failed",
+    n: 3,
+    classi: [
+      { classe: 'ShapeError', n: 2 },
+      { classe: 'CodeError', n: 1 },
+    ],
+  })
+  // Anche nel formato `modulo - LIVELLO - messaggio`, e senza eccezione.
+  assert.deepEqual(cosaSiRompe(['app.jobs - ERROR - sync of job 7 stopped']), { testa: 'sync of job 7 stopped', n: 1, classi: [] })
+  assert.equal(cosaSiRompe(['Traceback (most recent call last):', 'boom']), null)
+})
+
+test('testoContesto: cosa si rompe in prima riga', () => {
+  const t = makeT('en')
+  const cosa = { testa: "import source 'fonte_a', record '…' failed", n: 3, classi: [{ classe: 'ShapeError', n: 2 }, { classe: 'CodeError', n: 1 }] }
+  assert.deepEqual(testoContesto({ cosa, quando: '2026-03-10T09:12:00Z', t }), ["What breaks: `import source 'fonte_a', record '…' failed` (3×: ShapeError 2, CodeError 1)"])
 })
