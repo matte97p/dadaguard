@@ -286,6 +286,56 @@ test('battito: una corsa ECS morta senza errori nel log resta fallita anche senz
   }
 })
 
+test('corsa fallita dichiarata: un cron settimanale senza battito resta rosso dopo un riavvio', async () => {
+  // Un job settimanale non puo' avere un battito (la finestra supererebbe i sette giorni). Chi lo gestisce
+  // pero' scrive un punto a zero sulla metrica di successo quando una corsa fallisce, e lo dichiara con un
+  // allarme sul minimo. La corsa di oggi e' morta senza righe d'errore: l'esito viene da quel punto.
+  const conti = { allarmi: 0, metriche: 0, esiti: 0 }
+  const oggi = ADESSO - 10 * ORA
+  const settimanaFa = oggi - 7 * G
+  const cron = { key: 'prod/acme-cron-weekly', name: 'acme-cron-weekly', type: 'ecs-scheduled', account: 'prod', region: 'eu-west-1', enabled: true, scheduleTz: null, scheduleExpr: 'cron(0 3 ? * MON *)', scheduleMinutes: 10080, taskDefinition: 'arn:aws:ecs:eu-west-1:000000000000:task-definition/weekly:1' }
+  const prima = { cw: CloudWatchClient.prototype.send, logs: CloudWatchLogsClient.prototype.send, ecs: ECSClient.prototype.send }
+  CloudWatchClient.prototype.send = async function (cmd) {
+    if (cmd.constructor.name === 'DescribeAlarmsCommand') {
+      conti.allarmi++
+      return {
+        MetricAlarms: [
+          { AlarmName: 'acme-cron-weekly-run-failed', Namespace: 'Acme/Jobs', MetricName: 'Done', Dimensions: [{ Name: 'Job', Value: 'weekly' }], Statistic: 'Minimum', Period: 3600, EvaluationPeriods: 1, ComparisonOperator: 'LessThanThreshold', Threshold: 1, TreatMissingData: 'notBreaching' },
+        ],
+      }
+    }
+    conti.metriche++
+    assert.deepEqual(cmd.input.MetricDataQueries.map((q) => [q.Id, q.MetricStat.Stat]), [['f0', 'Minimum']])
+    return { MetricDataResults: [{ Id: 'f0', Timestamps: [new Date(oggi + 2 * MIN)], Values: [0] }] }
+  }
+  CloudWatchLogsClient.prototype.send = async function (cmd) {
+    if (cmd.constructor.name === 'DescribeLogGroupsCommand') return { logGroups: [{ logGroupName: '/ecs/weekly', retentionInDays: 30 }] }
+    if (cmd.constructor.name === 'FilterLogEventsCommand') return conti.esiti++, { events: [] }
+    return {
+      logStreams: [
+        { logStreamName: 'cron/job/oggi', firstEventTimestamp: oggi, lastEventTimestamp: oggi + MIN },
+        { logStreamName: 'cron/job/prima', firstEventTimestamp: settimanaFa, lastEventTimestamp: settimanaFa + MIN },
+      ],
+    }
+  }
+  ECSClient.prototype.send = async function () {
+    return { taskDefinition: { registeredAt: new Date(settimanaFa - G), containerDefinitions: [{ name: 'job', logConfiguration: { logDriver: 'awslogs', options: { 'awslogs-group': '/ecs/weekly', 'awslogs-stream-prefix': 'cron' } } }] }, tags: [] }
+  }
+  try {
+    const out = await leggiStoricoCron({ prod: { label: 'Production', profile: 'prova-fallita', region: 'eu-west-1' } }, { giorni: 14, tz: 'Europe/Rome', ora: ADESSO, leggiCron: async () => ({ crons: [cron], problems: [] }) })
+    const r = out.crons[0]
+    const somma = (k) => r[k].reduce((a, v) => a + (v ?? 0), 0)
+    assert.equal(somma('fallite'), 1, 'la corsa di oggi ha lasciato il suo zero')
+    assert.equal(somma('riuscite'), 1, 'quella di una settimana fa non ha punti: la dice il log, pulito')
+    assert.equal(r.ultimaFallita, oggi + MIN)
+    assert.deepEqual(conti, { allarmi: 1, metriche: 1, esiti: 1 }, 'il log si legge solo per la corsa senza punto')
+  } finally {
+    CloudWatchClient.prototype.send = prima.cw
+    CloudWatchLogsClient.prototype.send = prima.logs
+    ECSClient.prototype.send = prima.ecs
+  }
+})
+
 test('metriche sulla finestra rifiutate: si rilegge senza, e la durata della finestra si stima dalle fasce', async () => {
   const g = grigliaFuso({ giorni: 7, ora: ADESSO, tz: 'Europe/Rome' })
   const chiamate = []

@@ -19,8 +19,17 @@
 //    gli allarmi nella riga del cron. Vince il cron dal nome piu' lungo: `job` e `job-notte` sono due cron.
 // Un cron senza un allarme cosi' resta com'era: codice d'uscita finche' c'e', poi il log.
 //
+// LA CORSA FALLITA, quando qualcuno la scrive. Il battito dice solo i successi: un giro senza punto
+// puo' essere un fallimento o un giro saltato per scelta, e su un cron settimanale o mensile un battito
+// non esiste nemmeno, perche' la sua finestra supererebbe i sette giorni che CloudWatch concede a un
+// allarme. Se pero' chi gestisce i job registra anche la corsa fallita, con un punto SOTTO uno sulla
+// stessa metrica del successo (per esempio dall'evento di task fermato, che vede anche il container
+// ucciso per memoria finita), e lo dichiara con un allarme, quel punto e' un esito certo e duraturo.
+// La forma che lo dichiara (`eFallimento`): una metrica sola, nel suo MINIMO, sotto uno, con il dato
+// mancante che vale salute; il nome, la stessa regola del battito.
+//
 // Costo: `DescribeAlarms` una volta ogni dieci minuti per account, e una `GetMetricData` per account a
-// giro dello storico con una metrica per cron abbinato ($0,01 ogni 1.000 metriche chieste).
+// giro dello storico con una o due metriche per cron abbinato ($0,01 ogni 1.000 metriche chieste).
 // Permessi: cloudwatch:DescribeAlarms e cloudwatch:GetMetricData, gia' nel ruolo di sola lettura.
 import { CloudWatchClient, DescribeAlarmsCommand, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch'
 import { clientOpts } from './runtime/awsClient.js'
@@ -44,13 +53,26 @@ export function eBattito(a) {
   return false
 }
 
-// I battiti dei cron: chiave del cron → la metrica e quanto silenzio il suo allarme tollera. Pura.
-// `finestraMs` (periodo × periodi valutati) dice se ogni corsa deve riuscire: vedi `esitiDaBattito`.
-export function abbinaBattiti(crons = [], allarmi = []) {
+// «Questo allarme dice dove sta la corsa FALLITA?» Solo la forma, come `eBattito`. Pura.
+// Lo specchio del battito: il minimo di una metrica sola sotto uno, e il silenzio non allarma. Un punto
+// sotto la soglia vuol dire che in quel momento una corsa non e' riuscita.
+export function eFallimento(a) {
+  if (!a?.Namespace || !a?.MetricName || a?.Metrics?.length) return false
+  if (a.TreatMissingData === 'breaching') return false
+  if (a.Statistic !== 'Minimum') return false
+  const soglia = Number(a.Threshold)
+  if (a.ComparisonOperator === 'LessThanThreshold') return soglia > 0 && soglia <= 1
+  if (a.ComparisonOperator === 'LessThanOrEqualToThreshold') return soglia >= 0 && soglia < 1
+  return false
+}
+
+// Allarmi di una forma → chiave del cron → la metrica, la soglia e quanto silenzio l'allarme tollera.
+// Il cron si riconosce dal nome (`<cron>-<qualcosa>`), e vince quello dal nome piu' lungo. Pura.
+function abbina(crons, allarmi, forma) {
   const perNome = [...crons].filter((c) => c?.name && c?.key).sort((a, b) => b.name.length - a.name.length)
   const fuori = new Map()
   for (const a of allarmi) {
-    if (!eBattito(a)) continue
+    if (!forma(a)) continue
     const nome = String(a.AlarmName ?? '')
     const cron = perNome.find((c) => nome.startsWith(`${c.name}-`))
     if (!cron || fuori.has(cron.key)) continue
@@ -60,15 +82,28 @@ export function abbinaBattiti(crons = [], allarmi = []) {
       metrica: a.MetricName,
       dimensioni: (a.Dimensions ?? []).map((d) => ({ Name: d.Name, Value: d.Value })),
       stat: a.Statistic,
+      soglia: Number(a.Threshold),
+      operatore: a.ComparisonOperator,
       finestraMs: (Number(a.Period) || 0) * 1000 * (Number(a.EvaluationPeriods) || 1),
     })
   }
   return fuori
 }
 
-export function queryBattiti(battiti = []) {
+// I battiti dei cron. `finestraMs` (periodo × periodi valutati) dice se ogni corsa deve riuscire: vedi
+// `esitiDaBattito`. Pura.
+export function abbinaBattiti(crons = [], allarmi = []) {
+  return abbina(crons, allarmi, eBattito)
+}
+
+// Dove i cron registrano la corsa fallita (vedi `eFallimento`). Pura.
+export function abbinaFallimenti(crons = [], allarmi = []) {
+  return abbina(crons, allarmi, eFallimento)
+}
+
+export function queryBattiti(battiti = [], prefisso = 'b') {
   return battiti.map((b, i) => ({
-    Id: `b${i}`,
+    Id: `${prefisso}${i}`,
     ReturnData: true,
     MetricStat: {
       Metric: { Namespace: b.namespace, MetricName: b.metrica, Dimensions: b.dimensioni },
@@ -78,17 +113,34 @@ export function queryBattiti(battiti = []) {
   }))
 }
 
-// Gli istanti (inizio della fascia da cinque minuti) in cui il cron ha battuto, in ordine. Pura.
-export function istantiBattiti(risultati = [], n = 0) {
+// Gli istanti (inizio della fascia da cinque minuti) delle query `<prefisso><i>` in cui `vale` regge,
+// in ordine. Pura.
+function istanti(risultati, n, prefisso, vale) {
   const fuori = Array.from({ length: n }, () => [])
+  const re = new RegExp(`^${prefisso}(\\d+)$`)
   for (const r of risultati) {
-    const m = /^b(\d+)$/.exec(r?.Id ?? '')
+    const m = re.exec(r?.Id ?? '')
     if (!m || !fuori[m[1]]) continue
     ;(r.Timestamps ?? []).forEach((ts, k) => {
-      if ((r.Values?.[k] ?? 0) > 0) fuori[m[1]].push(new Date(ts).getTime())
+      const v = r.Values?.[k]
+      if (Number.isFinite(v) && vale(v, Number(m[1]))) fuori[m[1]].push(new Date(ts).getTime())
     })
   }
   return fuori.map((v) => v.sort((a, b) => a - b))
+}
+
+// Gli istanti in cui il cron ha battuto: i punti sopra zero. Pura.
+export function istantiBattiti(risultati = [], n = 0) {
+  return istanti(risultati, n, 'b', (v) => v > 0)
+}
+
+// Gli istanti delle corse fallite: i punti che fanno suonare il loro allarme (sotto la soglia, o fino
+// alla soglia con `LessThanOrEqualToThreshold`). Pura.
+export function istantiFallimenti(risultati = [], specifiche = []) {
+  return istanti(risultati, specifiche.length, 'f', (v, i) => {
+    const { soglia, operatore } = specifiche[i]
+    return operatore === 'LessThanOrEqualToThreshold' ? v <= soglia : v < soglia
+  })
 }
 
 // L'esito di ogni corsa dal battito, per stream. Pura.
@@ -107,23 +159,32 @@ export function istantiBattiti(risultati = [], n = 0) {
 // L'ultima corsa non ha una corsa dopo: e' fallita quando e' passato piu' tempo di quanto il cron ci mette
 // di solito a battere (una volta e mezza il ritardo piu' lungo visto nella finestra, fra un quarto d'ora e
 // sei ore), e prima non si sa. Mai «fallita» per una corsa ancora in corso.
-export function esitiDaBattito(corse = [], { istanti = [], finestraMs = 0 } = {}, { ora = Date.now(), cadenzaMs = 0 } = {}) {
+//
+// Una corsa con un punto di FALLIMENTO nello stesso intervallo (`fallite`, vedi `eFallimento`) e' fallita
+// e basta, qualunque sia la tolleranza del battito, e anche senza battito: lo ha scritto chi l'ha vista
+// finire. Se nello stesso intervallo c'e' anche un battito vince il battito, perche' il job ha dichiarato
+// di essere arrivato in fondo e il fallimento puo' essere venuto dopo, uscendo.
+export function esitiDaBattito(corse = [], { istanti = [], finestraMs = 0, fallite = [] } = {}, { ora = Date.now(), cadenzaMs = 0 } = {}) {
   const fuori = new Map()
   const lista = corse.filter((r) => r?.stream && Number.isFinite(r.startedAt)).sort((a, b) => a.startedAt - b.startedAt)
   if (!lista.length) return fuori
   const perCorsa = cadenzaMs > 0 && finestraMs > 0 && finestraMs < 2 * cadenzaMs
   const fascia = (t) => Math.floor(t / PERIODO_MS) * PERIODO_MS
+  const dentro = (punti, i) => {
+    const da = fascia(lista[i].startedAt)
+    const a = lista[i + 1]?.startedAt ?? Infinity
+    return punti.find((x) => x >= da && x < a)
+  }
   const ritardi = []
   const battuta = lista.map((r, i) => {
-    const da = fascia(r.startedAt)
-    const a = lista[i + 1]?.startedAt ?? Infinity
-    const t = istanti.find((x) => x >= da && x < a)
+    const t = dentro(istanti, i)
     if (t != null) ritardi.push(t + PERIODO_MS - r.startedAt)
     return t != null
   })
   const tipico = ritardi.length ? Math.max(...ritardi) * 1.5 : 30 * MIN
   lista.forEach((r, i) => {
     if (battuta[i]) return void fuori.set(r.stream, 'ok')
+    if (dentro(fallite, i) != null) return void fuori.set(r.stream, 'ko')
     if (!perCorsa || r.running) return
     if (i < lista.length - 1) return void fuori.set(r.stream, 'ko')
     const durata = Number.isFinite(r.endedAt) ? r.endedAt - r.startedAt : 0
@@ -151,16 +212,21 @@ function allarmiAccount(aws) {
   })
 }
 
-// I battiti dei cron di UN account nella finestra: chiave del cron → { istanti, finestraMs, allarme }.
-// Non lancia: senza permesso o con un errore gli esiti restano quelli di prima (codice d'uscita, log).
+// I battiti e le corse fallite dei cron di UN account nella finestra: chiave del cron → { istanti,
+// fallite, finestraMs, ... }, per i cron che hanno almeno uno dei due allarmi. Non lancia: senza
+// permesso o con un errore gli esiti restano quelli di prima (codice d'uscita, log).
 export async function leggiBattiti(aws, crons = [], { da, a = Date.now() } = {}) {
   try {
-    const abbinati = abbinaBattiti(crons, await allarmiAccount(aws))
-    if (!abbinati.size) return new Map()
-    const chiavi = [...abbinati.keys()]
-    const specifiche = chiavi.map((k) => abbinati.get(k))
+    const allarmi = await allarmiAccount(aws)
+    const battiti = abbinaBattiti(crons, allarmi)
+    const fallimenti = abbinaFallimenti(crons, allarmi)
+    if (!battiti.size && !fallimenti.size) return new Map()
+    const kb = [...battiti.keys()]
+    const kf = [...fallimenti.keys()]
+    const sb = kb.map((k) => battiti.get(k))
+    const sf = kf.map((k) => fallimenti.get(k))
     const cw = new CloudWatchClient(clientOpts(aws))
-    const query = queryBattiti(specifiche)
+    const query = [...queryBattiti(sb, 'b'), ...queryBattiti(sf, 'f')]
     const risultati = []
     // Cinquecento metriche per chiamata e' il tetto di `GetMetricData`.
     for (let i = 0; i < query.length; i += 500) {
@@ -178,8 +244,13 @@ export async function leggiBattiti(aws, crons = [], { da, a = Date.now() } = {})
         NextToken = r.NextToken
       } while (NextToken)
     }
-    const istanti = istantiBattiti(risultati, chiavi.length)
-    return new Map(chiavi.map((k, i) => [k, { ...specifiche[i], istanti: istanti[i] }]))
+    const ib = istantiBattiti(risultati, kb.length)
+    const iff = istantiFallimenti(risultati, sf)
+    const fuori = new Map(kb.map((k, i) => [k, { ...sb[i], istanti: ib[i], fallite: [] }]))
+    // Un cron con il solo allarme del fallimento non ha un battito: niente successi da contare e
+    // nessuna tolleranza, quindi il resto lo dice il log.
+    kf.forEach((k, i) => fuori.set(k, { istanti: [], finestraMs: 0, ...fuori.get(k), fallite: iff[i] }))
+    return fuori
   } catch (err) {
     log.warn('battiti dei cron non letti: esiti dal codice d\'uscita e dal log', { err: err.message })
     return new Map()

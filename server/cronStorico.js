@@ -22,10 +22,11 @@
 //    corse e il giro del canvas Slack lo annotano in `esitiEcs`): e' l'unico modo di vedere un container
 //    ucciso per memoria finita, che non scrive errori. Quella memoria si svuota a ogni riavvio: fra il
 //    codice d'uscita e il log vale il BATTITO, la metrica di successo che il cron scrive da se' e che il
-//    suo allarme guarda (server/battitoCron.js), e che un riavvio non cancella. Senza nessuno dei due,
-//    «nessun errore nel log» vale riuscita. Al piu'
-//    `SCANSIONI_PER_CRON` corse nuove a cron per giro, dalla piu' recente: le altre restano «esito non
-//    letto» (MAI riuscite per omissione) fino ai giri dopo.
+//    suo allarme guarda (server/battitoCron.js), e che un riavvio non cancella; e con lui la corsa
+//    FALLITA, un punto sotto uno sulla stessa metrica, dove un allarme dichiara che li' c'e'. Senza
+//    nessuno dei due, «nessun errore nel log» vale riuscita. Al piu' `SCANSIONI_PER_CRON` corse nuove a
+//    cron per giro, dalla piu' recente: le altre restano «esito non letto» (MAI riuscite per omissione)
+//    fino ai giri dopo.
 //
 // COSTO DI UN GIRO (prezzi CloudWatch di listino, ottobre 2026):
 //  · `GetMetricData` si paga a metrica chiesta, $0,01 ogni 1.000: con 40 Lambda sono 240 metriche, una
@@ -498,7 +499,8 @@ export async function leggiStoricoCron(accounts, { giorni = 7, tz = null, t = (k
           for (const c of lambda) righe.push(rigaIllegibile(c, g, errore))
         }
       }
-      // I battiti dei cron ECS dell'account, in una chiamata: l'esito che un riavvio non cancella.
+      // I battiti e le corse fallite dei cron ECS dell'account, in una chiamata: l'esito che un riavvio
+      // non cancella.
       const battiti = ecs.length ? await leggiBattiti(aws, ecs, { da: g.inizio, a: ora }) : new Map()
       righe.push(
         ...(await mapLimit(ecs, 4, async (c) => {
