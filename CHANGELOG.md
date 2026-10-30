@@ -6,6 +6,9 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Il quadro dei deploy si può tenere senza canvas** (30/10/2026). `DADAGUARD_QUADRO_CANVAS=0` lascia
+  nel canale le sole Slack List: gli allarmi di build e check rossi restano, perché dipendono dai dati e
+  non dal canvas. I canvas già nel canale non si toccano, si tolgono a mano. Default: accesi.
 - **Gli allarmi CloudWatch li dice Dadaguard, coi log nel thread** (21/10/2026). Ogni account inoltra
   l'evento `CloudWatch Alarm State Change` su una coda che Dadaguard ascolta (`DADAGUARD_ALLARMI_CODA`,
   accesa da `deploy/enable-allarmi.sh`): il cambio di stato arriva nel canale in pochi secondi, in inglese
