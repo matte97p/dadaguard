@@ -1522,6 +1522,9 @@ export const SCHEMA_LISTA = [
   { key: 'dettagli', name: 'Details', type: 'text' },
 ]
 const TIPO_COLONNA = Object.fromEntries(SCHEMA_LISTA.map((c) => [c.key, c.type]))
+// Le colonne che le List avevano e non hanno più (30/10/2026: il link a Dadaguard è sul nome, la versione
+// apre i Dettagli). Una List che le ha ancora si sostituisce, vedi `ritrovaLista`.
+export const COLONNE_RITIRATE = ['versione', 'dadaguard']
 
 // La FORMA di una List: le sue colonne, le celle di una riga e la chiave che la riconosce, sia da
 // quello che si vuole scrivere (`chiaveDi`) sia da quello che si rilegge dopo un riavvio
@@ -1626,6 +1629,21 @@ export async function ritrovaLista(api, l, { bot }) {
   const mancano = forma.schema.filter((c) => !colonne[c.key] || tipiDa(schema)[c.key] !== c.type).map((c) => c.key)
   if (mancano.length) {
     log.warn(`${forma.nome}: la List trovata non ha le colonne attese, ne creo una nuova`, { lista: f.id, mancano })
+    return null
+  }
+  // Una List con una colonna tolta dallo schema (`COLONNE_RITIRATE`) non si adotta: le colonne di una List
+  // esistente l'API non le toglie, il bot non può cancellarla (`files:write` non c'è) e una persona nemmeno,
+  // perché per il canale è in sola lettura. Quindi si mette da parte: titolo con ` (old)`, così non si
+  // ritrova più, e niente accesso dai canali; poi se ne crea una nuova. La scheda nel canale la sposta una
+  // persona. Solo per colonne ritirate col loro nome: una colonna in più che non conosciamo (Slack ne
+  // aggiungesse una sua) farebbe una List nuova a ogni riavvio, il guaio già pagato coi canvas.
+  const ritirate = (schema ?? []).filter((c) => COLONNE_RITIRATE.includes(c?.key)).map((c) => c.key)
+  if (ritirate.length) {
+    log.warn(`${forma.nome}: la List ha colonne ritirate, la metto da parte e ne creo una nuova`, { lista: f.id, ritirate })
+    await api('slackLists.update', { id: f.id, name: `${l.titolo} (old)` }).catch((err) => log.warn(`${forma.nome}: List vecchia non rinominata`, { lista: f.id, err: err.message }))
+    await api('slackLists.access.delete', { list_id: f.id, channel_ids: l.canali?.length ? l.canali : [l.canale] }).catch((err) =>
+      log.warn(`${forma.nome}: List vecchia ancora nel canale`, { lista: f.id, err: err.message }),
+    )
     return null
   }
   if (listaVecchia(schema, forma.schema))

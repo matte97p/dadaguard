@@ -1058,6 +1058,15 @@ function slackFinto({ bot = 'UBOT', pagina = 100 } = {}) {
       liste.get(corpo.list_id).canali.push(...corpo.channel_ids)
       return {}
     }
+    if (metodo === 'slackLists.access.delete') {
+      const l = liste.get(corpo.list_id)
+      l.canali = l.canali.filter((c) => !corpo.channel_ids.includes(c))
+      return {}
+    }
+    if (metodo === 'slackLists.update') {
+      liste.get(corpo.id).titolo = corpo.name
+      return {}
+    }
     const l = liste.get(corpo.list_id)
     const metti = (riga, cella) => riga.set(cella.column_id, cella)
     if (metodo === 'slackLists.items.create') {
@@ -1545,6 +1554,32 @@ test('le List per ambiente di prima non si toccano; una List dell’area senza l
   assert.deepEqual(s.chiamate.filter(([m]) => m === 'slackLists.create').map(([, c]) => c.name), ['Deploy list PRODUCT', 'Deploy list CRON'], 'la CRON senza colonne nuove non si adotta')
   assert.equal(avvisi.filter((m) => /colonne attese/.test(m)).length, 1)
   assert.equal(s.liste.get(cronVecchia.list_id).righe.size, 0, 'e non ci si scrive')
+})
+
+test('una List con le colonne ritirate si mette da parte e se ne crea una nuova, una volta sola', async () => {
+  const s = slackFinto()
+  const vecchio = [...SCHEMA_LISTA, { key: 'versione', name: 'Version', type: 'text' }, { key: 'dadaguard', name: 'Dadaguard', type: 'link' }]
+  const l = await s.api('slackLists.create', { name: 'Deploy list PRODUCT', schema: vecchio })
+  await s.api('slackLists.access.set', { list_id: l.list_id, channel_ids: ['CP'] })
+  const avvisi = []
+  const warn = log.warn
+  log.warn = (m) => avvisi.push(m)
+  try {
+    await aggiornaQuadri(quadroConfig(LISTA_CFG), { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: nuovaMemoriaListe() })
+    s.chiamate.length = 0
+    await aggiornaQuadri(quadroConfig(LISTA_CFG), { api: s.api, scarica: s.scarica, leggiDati: listaDati(SERVIZI_LISTA), ora: ORA, liste: nuovaMemoriaListe() })
+  } finally {
+    log.warn = warn
+  }
+  const vecchia = s.liste.get(l.list_id)
+  assert.equal(vecchia.titolo, 'Deploy list PRODUCT (old)')
+  assert.deepEqual(vecchia.canali, [], 'non è più nel canale')
+  assert.equal(vecchia.righe.size, 0, 'e non ci si scrive')
+  const nuove = [...s.liste.values()].filter((x) => x.titolo === 'Deploy list PRODUCT')
+  assert.equal(nuove.length, 1)
+  assert.deepEqual(nuove[0].canali, ['CP'])
+  assert.equal(s.chiamate.filter(([m]) => m === 'slackLists.create').length, 0, 'dopo un riavvio la nuova si ritrova, non se ne crea un’altra')
+  assert.equal(avvisi.filter((m) => /colonne ritirate/.test(m)).length, 1)
 })
 
 test('una List dell’area col titolo di prima si rinomina sul posto, e uno schema con altre etichette si usa e si dice', async () => {
