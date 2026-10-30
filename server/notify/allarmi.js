@@ -209,11 +209,13 @@ export function linkAllarme(a) {
   return `https://${a.regione}.console.aws.amazon.com/cloudwatch/home?region=${a.regione}#alarmsV2:alarm/${encodeURIComponent(a.nome)}`
 }
 
-// La riga del canale: `🚨 \`<nome>\` [PROD] alarm firing: <descrizione> · <link>`. Il nome senza
-// organizzazione e ambiente, che l'etichetta dice già. Pura/testabile.
+// La riga del canale: `🚨 \`<nome>\` [PROD]: <descrizione> · <link>`. Il nome senza organizzazione e
+// ambiente, che l'etichetta dice già. Sull'allarme acceso niente «alarm firing»: lo dice l'emoji, e la
+// riga arriva prima alla descrizione; il rientro e gli altri stati la parola la tengono. Pura/testabile.
 export function testoAllarme(a, decisione, { ambiente = null, t = (k) => k, url = null } = {}) {
   const soggetto = stripOrgEnv(a.nome) || a.nome
-  const testa = `${decisione.emoji} \`${soggetto}\`${envTag(ambiente)} ${t(`allarmi.${decisione.tipo}`)}`
+  const stato = decisione.tipo === 'acceso' ? '' : ` ${t(`allarmi.${decisione.tipo}`)}`
+  const testa = `${decisione.emoji} \`${soggetto}\`${envTag(ambiente)}${stato}`
   const descr = a.descrizione || a.motivo
   const corpo =
     decisione.tipo === 'rientro'
@@ -594,12 +596,15 @@ export function durata(ms) {
 // Le righe del contesto, nell'ordine delle domande. Pura/testabile.
 export function testoContesto({ ultima = null, ritmo = null, rilascio = null, quando, t = (k) => k }) {
   const allarme = Date.parse(quando) || Date.now()
-  const righe = []
+  // L'ultimo errore e il ritmo stanno su una riga sola: sono due numeri sulla stessa cosa.
+  const errori = []
   if (Number.isFinite(ultima)) {
     const prima = allarme - ultima
-    righe.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
+    errori.push(prima <= 90_000 ? t('allarmi.ctx.ultimaOra', { ora: ora(ultima) }) : t('allarmi.ctx.ultima', { ora: ora(ultima), quanto: durata(prima) }))
   }
-  if (ritmo) righe.push(t('allarmi.ctx.ritmo', { ultime: ritmo.ultime, media: ritmo.media }))
+  if (ritmo) errori.push(t('allarmi.ctx.ritmo', { ultime: ritmo.ultime, media: ritmo.media }))
+  const unita = errori.join(' · ')
+  const righe = unita ? [unita[0].toUpperCase() + unita.slice(1)] : []
   if (rilascio) {
     const giorno = new Date(rilascio.quando).toISOString()
     righe.push(t('allarmi.ctx.rilascio', { servizio: rilascio.servizio, quanto: durata(allarme - rilascio.quando), quando: `${giorno.slice(8, 10)}/${giorno.slice(5, 7)} ${ora(rilascio.quando)}` }))

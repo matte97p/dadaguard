@@ -100,7 +100,7 @@ test('testoAllarme: la riga del canale, in inglese, senza trattini lunghi', () =
   const t = makeT('en')
   const a = normalizzaAllarme(evento())
   const s = testoAllarme(a, decidi(a), { ambiente: 'production', t })
-  assert.match(s, /^🚨 `ecs-backend-memoria` \[PROD\] alarm firing: ECS backend: one task above 97% of its memory\. Fix: check the logs\. · <https:\/\/eu-central-1\.console\.aws\.amazon\.com\/cloudwatch\/home\?region=eu-central-1#alarmsV2:alarm\/acme-production-ecs-backend-memoria\|alarm>$/)
+  assert.match(s, /^🚨 `ecs-backend-memoria` \[PROD\]: ECS backend: one task above 97% of its memory\. Fix: check the logs\. · <https:\/\/eu-central-1\.console\.aws\.amazon\.com\/cloudwatch\/home\?region=eu-central-1#alarmsV2:alarm\/acme-production-ecs-backend-memoria\|alarm>$/)
   assert.doesNotMatch(s, /—/)
   const r = normalizzaAllarme(evento({ stato: 'OK', prima: 'ALARM' }))
   // Sul rientro solo la prima frase: il resto parla del guasto.
@@ -377,7 +377,7 @@ test('gestisci: acceso → riga nel canale principale e log nel thread', async (
   assert.equal(await gestisci(normalizzaAllarme(evento()), cfg, f.deps), true)
   assert.equal(f.inviati.length, 2)
   assert.equal(f.inviati[0].channel, 'CMAIN')
-  assert.match(f.inviati[0].text, /^🚨 `ecs-backend-memoria` \[PROD\] alarm firing/)
+  assert.match(f.inviati[0].text, /^🚨 `ecs-backend-memoria` \[PROD\]: /)
   assert.equal(f.inviati[1].thread_ts, '123.456')
   assert.match(f.inviati[1].text, /Child process \[32\] died/)
 })
@@ -386,7 +386,7 @@ test('gestisci: acceso → il contesto sotto il titolo', async () => {
   const a = normalizzaAllarme(evento())
   const f = finti({ ritmo: { ultime: 40, media: 5.5 }, rilascio: { servizio: 'api', quando: Date.parse(a.quando) - 15 * 3_600_000 } })
   await gestisci(a, cfg, f.deps)
-  assert.match(f.inviati[0].text, /alarm firing.*\nLast 24h: 40 · average per 24h over the previous 7 days: 5\.5\nLast deploy of `api`: 15h before the alarm/)
+  assert.match(f.inviati[0].text, /^🚨 [^\n]*\nLast 24h: 40, usually 5\.5 a day\nLast deploy of `api`: 15h before the alarm/)
 })
 
 test('gestisci: tag team=data → canale data', async () => {
@@ -416,7 +416,7 @@ test('gestisci: senza bot si usa il webhook, coi log a capo', async () => {
   await gestisci(normalizzaAllarme(evento()), { ...cfg, botToken: null }, f.deps)
   assert.equal(f.inviati.length, 1)
   assert.equal(f.inviati[0].via, 'hook')
-  assert.match(f.inviati[0].text, /alarm firing[^\n]*\nLogs from/)
+  assert.match(f.inviati[0].text, /^🚨 [^\n]*\nLogs from/)
 })
 
 test('gestisci: bot giù e nessun webhook → false, si riprova', async () => {
@@ -477,10 +477,9 @@ test('testoContesto: ultimo errore, ritmo, rilascio', () => {
     t,
   })
   assert.deepEqual(righe, [
-    'Last error in the logs: 09:09 UTC, 3 min before the alarm',
-    'Last 24h: 40 · average per 24h over the previous 7 days: 5.5',
+    'Last error 09:09 UTC (3 min before the alarm) · last 24h: 40, usually 5.5 a day',
     'Last deploy of `api`: 16h before the alarm (09/03 17:05 UTC)',
   ])
-  assert.deepEqual(testoContesto({ ultima: Date.parse('2026-03-10T09:11:30Z'), quando, t }), ['Last error in the logs: 09:11 UTC, still happening when the alarm fired'])
+  assert.deepEqual(testoContesto({ ultima: Date.parse('2026-03-10T09:11:30Z'), quando, t }), ['Last error 09:11 UTC (still happening when the alarm fired)'])
   assert.deepEqual(testoContesto({ quando, t }), [])
 })
