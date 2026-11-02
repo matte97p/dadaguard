@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { statoCron, contaCron } from '../shared/cron.js'
 import {
   familyOfTaskDef,
   runIdOf,
@@ -12,7 +13,7 @@ import {
   windowForRuns,
   pickRecentStreams,
 } from '../server/runs.js'
-import { summarize, sortCrons, scegliCron, normQuery } from '../server/runsOverview.js'
+import { summarize, sortCrons, scegliCron, normQuery, corsaAttesa } from '../server/runsOverview.js'
 import { ecsCron, lambdaCron, withNextRun, cronKey } from '../server/crons.js'
 
 // Le esecuzioni non si leggono da un'unica API: ECS le dimentica dopo un'ora, Lambda non le elenca
@@ -367,4 +368,29 @@ test('scegliCron: con `only` resta quel cron solo, e la ricerca non lo toglie se
   )
   assert.equal(scegliCron(crons, { only: 'prod/cron-003', q: 'cron-004' }).lista.length, 0)
   assert.equal(scegliCron(crons).troncata, false)
+})
+
+test('corsaAttesa: un mensile senza corse su 24 ore non è «non partito», un giornaliero sì', () => {
+  // Il 2 del mese alle 10:00 UTC: il mensile è scattato il 1° alle 05:00, cioè 29 ore prima.
+  const ora = Date.UTC(2030, 4, 2, 10, 0)
+  const mensile = { scheduleExpr: 'cron(0 5 1 * ? *)', scheduleMinutes: 43_200 }
+  const giornaliero = { scheduleExpr: 'cron(0 6 * * ? *)', scheduleMinutes: 1440 }
+  assert.equal(corsaAttesa(mensile, 24 * 60, ora), false)
+  assert.equal(corsaAttesa(mensile, 7 * 24 * 60, ora), true)
+  assert.equal(corsaAttesa(giornaliero, 24 * 60, ora), true)
+  // rate(): l'istante non si sa, decide la cadenza contro la finestra.
+  assert.equal(corsaAttesa({ scheduleExpr: 'rate(7 days)', scheduleMinutes: 10_080 }, 24 * 60, ora), false)
+  assert.equal(corsaAttesa({ scheduleExpr: 'rate(1 hour)', scheduleMinutes: 60 }, 24 * 60, ora), true)
+  // Schedule illeggibile: come prima, una corsa mancante resta un avviso.
+  assert.equal(corsaAttesa({ scheduleExpr: null }, 24 * 60, ora), true)
+})
+
+test('statoCron: senza corse è «non partito» solo se una corsa era attesa', () => {
+  const acceso = (corsaAttesa) => ({ enabled: true, runs: [], corsaAttesa })
+  assert.equal(statoCron(acceso(true)), 'warn')
+  assert.equal(statoCron(acceso(false)), 'ok')
+  // Senza il campo (dati vecchi, demo): come prima.
+  assert.equal(statoCron({ enabled: true, runs: [] }), 'warn')
+  assert.equal(statoCron({ enabled: false, runs: [], corsaAttesa: false }), 'off')
+  assert.equal(contaCron([acceso(false), acceso(true)]).nonPartiti, 1)
 })

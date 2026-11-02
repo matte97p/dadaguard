@@ -10,7 +10,8 @@
 //  · poche run per cron nella vista d'insieme (`limit`), storico profondo solo quando apri UN cron;
 //  · la scansione degli errori nei log è per le run in cima, non per tutte (vedi `scanFailures`).
 import { listCrons } from './crons.js'
-import { cronRuns } from './runs.js'
+import { cronRuns, windowForRuns } from './runs.js'
+import { prevRun } from './util/nextrun.js'
 import { prefectRuns } from './prefect.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { swrMemo } from './util/swr.js'
@@ -66,6 +67,19 @@ export function sortCrons(a, b) {
   const rb = rank(b)
   if (ra !== rb) return ra - rb
   return (b.lastRunAt ?? 0) - (a.lastRunAt ?? 0)
+}
+
+// Se in questa finestra il cron DOVEVA partire. Senza, «nessuna corsa» diventava «non è partito» anche
+// per un cron mensile guardato su 24 ore: un rosso finto a ogni inizio mese, e un verdetto in cima che
+// contava come guasti dei cron che stavano solo aspettando il loro giorno. Per un `cron(...)` decide
+// l'ultimo scatto atteso; per un `rate(...)` (l'istante non si sa) la cadenza: più lunga della finestra
+// = non si può dire che mancasse. Schedule non leggibile → `true`, cioè come prima. Pura.
+export function corsaAttesa(cron, minutes, now = Date.now()) {
+  const da = now - minutes * 60_000
+  const ultimo = prevRun(cron?.scheduleExpr, now, cron?.scheduleTz)
+  if (ultimo != null) return ultimo >= da
+  if (Number.isFinite(cron?.scheduleMinutes) && cron.scheduleMinutes > 0) return cron.scheduleMinutes <= minutes
+  return true
 }
 
 // Riassunto per-cron dalle sue run. Puro/testabile: la UI non deve ricontare niente.
@@ -129,6 +143,7 @@ export async function runsOverview(
         })
         return {
           ...summarize({ ...cron, accountLabel: label, color: a.color ?? null }, out.runs ?? []),
+          corsaAttesa: corsaAttesa(cron, windowForRuns(minutes, { scheduleMinutes: cron.scheduleMinutes, limit })),
           logGroup: out.logGroup ?? null,
           streamPrefix: out.streamPrefix ?? null,
           container: out.container ?? null,

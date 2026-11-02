@@ -130,6 +130,10 @@ All notable changes to Dadaguard are documented here. Format based on
   giro dopo i soli suoi segnali, senza ripetere l'altro canale.
 
 ### Fixed
+- **Un cron mensile non è più «non partito» ogni inizio mese** (02/11/2026). La pagina Cron e il canvas delle
+  corse segnavano arancio ogni cron acceso senza corse nella finestra, anche quando nella finestra non ne
+  era attesa nessuna (un mensile guardato su 24 ore). Ora conta l'ultimo scatto dello schedule: fuori dalla
+  finestra la riga resta a posto, con «Nessuna corsa prevista in questa finestra» e la prossima partenza.
 - **I log di un allarme si leggono in tutti i log group della metrica, e dicono dove si è fermato il
   codice** (30/10/2026). Una metrica nata da più metric filter (lo stesso segnale da un servizio e dal
   suo scheduler) faceva leggere solo il primo gruppo: il thread diceva «nessuna riga» mentre le righe

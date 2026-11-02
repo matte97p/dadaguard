@@ -14,14 +14,19 @@ const LIVELLO_ESITO = { running: 'info', ok: 'ok', failed: 'crit', cancelled: 'o
 export const livelloCorsa = (r) => LIVELLO_ESITO[r?.outcome] ?? 'off'
 
 // Lo stato di un cron nella lista, dal più grave: l'ultima corsa fallita, una in corso, nessuna corsa
-// pur essendo acceso (non è partito), spento di proposito, tutto a posto.
+// pur essendo acceso (non è partito), spento di proposito, tutto a posto. Nessuna corsa quando nella
+// finestra non ne era attesa nessuna (`corsaAttesa === false`, un mensile guardato su 24 ore) è a posto:
+// il cron sta aspettando il suo giorno, non è fermo.
 function statoProprio(cron) {
   const runs = cron?.runs ?? []
   if (runs.some((r) => r.running)) {
     const finita = runs.find((r) => !r.running)
     return finita?.outcome === 'failed' ? 'crit' : 'info'
   }
-  if (!runs.length) return cron?.enabled === false ? 'off' : 'warn'
+  if (!runs.length) {
+    if (cron?.enabled === false) return 'off'
+    return cron?.corsaAttesa === false ? 'ok' : 'warn'
+  }
   return livelloCorsa(runs.find((r) => !r.running) ?? runs[0])
 }
 
