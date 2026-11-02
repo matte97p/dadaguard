@@ -249,7 +249,8 @@ export function ultimaCorsaTesto(c, stato, { ora = Date.now(), t = makeT('en') }
   }
   if (!runs.length) {
     if (stato === 'off') return t('rilasci.cron.spentoHint')
-    return [t('rilasci.cron.nonPartito'), c.error && `error: ${tronca(c.error, MOTIVO_BREVE)}`].filter(Boolean).join(SEP)
+    const cosa = stato === 'ok' ? t('rilasci.cron.nonAttesa') : t('rilasci.cron.nonPartito')
+    return [cosa, c.error && `error: ${tronca(c.error, MOTIVO_BREVE)}`].filter(Boolean).join(SEP)
   }
   const quando = quandoBreve(ultima?.startedAt, ora) ?? '?'
   if (ultima?.outcome === 'failed') return [t('rilasci.cron.fallito', { quando }), tronca(motivoCorsa(ultima, t), MOTIVO_BREVE)].filter(Boolean).join(SEP)
@@ -528,7 +529,11 @@ export function dettagliCorsa(c, stato, { ora = Date.now(), t = makeT('en') } = 
   const ultima = runs.find((r) => !r.running)
   let proprio = null
   if (viva) proprio = ultima?.outcome === 'failed' ? `before: ${motivoCorsa(ultima, t) ?? t('rilasci.cron.stato.crit')}` : null
-  else if (!runs.length) proprio = stato === 'off' ? t('rilasci.cron.spentoHint') : [t('rilasci.cron.nonPartito'), c.error && `error: ${c.error}`].filter(Boolean).join(SEP)
+  else if (!runs.length)
+    proprio =
+      stato === 'off'
+        ? t('rilasci.cron.spentoHint')
+        : [stato === 'ok' ? t('rilasci.cron.nonAttesa') : t('rilasci.cron.nonPartito'), c.error && `error: ${c.error}`].filter(Boolean).join(SEP)
   else proprio = motivoCorsa(ultima, t)
   const sr = statoReaper(c)
   const reaper = sr && stato !== 'off' && (sr === 'crit' || sr === 'warn') ? `reaper: ${ultimaCorsaTesto(c.reaper, sr, { ora, t })}` : null

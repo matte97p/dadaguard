@@ -103,6 +103,7 @@ function cosaCron(c, stato, t, now) {
   }
   if (!runs.length) {
     if (stato === 'off') return { cosa: t('rilasci.cron.spento'), hint: t('rilasci.cron.spentoHint') }
+    if (stato === 'ok') return { cosa: t('rilasci.cron.nonAttesa'), hint: c.error ?? prossima }
     return { cosa: t('rilasci.cron.nonPartito'), hint: c.error ?? prossima }
   }
   const quando = ultima?.startedAt ? fmtAgo(ultima.startedAt, t) : ''
