@@ -47,6 +47,7 @@ import { mapLimit } from './util/pool.js'
 import { cached } from './util/ttlcache.js'
 import { imageRepo } from './checks/version.js'
 import { esitiDaBattito, leggiBattiti } from './battitoCron.js'
+import { esitiEcs, MAX_ESITI_ECS } from './esitiEcs.js'
 
 // Family dalla task-def (ARN o `family:rev`): serve a `ListTasks`, che filtra per family e non per ARN.
 export function familyOfTaskDef(taskDefinition) {
@@ -156,12 +157,8 @@ const MAX_PAGES = 12
 // fermarsi a metà finestra darebbe una lista che sembra completa e non lo è.
 const MAX_LAMBDA_PAGES = 25
 
-// Gli esiti CERTI delle corse ECS, letti dall'API finche' il task c'era: codice d'uscita, OOM, task
-// mai partito. Li scrive `ecsRuns` (la lista delle corse e il giro del canvas Slack, ogni pochi minuti),
-// li legge la vista «Andamento» prima di guardare nei log. Chiave: log group e stream della corsa.
-// Tetto alla memoria: oltre, esce il piu' vecchio.
-export const esitiEcs = new Map()
-const MAX_ESITI_ECS = 20_000
+// La memoria degli esiti certi delle corse ECS: vedi server/esitiEcs.js.
+export { esitiEcs }
 
 export function annotaEsitoEcs(logGroup, r) {
   if (!logGroup || !r?.stream || r.running) return

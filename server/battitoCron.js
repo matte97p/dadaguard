@@ -1,7 +1,7 @@
 // L'ESITO CHE SOPRAVVIVE A UN RIAVVIO: la metrica di successo che un cron ECS scrive da se'.
 //
 // Perche' serve. L'esito certo di una corsa ECS e' il codice d'uscita, e ECS lo tiene per circa un'ora
-// dopo la fine del task. Dadaguard lo annota in memoria (`esitiEcs`, server/runs.js), e dopo un riavvio
+// dopo la fine del task. Dadaguard lo annota in memoria (`esitiEcs`, server/esitiEcs.js), e dopo un riavvio
 // (cioe' a ogni deploy) quella memoria e' vuota: resta il log, e un job che muore con un codice d'uscita
 // senza scrivere una riga d'errore torna «riuscito». Visto dopo un deploy: i cron falliti della giornata
 // sono diventati verdi tutti insieme, mentre i loro allarmi dicevano ancora che non riuscivano.

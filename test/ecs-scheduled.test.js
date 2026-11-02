@@ -16,6 +16,76 @@ test('classifyEcsRun: partito e pulito → ok', () => {
   assert.equal(classifyEcsRun({ ran: true, failed: false }), 'ok')
 })
 
+// L'esito registrato (codice d'uscita, battito) vince sul log: un job che esce 0 dopo il traceback di una
+// libreria che cade in chiusura e' riuscito, e uno ucciso per memoria non scrive righe d'errore.
+test('classifyEcsRun: esito registrato prima del log', () => {
+  assert.equal(classifyEcsRun({ ran: true, failed: true, registrato: 'ok' }), 'ok')
+  assert.equal(classifyEcsRun({ ran: true, failed: false, registrato: 'ko' }), 'failed')
+  assert.equal(classifyEcsRun({ ran: true, failed: true, registrato: undefined }), 'failed')
+  assert.equal(classifyEcsRun({ ran: false, failed: false, registrato: 'ok' }), 'missed')
+})
+
+// Un job che intercetta i suoi errori, li scrive col livello ERROR e poi esce 0 resta fallito.
+test('classifyEcsRun: uscita 0 non cancella un errore dichiarato dal job', () => {
+  assert.equal(classifyEcsRun({ ran: true, failed: true, registrato: 'ok', dichiarato: true }), 'failed')
+  assert.equal(classifyEcsRun({ ran: true, failed: true, registrato: 'ok', dichiarato: false }), 'ok')
+  assert.equal(classifyEcsRun({ ran: true, failed: true, dichiarato: true }), 'failed')
+})
+
+import { declaredFailures } from '../server/runtime/ecsScheduled.js'
+
+test('declaredFailures: il livello del job, non il traceback di una libreria', () => {
+  const righe = [
+    { message: 'Traceback (most recent call last):' },
+    { message: '12:00:01.000 | ERROR   | worker - evento non inviato' },
+    { message: '2026-01-01 12:00:01,000 - asyncio - ERROR - Unclosed client session' },
+    { message: 'ERROR:job.refresh:[3/12] vista FALLITA' },
+  ]
+  assert.deepEqual(declaredFailures(righe).map((r) => r.message), ['ERROR:job.refresh:[3/12] vista FALLITA'])
+})
+
+import { esitoDaTask, esitoRegistrato, taskIdDaStream } from '../server/runtime/ecsScheduled.js'
+import { esitiEcs } from '../server/esitiEcs.js'
+
+const arn = (id) => `arn:aws:ecs:eu-west-1:000000000000:task/jobs/${id}`
+
+test('esitoDaTask: codice d uscita, memoria finita, task mai partito', () => {
+  assert.equal(esitoDaTask({ containers: [{ name: 'app', exitCode: 0 }] }), 'ok')
+  assert.equal(esitoDaTask({ containers: [{ name: 'app', exitCode: 1 }] }), 'ko')
+  assert.equal(esitoDaTask({ containers: [{ name: 'side', exitCode: 0 }, { name: 'app', exitCode: 2 }] }, 'app'), 'ko')
+  assert.equal(esitoDaTask({ containers: [{ name: 'app', reason: 'OutOfMemoryError: Container killed' }] }), 'ko')
+  assert.equal(esitoDaTask({ stopCode: 'TaskFailedToStart', containers: [] }), 'ko')
+  assert.equal(esitoDaTask({ containers: [{ name: 'app' }] }), undefined, 'ancora senza codice: non si sa')
+  assert.equal(esitoDaTask(undefined), undefined)
+})
+
+test('taskIdDaStream: l ultimo pezzo dello stream o dell ARN', () => {
+  assert.equal(taskIdDaStream('job/app/abc123'), 'abc123')
+  assert.equal(taskIdDaStream(arn('abc123')), 'abc123')
+  assert.equal(taskIdDaStream(undefined), null)
+})
+
+test('esitoRegistrato: il task che ECS ricorda ancora, abbinato allo stream', async () => {
+  const tasks = [{ taskArn: arn('altro'), containers: [{ exitCode: 1 }] }, { taskArn: arn('abc123'), containers: [{ exitCode: 0 }] }]
+  const esito = await esitoRegistrato({ cfg: {}, aws: {}, logGroup: '/g', corsa: { stream: 'job/app/abc123' }, tasks })
+  assert.equal(esito, 'ok')
+})
+
+test('esitoRegistrato: task dimenticato da ECS → l esito annotato in memoria', async () => {
+  esitiEcs.set('/g|job/app/def456', 'ko')
+  try {
+    const esito = await esitoRegistrato({ cfg: {}, aws: {}, logGroup: '/g', corsa: { stream: 'job/app/def456' }, tasks: [] })
+    assert.equal(esito, 'ko')
+  } finally {
+    esitiEcs.delete('/g|job/app/def456')
+  }
+})
+
+test('esitoRegistrato: nessuna fonte e nessun nome → resta il log', async () => {
+  const esito = await esitoRegistrato({ cfg: {}, aws: {}, logGroup: '/g', corsa: { stream: 'job/app/zzz' }, tasks: [] })
+  assert.equal(esito, undefined)
+})
+
 // --- pickLastRun: quale esecuzione guardare ---
 // Su RunTask ogni esecuzione ha il suo log stream, quindi «l'ultima run» = lo stream più recente.
 // Serviva perché cercare l'errore su TUTTO il gruppo con FilterLogEvents(limit:1) restituiva pagine
@@ -81,18 +151,18 @@ const dentro = [{ logStreamName: 'fam/c/ultima', lastEventTimestamp: start + 360
 
 test('runOutcome: il match a pagina 2 NON deve sfuggire (era il falso verde)', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [{ message: 'Traceback' }] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000 })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000, stream: 'fam/c/ultima' })
 })
 
 test('runOutcome: pagine tutte vuote e token finito → nessun errore trovato', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'p2' }, { events: [] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000 })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000, stream: 'fam/c/ultima' })
 })
 
 test('runOutcome: budget di pagine esaurito → "non trovato", mai un fallimento inventato', async () => {
   const logs = fakeLogs({ streams: dentro, pagine: [{ events: [], nextToken: 'sempre' }] })
   const out = await runOutcome(logs, '/gruppo', start)
-  assert.deepEqual(out, { ran: true, failed: false, at: 1785114000000 })
+  assert.deepEqual(out, { ran: true, failed: false, at: 1785114000000, stream: 'fam/c/ultima' })
   assert.ok(logs.chiamate.filter <= 15, `pagine ${logs.chiamate.filter}: deve fermarsi al tetto`)
 })
 
@@ -165,12 +235,12 @@ function logsConParams({ streams, pagine }) {
 test('runOutcome: una run riuscita che stampa un errore ATTESO resta riuscita', async () => {
   // Il caso vero: `db-restore-test` del 25/08/2026, ripristino completato in 7m03s, dato per fallito.
   const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, done] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000 })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: false, at: 1785114000000, stream: 'fam/c/ultima' })
 })
 
 test('runOutcome: riga attesa PIU una vera → fallita lo stesso, il silenzio non si eredita', async () => {
   const logs = logsConParams({ streams: dentro, pagine: [{ events: [benigna, veraLivello] }] })
-  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000 })
+  assert.deepEqual(await runOutcome(logs, '/gruppo', start), { ran: true, failed: true, at: 1785114000000, stream: 'fam/c/ultima' })
 })
 
 test('runOutcome: la riga vera oltre la prima non deve sfuggire → pagina vera sul pattern di guasto', async () => {

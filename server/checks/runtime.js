@@ -78,6 +78,8 @@ export async function run(service, ctx) {
   // senza il livello per tipo non ci sarebbe nessun posto dove tararli.
   const extra = {
     scheduleState: ctx?.tf?.schedules?.[cfg.function],
+    // Il nome del servizio: per i cron ECS e' quello con cui i loro allarmi si chiamano (il battito).
+    nome: service.name,
     t,
     soglie: soglieDiTipo(ctx?.soglie, cfg.type, service.account),
   }
