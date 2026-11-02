@@ -6,6 +6,9 @@ import { principalName } from '../util/principal.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { statoRilascio } from '../../shared/rilascio.js'
+import { esitiEcs } from '../esitiEcs.js'
+import { esitiDaBattito, leggiBattiti, PERIODO_MS } from '../battitoCron.js'
+import { cached } from '../util/ttlcache.js'
 
 // #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
 // quindi leggiamo direttamente la sua revision → tag immagine + quando/chi l'ha registrata.
@@ -71,13 +74,45 @@ export function realFailures(events) {
   return (events ?? []).filter((e) => isFailureLine(e?.message))
 }
 
+// Le righe in cui il job stesso dichiara un errore: il livello a inizio riga, non un traceback. Pura.
+export function declaredFailures(events) {
+  return (events ?? []).filter((e) => LIVELLO_GUASTO.test(e?.message ?? ''))
+}
+
 // Classifica l'esito di un cron ECS dai due segnali di log. Pura/testabile.
 //   ran=false           → 'missed'  (dead-man: nessun log nella finestra = non è partito)
 //   ran=true, failed    → 'failed'  (è partito ma i log contengono un errore/traceback)
 //   ran=true, ok        → 'ok'
-export function classifyEcsRun({ ran, failed }) {
+// `registrato` ('ok'/'ko', vedi esitoRegistrato) e' l'esito certo della corsa e vince sul log, che e'
+// una deduzione: un job che esce 0 dopo aver stampato il traceback di una libreria (un client di eventi
+// che cade in chiusura, una sessione HTTP non chiusa) e' riuscito, e uno ucciso per memoria finita non
+// scrive nessuna riga d'errore. Lo stesso ordine della vista «Andamento» (server/cronStorico.js).
+//
+// Un'uscita 0 pero' non cancella un errore che il job ha DICHIARATO da se' (`dichiarato`: una riga col
+// livello ERROR/CRITICAL a inizio riga). Un job che intercetta i suoi errori, li scrive e poi esce 0
+// (rifa' dieci viste, tre falliscono, chiude pulito) resta fallito: il traceback di una libreria e' un
+// incidente di chi l'ha stampato, il livello ERROR e' il giudizio del job sulla sua corsa.
+export function classifyEcsRun({ ran, failed, registrato, dichiarato = false }) {
   if (!ran) return 'missed'
+  if (registrato === 'ko') return 'failed'
+  if (registrato === 'ok') return dichiarato ? 'failed' : 'ok'
   return failed ? 'failed' : 'ok'
+}
+
+// L'esito certo di un task fermato, dall'API ECS: il codice d'uscita del container, il container ucciso
+// per memoria, il task mai partito. `undefined` quando l'API non lo sa. Pura.
+export function esitoDaTask(task, container) {
+  if (!task) return undefined
+  const c = (container ? task.containers?.find((x) => x.name === container) : null) ?? task.containers?.[0]
+  if (task.stopCode === 'TaskFailedToStart') return 'ko'
+  if (/OutOfMemory|OOMKilled/i.test(`${task.stoppedReason ?? ''} ${c?.reason ?? ''}`)) return 'ko'
+  if (c?.exitCode == null) return undefined
+  return c.exitCode === 0 ? 'ok' : 'ko'
+}
+
+// L'id del task dal suo log stream (`<prefisso>/<container>/<taskId>`). Puro.
+export function taskIdDaStream(stream) {
+  return String(stream ?? '').split('/').at(-1) || null
 }
 
 // Su ECS RunTask ogni esecuzione ha il SUO log stream (`<fam>/<container>/<taskId>`): lo stream più
@@ -107,11 +142,12 @@ const MAX_PAGES = 15
 const PAGE_LIMIT = 25
 async function anyEvent(logs, params, { filtra = false } = {}) {
   let token
+  const scelte = filtra === 'dichiarati' ? declaredFailures : realFailures
   for (let page = 0; page < MAX_PAGES; page++) {
     const r = await logs.send(
       new FilterLogEventsCommand({ ...params, nextToken: token, limit: filtra ? PAGE_LIMIT : 1 }),
     )
-    const eventi = filtra ? realFailures(r.events) : (r.events ?? [])
+    const eventi = filtra ? scelte(r.events) : (r.events ?? [])
     if (eventi.length) return true
     token = r.nextToken
     if (!token) return false
@@ -137,7 +173,9 @@ export async function runOutcome(logs, logGroup, startTime) {
       { filtra: true },
     )
     // `at` = l'ultimo evento della corsa: serve a dire se un rilascio e' arrivato DOPO un fallimento.
-    return { ran: true, failed, at }
+    // `stream` e `startedAt` dicono QUALE corsa e', per cercarne l'esito registrato (vedi esitoRegistrato).
+    const primo = (streams.logStreams ?? []).find((s) => s.logStreamName === stream)?.firstEventTimestamp
+    return { ran: true, failed, at, stream, ...(Number.isFinite(primo) ? { startedAt: primo } : {}) }
   } catch (err) {
     if (!isDenied(err)) throw err
     const [ran, failed] = await Promise.all([
@@ -185,15 +223,29 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
 
   const logs = new CloudWatchLogsClient(clientOpts(aws))
   const startTime = Date.now() - windowMin * 60 * 1000
-  const { ran, failed, at } = await runOutcome(logs, logGroup, startTime)
-  const outcome = classifyEcsRun({ ran, failed })
+  const { ran, failed, at, stream, startedAt } = await runOutcome(logs, logGroup, startTime)
+  // Durata e codice d'uscita dell'ultima run (RunTask non ha un p95 come le Lambda): dai task fermati.
+  // Best-effort: se manca il permesso (ecs:ListTasks/DescribeTasks) o non c'è storico → niente.
+  const fermati = ran ? await ecsScheduledStopped(cfg, aws) : null
+  const registrato = ran
+    ? await esitoRegistrato({ cfg, aws, logGroup, corsa: { stream, startedAt, endedAt: at }, tasks: fermati?.tasks, nome: opts.nome })
+    : undefined
+  // Uscita 0 ma righe di guasto nel log: si guarda se fra quelle c'e' un errore dichiarato dal job, che
+  // l'uscita non cancella (vedi classifyEcsRun). Una chiamata in piu', solo in questo caso.
+  const dichiarato =
+    registrato === 'ok' && failed && stream
+      ? await anyEvent(
+          logs,
+          { logGroupName: logGroup, logStreamNames: [stream], startTime, filterPattern: FAILURE_PATTERN },
+          { filtra: 'dichiarati' },
+        )
+      : false
+  const outcome = classifyEcsRun({ ran, failed, registrato, dichiarato })
 
   const now = Date.now()
   const nextRunAt = nextRun(cfg.scheduleExpr, now, cfg.scheduleTz)
   const nextRunLabel = nextRunAt ? t('cron.next', { in: fmtDur(Math.max(1, Math.round((nextRunAt - now) / 60000)), t) }) : null
-  // Durata dell'ultima run (RunTask non ha un p95 come le Lambda): start→stop dell'ultimo task fermato.
-  // Best-effort: se manca il permesso (ecs:ListTasks/DescribeTasks) o non c'è storico → niente durata.
-  const durMs = outcome === 'missed' ? null : await ecsScheduledDuration(cfg, aws)
+  const durMs = fermati?.durMs ?? null
   const dur = durMs ? ` · ${t('cron.duration', { d: fmtDur(Math.max(1, Math.round(durMs / 60000)), t) })}` : ''
   // `outcome` esce dal check: distingue "mai partita" da "partita e fallita", che hanno due
   // destinatari diversi (vedi server/notify/watch.js).
@@ -214,8 +266,9 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   return { status: 'up', summary: t('ecssched.ok', { sched: fmtDur(schedMin, t) }) + dur, ...base }
 }
 
-// Durata dell'ultima esecuzione: task fermato più recente della famiglia (start→stop). Best-effort.
-async function ecsScheduledDuration(cfg, aws) {
+// I task fermati della famiglia, che ECS ricorda per circa un'ora: la durata dell'ultima esecuzione
+// (start→stop del piu' recente) e i task stessi, da cui si legge il codice d'uscita. Best-effort.
+async function ecsScheduledStopped(cfg, aws) {
   try {
     const client = new ECSClient(clientOpts(aws))
     const family = /task-definition\/([^:/]+)/.exec(cfg.taskDefinition ?? '')?.[1]
@@ -225,11 +278,40 @@ async function ecsScheduledDuration(cfg, aws) {
     )
     if (!(list.taskArns ?? []).length) return null
     const desc = await client.send(new DescribeTasksCommand({ cluster: cfg.cluster, tasks: list.taskArns }))
-    const runs = (desc.tasks ?? []).filter((t) => t.startedAt && t.stoppedAt)
-    if (!runs.length) return null
+    const tasks = desc.tasks ?? []
+    const runs = tasks.filter((t) => t.startedAt && t.stoppedAt)
     runs.sort((a, b) => new Date(b.stoppedAt) - new Date(a.stoppedAt))
-    return Math.max(0, new Date(runs[0].stoppedAt) - new Date(runs[0].startedAt))
+    const durMs = runs.length ? Math.max(0, new Date(runs[0].stoppedAt) - new Date(runs[0].startedAt)) : null
+    return { durMs, tasks }
   } catch {
     return null
   }
+}
+
+// L'esito registrato dell'ultima corsa ('ok'/'ko'), o `undefined` se nessuno l'ha registrato e resta il
+// log. Tre fonti, dalla piu' certa: il task se ECS lo ricorda ancora (circa un'ora), l'esito annotato in
+// memoria da chi l'ha letto mentre c'era (server/esitiEcs.js), il battito sulla metrica di successo del
+// cron se i suoi allarmi lo dichiarano (server/battitoCron.js). Il battito si cerca per nome del cron
+// (`nome`), la stessa regola con cui la home piega gli allarmi nella riga del cron. Non lancia.
+export async function esitoRegistrato({ cfg, aws, logGroup, corsa, tasks, nome, ora = Date.now() }) {
+  const { stream, startedAt } = corsa ?? {}
+  if (!stream) return undefined
+  const id = taskIdDaStream(stream)
+  const task = id ? (tasks ?? []).find((t) => taskIdDaStream(t.taskArn) === id) : null
+  const daTask = esitoDaTask(task, cfg?.container)
+  if (daTask) return daTask
+  const inMemoria = esitiEcs.get(`${logGroup}|${stream}`)
+  if (inMemoria) return inMemoria
+  if (!nome || !Number.isFinite(startedAt)) return undefined
+  const cron = { key: nome, name: nome }
+  // Due minuti per cron, come la lista delle corse: la home rifà il check di ogni cron a ogni giro.
+  const battiti = await cached(`home-battito:${nome}:${Math.floor(startedAt / PERIODO_MS)}`, 2 * 60_000, () =>
+    leggiBattiti(aws, [cron], { da: startedAt, a: ora }),
+  )
+  const battito = battiti.get(nome)
+  if (!battito) return undefined
+  return esitiDaBattito([{ stream, startedAt, endedAt: corsa.endedAt }], battito, {
+    ora,
+    cadenzaMs: (cfg?.scheduleMinutes ?? 0) * 60_000,
+  }).get(stream)
 }
