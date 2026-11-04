@@ -56,6 +56,11 @@ const FINESTRA_MS = 24 * 3_600_000
 // Il token d'installazione vale un'ora: si rinnova prima, per non usarlo mentre scade.
 const MARGINE_TOKEN_MS = 5 * 60_000
 const IN_CORSO = new Set(['queued', 'in_progress', 'waiting', 'requested', 'pending'])
+// Un run ancora IN CODA: nessun runner l'ha preso. Di solito per pochi secondi; per tanti minuti vuol
+// dire runner che non si accendono, o GitHub Actions che non smista i job. `pending` (in attesa del
+// gruppo di concorrenza) e `waiting` (in attesa di un'approvazione) restano fuori: aspettano qualcosa
+// di noto, non un runner.
+const IN_CODA = new Set(['queued', 'requested'])
 // Un run fermo in attesa di un'approvazione finisce con `conclusion: action_required`: non è fallito e
 // non è passato, sta aspettando qualcuno, quindi per la riga è ancora 🧪.
 const IN_ATTESA = new Set(['action_required'])
@@ -149,6 +154,8 @@ export function statoDaRun(perRepo, rami) {
       const da = delCommit.map((r) => r.run_started_at ?? r.created_at).sort()[0]
       // Gli id dei run falliti servono a chiedere quali job sono rossi (`jobsRossi`); non si scrivono.
       const runFalliti = stato === 'fallito' ? falliti.map((r) => r.id).filter(Boolean) : []
+      // Da quando il primo run del commit aspetta un runner: l'allarme della coda lo confronta con la soglia.
+      const inCodaDa = stato === 'in_corso' ? (delCommit.filter((r) => IN_CODA.has(r.status)).map((r) => r.created_at).sort()[0] ?? null) : null
       // L'oggetto del commit e chi l'ha spinto (`actor`, non chi ha rilanciato il run: è quello che
       // scrive la CI in #aws-deploy), per la riga dell'allarme.
       const oggetto = oggettoCommit(ultimo.head_commit?.message)
@@ -159,6 +166,7 @@ export function statoDaRun(perRepo, rami) {
         url: (inCorso[0] ?? falliti[0]).html_url ?? null,
         sha: ultimo.head_sha,
         ...(runFalliti.length ? { runFalliti } : {}),
+        ...(inCodaDa ? { inCodaDa } : {}),
         ...(oggetto ? { oggetto } : {}),
         ...(autore ? { autore } : {}),
       })
