@@ -5,6 +5,7 @@ import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 import { postSlack } from './slack.js'
 import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.js'
+import { githubStatusConfig, nuovoGithubStatus } from './githubStatus.js'
 import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js'
 
 // Il QUADRO dei deploy: il CANVAS di un canale Slack, uno per ambiente, riscritto a ogni giro. Sta al
@@ -92,6 +93,9 @@ import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from
 //                               glob, e fra due squadre dello stesso tipo vince la prima scritta
 //   DADAGUARD_QUADRO_CODA       la coda SQS degli eventi di rilascio (vedi server/notify/eventi.js):
 //                               con lei un 🧪 o un ⏳ arriva in secondi invece che al giro dopo
+//   DADAGUARD_GITHUB_CODA_MIN   dopo quanti minuti un run della CI che nessun runner prende è un
+//                               allarme (default 15, vedi `allarmeCoda`). Gli incidenti di GitHub li
+//                               legge server/notify/githubStatus.js, con la sua configurazione
 //   DADAGUARD_SLACK_WEBHOOK     dove dire che il quadro è FERMO (vedi `guardiaQuadro`): lo stesso
 //                               canale degli allarmi del watchdog. Senza, lo si dice solo nel log
 
@@ -99,6 +103,9 @@ import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from
 // (server/quadroStato.js) e il canvas si riscrive solo quando cambia.
 const DEFAULT_INTERVAL_S = 15
 const DEFAULT_ORE = 24
+// Un run in coda da più di così non lo prende nessuno: i runner partono in un paio di minuti, anche
+// quelli che si accendono a richiesta.
+const DEFAULT_CODA_MIN = 15
 // Le celle riscritte in un giro, in tutti i canvas insieme: `canvases.edit` accetta una modifica per
 // chiamata, e un giro di venti Lambda rilasciate insieme sono quaranta celle. Con 10 ogni 15 secondi
 // si sta sotto le ~50 modifiche al minuto che Slack regge; quello che avanza va al giro dopo.
@@ -158,6 +165,8 @@ export function quadroConfig(env = process.env) {
     publicUrl: env.DADAGUARD_PUBLIC_URL || null,
     liste: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_LISTE ?? '').trim()),
     canvas: !/^(0|no|false|off)$/i.test(String(env.DADAGUARD_QUADRO_CANVAS ?? '').trim()),
+    // Dopo quanti minuti un run della CI che nessun runner prende diventa un allarme (vedi `allarmiTest`).
+    codaMs: (Number(env.DADAGUARD_GITHUB_CODA_MIN) > 0 ? Number(env.DADAGUARD_GITHUB_CODA_MIN) : DEFAULT_CODA_MIN) * 60_000,
   }
 }
 
@@ -1393,7 +1402,10 @@ export async function aggiornaQuadri(cfg, deps = {}) {
     if (!c.canale) continue
     // Gli allarmi dipendono dai DATI di un ambiente, non dal canvas: si calcolano prima, così un
     // canvas che non si riesce a scrivere non tace anche un servizio giù.
-    const allarmi = AMBIENTI[c.chiave] ? { allarmi: datiAllarmi(q[c.chiave], { ora, url: cfg.publicUrl, ore: cfg.ore }) } : {}
+    // L'allarme dell'incidente di GitHub sta in un ambiente solo, il primo: in tutti sarebbe lo stesso
+    // messaggio ripetuto, spesso nello stesso canale.
+    const opzioni = { ora, url: cfg.publicUrl, ore: cfg.ore, codaMs: cfg.codaMs, incidenti: deps.incidenti ?? [], allarmeIncidenti: c.chiave === cfg.ambienti?.[0] }
+    const allarmi = AMBIENTI[c.chiave] ? { allarmi: datiAllarmi(q[c.chiave], opzioni) } : {}
     // Senza canvas restano gli esiti degli ambienti, perché portano gli allarmi; le schede trasversali
     // non ne hanno, quindi spariscono.
     if (cfg.canvas === false) {
@@ -1792,15 +1804,23 @@ export function testoAllarme(x, ambiente) {
 // rilascio giù): non con l'orologio, o ogni giro sembrerebbe un guasto nuovo. Dove c'è il numero della
 // build è lui la firma, non l'ora: l'evento di CodeBuild porta l'ora dell'evento, il giro quella della
 // build, e per qualche secondo di differenza lo stesso guasto veniva detto due volte (21/10/2026). Puro.
-export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_ORE } = {}) {
+//   incidenti         gli incidenti aperti di GitHub (server/notify/githubStatus.js): la causa
+//                     sull'allarme della coda
+//   allarmeIncidenti  se questo ambiente porta anche l'allarme dell'incidente: uno solo, nel primo
+//                     ambiente, perché l'incidente è di GitHub e non di un ambiente
+export function datiAllarmi(qa, { ora = Date.now(), url = null, ore = DEFAULT_ORE, codaMs = DEFAULT_CODA_MIN * 60_000, incidenti = [], allarmeIncidenti = false } = {}) {
   if (!qa) return null
   const { adesso } = smista(qa, { ora, url, ore })
-  const test = allarmiTest(qa, { ora, url, ore })
+  const test = allarmiTest(qa, { ora, url, ore, codaMs, incidenti })
   return {
     // Solo i RILASCI rotti (gravità 1: build, apply o riavvio falliti). Un servizio giù (gravità 0)
     // è un allarme del watchdog, che lo scrive già nel canale degli allarmi: ripeterlo qui era un
     // doppione (05/10/2026). Nel canvas resta, in cima.
-    rotti: [...adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.guasto ?? x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })), ...test.rotti],
+    rotti: [
+      ...adesso.filter((x) => x.gravita === 1).map((x) => ({ nome: x.nome, firma: `${x.emoji}|${x.guasto ?? x.quando ?? ''}`, testo: testoAllarme(x, qa.ambiente) })),
+      ...test.rotti,
+      ...(allarmeIncidenti ? allarmiIncidenti(incidenti, qa.ambiente, { ora }) : []),
+    ],
     inCorso: [...adesso.filter((x) => x.gravita === 3).map((x) => x.nome), ...test.inCorso],
     buildIgnote: Boolean(qa.buildIgnote),
     ultimo: test.ultimo,
@@ -1827,7 +1847,30 @@ export function logDelJob(e) {
   return { log: `why it is red${dove ? ` (${dove})` : ''}:\n\`\`\`\n${corpo}\n\`\`\``, chiaveLog: String(e.id ?? corpo) }
 }
 
-function allarmiTest(qa, { ora, url, ore }) {
+// L'incidente di GitHub come link: `[nome](url)`, o il solo nome. Puro.
+const linkIncidente = (i) => {
+  const nome = String(i.nome).replace(/[[\]()]/g, '')
+  return i.url ? `[${nome}](${i.url})` : nome
+}
+
+// Gli incidenti aperti di GitHub sui componenti che toccano un rilascio, come allarmi del canale: uno
+// per tutti, con nome `GitHub`. La firma sono gli incidenti: uno nuovo mentre l'allarme è aperto va
+// nella discussione; lo stato che cambia (investigating, monitoring) corregge il messaggio. Si chiude
+// col ✅ quando GitHub li dà risolti. Puro.
+export function allarmiIncidenti(incidenti = [], ambiente, { ora = Date.now() } = {}) {
+  if (!incidenti.length) return []
+  const componenti = [...new Set(incidenti.flatMap((i) => i.componenti ?? []))].join(', ')
+  const primo = incidenti.map((i) => i.da).filter(Boolean).sort()[0]
+  const x = {
+    emoji: '🟠',
+    nome: 'GitHub',
+    stato: `incident on ${componenti || 'GitHub'}`,
+    dettagli: [...incidenti.map((i) => [linkIncidente(i), i.stato].filter(Boolean).join(', ')), primo && dalle(primo, ora), 'CI runs may stay queued or not start'],
+  }
+  return [{ nome: 'GitHub', firma: `incidente|${incidenti.map((i) => i.id).sort().join(',')}`, testo: testoAllarme(x, ambiente) }]
+}
+
+function allarmiTest(qa, { ora, url, ore, codaMs = DEFAULT_CODA_MIN * 60_000, incidenti = [] }) {
   const rotti = []
   const inCorso = []
   const ultimo = {}
@@ -1839,7 +1882,11 @@ function allarmiTest(qa, { ora, url, ore }) {
     ultimo[r.nome] = new Date(Math.max(tempo(v.quando), tempo(v.tentativo?.da), tempo(v.test?.da))).toISOString()
     // Un servizio rilasciato a mano non aspetta la CI: «deploy NON avviato» sarebbe falso anche col verde.
     if (v.aMano) continue
-    if (r.stato === 'test_avviati') inCorso.push(r.nome)
+    if (r.stato === 'test_avviati') {
+      inCorso.push(r.nome)
+      const c = allarmeCoda(r, v.test, qa.ambiente, { ora, codaMs, incidenti })
+      if (c) rotti.push(c)
+    }
     if (r.stato !== 'test_falliti') continue
     const t = v.test
     const sha7 = t.sha ? String(t.sha).slice(0, 7) : null
@@ -1872,6 +1919,32 @@ function allarmiTest(qa, { ora, url, ore }) {
     rotti.push({ nome: r.nome, firma: 'test', testo: testoCon(), commit, testoCon, da: t.da, ...logDelJob(t.errore) })
   }
   return { rotti, inCorso, ultimo }
+}
+
+// Un run della CI che nessun runner prende: in coda da più di `codaMs`. Il quadro diceva «test avviati»
+// e basta, e la CI non scriveva niente perché non girava: un GitHub Actions fermo non si vedeva in
+// nessun canale. Stesso nome della risorsa, così se poi la CI fallisce l'allarme continua nella
+// discussione; firma `coda`, che `pianoAllarmi` chiude appena un runner lo prende, anche se i test
+// sono ancora in corso. Il testo porta l'ORA d'inizio e non da quanto aspetta: una durata cambierebbe a
+// ogni giro, e con lei il messaggio. Puro.
+function allarmeCoda(r, t, ambiente, { ora, codaMs, incidenti }) {
+  if (!t?.inCodaDa || ora - tempo(t.inCodaDa) < codaMs) return null
+  const sha7 = t.sha ? String(t.sha).slice(0, 7) : null
+  const commit = sha7 && (t.url ? `[${sha7}](${t.url})` : `\`${sha7}\``)
+  const x = {
+    emoji: '🟠',
+    nome: r.nome,
+    stato: 'CI not started',
+    dettagli: [
+      `run queued ${dalle(t.inCodaDa, ora)}, no runner has picked it up`,
+      incidenti.length ? `GitHub incident: ${incidenti.map(linkIncidente).join(', ')}` : null,
+      t.oggetto,
+      commit,
+      t.autore && `by \`${t.autore}\``,
+    ],
+    link: r.link,
+  }
+  return { nome: r.nome, firma: 'coda', testo: testoAllarme(x, ambiente) }
 }
 
 const MAX_PRIMA = 5
@@ -1920,6 +1993,9 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
     } else if (a.firma !== r.firma) {
       nuovi[r.nome] = { ...a, firma: r.firma, testo: r.testo, da: r.da ?? null, ...commitDi(r, prima) }
       azioni.push({ tipo: 'ancora', nome: r.nome, testo: r.testo, ts: a.ts })
+      // Dalla coda al rosso (il run cancellato, o partito e fallito): il messaggio diceva «CI not
+      // started», e non è più vero. Si corregge, oltre a dirlo nella discussione.
+      if ((a.firma ?? (a.coda ? 'coda' : null)) === 'coda' && a.ts) azioni.push({ tipo: 'aggiorna', nome: r.nome, testo: r.testo, ts: a.ts })
     } else if (a.testo !== r.testo && a.ts) {
       nuovi[r.nome] = { ...a, testo: r.testo, da: r.da ?? a.da ?? null, ...commitDi(r, prima) }
       azioni.push({ tipo: 'aggiorna', nome: r.nome, testo: r.testo, ts: a.ts })
@@ -1932,7 +2008,10 @@ export function pianoAllarmi(aperti = {}, dati = null, { primoGiro = false } = {
     }
   }
   for (const [nome, a] of Object.entries(aperti)) {
-    if (rottiOra.has(nome) || dati.inCorso.includes(nome) || dati.buildIgnote) continue
+    // Un allarme della coda si chiude quando un runner prende il run: i test che poi girano non sono più
+    // il guasto che diceva.
+    const coda = (a.firma ?? (a.coda ? 'coda' : null)) === 'coda'
+    if (rottiOra.has(nome) || (dati.inCorso.includes(nome) && !coda) || dati.buildIgnote) continue
     if (a.da && !(tempo(dati.ultimo?.[nome]) > tempo(a.da))) continue
     delete nuovi[nome]
     azioni.push({ tipo: 'chiudi', nome, testo: a.testo, ts: a.ts })
@@ -1986,13 +2065,15 @@ export function allarmiDalCanale(messaggi = [], { bot = {}, tag } = {}) {
     if (m.thread_ts && m.thread_ts !== m.ts) continue
     // Slack restituisce gli emoji come codici (`:red_circle:`), non come li ha ricevuti: con i soli
     // caratteri non si ritrovava niente, e i rossi aperti prima del riavvio restavano rossi (21/10/2026).
-    const x = /^(🔴|❌|✅|:red_circle:|:x:|:white_check_mark:) `([^`]+)` \[([^\]]+)\]/u.exec(m.text ?? '')
+    const x = /^(🔴|🟠|❌|✅|:red_circle:|:large_orange_circle:|:x:|:white_check_mark:) `([^`]+)` \[([^\]]+)\]/u.exec(m.text ?? '')
     if (!x || x[3] !== tag || visti.has(x[2])) continue
     visti.add(x[2])
     if (x[1] === '✅' || x[1] === ':white_check_mark:') continue
     // Il messaggio può essere di prima del passaggio all'inglese (23/10/2026): le due forme valgono uguali.
     const da = / deploy (?:NON avviato|NOT started) /.test(m.text) ? new Date(Number(m.ts) * 1000).toISOString() : null
-    aperti[x[2]] = { ts: m.ts, testo: m.text, firma: null, da }
+    // Quello della coda si riconosce dal testo: si chiude in un altro modo (vedi `pianoAllarmi`). La
+    // firma resta da sapere, come per gli altri ritrovati.
+    aperti[x[2]] = { ts: m.ts, testo: m.text, firma: null, da, ...(/ CI not started /.test(m.text) ? { coda: true } : {}) }
   }
   return aperti
 }
@@ -2068,6 +2149,8 @@ export function startQuadro(leggiDati, env = process.env) {
   // dice qui, una volta, invece che a ogni giro.
   const github = nuovoGithub(githubConfig(env))
   if (!github) log.warn('quadro: nessuna GitHub App (DADAGUARD_GITHUB_APP_ID e DADAGUARD_GITHUB_APP_KEY), righe senza stato dei test')
+  // Gli incidenti aperti di GitHub: acceso da sé con la GitHub App.
+  const statoGithub = nuovoGithubStatus(githubStatusConfig(env, { conApp: Boolean(github) }))
   // Gli eventi dalla coda (vedi server/notify/eventi.js): senza la coda il quadro va avanti coi soli giri.
   const eventi = nuoviEventi()
   const coda = String(env.DADAGUARD_QUADRO_CODA ?? '').trim() || null
@@ -2113,7 +2196,7 @@ export function startQuadro(leggiDati, env = process.env) {
   // Un evento chiede solo una scrittura, che parte subito invece di aspettare la lettura in corso: è
   // tutto il guadagno della coda. Le richieste che arrivano mentre si scrive diventano UNA scrittura
   // dopo, non una per evento.
-  let letti = null // { dati, stati }: l'ultima lettura riuscita
+  let letti = null // { dati, stati, incidenti }: l'ultima lettura riuscita
   let leggendo = false
   let scrivendo = false
   let ancora = false
@@ -2127,7 +2210,7 @@ export function startQuadro(leggiDati, env = process.env) {
     try {
       do {
         ancora = false
-        const { dati, stati } = letti
+        const { dati, stati, incidenti } = letti
         const esiti = await aggiornaQuadri(cfg, {
           leggiDati: async () => dati,
           // `people` si rilegge a ogni scrittura, come la config del resto: un alias aggiunto vale subito.
@@ -2136,6 +2219,7 @@ export function startQuadro(leggiDati, env = process.env) {
           liste,
           // Gli stati di GitHub li ha già letti la lettura: qui si riusano, senza chiamate.
           github: github && { org: github.org, leggi: async () => stati, lettoAlle: github.lettoAlle },
+          incidenti,
           eventi,
         }).catch((err) => {
           log.error('quadro: scrittura fallita', { err: err.message })
@@ -2155,7 +2239,9 @@ export function startQuadro(leggiDati, env = process.env) {
     // non avrebbe mai i suoi run, e il rosso della coda scadrebbe dopo un minuto e mezzo come «verde».
     const qLetto = applicaRepo(quadro({ ...dati, persone: null }, cfg.ambienti), eventi.repo())
     const stati = github ? await github.leggi(repoDelQuadro(qLetto, { org: github.org ?? null }), { ora: Date.now() }) : null
-    letti = { dati, stati }
+    // `leggi` non lancia: la pagina di stato che non risponde lascia gli incidenti di prima.
+    const incidenti = statoGithub ? await statoGithub.leggi({ ora: Date.now() }) : []
+    letti = { dati, stati, incidenti }
   }
   const tick = () => {
     if (leggendo) return

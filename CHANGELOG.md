@@ -13,6 +13,14 @@ All notable changes to Dadaguard are documented here. Format based on
   La scheda nel canale si sposta a mano.
 
 ### Added
+- **GitHub Actions fermo si vede nel canale** (04/11/2026). Un run della CI che nessun runner prende da
+  più di `DADAGUARD_GITHUB_CODA_MIN` minuti (default 15) apre l'allarme 🟠 `CI not started` sulla risorsa,
+  che si chiude appena un runner lo prende o diventa il rosso della CI se il run fallisce. Prima il quadro
+  diceva «test avviati» per sempre, e la CI, che non girava, non scriveva niente. Con la GitHub App
+  Dadaguard legge anche gli incidenti aperti di githubstatus.com sui componenti che toccano un rilascio
+  (`DADAGUARD_GITHUB_STATUS_COMPONENTI`, default `Actions,Webhooks`): un allarme 🟠 `GitHub` nel primo
+  ambiente, chiuso quando GitHub lo risolve, e la causa sull'allarme della coda. `DADAGUARD_GITHUB_STATUS=off`
+  lo spegne.
 - **Il quadro dei deploy si può tenere senza canvas** (30/10/2026). `DADAGUARD_QUADRO_CANVAS=0` lascia
   nel canale le sole Slack List: gli allarmi di build e check rossi restano, perché dipendono dai dati e
   non dal canvas. I canvas già nel canale non si toccano, si tolgono a mano. Default: accesi.
