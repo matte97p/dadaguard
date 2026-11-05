@@ -754,6 +754,18 @@ test('allarmi: si scrivono nel canale, il ✅ va nella discussione e cambia il m
   assert.deepEqual(dopo, {}, 'un allarme non scritto non resta aperto senza messaggio: il giro dopo riprova')
 })
 
+test('allarmi: chiuso un allarme il cui messaggio è stato cancellato, nel canale non compare niente', async () => {
+  const chiamate = []
+  const api = async (metodo, corpo) => {
+    chiamate.push([metodo, corpo])
+    if (metodo === 'chat.update') throw new Error('slack chat.update: message_not_found')
+    return {}
+  }
+  const aperti = await eseguiAllarmi(api, 'C1', pianoAllarmi({ api: { ts: '222', firma: 'A', testo: '❌ `api` [PROD] fallita' } }, { rotti: [], inCorso: [], buildIgnote: false }))
+  assert.deepEqual(aperti, {})
+  assert.equal(chiamate.filter(([m]) => m === 'chat.postMessage').length, 0, 'il ✅ da solo nel canale non dice di cosa')
+})
+
 test('le schede: la squadra vince, poi i cron, il resto è della principale', () => {
   const qa = quadroAmbiente('produzione', {
     deploys: {
