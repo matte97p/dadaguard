@@ -2038,8 +2038,10 @@ export async function eseguiAllarmi(api, canale, piano, { ora = Date.now() } = {
         await api('chat.update', { channel: canale, ts: z.ts, text: z.testo })
       } else if (z.tipo === 'chiudi' && z.ts) {
         const quando = new Date(ora).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
-        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ resolved at ${quando}`, ...senzaAnteprime })
+        // Prima si cambia il messaggio: se qualcuno l'ha cancellato, Slack mette la risposta della
+        // discussione nel canale, da sola. Così il messaggio che manca ferma tutte e due.
         await api('chat.update', { channel: canale, ts: z.ts, text: `✅ ${z.testo.replace(/^\S+\s+/u, '')}${SEP}resolved at ${quando}` })
+        await api('chat.postMessage', { channel: canale, thread_ts: z.ts, text: `✅ resolved at ${quando}`, ...senzaAnteprime })
       }
     } catch (err) {
       log.error('quadro: allarme non scritto', { canale, azione: z.tipo, risorsa: z.nome, err: err.message })
