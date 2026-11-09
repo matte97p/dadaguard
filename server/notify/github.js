@@ -117,7 +117,7 @@ export function repoDaUrl(url) {
   const m = /github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(String(url ?? ''))
   return m ? { owner: m[1], repo: m[2] } : null
 }
-const chiaveRepo = (r) => `${r.owner}/${r.repo}`.toLowerCase()
+export const chiaveRepo = (r) => `${r.owner}/${r.repo}`.toLowerCase()
 
 // I repository da guardare: quelli delle build delle righe del quadro (applicazioni e IaC), di tutti
 // gli ambienti. Le immagini condivise e i componenti esterni non hanno una build nostra. Puro.
@@ -220,7 +220,7 @@ export function applicaTest(q, stati) {
   return q
 }
 
-class LimiteGithub extends Error {}
+export class LimiteGithub extends Error {}
 
 // Il client: tiene installazioni, token, ETag e l'ultimo stato fra un giro e l'altro. `leggi` non
 // lancia mai: GitHub che non risponde vuol dire righe senza stato dei test, non un quadro fermo.
@@ -449,5 +449,50 @@ export function nuovoGithub(cfg, deps = {}) {
   }
 
   // `lettoAlle`: l'ultima lettura riuscita, per capire se un 🧪 arrivato dalla coda è già finito.
-  return { leggi, runDi, jobsDi, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
+  // Le tre letture di «cosa aspetta la produzione» (server/attesa.js): il confronto fra due rami, la
+  // punta di un ramo e le PR di un commit. Chiedono `Contents: read` (le prime due) e `Pull requests:
+  // read` (la terza) all'App, che per i soli stati dei test bastava `Actions: read`: senza, GitHub
+  // risponde 403 o 404, e l'errore sale com'è perché la riga del messaggio lo dica invece di tacere.
+  const percorsoRepo = ({ owner, repo }) => `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+
+  // Le regole del resto del client valgono anche qui, perché il limite di richieste è uno solo per
+  // l'installazione e lo dividono quadro, tempi e attesa: in pausa dopo un rate limit non si chiama, sotto
+  // la riserva dell'ora nemmeno (gli stati dei test vengono prima di un messaggio del mattino), un rate
+  // limit mette in pausa tutti, e un 401 butta il token perché al giro dopo se ne chieda un altro.
+  async function leggiPerAttesa(owner, path, ora) {
+    if (ora < mem.pausaFino) throw Object.assign(new LimiteGithub(`github: in pausa per rate limit fino alle ${new Date(mem.pausaFino).toISOString()}`), { fino: mem.pausaFino })
+    if (mem.resta != null && mem.resta < RISERVA_RICHIESTE) throw Object.assign(new LimiteGithub(`github: restano ${mem.resta} richieste nell'ora, il confronto aspetta`), { fino: ora + 10 * 60_000 })
+    try {
+      return await gh('GET', path, { auth: await token(owner, ora) })
+    } catch (err) {
+      if (err instanceof LimiteGithub) mem.pausaFino = err.fino
+      if (err.status === 401) mem.token.clear()
+      throw err
+    }
+  }
+
+  // I commit di `testa` che `base` non ha, dal più vecchio. Una pagina da 100 basta: oltre, il conto
+  // vero resta in `total_commits`, e la riga dice il numero anche se i commit letti sono meno.
+  async function confronto(r, base, testa, { ora = Date.now() } = {}) {
+    const res = await leggiPerAttesa(r.owner, `${percorsoRepo(r)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(testa)}?per_page=100`, ora)
+    return res.json
+  }
+
+  async function puntaRamo(r, ramo, { ora = Date.now() } = {}) {
+    const res = await leggiPerAttesa(r.owner, `${percorsoRepo(r)}/branches/${encodeURIComponent(ramo)}`, ora)
+    return { sha: res.json?.commit?.sha ?? null, quando: res.json?.commit?.commit?.committer?.date ?? null }
+  }
+
+  // Le PR che hanno portato un commit: il loro ramo porta il ticket, il titolo del commit non sempre, e
+  // il loro `merged_at` è il momento in cui il lavoro è ARRIVATO nel ramo (la data del commit dice
+  // quando è stato scritto). GitHub risponde con TUTTE le PR che contengono il commit, anche quelle
+  // aperte su rami partiti dopo: con `base` si tengono le sole mergiate in quel ramo.
+  async function prDelCommit(r, sha, { ora = Date.now(), base = null } = {}) {
+    const res = await leggiPerAttesa(r.owner, `${percorsoRepo(r)}/commits/${encodeURIComponent(sha)}/pulls?per_page=10`, ora)
+    return (res.json ?? [])
+      .filter((p) => !base || (p.base?.ref === base && p.merged_at))
+      .map((p) => ({ numero: p.number, ramo: p.head?.ref ?? null, titolo: p.title ?? null, mergiataAlle: p.merged_at ?? null }))
+  }
+
+  return { leggi, runDi, jobsDi, confronto, puntaRamo, prDelCommit, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
 }
