@@ -187,11 +187,17 @@ export async function calcolaAttesa(repos, github, cfg, { ora = Date.now() } = {
   const out = []
   for (const r of repos) {
     try {
-      const [confronto, staging, produzione] = await Promise.all([
-        github.confronto(r, cfg.ramoProduzione, cfg.ramoStaging, { ora }),
-        github.puntaRamo(r, cfg.ramoStaging, { ora }),
-        github.puntaRamo(r, cfg.ramoProduzione, { ora }),
-      ])
+      // Prima il ramo di produzione: se non si legge nemmeno quello, l'App non vede il repository, ed è
+      // un errore da dire. Se si legge lui e manca solo il ramo di staging, il repository rilascia dritto
+      // in produzione (un deploy di staging fatto dallo stesso ramo): non c'è niente da confrontare, e
+      // una riga d'errore ogni mattina sarebbe rumore per sempre.
+      const produzione = await github.puntaRamo(r, cfg.ramoProduzione, { ora })
+      const staging = await github.puntaRamo(r, cfg.ramoStaging, { ora }).catch((err) => {
+        if (err.status === 404) return null
+        throw err
+      })
+      if (!staging) continue
+      const confronto = await github.confronto(r, cfg.ramoProduzione, cfg.ramoStaging, { ora })
       const pr = new Map()
       for (const c of (confronto?.commits ?? []).slice(-MAX_PR_PER_REPO)) {
         // Una PR non letta toglie un ticket, non la riga: il ticket del titolo resta.

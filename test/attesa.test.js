@@ -118,14 +118,17 @@ test('l’ora locale: Roma d’inverno è UTC+1, e il sabato non è feriale', ()
   assert.equal(oraLocale(Date.parse('2026-03-14T07:20:00Z'), 'Europe/Rome').feriale, false)
 })
 
-// Un GitHub finto con le tre letture; `rotto` fa fallire un repository.
-const githubFinto = ({ rotto = null } = {}) => ({
+// Un GitHub finto con le tre letture; `rotto` fa fallire un repository, `senzaStaging` toglie il ramo.
+const githubFinto = ({ rotto = null, senzaStaging = null } = {}) => ({
   org: null,
   confronto: async (r) => {
     if (r.repo === rotto) throw new Error('github GET /compare: HTTP 403')
     return r.repo === 'api' ? { total_commits: 1, commits: [commit('s1', 2, 'feat: one (ENG-1)')] } : { total_commits: 0, commits: [] }
   },
-  puntaRamo: async () => ({ sha: null, quando: null }),
+  puntaRamo: async (r, ramo) => {
+    if (r.repo === senzaStaging && ramo === 'staging') throw Object.assign(new Error('github GET /branches: HTTP 404'), { status: 404 })
+    return { sha: null, quando: null }
+  },
   prDelCommit: async () => [],
 })
 const perAccount = { staging: { builds: [build('api', 'aaaaaaa'), build('web', 'bbbbbbb', { repo: 'web' })] } }
@@ -135,6 +138,11 @@ test('un repository che non si legge diventa la sua riga d’errore, gli altri c
   const righe = await calcolaAttesa(repoDaGuardare(perAccount), githubFinto({ rotto: 'web' }), cfgBase, { ora: ORA })
   assert.equal(righe.find((x) => x.repo === 'api').inAttesa, 1)
   assert.match(righe.find((x) => x.repo === 'web').errore, /HTTP 403/)
+})
+
+test('un repository senza il ramo di staging si salta in silenzio: rilascia dritto, non è un errore', async () => {
+  const righe = await calcolaAttesa(repoDaGuardare(perAccount), githubFinto({ senzaStaging: 'web' }), cfgBase, { ora: ORA })
+  assert.deepEqual(righe.map((x) => x.repo), ['api'])
 })
 
 // Uno Slack finto: la cronologia del canale e i messaggi scritti.
