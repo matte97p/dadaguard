@@ -142,6 +142,14 @@ const S = {
     // sa se è sopra o sotto soglia. Uguale per tutti i segnali, come già fa Bedrock.
     'rule.fires': ' · scatta a: {regola}',
     'notify.open': 'stato su Dadaguard',
+    // Il ticket Linear di un rosso (notify/linear.js): stessa lingua dei messaggi su Slack.
+    'linear.resource': 'Risorsa',
+    'linear.type': 'tipo',
+    'linear.sees': 'Cosa vede Dadaguard',
+    'linear.live': 'Stato vivo',
+    'linear.footer':
+      'Aperto da Dadaguard quando la risorsa è risultata giù per due letture di fila. Si chiude da solo quando torna verde: la causa va scritta qui sotto prima che succeda.',
+    'linear.closing': 'Dadaguard la vede verde da due letture di fila, chiudo il ticket.',
     'm.inv': '{n#invocazione#invocazioni}',
     'm.runs': '{n#esecuzione#esecuzioni}',
     'm.calls': '{n#chiamata#chiamate}',
@@ -540,6 +548,13 @@ const S = {
     'notify.cause.type.sns': 'topic',
     'rule.fires': ' · fires at: {regola}',
     'notify.open': 'status on Dadaguard',
+    'linear.resource': 'Resource',
+    'linear.type': 'type',
+    'linear.sees': 'What Dadaguard sees',
+    'linear.live': 'Live status',
+    'linear.footer':
+      'Opened by Dadaguard when the resource read down twice in a row. It closes by itself when it is green again: write the cause below before that happens.',
+    'linear.closing': 'Dadaguard has read it green twice in a row, closing the ticket.',
     'notify.provisional': 'not yet confirmed by the long window',
     'm.inv': '{n#invocation#invocations}',
     'm.runs': '{n#run#runs}',

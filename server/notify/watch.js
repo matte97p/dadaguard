@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { publishStatus, statusFor } from '../statusCache.js'
 import { makeT } from '../i18n.js'
 import { log } from '../log.js'
-import { diffStates, snapshot } from './diff.js'
+import { diffStates, snapshot, conDettagliDa } from './diff.js'
 import { slackMessage, postSlack, messaggioAccessi } from './slack.js'
 import { loadConfig } from '../config.js'
 import { statoAccessi, segnali, daAnnunciare, CALMA_MS, soglieDevEnv } from '../accessi.js'
@@ -101,9 +101,30 @@ const statoCondiviso = async (lang) => (await statusFor(lang, { fresh: true })).
 // (`/api/status` senza `lang` chiede `it`): con `cfg.lang` il watchdog, che scrive su Slack in inglese
 // dal 23/10/2026, avrebbe acceso una seconda chiave e un secondo giro completo ogni 300 secondi, cioè
 // il doppio delle letture CloudWatch e la CPU del 12/10/2026. `cfg.lang` vale solo per i testi che il
-// watchdog scrive lui (`makeT` qui sotto). Il prezzo: il dettaglio di un allarme (`detail`, il summary
-// del check) arriva dal giro e resta in italiano.
+// watchdog scrive lui (`makeT` qui sotto). Il dettaglio di un allarme (`detail`, il summary del check)
+// arriva invece dal giro, quindi nella sua lingua: lo rimette nella lingua dei messaggi
+// `nellaLinguaDeiMessaggi`, e solo nei giri che hanno qualcosa da dire.
 export const LINGUA_GIRO = 'it'
+
+// Il dettaglio di una transizione, nella lingua dei messaggi. Il `detail` lo scrivono i check con la `t`
+// del giro, e i pezzi che lo compongono (soglie, conteggi, nomi) non si possono ritradurre dopo: l'unico
+// modo onesto e' rileggerlo da un giro calcolato nell'altra lingua. Costa un giro completo, quindi si
+// chiede SOLO quando c'e' una transizione con un dettaglio da scrivere: un giro su tanti, non ogni 300
+// secondi (il costo che `LINGUA_GIRO` evita). Il giro in piu' parte dopo quello del watchdog, non insieme,
+// e finisce nella cache: chi apre la dashboard in quella lingua lo trova pronto.
+// Un dettaglio si sostituisce solo se l'altro giro vede la stessa risorsa con la stessa causa: se nel
+// frattempo e' cambiata, il dettaglio giusto resta quello del giro che ha deciso la transizione. Se il
+// giro in piu' fallisce, i messaggi partono lo stesso, col dettaglio della lingua del giro.
+async function nellaLinguaDeiMessaggi(lang, transitions, ora, fetchStatus) {
+  if (!lang || lang === LINGUA_GIRO || !transitions.some((tr) => tr.detail)) return { transitions, ora }
+  try {
+    const status = await fetchStatus(lang)
+    return conDettagliDa(transitions, ora, snapshot(status.services ?? []))
+  } catch (err) {
+    log.error('watch: dettagli nella lingua dei messaggi non letti, restano nella lingua del giro', { lang, err: err.message })
+    return { transitions, ora }
+  }
+}
 
 export async function runOnce(cfg, deps = {}) {
   const fetchStatus = deps.getStatus ?? statoCondiviso
@@ -120,10 +141,12 @@ export async function runOnce(cfg, deps = {}) {
   const status = await fetchStatus(LINGUA_GIRO)
   if (fetchStatus !== statoCondiviso) pubblica(LINGUA_GIRO, status)
   const prev = await readState(cfg.stateFile)
-  const ora = snapshot(status.services ?? [])
-  const { transitions, next } = diffStates(prev, ora, {
+  const letto = snapshot(status.services ?? [])
+  const { transitions: decise, next } = diffStates(prev, letto, {
     confirmations: cfg.confirmations,
   })
+  // Lo stato salvato (`next`) resta quello del giro; cambia solo il testo che esce, su Slack e nei ticket.
+  const { transitions, ora } = await nellaLinguaDeiMessaggi(cfg.lang, decise, letto, fetchStatus)
   // Memoria della destinazione usata per ogni allarme aperto: il rientro torna dove è stato aperto.
   const routeMemory = Object.fromEntries(
     Object.entries(prev?.services ?? {})

@@ -105,6 +105,16 @@ test('testoTicket: titolo come la riga di Slack, corpo col link alla risorsa', (
   assert.match(description, /https:\/\/dg\.example\.com\/\?risorsa=production%2Fapi/)
 })
 
+test('testoTicket: in inglese, nessuna riga resta in italiano', () => {
+  const { title, description } = testoTicket('production/api', { ...obs('api'), detail: '0/2 tasks running' }, { publicUrl: 'https://dg.example.com', t: makeT('en') })
+  assert.equal(title, 'api [PROD] DOWN · tasks')
+  assert.match(description, /\*\*Resource\*\*: `api`/)
+  assert.match(description, /\*\*What Dadaguard sees\*\*: 0\/2 tasks running/)
+  assert.match(description, /\*\*Live status\*\*/)
+  assert.match(description, /Opened by Dadaguard/)
+  for (const parola of ['Risorsa', 'Cosa vede', 'Stato vivo', 'Aperto da', 'tipo `']) assert.ok(!description.includes(parola), parola)
+})
+
 test('giroTicket: apre e chiude con le dipendenze, e un errore non ferma gli altri', async () => {
   const cfg = linearConfig({ DADAGUARD_LINEAR_API_KEY: 'k', DADAGUARD_LINEAR_DESTINAZIONI: 'main=t', DADAGUARD_PUBLIC_URL: 'https://x' })
   const stato = {

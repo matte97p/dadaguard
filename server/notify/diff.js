@@ -92,6 +92,20 @@ export function snapshot(services = []) {
   return out
 }
 
+// Il dettaglio di transizioni e snapshot preso da un altro snapshot dello stesso mondo (un giro in
+// un'altra lingua, vedi `nellaLinguaDeiMessaggi` in watch.js). Si prende solo dove l'altro vede la
+// stessa risorsa con la stessa causa e ha un dettaglio; altrove resta quello di partenza. Puro.
+export function conDettagliDa(transitions = [], ora = {}, altro = {}) {
+  const da = (key, cause) => {
+    const x = altro[key]
+    return x && x.cause === cause && x.detail ? x.detail : null
+  }
+  return {
+    transitions: transitions.map((tr) => ({ ...tr, detail: da(tr.key, tr.cause) ?? tr.detail })),
+    ora: Object.fromEntries(Object.entries(ora).map(([key, o]) => [key, { ...o, detail: da(key, o.cause) ?? o.detail }])),
+  }
+}
+
 // prev: { [key]: { confirmed, pending: {overall, count} , ...meta } } — lo stato su disco
 // now:  snapshot() del giro corrente
 // Ritorna { transitions, next }: cosa annunciare e lo stato da salvare.
