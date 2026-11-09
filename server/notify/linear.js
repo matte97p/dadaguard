@@ -93,11 +93,11 @@ export function testoTicket(key, obs, { publicUrl, t = (k) => k } = {}) {
   const causa = causeLabel({ cause: obs.cause, type: obs.type, causeType: obs.causeType, outcome: obs.outcome }, t)
   const title = `${obs.name}${envTag(obs.account)} ${t('notify.status.down')}${causa ? ` · ${causa}` : ''}`
   const righe = [
-    `**Risorsa**: \`${obs.name}\` · account \`${obs.account ?? '—'}\`${obs.type ? ` · tipo \`${obs.type}\`` : ''}`,
-    obs.detail ? `**Cosa vede Dadaguard**: ${String(obs.detail).replace(/\s+/g, ' ').trim()}` : null,
-    `**Stato vivo**: [${t('notify.open')}](${urlRisorsa(publicUrl, key)})`,
+    `**${t('linear.resource')}**: \`${obs.name}\` · account \`${obs.account ?? '—'}\`${obs.type ? ` · ${t('linear.type')} \`${obs.type}\`` : ''}`,
+    obs.detail ? `**${t('linear.sees')}**: ${String(obs.detail).replace(/\s+/g, ' ').trim()}` : null,
+    `**${t('linear.live')}**: [${t('notify.open')}](${urlRisorsa(publicUrl, key)})`,
     '',
-    'Aperto da Dadaguard quando la risorsa è risultata giù per due letture di fila. Si chiude da solo quando torna verde: la causa va scritta qui sotto prima che succeda.',
+    t('linear.footer'),
   ]
   return { title, description: righe.filter((r) => r != null).join('\n') }
 }
@@ -194,7 +194,7 @@ async function chiudiTicket(cfg, { ticket }, t) {
   await chiamaLinear(
     cfg.apiKey,
     `mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }`,
-    { input: { issueId: ticket.id, body: `✅ ${t('notify.status.up')}: Dadaguard la vede verde da due letture di fila, chiudo il ticket.` } },
+    { input: { issueId: ticket.id, body: `✅ ${t('notify.status.up')}: ${t('linear.closing')}` } },
   )
   const stateId = ticket.teamId ? await statoDi(cfg.apiKey, ticket.teamId, 'completed') : null
   if (!stateId) throw new Error(`linear: nessuno stato completed per ${ticket.identifier}`)

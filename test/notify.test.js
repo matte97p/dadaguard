@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { diffStates, snapshot, stateClass, serviceKey } from '../server/notify/diff.js'
+import { diffStates, snapshot, stateClass, serviceKey, conDettagliDa } from '../server/notify/diff.js'
 import { slackMessage, envTag, messaggioAccessi } from '../server/notify/slack.js'
 import { runOnce, watchConfig, giroAccessi } from '../server/notify/watch.js'
 import { makeT } from '../server/i18n.js'
@@ -652,6 +652,74 @@ test('runOnce: lo stato appena calcolato finisce nella cache che serve le pagine
   )
   assert.deepEqual(chiesti, ['it'], 'il giro si legge con la chiave della dashboard')
   assert.deepEqual(pubblicati, [['it', stat]])
+})
+
+// Il dettaglio lo scrivono i check nella lingua del giro: con i messaggi in un'altra lingua si rilegge
+// da un giro in quella lingua, ma solo quando c'e' una transizione da scrivere.
+test('runOnce: il dettaglio esce nella lingua dei messaggi, riletto solo quando c\'e\' una transizione', async () => {
+  const chiesti = []
+  const inviati = []
+  const ticket = []
+  const giri = {
+    it: { services: [svc('cron', 'Production', 'down', 'runtime', 'giù da 3 letture')] },
+    en: { services: [svc('cron', 'Production', 'down', 'runtime', 'down for 3 reads')] },
+  }
+  let salvato = null
+  const res = await runOnce(
+    { ...watchConfig({}), webhook: 'https://hooks.example/x', confirmations: 2, lang: 'en' },
+    {
+      getStatus: async (lang) => (chiesti.push(lang), giri[lang]),
+      publishStatus: () => {},
+      loadState: async () => stato({ 'production/cron': { confirmed: 'up', pending: { overall: 'down', count: 1 } } }),
+      saveState: async (_f, s) => {
+        salvato = s
+      },
+      postSlack: async (_hook, payload) => (inviati.push(payload.text), true),
+      giroTicket: async (_cfg, _stato, ora) => (ticket.push(ora['production/cron'].detail), { spento: true }),
+    },
+  )
+  assert.deepEqual(chiesti, ['it', 'en'], 'il giro in inglese parte dopo, e solo perche\' c\'e\' una transizione')
+  assert.equal(res.transitions[0].detail, 'down for 3 reads')
+  assert.match(inviati[0], /down for 3 reads/)
+  assert.ok(!inviati[0].includes('giù da 3 letture'))
+  assert.deepEqual(ticket, ['down for 3 reads'], 'il ticket legge lo stesso dettaglio di Slack')
+  assert.equal(salvato.services['production/cron'].confirmed, 'down', 'lo stato salvato non cambia')
+})
+
+test('runOnce: se il giro nella lingua dei messaggi fallisce, il messaggio parte col dettaglio del giro', async () => {
+  const inviati = []
+  await runOnce(
+    { ...watchConfig({}), webhook: 'https://hooks.example/x', confirmations: 2, lang: 'en' },
+    {
+      getStatus: async (lang) => {
+        if (lang === 'en') throw new Error('throttled')
+        return { services: [svc('cron', 'Production', 'down', 'runtime', 'giù')] }
+      },
+      publishStatus: () => {},
+      loadState: async () => stato({ 'production/cron': { confirmed: 'up', pending: { overall: 'down', count: 1 } } }),
+      saveState: async () => {},
+      postSlack: async (_hook, payload) => (inviati.push(payload.text), true),
+    },
+  )
+  assert.equal(inviati.length, 1)
+  assert.match(inviati[0], /giù/)
+})
+
+test('conDettagliDa: prende il dettaglio solo dove risorsa e causa coincidono', () => {
+  const transitions = [
+    { key: 'p/a', cause: 'runtime', detail: 'uno' },
+    { key: 'p/b', cause: 'runtime', detail: 'due' },
+    { key: 'p/c', cause: 'liveness', detail: 'tre' },
+  ]
+  const ora = { 'p/a': { cause: 'runtime', detail: 'uno' }, 'p/c': { cause: 'liveness', detail: 'tre' } }
+  const altro = { 'p/a': { cause: 'runtime', detail: 'one' }, 'p/b': { cause: 'drift', detail: 'two' }, 'p/c': { cause: 'liveness', detail: null } }
+  const out = conDettagliDa(transitions, ora, altro)
+  assert.deepEqual(
+    out.transitions.map((x) => x.detail),
+    ['one', 'due', 'tre'],
+  )
+  assert.equal(out.ora['p/a'].detail, 'one')
+  assert.equal(out.ora['p/c'].detail, 'tre')
 })
 
 // ── Il giro degli accessi ──────────────────────────────────────────────────────────────────────────

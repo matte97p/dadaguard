@@ -6,6 +6,12 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Il watchdog scrive il dettaglio nella lingua dei messaggi, anche nei ticket Linear** (09/11/2026). Il
+  dettaglio di un allarme arrivava dal giro condiviso con la dashboard, quindi in italiano anche con
+  `DADAGUARD_LANG=en`. Adesso, solo nei giri con una transizione da scrivere, Dadaguard rilegge lo stato in
+  quella lingua e ne prende il dettaglio, se la risorsa ha ancora la stessa causa (altrimenti, o se la
+  lettura fallisce, resta quello del giro). I ticket Linear aperti e chiusi dal watchdog hanno tutti i
+  testi nella stessa lingua.
 - **Le List del quadro stanno nello schermo** (30/10/2026). Due colonne in meno: il link a Dadaguard è sul
   nome della risorsa e la versione (col link al commit) apre i Dettagli, come nel canvas. Lo schema di una
   List esistente l'API non lo cambia, e né il bot né una persona possono cancellarla: una List con le
