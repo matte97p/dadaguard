@@ -15,6 +15,7 @@ import { listDeploys, storicoBuilds } from './deploys.js'
 import { tabellaRilasci, daRilasciare, testoRilasci } from './rilasci.js'
 import { tempiPerServizio, repoDelleBuild, runDaLeggere, puntiBuild } from './tempiDeploy.js'
 import { githubConfig, nuovoGithub } from './notify/github.js'
+import { attesaConfig, calcolaAttesa, repoDaGuardare, startAttesa, testoAttesa } from './attesa.js'
 import { cloudflareDeploysAccount } from './cloudflare.js'
 import { wafOverview } from './waf.js'
 import { budgetsOverview } from './budgets.js'
@@ -457,6 +458,32 @@ app.get('/api/rilasci', async (req, res) => {
     const righe = tabellaRilasci(perAccount)
     if (req.query.format === 'testo') return res.type('text/plain').send(testoRilasci(righe))
     res.json({ righe, daRilasciare: daRilasciare(righe) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// «Cosa aspetta la produzione?»: per repository, i commit del ramo di staging che quello di produzione
+// non ha, da quanto, di chi, con quali ticket, e i rami non usciti nel loro ambiente (server/attesa.js).
+// È lo stesso dato del messaggio del mattino, ma con anche i repository allineati. Dieci minuti di cache:
+// ogni giro costa qualche decina di richieste GitHub, e il dato cambia a ogni merge, non a ogni secondo.
+const attesaMemo = swrMemo({
+  ttlMs: 10 * 60_000,
+  onError: (err, key) => log.error('attesa: rinfresco in background fallito', { key, err: err.message }),
+})
+app.get('/api/attesa', async (req, res) => {
+  try {
+    if (!githubTempi) return res.status(503).json({ error: 'GitHub App non configurata: senza, i rami non si confrontano' })
+    const cfg = attesaConfig()
+    const { value: righe, at } = await attesaMemo('attesa', async () =>
+      calcolaAttesa(
+        repoDaGuardare((await deploysCached('it')).value, { extra: cfg.extra, esclusi: cfg.esclusi, org: githubTempi.org }),
+        githubTempi,
+        cfg,
+      ),
+    )
+    if (req.query.format === 'testo') return conEta(res, at).type('text/plain').send(testoAttesa(righe))
+    conEta(res, at).json({ righe })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1227,6 +1254,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     startQuadro(datiQuadro)
     // Il canvas delle corse dei cron: spento finché non c'è `DADAGUARD_CORSE_CANALI` (vedi notify/corse.js).
     startCorse(datiCorse)
+    // Cosa aspetta la produzione, una volta al mattino nei giorni feriali: spento finché non c'è
+    // `DADAGUARD_ATTESA_CANALE` (vedi server/attesa.js).
+    startAttesa(async () => (await deploysCached('it')).value, githubTempi)
   })
   // Scaldata della cache dello stato, in background: senza, il PRIMO che apre una pagina dopo un
   // rilascio paga il giro intero (fra 7,6 e 28,2 secondi misurati), e un rilascio succede a ogni merge

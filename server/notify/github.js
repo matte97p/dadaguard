@@ -449,5 +449,33 @@ export function nuovoGithub(cfg, deps = {}) {
   }
 
   // `lettoAlle`: l'ultima lettura riuscita, per capire se un 🧪 arrivato dalla coda è già finito.
-  return { leggi, runDi, jobsDi, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
+  // Le tre letture di «cosa aspetta la produzione» (server/attesa.js): il confronto fra due rami, la
+  // punta di un ramo e le PR di un commit. Chiedono `Contents: read` (le prime due) e `Pull requests:
+  // read` (la terza) all'App, che per i soli stati dei test bastava `Actions: read`: senza, GitHub
+  // risponde 403 o 404, e l'errore sale com'è perché la riga del messaggio lo dica invece di tacere.
+  const percorsoRepo = ({ owner, repo }) => `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+
+  // I commit di `testa` che `base` non ha, dal più vecchio. Una pagina da 100 basta: oltre, il conto
+  // vero resta in `total_commits`, e la riga dice il numero anche se i commit letti sono meno.
+  async function confronto(r, base, testa, { ora = Date.now() } = {}) {
+    const res = await gh('GET', `${percorsoRepo(r)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(testa)}?per_page=100`, { auth: await token(r.owner, ora) })
+    return res.json
+  }
+
+  async function puntaRamo(r, ramo, { ora = Date.now() } = {}) {
+    const res = await gh('GET', `${percorsoRepo(r)}/branches/${encodeURIComponent(ramo)}`, { auth: await token(r.owner, ora) })
+    return { sha: res.json?.commit?.sha ?? null, quando: res.json?.commit?.commit?.committer?.date ?? null }
+  }
+
+  // Le PR che hanno portato un commit: il loro ramo porta il ticket, il titolo del commit non sempre.
+  // GitHub risponde con TUTTE le PR che contengono il commit, anche quelle aperte su rami partiti dopo:
+  // con `base` si tengono le sole PR mergiate in quel ramo, cioè quella che l'ha portato.
+  async function prDelCommit(r, sha, { ora = Date.now(), base = null } = {}) {
+    const res = await gh('GET', `${percorsoRepo(r)}/commits/${encodeURIComponent(sha)}/pulls?per_page=10`, { auth: await token(r.owner, ora) })
+    return (res.json ?? [])
+      .filter((p) => !base || (p.base?.ref === base && p.merged_at))
+      .map((p) => ({ numero: p.number, ramo: p.head?.ref ?? null, titolo: p.title ?? null }))
+  }
+
+  return { leggi, runDi, jobsDi, confronto, puntaRamo, prDelCommit, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
 }
