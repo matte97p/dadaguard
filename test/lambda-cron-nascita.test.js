@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { lambdaRuntime } from '../server/runtime/lambda.js'
+import { natoDopoIlGiro } from '../server/runtime/nascita.js'
 import { makeT } from '../server/i18n.js'
 
 // Una cron appena creata non ha ancora avuto il suo primo orario: zero invocazioni li' non sono un
@@ -51,4 +52,14 @@ test('con invocazioni la nascita non si chiede nemmeno', async () => {
   )
   assert.equal(r.status, 'up')
   assert.equal(chiesta, false)
+})
+
+// --- la regola, condivisa con i cron su ECS (server/runtime/ecsScheduled.js) -------------------
+
+test('natoDopoIlGiro: solo una nascita dopo l ora attesa scusa il giro mancato', () => {
+  const atteso = Date.now() - ORA
+  assert.equal(natoDopoIlGiro(atteso + 1, { expectedAt: atteso }), true)
+  assert.equal(natoDopoIlGiro(atteso - 1, { expectedAt: atteso }), false)
+  assert.equal(natoDopoIlGiro(null, { expectedAt: atteso }), false, 'nascita sconosciuta: si allarma come prima')
+  assert.equal(natoDopoIlGiro(atteso + 1, null), false, 'con rate() l ora attesa non si sa')
 })

@@ -1,7 +1,6 @@
 import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
-import { CloudWatchLogsClient, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { metricValues } from './cw.js'
-import { cachedCall } from '../util/cache.js'
+import { logGroupCreatedAt, natoDopoIlGiro } from './nascita.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig, getLambdaReservedConcurrency } from './lambdaConfig.js'
 import { lastModifier } from './lastModifier.js'
@@ -136,11 +135,11 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
     // suonava come un GIÙ. Solo con l'espressione vera (`missed`): con `rate()` l'ora attesa non si sa.
     if (invocations === 0 && missed) {
       const nata = await (opts.lambdaCreatedAt ?? lambdaCreatedAt)(cfg.function, aws)
-      if (nata != null && nata > new Date(missed.expectedAt).getTime()) {
+      if (natoDopoIlGiro(nata, missed)) {
         return {
           status: 'idle',
           outcome: 'ok',
-          summary: [t('lambda.cron.new'), nextRunLabel].filter(Boolean).join(' · '),
+          summary: [t('cron.new'), nextRunLabel].filter(Boolean).join(' · '),
           invocations: 0,
           errors,
           throttles,
@@ -336,22 +335,8 @@ export async function lambdaBuildInfo(cfg, aws) {
   return { version, lastModified: conf.LastModified ?? null, codeSha: conf.CodeSha256 ?? null, modifiedBy }
 }
 
-// Quando e' nata la funzione, in millisecondi. L'API Lambda dice solo `LastModified`, che si sposta a
-// ogni deploy: un redeploy dopo un giro saltato lo nasconderebbe. La creazione del log group no, e
-// per una funzione creata da IaC coincide con la sua. Un log group che manca, o un errore, vale
-// `null`, cioe' «non lo so»: il check resta quello di prima, e un giro saltato suona comunque.
-// Cache lunga: la data di nascita non cambia, e la chiamata serve solo alle cron senza invocazioni.
-const NASCITA_TTL = 60 * 60 * 1000
-
-export function lambdaCreatedAt(functionName, aws) {
-  const acct = aws?.roleArn || aws?.profile || 'default'
-  const key = `lambdaNata:${acct}:${aws?.region || ''}:${functionName}`
-  return cachedCall(key, NASCITA_TTL, async () => {
-    const conf = await getLambdaConfig(functionName, aws).catch(() => null)
-    const logGroup = conf?.LoggingConfig?.LogGroup ?? `/aws/lambda/${functionName}`
-    const r = await new CloudWatchLogsClient(clientOpts(aws)).send(
-      new DescribeLogGroupsCommand({ logGroupNamePrefix: logGroup, limit: 5 }),
-    )
-    return (r.logGroups ?? []).find((g) => g.logGroupName === logGroup)?.creationTime ?? null
-  }).catch(() => null)
+// Quando e' nata la funzione: dal suo log group (vedi `nascita.js`), che puo' avere un nome scelto.
+export async function lambdaCreatedAt(functionName, aws) {
+  const conf = await getLambdaConfig(functionName, aws).catch(() => null)
+  return logGroupCreatedAt(conf?.LoggingConfig?.LogGroup ?? `/aws/lambda/${functionName}`, aws)
 }
