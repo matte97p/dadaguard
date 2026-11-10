@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Una cron Lambda appena creata non suona prima del suo primo giro** (10/11/2026). Fra l'apply e il
+  primo orario dello schedule la funzione non ha invocazioni, e Dadaguard la segnava GIÙ con «nessuna
+  esecuzione (l'ultima attesa …)», anche se a quell'ora non esisteva ancora. Adesso, prima di dirla
+  saltata, guarda quando è nato il suo log group (`logs:DescribeLogGroups`, già nella policy): se è nato
+  dopo il giro atteso, la riga è a riposo con «nuova: il primo giro non è ancora arrivato». Se la data non
+  si legge, il controllo resta quello di prima.
+
 ### Changed
 - **Un segreto riscritto conta come rilascio di un job su ECS** (10/11/2026). Un job fallito per una
   credenziale scaduta si corregge riscrivendo il parametro SSM, senza una revision nuova della task

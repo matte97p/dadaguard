@@ -1,5 +1,7 @@
 import { LambdaClient, GetAliasCommand } from '@aws-sdk/client-lambda'
+import { CloudWatchLogsClient, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { metricValues } from './cw.js'
+import { cachedCall } from '../util/cache.js'
 import { clientOpts, cleanAwsReason } from './awsClient.js'
 import { getLambdaConfig, getLambdaReservedConcurrency } from './lambdaConfig.js'
 import { lastModifier } from './lastModifier.js'
@@ -129,6 +131,26 @@ export async function lambdaRuntime(cfg, aws, opts = {}) {
 
   // --- Cron: dead man's switch ---
   if (isCron) {
+    // Una funzione nata DOPO il giro atteso non l'ha saltato: non c'era ancora. Succede a ogni cron
+    // nuova, fra l'apply e il primo orario dello schedule, e senza questo controllo quella finestra
+    // suonava come un GIÙ. Solo con l'espressione vera (`missed`): con `rate()` l'ora attesa non si sa.
+    if (invocations === 0 && missed) {
+      const nata = await (opts.lambdaCreatedAt ?? lambdaCreatedAt)(cfg.function, aws)
+      if (nata != null && nata > new Date(missed.expectedAt).getTime()) {
+        return {
+          status: 'idle',
+          outcome: 'ok',
+          summary: [t('lambda.cron.new'), nextRunLabel].filter(Boolean).join(' · '),
+          invocations: 0,
+          errors,
+          throttles,
+          schedule: cfg.schedule,
+          scheduleExpr: cfg.scheduleExpr,
+          nextRunAt,
+          nextRunLabel,
+        }
+      }
+    }
     if (invocations === 0) {
       return {
         status: 'down',
@@ -312,4 +334,24 @@ export async function lambdaBuildInfo(cfg, aws) {
   // cacheKey precisa per fn@LastModified: una query per funzione finché non viene rideployata.
   const modifiedBy = await lastModifier(cfg.function, aws, { cacheKey: `${cfg.function}@${conf.LastModified ?? ''}` })
   return { version, lastModified: conf.LastModified ?? null, codeSha: conf.CodeSha256 ?? null, modifiedBy }
+}
+
+// Quando e' nata la funzione, in millisecondi. L'API Lambda dice solo `LastModified`, che si sposta a
+// ogni deploy: un redeploy dopo un giro saltato lo nasconderebbe. La creazione del log group no, e
+// per una funzione creata da IaC coincide con la sua. Un log group che manca, o un errore, vale
+// `null`, cioe' «non lo so»: il check resta quello di prima, e un giro saltato suona comunque.
+// Cache lunga: la data di nascita non cambia, e la chiamata serve solo alle cron senza invocazioni.
+const NASCITA_TTL = 60 * 60 * 1000
+
+export function lambdaCreatedAt(functionName, aws) {
+  const acct = aws?.roleArn || aws?.profile || 'default'
+  const key = `lambdaNata:${acct}:${aws?.region || ''}:${functionName}`
+  return cachedCall(key, NASCITA_TTL, async () => {
+    const conf = await getLambdaConfig(functionName, aws).catch(() => null)
+    const logGroup = conf?.LoggingConfig?.LogGroup ?? `/aws/lambda/${functionName}`
+    const r = await new CloudWatchLogsClient(clientOpts(aws)).send(
+      new DescribeLogGroupsCommand({ logGroupNamePrefix: logGroup, limit: 5 }),
+    )
+    return (r.logGroups ?? []).find((g) => g.logGroupName === logGroup)?.creationTime ?? null
+  }).catch(() => null)
 }
