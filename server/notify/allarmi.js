@@ -46,6 +46,15 @@ import { regioneDaUrl } from './eventi.js'
 //                         (un heartbeat appena applicato): ℹ️, e il suo OK non si dice
 // Gli allarmi di autoscaling non si dicono mai: scalano, non avvisano.
 //
+// Allarmi a catena: un guasto solo ne accende spesso tre o quattro, uno per ogni pezzo che guarda (il
+// database, l'API davanti, il bilanciatore davanti all'API), e nel canale arrivano come incidenti
+// diversi. Chi crea l'allarme a valle lo dice col tag `depends-on`, che nomina (separati da spazi) gli
+// allarmi di cui è conseguenza. Se uno di quelli sta già suonando, questo non apre un messaggio nuovo:
+// va nel thread di quello, con una riga che dice di chi è conseguenza, e il suo rientro lo segue lì.
+// Se il messaggio a monte non si conosce (Dadaguard ripartito nel frattempo, o recapito col webhook),
+// la riga c'è lo stesso, ma il messaggio è nuovo. Se il valle arriva prima del monte, esce da solo:
+// si raggruppa solo quello che si sa già.
+//
 // Dove: il tag `team` dell'allarme, se è `data`, manda nel canale della squadra data; sennò decide la
 // regola delle squadre del quadro (DADAGUARD_QUADRO_SQUADRE) sul nome; tutto il resto nel canale
 // principale. Il rientro va dove è andato l'allarme, perché i tag sono gli stessi.
@@ -191,6 +200,35 @@ export function zittito(x, tag = {}) {
 }
 
 export { ripulisci }
+
+// ── Allarmi a catena ───────────────────────────────────────────────────────────────────────────────
+
+const TAG_CAUSE = 'depends-on'
+const MAX_CAUSE = 5
+// Oltre questo tempo un messaggio aperto non si usa più come thread: se l'allarme a monte è rimasto
+// acceso per ore, un guasto nuovo a valle merita il suo messaggio.
+const MAX_APERTO_MS = 6 * 3_600_000
+
+// Gli allarmi detti col bot e non ancora rientrati: nome → `{ ts, canale, quando, figlio }`. `figlio`
+// dice che il messaggio sta nel thread di un altro. In memoria: dopo un riavvio si riparte vuoti.
+const APERTI = new Map()
+
+// I nomi del tag `depends-on`, separati da spazi (le virgole AWS non le accetta nei valori). Pura.
+export function causeDichiarate(tag = {}) {
+  return String(tag[TAG_CAUSE] ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, MAX_CAUSE)
+}
+
+// La prima delle cause che ha un messaggio aperto in testa al canale (non in un thread), recente. Pura.
+export function padreAperto(cause = [], aperti = new Map(), ora = Date.now()) {
+  for (const nome of cause) {
+    const x = aperti.get(nome)
+    if (x && !x.figlio && ora - x.quando < MAX_APERTO_MS) return { nome, ...x }
+  }
+  return null
+}
 
 // ── Il testo ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -768,6 +806,24 @@ export async function gestisci(a, cfg, deps = {}) {
       log.warn('allarmi: log non letti', { allarme: a.nome, err: err.message })
     }
   }
+  // A catena: la causa dichiarata che sta già suonando. Prima il messaggio che conosciamo (per il
+  // thread), poi, se non c'è, lo stato vero da CloudWatch (per la riga sola).
+  const aperti = deps.aperti ?? APERTI
+  let padre = null
+  if (decisione.tipo === 'acceso') {
+    const cause = causeDichiarate(tag)
+    padre = padreAperto(cause, aperti)
+    if (!padre && cause.length) {
+      try {
+        const r = await cw.send(new DescribeAlarmsCommand({ AlarmNames: cause, AlarmTypes: ['MetricAlarm', 'CompositeAlarm'] }))
+        const suona = [...(r.MetricAlarms ?? []), ...(r.CompositeAlarms ?? [])].find((x) => x?.StateValue === 'ALARM')
+        if (suona) padre = { nome: suona.AlarmName }
+      } catch (err) {
+        log.warn('allarmi: cause non lette', { allarme: a.nome, err: err.message })
+      }
+    }
+  }
+
   let testoIntero = testo
   if (decisione.tipo === 'acceso') {
     const [ritmo, rilascio] = await Promise.all([
@@ -775,6 +831,7 @@ export async function gestisci(a, cfg, deps = {}) {
       (deps.ultimoRilascio ?? ultimoRilascio)(a, { aws, servizi: servizi.services ?? [] }).catch((err) => (log.warn('allarmi: rilascio non letto', { allarme: a.nome, err: err.message }), null)),
     ])
     const contesto = testoContesto({ cosa, ultima, ritmo, rilascio, quando: a.quando, t })
+    if (padre) contesto.unshift(t('allarmi.conseguenza', { causa: stripOrgEnv(padre.nome) || padre.nome }))
     if (contesto.length) testoIntero = `${testo}\n${contesto.join('\n')}`
   }
 
@@ -782,9 +839,20 @@ export async function gestisci(a, cfg, deps = {}) {
   const inviaHook = deps.postSlack ?? postSlack
   if (dove.canale) {
     try {
-      const r = await inviaBot('chat.postMessage', { channel: dove.canale, text: testoIntero, unfurl_links: false }, cfg.botToken)
-      if (thread) await inviaBot('chat.postMessage', { channel: dove.canale, thread_ts: r.ts, text: thread, unfurl_links: false }, cfg.botToken).catch((err) => log.warn('allarmi: thread non scritto', { allarme: a.nome, err: err.message }))
-      log.info('allarmi: detto', { allarme: a.nome, stato: a.stato, canale: dove.canale, log: Boolean(thread) })
+      // Il thread a monte, per un allarme a catena o per il rientro di uno che ci era finito.
+      const mio = aperti.get(a.nome)
+      const sotto =
+        padre?.ts && padre.canale === dove.canale
+          ? padre.ts
+          : decisione.tipo === 'rientro' && mio?.figlio && mio.canale === dove.canale
+            ? mio.ts
+            : null
+      const r = await inviaBot('chat.postMessage', { channel: dove.canale, text: testoIntero, unfurl_links: false, ...(sotto ? { thread_ts: sotto } : {}) }, cfg.botToken)
+      const radice = sotto ?? r.ts
+      if (thread) await inviaBot('chat.postMessage', { channel: dove.canale, thread_ts: radice, text: thread, unfurl_links: false }, cfg.botToken).catch((err) => log.warn('allarmi: thread non scritto', { allarme: a.nome, err: err.message }))
+      if (decisione.tipo === 'acceso' && radice) aperti.set(a.nome, { ts: radice, canale: dove.canale, quando: Date.now(), figlio: Boolean(sotto) })
+      else if (decisione.tipo === 'rientro') aperti.delete(a.nome)
+      log.info('allarmi: detto', { allarme: a.nome, stato: a.stato, canale: dove.canale, log: Boolean(thread), sotto: sotto ? (padre?.nome ?? 'a monte') : null })
       return true
     } catch (err) {
       log.error('allarmi: invio col bot fallito', { allarme: a.nome, err: err.message })
