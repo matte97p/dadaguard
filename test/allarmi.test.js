@@ -24,6 +24,8 @@ import {
   durata,
   testoContesto,
   cosaSiRompe,
+  causeDichiarate,
+  padreAperto,
 } from '../server/notify/allarmi.js'
 import { makeT } from '../server/i18n.js'
 
@@ -426,6 +428,64 @@ test('gestisci: bot giù e nessun webhook → false, si riprova', async () => {
     throw new Error('slack chat.postMessage: not_in_channel')
   }
   assert.equal(await gestisci(normalizzaAllarme(evento()), { ...cfg, webhook: null }, f.deps), false)
+})
+
+test('causeDichiarate: i nomi del tag depends-on, separati da spazi', () => {
+  assert.deepEqual(causeDichiarate({ 'depends-on': ' acme-production-db-5xx  acme-production-api-5xx ' }), ['acme-production-db-5xx', 'acme-production-api-5xx'])
+  assert.deepEqual(causeDichiarate({}), [])
+  assert.equal(causeDichiarate({ 'depends-on': 'a b c d e f g' }).length, 5)
+})
+
+test('padreAperto: solo un messaggio in testa al canale e recente', () => {
+  const ora = Date.parse('2026-03-10T10:00:00Z')
+  const aperti = new Map([
+    ['a-figlio', { ts: '1.1', canale: 'C', quando: ora, figlio: true }],
+    ['a-vecchio', { ts: '2.2', canale: 'C', quando: ora - 7 * 3_600_000, figlio: false }],
+    ['a-buono', { ts: '3.3', canale: 'C', quando: ora - 60_000, figlio: false }],
+  ])
+  assert.equal(padreAperto(['a-figlio', 'a-vecchio'], aperti, ora), null)
+  assert.equal(padreAperto(['a-figlio', 'a-buono'], aperti, ora).ts, '3.3')
+})
+
+// Una catena: l'allarme a monte suona, quello a valle (col tag depends-on) va nel suo thread, e il
+// rientro del valle lo segue lì.
+test('gestisci: a catena → il valle nel thread del monte, e il suo rientro pure', async () => {
+  const aperti = new Map()
+  const monte = 'acme-production-db-5xx'
+  const valle = 'acme-production-api-5xx'
+  const f = finti()
+  await gestisci(normalizzaAllarme(evento({ nome: monte })), cfg, { ...f.deps, aperti })
+  assert.equal(aperti.get(monte).ts, '123.456')
+
+  const g = finti({ tag: [{ Key: 'depends-on', Value: monte }] })
+  await gestisci(normalizzaAllarme(evento({ nome: valle })), cfg, { ...g.deps, aperti })
+  assert.equal(g.inviati[0].thread_ts, '123.456')
+  assert.match(g.inviati[0].text, /^🚨 `api-5xx` \[PROD\]: [^\n]*\n↳ consequence of `db-5xx`, which is already firing/)
+  assert.equal(g.inviati[1].thread_ts, '123.456')
+  assert.equal(aperti.get(valle).figlio, true)
+
+  const h = finti({ tag: [{ Key: 'depends-on', Value: monte }] })
+  await gestisci(normalizzaAllarme(evento({ nome: valle, stato: 'OK', prima: 'ALARM' })), cfg, { ...h.deps, aperti })
+  assert.equal(h.inviati[0].thread_ts, '123.456')
+  assert.match(h.inviati[0].text, /^✅/)
+  assert.equal(aperti.has(valle), false)
+})
+
+test('gestisci: a catena senza messaggio a monte noto → messaggio nuovo con la riga, se il monte suona', async () => {
+  const monte = 'acme-production-db-5xx'
+  const f = finti({ tag: [{ Key: 'depends-on', Value: monte }] })
+  const send = f.deps.cw.send
+  f.deps.cw = { send: async (c) => (c.constructor.name === 'DescribeAlarmsCommand' && c.input.AlarmNames.includes(monte) ? { MetricAlarms: [{ AlarmName: monte, StateValue: 'ALARM' }] } : send(c)) }
+  await gestisci(normalizzaAllarme(evento({ nome: 'acme-production-api-5xx' })), cfg, { ...f.deps, aperti: new Map() })
+  assert.equal(f.inviati[0].thread_ts, undefined)
+  assert.match(f.inviati[0].text, /\n↳ consequence of `db-5xx`, which is already firing/)
+})
+
+test('gestisci: a catena col monte tranquillo → nessuna riga', async () => {
+  const f = finti({ tag: [{ Key: 'depends-on', Value: 'acme-production-db-5xx' }] })
+  await gestisci(normalizzaAllarme(evento({ nome: 'acme-production-api-5xx' })), cfg, { ...f.deps, aperti: new Map() })
+  assert.equal(f.inviati[0].thread_ts, undefined)
+  assert.doesNotMatch(f.inviati[0].text, /consequence/)
 })
 
 test('zittito: notifiche spente o nessuna azione', () => {
