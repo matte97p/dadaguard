@@ -6,12 +6,13 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
-- **Una cron Lambda appena creata non suona prima del suo primo giro** (10/11/2026). Fra l'apply e il
-  primo orario dello schedule la funzione non ha invocazioni, e Dadaguard la segnava GIÙ con «nessuna
-  esecuzione (l'ultima attesa …)», anche se a quell'ora non esisteva ancora. Adesso, prima di dirla
-  saltata, guarda quando è nato il suo log group (`logs:DescribeLogGroups`, già nella policy): se è nato
-  dopo il giro atteso, la riga è a riposo con «nuova: il primo giro non è ancora arrivato». Se la data non
-  si legge, il controllo resta quello di prima.
+- **Un cron appena creato non suona prima del suo primo giro, su Lambda e su ECS** (10/11/2026). Fra
+  l'apply e il primo orario dello schedule il cron non ha corse, e Dadaguard lo segnava GIÙ con «nessuna
+  esecuzione (l'ultima attesa …)», anche se a quell'ora non esisteva ancora. Adesso, prima di dirlo
+  saltato, guarda quando è nato il suo log group (`logs:DescribeLogGroups`, già nella policy): se è nato
+  dopo il giro atteso, la riga è a riposo con «appena creato: il primo giro non è ancora arrivato». Vale
+  per le cron Lambda e per i job ECS schedulati; se la data non si legge, il controllo resta quello di
+  prima.
 
 ### Changed
 - **Un segreto riscritto conta come rilascio di un job su ECS** (10/11/2026). Un job fallito per una

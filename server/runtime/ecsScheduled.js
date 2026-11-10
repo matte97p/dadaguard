@@ -10,6 +10,7 @@ import { ultimoCambioSegreti, rilascioJob } from './segretiCambiati.js'
 import { esitiEcs } from '../esitiEcs.js'
 import { esitiDaBattito, leggiBattiti, PERIODO_MS } from '../battitoCron.js'
 import { cached } from '../util/ttlcache.js'
+import { logGroupCreatedAt, natoDopoIlGiro } from './nascita.js'
 
 // #2 build/deploy per i cron su ECS RunTask: la task def schedulata non ha un "servizio" long-running,
 // quindi leggiamo direttamente la sua revision → tag immagine + quando/chi l'ha registrata.
@@ -252,6 +253,11 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
   // destinatari diversi (vedi server/notify/watch.js).
   const base = { outcome, schedule: cfg.schedule, scheduleExpr: cfg.scheduleExpr, nextRunAt, nextRunLabel, durationMs: durMs ?? null }
   if (outcome === 'missed') {
+    // Un job nato DOPO il giro atteso non l'ha saltato: non c'era ancora (come per le Lambda cron).
+    const nato = await (opts.logGroupCreatedAt ?? logGroupCreatedAt)(logGroup, aws)
+    if (natoDopoIlGiro(nato, missed)) {
+      return { status: 'idle', ...base, outcome: 'ok', summary: [t('cron.new'), nextRunLabel].filter(Boolean).join(' · ') }
+    }
     const summary = missed
       ? t('cron.missed', { ago: fmtAgo(new Date(missed.expectedAt), t) })
       : t('ecssched.down', { window: fmtDur(windowMin, t), sched: fmtDur(schedMin, t) })
