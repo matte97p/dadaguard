@@ -6,6 +6,7 @@ import { principalName } from '../util/principal.js'
 import { nextRun, missedWindow } from '../util/nextrun.js'
 import { fmtAgo, identityT } from '../i18n.js'
 import { statoRilascio } from '../../shared/rilascio.js'
+import { ultimoCambioSegreti, rilascioJob } from './segretiCambiati.js'
 import { esitiEcs } from '../esitiEcs.js'
 import { esitiDaBattito, leggiBattiti, PERIODO_MS } from '../battitoCron.js'
 import { cached } from '../util/ttlcache.js'
@@ -257,10 +258,11 @@ export async function ecsScheduledRuntime(cfg, aws, opts = {}) {
     return { status: 'down', summary, ...base }
   }
   if (outcome === 'failed') {
-    // Una revision registrata dopo la corsa fallita = la correzione e' gia' rilasciata e aspetta il
-    // giro dopo. Lo stato resta `down` (il lavoro non e' stato fatto), la home lo dice in un altro modo.
-    const registrata = td.taskDefinition?.registeredAt ?? null
-    const rilasciatoAt = statoRilascio({ rilascio: registrata, ultimaFallita: at }) ? new Date(registrata).getTime() : null
+    // Una revision registrata dopo la corsa fallita, o un segreto che il job legge riscritto dopo, = la
+    // correzione e' gia' rilasciata e aspetta il giro dopo. Lo stato resta `down` (il lavoro non e' stato
+    // fatto), la home lo dice in un altro modo.
+    const rilascio = rilascioJob(td.taskDefinition?.registeredAt, await ultimoCambioSegreti(aws, td.taskDefinition))
+    const rilasciatoAt = statoRilascio({ rilascio, ultimaFallita: at }) ? rilascio : null
     return { status: 'down', summary: t('ecssched.failed', { sched: fmtDur(schedMin, t) }) + dur, ...base, ...(rilasciatoAt ? { rilasciatoAt } : {}) }
   }
   return { status: 'up', summary: t('ecssched.ok', { sched: fmtDur(schedMin, t) }) + dur, ...base }

@@ -56,6 +56,7 @@ import { swrMemo } from './util/swr.js'
 import { cached } from './util/ttlcache.js'
 import { mapLimit } from './util/pool.js'
 import { log } from './log.js'
+import { ultimoCambioSegreti, rilascioJob } from './runtime/segretiCambiati.js'
 
 const MIN = 60_000
 const ORA = 60 * MIN
@@ -440,8 +441,9 @@ async function rigaDaLog(cron, aws, g, ora, battito = null) {
   const corse = await conEsito(logs, logGroup, lette, ora, { noti })
   const daRetention = retention ? ora - retention * GIORNO : null
   const copertoDa = Math.max(letti.copertoDa ?? -Infinity, daRetention ?? -Infinity)
-  // La revision della task definition e' il rilascio: la registra ogni deploy del job.
-  const rilascio = td?.registeredAt ? new Date(td.registeredAt).getTime() : null
+  // Il rilascio e' la revision della task definition (la registra ogni deploy del job), o un segreto che
+  // il job legge riscritto dopo: vedi runtime/segretiCambiati.js.
+  const rilascio = rilascioJob(td?.registeredAt, await ultimoCambioSegreti(aws, td))
   return rigaEcs(cron, corse, g, { ora, copertoDa: Number.isFinite(copertoDa) ? copertoDa : null, troncato: letti.troncato, rilascio })
 }
 

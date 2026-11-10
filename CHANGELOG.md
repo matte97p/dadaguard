@@ -6,6 +6,11 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Un segreto riscritto conta come rilascio di un job su ECS** (10/11/2026). Un job fallito per una
+  credenziale scaduta si corregge riscrivendo il parametro SSM, senza una revision nuova della task
+  definition, e la riga restava rossa fino al giro dopo. Adesso «rilasciato dopo il guasto» guarda anche la
+  data di modifica dei parametri SSM che il job legge (`ssm:DescribeParameters`, già nella policy: solo i
+  metadati, mai il valore). I segreti di Secrets Manager restano fuori.
 - **Il watchdog scrive il dettaglio nella lingua dei messaggi, anche nei ticket Linear** (09/11/2026). Il
   dettaglio di un allarme arrivava dal giro condiviso con la dashboard, quindi in italiano anche con
   `DADAGUARD_LANG=en`. Adesso, solo nei giri con una transizione da scrivere, Dadaguard rilegge lo stato in
