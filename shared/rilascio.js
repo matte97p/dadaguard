@@ -1,7 +1,8 @@
 // «Rilasciato dopo il guasto»: un job che ha fallito e che ha una versione nuova arrivata DOPO
 // l'ultimo fallimento. Chi ha rilasciato la correzione non deve tornare in dashboard a segnarla: lo
 // stato si deduce dalle date che AWS restituisce gia' (la revision della task definition, la
-// `LastModified` della Lambda) contro l'ora dell'ultima corsa fallita.
+// `LastModified` della Lambda, o la data di modifica di un parametro SSM che il job su ECS legge) contro
+// l'ora dell'ultima corsa fallita.
 //
 //  · `null`: niente da dire. Nessun rilascio dopo il fallimento, o date mancanti: senza le date non si
 //    promette una correzione che forse non c'e', e la riga resta rossa.
