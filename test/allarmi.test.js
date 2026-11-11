@@ -20,6 +20,7 @@ import {
   ultimoFrame,
   puntoNelCodice,
   zittito,
+  squadraDaTag,
   ritmoDaSerie,
   durata,
   testoContesto,
@@ -398,6 +399,26 @@ test('gestisci: tag team=data → canale data', async () => {
   assert.equal(f.inviati[0].channel, 'CDATA')
 })
 
+test('gestisci: tag dadaguard:team=data → canale data', async () => {
+  const f = finti({ tag: [{ Key: 'dadaguard:team', Value: 'data' }] })
+  await gestisci(normalizzaAllarme(evento()), cfg, f.deps)
+  assert.equal(f.inviati[0].channel, 'CDATA')
+})
+
+test('gestisci: un allarme che comanda lo scaling non si dice, qualunque sia il nome', async () => {
+  const scaling = 'arn:aws:autoscaling:eu-central-1:111111111111:scalingPolicy:abc:resource/ecs/service/acme/worker:policyName/acme-worker-scale-in'
+  const f = finti({ allarme: { ActionsEnabled: true, AlarmActions: [scaling] } })
+  assert.equal(await gestisci(normalizzaAllarme(evento({ nome: 'acme-worker-scale-in' })), cfg, f.deps), true)
+  assert.equal(f.inviati.length, 0)
+})
+
+test('squadraDaTag: team, poi dadaguard:team, in minuscolo', () => {
+  assert.equal(squadraDaTag({ team: 'Data' }), 'data')
+  assert.equal(squadraDaTag({ 'dadaguard:team': 'data' }), 'data')
+  assert.equal(squadraDaTag({ team: 'plat', 'dadaguard:team': 'data' }), 'plat')
+  assert.equal(squadraDaTag({}), '')
+})
+
 test('gestisci: senza tag decide la regola delle squadre sul nome', async () => {
   const f = finti()
   await gestisci(normalizzaAllarme(evento({ nome: 'acme-production-scraping-fasi-x' })), { ...cfg, squadre: { data: ['scraping-*'] } }, f.deps)
@@ -498,6 +519,12 @@ test('zittito: senza azioni ma col tag team parla, con le notifiche spente no', 
   assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [] }, { team: 'data' }), false)
   assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [] }, { team: ' ' }), true)
   assert.equal(zittito({ ActionsEnabled: false, AlarmActions: [] }, { team: 'data' }), true)
+  assert.equal(zittito({ ActionsEnabled: true, AlarmActions: [] }, { 'dadaguard:team': 'data' }), false)
+})
+
+test('zittito: un allarme di scaling tace anche col tag team', () => {
+  const x = { ActionsEnabled: true, AlarmActions: ['arn:aws:autoscaling:eu-central-1:1:scalingPolicy:p:resource/ecs/service/c/s:policyName/n'] }
+  assert.equal(zittito(x, { team: 'data' }), true)
 })
 
 test('gestisci: un allarme zittito non si dice, e la coda lo cancella', async () => {

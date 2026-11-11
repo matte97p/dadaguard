@@ -6,6 +6,13 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Gli allarmi che comandano lo scaling non arrivano più in chat, e il tag `dadaguard:team` vale anche
+  sugli allarmi** (11/11/2026). Dadaguard taceva gli allarmi di autoscaling guardando solo il nome, che
+  ha un prefisso fisso solo per il target tracking: un allarme a gradini col suo nome (coda vuota, togli
+  un task) finiva nel canale come un incidente, acceso e rientrato a ogni giro. Adesso lo riconosce
+  dall'azione `:scalingPolicy:`, come già faceva la pagina degli allarmi. E la squadra di un allarme si
+  legge da `team` oppure da `dadaguard:team`, la chiave che i servizi portano già: chi copia i tag del
+  servizio sui suoi allarmi li manda nel canale della squadra senza tradurli.
 - **Un cron appena creato non suona prima del suo primo giro, su Lambda e su ECS** (10/11/2026). Fra
   l'apply e il primo orario dello schedule il cron non ha corse, e Dadaguard lo segnava GIÙ con «nessuna
   esecuzione (l'ultima attesa …)», anche se a quell'ora non esisteva ancora. Adesso, prima di dirlo
