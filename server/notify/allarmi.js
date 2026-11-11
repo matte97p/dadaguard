@@ -18,6 +18,7 @@ import { makeT } from '../i18n.js'
 import { log } from '../log.js'
 import { stripOrgEnv } from '../util/envToken.js'
 import { ripulisci } from '../util/ripulisci.js'
+import { CHIAVI } from '../meta/tags.js'
 import { envTag, postSlack } from './slack.js'
 import { chiamaSlack, quadroConfig, regoleSquadre, squadraDiRegole } from './quadro.js'
 import { regioneDaUrl } from './eventi.js'
@@ -55,7 +56,7 @@ import { regioneDaUrl } from './eventi.js'
 // la riga c'è lo stesso, ma il messaggio è nuovo. Se il valle arriva prima del monte, esce da solo:
 // si raggruppa solo quello che si sa già.
 //
-// Dove: il tag `team` dell'allarme, se è `data`, manda nel canale della squadra data; sennò decide la
+// Dove: il tag `team` (o `dadaguard:team`) dell'allarme, se è `data`, manda nel canale della squadra data; sennò decide la
 // regola delle squadre del quadro (DADAGUARD_QUADRO_SQUADRE) sul nome; tutto il resto nel canale
 // principale. Il rientro va dove è andato l'allarme, perché i tag sono gli stessi.
 //
@@ -195,8 +196,18 @@ export function decidi(a, { storia = null, severita = null } = {}) {
 // apposta per parlare solo da qui, e tacerlo vorrebbe dire non dirlo a nessuno. Puro.
 export function zittito(x, tag = {}) {
   if (x?.ActionsEnabled === false) return true
-  if (String(tag.team ?? '').trim()) return false
+  // Un allarme che comanda lo scaling scala, non avvisa: il nome non basta a riconoscerlo (solo quelli
+  // del target tracking hanno un prefisso fisso), lo dice l'azione `:scalingPolicy:`.
+  if (isAutoscalingAlarm(x)) return true
+  if (squadraDaTag(tag)) return false
   return ![...(x?.AlarmActions ?? []), ...(x?.OKActions ?? []), ...(x?.InsufficientDataActions ?? [])].length
+}
+
+// La squadra dell'allarme dai suoi tag: `team`, oppure `dadaguard:team`, la chiave che i servizi
+// portano già (server/meta/tags.js). Chi copia i tag del servizio sui suoi allarmi non deve
+// tradurli. Pura.
+export function squadraDaTag(tag = {}) {
+  return String(tag.team ?? tag[CHIAVI.team] ?? '').trim().toLowerCase()
 }
 
 export { ripulisci }
@@ -772,7 +783,7 @@ export async function gestisci(a, cfg, deps = {}) {
     return true
   }
 
-  const squadra = String(tag.team ?? '').toLowerCase() || squadraDiRegole(regoleSquadre(cfg.squadre), [], [stripOrgEnv(a.nome)])
+  const squadra = squadraDaTag(tag) || squadraDiRegole(regoleSquadre(cfg.squadre), [], [stripOrgEnv(a.nome)])
   const dove = squadra === 'data' && cfg.canaleData && cfg.botToken ? { canale: cfg.canaleData } : cfg.canale && cfg.botToken ? { canale: cfg.canale } : cfg.webhook ? { webhook: cfg.webhook } : null
   if (!dove) {
     log.warn('allarmi: nessuna destinazione configurata', { allarme: a.nome })
