@@ -52,6 +52,7 @@ import { quadro, canvasDaScrivere, listeDaScrivere, quadroConfig, startQuadro } 
 import { statoLeggero } from './quadroStato.js'
 import { startCorse, corseConfig, conInfra } from './notify/corse.js'
 import { statusFor, warmStatus } from './statusCache.js'
+import { statoPubblico } from './statoPubblico.js'
 import { creaPronto } from './util/pronto.js'
 import { swrMemo } from './util/swr.js'
 import { statoAccessi } from './accessi.js'
@@ -129,6 +130,24 @@ app.get('/api/status', async (req, res) => {
     res.json({ ...value, cached: !computed, stale })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// Il riepilogo per una status page pubblica: per ogni componente dichiarato in `statusPage` il suo id
+// e uno stato, nient'altro (server/statoPubblico.js). Legge la stessa cache della dashboard, quindi
+// non costa un giro in più. 404 quando la config non dichiara componenti. Davanti a un'istanza in
+// cloud va messo un accesso a solo token di servizio: è pensato per essere letto da una macchina.
+app.get('/api/public-status', async (_req, res) => {
+  try {
+    const { statusPage } = loadConfig()
+    const status = isDemo ? demoStatus('it') : (await statusFor('it')).value
+    const out = statoPubblico(status, statusPage)
+    res.set('Cache-Control', 'no-store')
+    if (!out) return res.status(404).json({ error: 'statusPage non configurata' })
+    res.json(out)
+  } catch (err) {
+    log.error('public-status: riepilogo non calcolabile', { err: err.message })
+    res.status(500).json({ error: 'non disponibile' })
   }
 })
 
