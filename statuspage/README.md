@@ -72,8 +72,9 @@ statusPage:
    npx wrangler deploy --config statuspage/wrangler.generated.json
    ```
 
-The `deploy` workflow does step 2 and 3 (without the secrets) on every push to `main` when the
-`STATUSPAGE_HOST` repository variable is set.
+Run the deploy from a private place (your machine, or a private repo's CI), not from the CI of a
+public fork: Actions logs of a public repository are readable by anyone, and repository variables
+(host, KV id, account id, components) are printed in clear in them. Only secrets are masked.
 
 ## Cost
 
