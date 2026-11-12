@@ -101,6 +101,11 @@ function lastDays(now, tz, n = HISTORY_DAYS) {
   return [...new Set(out)]
 }
 
+// Un giro e' dovuto se non ce n'e' mai stato uno o se l'ultimo ha piu' di 55 secondi.
+export function dueForTick(checkedAt, now = Date.now()) {
+  return !checkedAt || now - new Date(checkedAt).getTime() >= 55_000
+}
+
 export async function statusPayload(env, now = new Date()) {
   const comps = parseComponents(env.COMPONENTS)
   const tz = env.TZ || 'UTC'
@@ -219,7 +224,7 @@ async function admin(request, env, url) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) return admin(request, env, url)
     if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405, headers: SECURITY_HEADERS })
@@ -229,7 +234,12 @@ export default {
       return html(pageHtml({ nonce: n, site: env.SITE_NAME || 'Status' }), n, { 'cache-control': 'public, max-age=60' })
     }
     if (url.pathname === '/api/status.json') {
-      return jsonRes(await statusPayload(env), 200, { 'cache-control': 'public, max-age=30', 'access-control-allow-origin': '*' })
+      const payload = await statusPayload(env)
+      // Riserva del cron: se l'ultimo giro e' piu' vecchio di un minuto, lo fa partire questa visita,
+      // dopo aver risposto. Il cron resta il motore; questa via copre un cron che non parte, e il
+      // limite di un minuto evita che piu' visite contino lo stesso minuto due volte.
+      if (ctx && dueForTick(payload.checkedAt)) ctx.waitUntil(tick(env).catch((err) => console.error(JSON.stringify({ evento: 'giro fallito', err: err.message }))))
+      return jsonRes(payload, 200, { 'cache-control': 'public, max-age=30', 'access-control-allow-origin': '*' })
     }
     if (url.pathname === '/feed.xml') {
       const lang = url.searchParams.get('lang') === 'en' ? 'en' : 'it'
