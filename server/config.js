@@ -100,6 +100,9 @@ export function validateConfig(doc) {
     // piu' il tag `dadaguard:posthog` sulla risorsa col nome che il servizio usa nei log. Senza l'uno
     // o l'altro quel link non compare: un progetto o un nome indovinato apre la pagina sbagliata.
     posthog: doc?.posthog?.host && doc?.posthog?.projectId != null ? { host: doc.posthog.host, projectId: String(doc.posthog.projectId) } : null,
+    // Componenti di una status page pubblica: `statusPage: { <id>: [<account>/<nome>, …] }`. Senza,
+    // `GET /api/public-status` risponde 404. Cosa esce e cosa no: server/statoPubblico.js.
+    statusPage: doc?.statusPage ?? null,
   }
 }
 
