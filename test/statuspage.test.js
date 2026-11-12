@@ -4,7 +4,7 @@ import {
   parseComponents, decide, dayKey, addMinute, availability, validateNew, applyUpdate, isActive,
   incidentImpact, pruneItems, toRss,
 } from '../statuspage/logic.js'
-import worker, { tick, statusPayload, dueForTick } from '../statuspage/worker.js'
+import worker, { tick, statusPayload, dueForTick, lastDays } from '../statuspage/worker.js'
 import { verifyAccess, _resetCerts } from '../statuspage/access.js'
 
 // Nomi e indirizzi inventati: il repo è pubblico.
@@ -278,4 +278,13 @@ test("dueForTick: un giro al minuto al massimo, anche con più visite", () => {
   assert.equal(dueForTick(null, now), true)
   assert.equal(dueForTick('2026-01-01T09:59:30.000Z', now), false)
   assert.equal(dueForTick('2026-01-01T09:59:00.000Z', now), true)
+})
+
+test('lastDays: 90 giorni di calendario anche attraverso il cambio dell\'ora legale', () => {
+  const days = lastDays(new Date('2026-11-12T22:00:00Z'), 'Europe/Rome')
+  assert.equal(days.length, 90)
+  assert.equal(new Set(days).size, 90)
+  assert.equal(days.at(-1), '2026-11-12')
+  assert.equal(days[0], '2026-08-15')
+  assert.ok(days.includes('2026-10-25'))
 })

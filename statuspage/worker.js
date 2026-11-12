@@ -95,10 +95,13 @@ export async function tick(env, now = new Date()) {
 // Toglie da un incidente quello che non è pubblico: chi l'ha scritto.
 const pubblico = (i) => ({ ...i, updates: i.updates.map(({ by, ...u }) => u) })
 
-function lastDays(now, tz, n = HISTORY_DAYS) {
+// I giorni del calendario, non blocchi di 24 ore: col cambio dell'ora legale un giorno dura 23 o 25
+// ore, e sottrarre 86400000 ms ne saltava uno (89 barre invece di 90).
+export function lastDays(now, tz, n = HISTORY_DAYS) {
+  const [y, m, d] = dayKey(now, tz).split('-').map(Number)
   const out = []
-  for (let k = n - 1; k >= 0; k--) out.push(dayKey(new Date(now.getTime() - k * 86400000), tz))
-  return [...new Set(out)]
+  for (let k = n - 1; k >= 0; k--) out.push(new Date(Date.UTC(y, m - 1, d - k)).toISOString().slice(0, 10))
+  return out
 }
 
 // Un giro e' dovuto se non ce n'e' mai stato uno o se l'ultimo ha piu' di 55 secondi.
