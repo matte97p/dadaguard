@@ -4,7 +4,7 @@ import {
   parseComponents, decide, dayKey, addMinute, availability, validateNew, applyUpdate, isActive,
   incidentImpact, pruneItems, toRss,
 } from '../statuspage/logic.js'
-import worker, { tick, statusPayload } from '../statuspage/worker.js'
+import worker, { tick, statusPayload, dueForTick } from '../statuspage/worker.js'
 import { verifyAccess, _resetCerts } from '../statuspage/access.js'
 
 // Nomi e indirizzi inventati: il repo è pubblico.
@@ -271,4 +271,11 @@ test('buildConfig: tutto dalle variabili, niente custom domain, cron ogni minuto
   const due = buildConfig({ ...base, STATUSPAGE_HOST: 'status.example.com, status-test.example.com' })
   assert.deepEqual(due.routes.map((r) => r.pattern), ['status.example.com/*', 'status-test.example.com/*'])
   assert.throws(() => buildConfig({ ...base, STATUSPAGE_HOST: 'status.example.com,https://x' }), /host/)
+})
+
+test("dueForTick: un giro al minuto al massimo, anche con più visite", () => {
+  const now = Date.parse('2026-01-01T10:00:00Z')
+  assert.equal(dueForTick(null, now), true)
+  assert.equal(dueForTick('2026-01-01T09:59:30.000Z', now), false)
+  assert.equal(dueForTick('2026-01-01T09:59:00.000Z', now), true)
 })
