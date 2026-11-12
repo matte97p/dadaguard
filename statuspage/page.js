@@ -125,7 +125,7 @@ dialog::backdrop{background:rgb(0 0 0/.45)}
 .tl .st{font-weight:600;font-size:14px}
 .tl .st time{font:12px var(--mono);color:var(--ink-3);margin-left:8px}
 .tl p{font-size:13.5px;color:var(--ink-2);grid-column:2;white-space:pre-line}
-@media (max-width:560px){.inc{grid-template-columns:1fr}.inc p{grid-column:1}.bars{grid-template-columns:repeat(45,1fr)}.bars i:nth-child(-n+45){display:none}.axis .far{display:none}}
+@media (max-width:560px){.inc{grid-template-columns:1fr}.inc p{grid-column:1}.bars{gap:1px}.bars i{border-radius:1px}}
 </style>
 </head>
 <body>
