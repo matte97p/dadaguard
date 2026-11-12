@@ -4,7 +4,7 @@
 //
 //   node statuspage/build-config.mjs > statuspage/wrangler.generated.json
 //
-// Obbligatorie: STATUSPAGE_HOST, STATUSPAGE_ZONE, STATUSPAGE_KV_ID, STATUSPAGE_COMPONENTS,
+// Obbligatorie: STATUSPAGE_HOST (uno o più, separati da virgola), STATUSPAGE_ZONE, STATUSPAGE_KV_ID, STATUSPAGE_COMPONENTS,
 // CLOUDFLARE_ACCOUNT_ID. Facoltative: STATUSPAGE_NAME, STATUSPAGE_SITE_NAME, STATUSPAGE_TZ,
 // STATUSPAGE_DADAGUARD_URL, STATUSPAGE_ACCESS_TEAM_DOMAIN, STATUSPAGE_ACCESS_AUD.
 import { parseComponents } from './logic.js'
@@ -13,8 +13,9 @@ export function buildConfig(env) {
   const need = ['STATUSPAGE_HOST', 'STATUSPAGE_ZONE', 'STATUSPAGE_KV_ID', 'STATUSPAGE_COMPONENTS', 'CLOUDFLARE_ACCOUNT_ID']
   const missing = need.filter((k) => !env[k])
   if (missing.length) throw new Error(`mancano: ${missing.join(', ')}`)
-  const host = env.STATUSPAGE_HOST
-  if (!/^[a-z0-9.-]+$/i.test(host)) throw new Error('STATUSPAGE_HOST: solo il nome host, senza schema né percorso')
+  // Uno o più host separati da virgola (per esempio l'host vero e uno di prova dietro un login).
+  const hosts = env.STATUSPAGE_HOST.split(',').map((h) => h.trim()).filter(Boolean)
+  if (hosts.length === 0 || hosts.some((h) => !/^[a-z0-9.-]+$/i.test(h))) throw new Error('STATUSPAGE_HOST: solo nomi host, senza schema né percorso')
   const comps = parseComponents(env.STATUSPAGE_COMPONENTS)
   if (comps.length === 0) throw new Error('STATUSPAGE_COMPONENTS: nessun componente valido')
   return {
@@ -30,7 +31,7 @@ export function buildConfig(env) {
     preview_urls: false,
     // La rotta, non un custom domain: il record DNS lo possiede l'IaC di chi deploya, e un custom
     // domain lo creerebbe di suo (fallendo se il record esiste già).
-    routes: [{ pattern: `${host}/*`, zone_name: env.STATUSPAGE_ZONE }],
+    routes: hosts.map((h) => ({ pattern: `${h}/*`, zone_name: env.STATUSPAGE_ZONE })),
     kv_namespaces: [{ binding: 'STATUS', id: env.STATUSPAGE_KV_ID }],
     triggers: { crons: ['* * * * *'] },
     observability: { enabled: true },

@@ -268,4 +268,7 @@ test('buildConfig: tutto dalle variabili, niente custom domain, cron ogni minuto
   assert.equal(c.vars.TZ, 'Europe/Rome')
   assert.equal(JSON.parse(c.vars.COMPONENTS).length, 3)
   assert.equal('DADAGUARD_CLIENT_SECRET' in c.vars, false)
+  const due = buildConfig({ ...base, STATUSPAGE_HOST: 'status.example.com, status-test.example.com' })
+  assert.deepEqual(due.routes.map((r) => r.pattern), ['status.example.com/*', 'status-test.example.com/*'])
+  assert.throws(() => buildConfig({ ...base, STATUSPAGE_HOST: 'status.example.com,https://x' }), /host/)
 })
