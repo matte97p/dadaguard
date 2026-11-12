@@ -35,3 +35,6 @@ HANDOFF.md
 # La lista dei nomi da vietare (test/vietati.js): sta fuori dal repo pubblico. Nella CI e' il secret
 # DADAGUARD_VIETATI.
 test/vietati.local.json
+
+# Config di wrangler della status page: generata dalle variabili, contiene i dati di chi deploya.
+statuspage/wrangler.generated.json

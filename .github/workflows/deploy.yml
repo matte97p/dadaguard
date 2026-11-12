@@ -95,3 +95,35 @@ jobs:
               --query 'services[0].events[:5].message' --output json
             exit 1
           fi
+
+  # La status page pubblica (statuspage/), su Cloudflare Workers. Parte solo se il repo ha la
+  # variabile STATUSPAGE_HOST: un fork senza status page non la deploya e non fallisce. La config di
+  # wrangler si genera dalle variabili del repo, così qui non c'è il dominio di nessuno. I due secret
+  # del Worker (DADAGUARD_CLIENT_ID / _SECRET) si mettono una volta a mano con `wrangler secret put`
+  # e un deploy non li tocca.
+  statuspage:
+    needs: test
+    if: ${{ vars.STATUSPAGE_HOST != '' }}
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      STATUSPAGE_NAME: ${{ vars.STATUSPAGE_NAME }}
+      STATUSPAGE_HOST: ${{ vars.STATUSPAGE_HOST }}
+      STATUSPAGE_ZONE: ${{ vars.STATUSPAGE_ZONE }}
+      STATUSPAGE_KV_ID: ${{ vars.STATUSPAGE_KV_ID }}
+      STATUSPAGE_COMPONENTS: ${{ vars.STATUSPAGE_COMPONENTS }}
+      STATUSPAGE_SITE_NAME: ${{ vars.STATUSPAGE_SITE_NAME }}
+      STATUSPAGE_TZ: ${{ vars.STATUSPAGE_TZ }}
+      STATUSPAGE_DADAGUARD_URL: ${{ vars.STATUSPAGE_DADAGUARD_URL }}
+      STATUSPAGE_ACCESS_TEAM_DOMAIN: ${{ vars.STATUSPAGE_ACCESS_TEAM_DOMAIN }}
+      STATUSPAGE_ACCESS_AUD: ${{ vars.STATUSPAGE_ACCESS_AUD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Genera la config di wrangler
+        run: node statuspage/build-config.mjs > statuspage/wrangler.generated.json
+      - name: Deploy del Worker
+        run: npx --yes wrangler@4.20.0 deploy --config statuspage/wrangler.generated.json
