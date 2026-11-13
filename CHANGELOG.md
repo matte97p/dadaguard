@@ -5,6 +5,11 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Security
+- **Nessuna dipendenza npm con meno di 7 giorni di vita** (13/11/2026). `.npmrc` con `min-release-age=7`:
+  `npm install` e `npm update` scelgono solo versioni pubblicate da almeno una settimana, il tempo in cui
+  di solito una versione malevola viene scoperta e ritirata. `npm ci` segue il lockfile come prima.
+
 ### Changed
 - **Efficienza: Spot solo per i servizi replicati, con una copia on-demand** (13/11/2026). La leva Spot
   andava a ogni servizio senza load balancer, quindi anche a tunnel, agent e scheduler con un task solo,
