@@ -203,6 +203,16 @@ export function pct(frazione, lang = 'it', cifre = 1) {
   return lang === 'it' ? v.replace('.', ',') : v
 }
 
+// La risorsa come la legge una persona. `resourceId` e' una chiave per la macchina: account, tipo e
+// poi un campo per ogni identificativo possibile, quasi tutti vuoti (`acct|ecs||cluster|svc||||`), e
+// nella scheda si vedeva cosi', con le barre. Account e tipo sono gia' scritti in cima alla scheda:
+// qui restano solo i pezzi che dicono QUALE risorsa, separati da una barra. Pura/testabile.
+export function risorsaLeggibile(resourceId) {
+  if (!resourceId) return null
+  const pezzi = String(resourceId).split('|').slice(2).filter(Boolean)
+  return pezzi.length ? pezzi.join(' / ') : null
+}
+
 // «Di chi e'»: team, canale e runbook arrivano dai tag della risorsa. Senza nessuno dei tre la
 // sezione non si mostra: un elenco di trattini non dice niente.
 export function diChi(s) {

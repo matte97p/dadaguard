@@ -153,10 +153,20 @@ export function profiloPerComando(acct) {
   return acct?.cliProfile ?? acct?.profile ?? null
 }
 
+// Lo stesso account si riconosce dal NUMERO, non solo dalla chiave: l'org lo chiama col suo nome
+// (`acme`), la config spesso con il ruolo (`management`). Unendo per chiave c'erano due account per lo
+// stesso numero, e ogni build fallita, ogni costo e ogni allarme di quell'account si contavano due
+// volte. Il dichiarato tiene la sua chiave e assorbe lo scoperto con lo stesso `accountId`.
 export function mergeAccounts(discovered = {}, declared = {}) {
   const out = { ...discovered }
   for (const [key, dec] of Object.entries(declared ?? {})) {
-    out[key] = { ...(discovered?.[key] ?? {}), ...dec }
+    // Senza `accountId` il numero sta comunque nel `roleArn` (`arn:aws:iam::<numero>:role/…`).
+    const id = dec?.accountId != null ? String(dec.accountId) : (/^arn:aws[\w-]*:iam::(\d{12}):/.exec(dec?.roleArn ?? '')?.[1] ?? null)
+    const gemello = id
+      ? Object.keys(discovered ?? {}).find((k) => k !== key && String(discovered[k]?.accountId) === id)
+      : null
+    if (gemello) delete out[gemello]
+    out[key] = { ...(discovered?.[gemello ?? key] ?? {}), ...(gemello ? (discovered?.[key] ?? {}) : {}), ...dec }
   }
   return out
 }

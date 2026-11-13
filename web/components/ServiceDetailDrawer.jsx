@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Drawer, Tabs, Pill, Lista, Sezione, Rimedio, ListaLink, Meter } from '../ui/index.js'
 import { detailTabs } from '../format.js'
 import { livelloServizio, ownerServizio, comandoServizio } from '../adattatori.js'
-import { controlliDi, cosaSuccede, altriProblemi, linkAltrove, sloDi, pct, diChi } from '../servizi.js'
+import { controlliDi, cosaSuccede, altriProblemi, linkAltrove, sloDi, pct, diChi, risorsaLeggibile } from '../servizi.js'
 import { etichettaServizio, tipoLabel, latenzaTesto } from './ServicesTable.jsx'
 import LogsPanel from './LogsPanel.jsx'
 import EventsPanel from './EventsPanel.jsx'
@@ -184,10 +184,10 @@ function Panoramica({ s, livello, has, onNavigate, onDrift, onRemove, onTab, t, 
             <dd>{s.checks.runtime.nextRunLabel}</dd>
           </>
         )}
-        {s.resourceId && (
+        {risorsaLeggibile(s.resourceId) && (
           <>
             <dt>{t('svc.kv.risorsa')}</dt>
-            <dd className="ui-mono ui-mute">{s.resourceId}</dd>
+            <dd className="ui-mono ui-mute">{risorsaLeggibile(s.resourceId)}</dd>
           </>
         )}
       </dl>
