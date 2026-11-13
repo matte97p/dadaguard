@@ -133,7 +133,7 @@ test('ECS: dimensioni CloudWatch del load balancer e servizi su Fargate', () => 
 
 test('leve: taglia, Spot per i worker, fuori orario solo fuori produzione', () => {
   const servizio = {
-    nome: 'worker', squadra: 'dati', cpu: 2048, memMb: 4096, costoOraTask: 0.096, taskMedi: 2, quotaSpot: 0,
+    nome: 'worker', squadra: 'dati', cpu: 2048, memMb: 4096, costoOraTask: 0.096, taskMedi: 2, desiderati: 2, quotaSpot: 0,
     bilanciato: false, pianificato: false, eccessoMinimoTaskOra: 0, listino: LISTINO,
     proposta: { cpu: 1024, memMb: 2048, risparmioOraTask: 0.048 },
   }
@@ -181,12 +181,14 @@ test('tariffa Spot effettiva: costo diviso ore delle voci Spot, e niente tariffa
   assert.equal(conSpot(null, t), null)
 })
 
-import { leggiUrl, segnaliTabella } from '../server/efficienza/pgStat.js'
+import { leggiUrl, segnaliTabella, opzioniTls } from '../server/efficienza/pgStat.js'
+import { databaseFuoriRds } from '../server/efficienza/index.js'
 
 test('Postgres: configurazione id=url, voci malformate scartate', () => {
   assert.deepEqual(leggiUrl(''), [])
-  const v = leggiUrl('db-a=postgresql://u:p@h:5432/x; rotto ;db-b=postgres://u@h/y;db-c=mysql://h')
+  const v = leggiUrl('db-a=postgresql://u:p@h:5432/x; rotto ;prod/db-b=postgres://u@h/y;db-c=mysql://h')
   assert.deepEqual(v.map((x) => x.id), ['db-a', 'db-b'])
+  assert.deepEqual(v.map((x) => x.account), [null, 'prod'])
 })
 
 test('Postgres: segnali di una tabella con soglie dichiarate', () => {
@@ -224,4 +226,37 @@ test('listino: i prodotti dell SDK v3 arrivano come JSON pigro, non come stringa
   const p = prezziFargateDa([prodotto('XYZ1-Fargate-vCPU-Hours:perCPU', 0.04), prodotto('XYZ1-Fargate-GB-Hours', 0.0044)])
   assert.equal(p.x86.vcpu, 0.04)
   assert.equal(prezzoOnDemand(prodotto('XYZ1-Fargate-GB-Hours', 0.0044)), 0.0044)
+})
+
+test('Spot: mai per un servizio con un task solo, e una copia resta on-demand', () => {
+  const s = {
+    nome: 'tunnel', cpu: 1024, memMb: 2048, costoOraTask: 0.048, taskMedi: 1, desiderati: 1, min: null, max: null,
+    quotaSpot: 0, bilanciato: false, pianificato: false, eccessoMinimoTaskOra: 0, listino: LISTINO, proposta: null,
+  }
+  assert.equal(leveAccount({ account: 'prod', servizi: [s] }).length, 0)
+  const tre = leveAccount({ account: 'prod', servizi: [{ ...s, nome: 'consumer', taskMedi: 3, desiderati: 3 }] })
+  const spot = costoOraTask({ cpu: 1024, memMb: 2048, quotaSpot: 1 }, LISTINO)
+  assert.ok(Math.abs(tre[0].usdMese - (0.048 - spot) * 2 * 730) < 1e-9) // due copie su tre
+})
+
+test('Postgres: con la CA si verifica la catena e si tolgono i parametri ssl dell URL', () => {
+  const ca = '-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----'
+  const o = opzioniTls('postgresql://u:p@lb.interno:5432/postgres?sslmode=require&application_name=x', ca)
+  assert.ok(!o.connectionString.includes('sslmode'))
+  assert.ok(o.connectionString.includes('application_name=x'))
+  assert.equal(o.ssl.rejectUnauthorized, true)
+  assert.equal(o.ssl.ca, ca)
+  assert.equal(o.ssl.checkServerIdentity(), undefined) // verify-ca: il nome del load balancer non è nel certificato
+  // senza CA l'URL resta com'è
+  assert.deepEqual(opzioniTls('postgresql://h/db?sslmode=require', ''), { connectionString: 'postgresql://h/db?sslmode=require' })
+})
+
+test('database fuori da RDS: righe con le sole statistiche, mai doppioni di un RDS', () => {
+  const righe = databaseFuoriRds({ 'pg-ec2': { account: 'prod', db: { connessioni: 40, limite: 300 } }, 'rds-1': { account: null } }, [{ id: 'rds-1' }])
+  assert.equal(righe.length, 1)
+  assert.equal(righe[0].id, 'pg-ec2')
+  assert.equal(righe[0].account, 'prod')
+  assert.equal(righe[0].fuoriRds, true)
+  assert.equal(righe[0].usdMese, null)
+  assert.equal(righe[0].connessioniLimite, 300)
 })

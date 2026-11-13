@@ -18,7 +18,9 @@ const TTL = 10 * 60 * 1000
 const TIMEOUT_MS = 8000
 const TABELLE = 60
 
-// `id=url;id=url` → [{ id, url }]. Puro. Le voci malformate si scartano.
+// `id=url;account/id=url` → [{ id, account, url }]. Puro. Le voci malformate si scartano.
+// L'account davanti all'id serve ai database che non sono su RDS (Postgres su EC2, per esempio): senza
+// un'istanza RDS con lo stesso id, la pagina non saprebbe a quale ambiente appartengono.
 export function leggiUrl(valore = process.env.DADAGUARD_PG_URLS ?? '') {
   return String(valore)
     .split(';')
@@ -26,9 +28,31 @@ export function leggiUrl(valore = process.env.DADAGUARD_PG_URLS ?? '') {
     .filter(Boolean)
     .map((v) => {
       const i = v.indexOf('=')
-      return i > 0 ? { id: v.slice(0, i).trim(), url: v.slice(i + 1).trim() } : null
+      if (i <= 0) return null
+      const chiave = v.slice(0, i).trim()
+      const barra = chiave.indexOf('/')
+      return {
+        id: barra >= 0 ? chiave.slice(barra + 1) : chiave,
+        account: barra > 0 ? chiave.slice(0, barra) : null,
+        url: v.slice(i + 1).trim(),
+      }
     })
     .filter((v) => v?.id && /^postgres(ql)?:\/\//.test(v.url))
+}
+
+// TLS verso il database. Con una CA (`DADAGUARD_PG_CA`, il PEM della CA che ha firmato il certificato
+// del server) la catena si verifica e la connessione senza TLS è impossibile; il NOME dell'host invece
+// no, perché si passa spesso da un load balancer interno il cui nome non è nel certificato: è la
+// semantica di `verify-ca`. I parametri ssl dell'URL si tolgono, sennò pg li applicherebbe sopra.
+// Senza CA l'URL decide da solo, come prima. Puro.
+export function opzioniTls(url, ca = process.env.DADAGUARD_PG_CA ?? '') {
+  if (!ca || !String(ca).includes('BEGIN CERTIFICATE')) return { connectionString: url }
+  const u = new URL(url)
+  for (const k of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat']) u.searchParams.delete(k)
+  return {
+    connectionString: u.toString(),
+    ssl: { ca: String(ca), rejectUnauthorized: true, checkServerIdentity: () => undefined },
+  }
 }
 
 const Q_SCHEMI = `
@@ -80,7 +104,7 @@ export function segnaliTabella(t) {
 export function statistichePostgres({ id, url }) {
   return cached(`eff:pg:${id}`, TTL, async () => {
     const client = new pg.Client({
-      connectionString: url,
+      ...opzioniTls(url),
       statement_timeout: TIMEOUT_MS,
       query_timeout: TIMEOUT_MS,
       connectionTimeoutMillis: TIMEOUT_MS,
@@ -109,10 +133,10 @@ export async function postgresConfigurati() {
   await Promise.all(
     voci.map(async (v) => {
       try {
-        out[v.id] = await statistichePostgres(v)
+        out[v.id] = { account: v.account, ...(await statistichePostgres(v)) }
       } catch (err) {
         // Il messaggio di pg può contenere l'host ma mai la password; si tiene solo il codice e il testo.
-        out[v.id] = { errore: String(err?.code ? `${err.code} ${err.message}` : err?.message ?? err).replace(/postgres(ql)?:\/\/\S+/g, 'postgresql://…') }
+        out[v.id] = { account: v.account, errore: String(err?.code ? `${err.code} ${err.message}` : err?.message ?? err).replace(/postgres(ql)?:\/\/\S+/g, 'postgresql://…') }
       }
     }),
   )

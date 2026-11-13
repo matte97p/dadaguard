@@ -163,7 +163,7 @@ export default function EfficienzaPage({ t = (k) => k, lang, accountFilter = [] 
       case 'minimo':
         return { titolo: t('eff.leva.minimo', { s: l.oggetto }), sotto: t('eff.leva.minimo.sotto', { n: d.minimo }) }
       case 'spot':
-        return { titolo: t('eff.leva.spot', { s: l.oggetto }), sotto: t('eff.leva.spot.sotto') }
+        return { titolo: t('eff.leva.spot', { s: l.oggetto }), sotto: t('eff.leva.spot.sotto', { n: d.repliche ?? 2 }) }
       case 'orari':
         return { titolo: t('eff.leva.orari', { a: data?.accounts?.[l.account]?.label ?? l.account }), sotto: t('eff.leva.orari.sotto', { ore: d.oreFerme, n: d.servizi }) }
       case 'indici':
@@ -447,10 +447,11 @@ export default function EfficienzaPage({ t = (k) => k, lang, accountFilter = [] 
                             {data?.accounts?.[d.account]?.label ?? d.account} · {d.motore} {d.versione ?? ''}
                             {d.multiAz ? ' · Multi-AZ' : ''}
                             {d.replica ? ` · ${t('eff.db.replica')}` : ''}
+                            {d.fuoriRds ? ` · ${t('eff.db.fuoriRds')}` : ''}
                           </small>
                         </td>
                         <td>
-                          {d.classe}
+                          {d.classe ?? <span className="eff-tenue">-</span>}
                           {d.vcpu ? <small>{`${d.vcpu} vCPU · ${Math.round(d.memGb)} GB`}</small> : null}
                         </td>
                         <td><Uso pct={d.cpuP95} /></td>
