@@ -1,3 +1,4 @@
+import { efficienzaDemo } from './efficienza/demo.js'
 // Demo / sandbox: dataset FINTO, zero credenziali AWS. Stessa forma di getStatus & co.
 // Serve a (a) provare Dadaguard senza wiring AWS, (b) registrare la GIF di lancio,
 // (c) valutare la UI. Attivo con env DADAGUARD_DEMO=1 (vedi mode.js: isDemo).
@@ -2322,4 +2323,9 @@ export function demoAndamentoServizi(ore = 24, ora = Date.now(), conti = []) {
   const bersagli = SERVIZI.map((s) => ({ account: s.account, servizio: s.servizio, lb: `app/demo-${s.account}/0000000000000000`, tg: `targetgroup/${s.servizio}/0000000000000000` }))
   const account = Object.fromEntries([...new Set(SERVIZI.map((s) => s.account))].map((k) => [k, { label: ACC[k].label }]))
   return { g, bersagli, risultati, account, trovati: bersagli.length }
+}
+
+// Efficienza: la flotta inventata passa dalle regole vere del server (vedi efficienza/demo.js).
+export function demoEfficienza(giorni = 30) {
+  return efficienzaDemo(giorni)
 }

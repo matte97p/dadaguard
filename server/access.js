@@ -16,6 +16,7 @@ import { clientOpts } from './runtime/awsClient.js'
 export const SURFACE_ACTIONS = {
   costs: ['ce:GetCostAndUsage'],
   waste: ['ec2:DescribeVolumes'],
+  efficiency: ['ecs:ListClusters'],
   quotas: ['servicequotas:ListServiceQuotas'],
   iam: ['iam:ListPolicies'],
 }

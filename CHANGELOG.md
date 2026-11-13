@@ -5,6 +5,26 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Efficienza: quanto della spesa si usa davvero, e come recuperare il resto** (13/11/2026). Una pagina
+  nuova accanto a Spesa, per chi tiene i conti dell'infrastruttura. In cima i soldi recuperabili al mese e
+  le leve che li recuperano, la più redditizia prima, ognuna col suo rischio e con il modo di applicarla:
+  la taglia giusta di un servizio ECS (il p95 di CPU e memoria sotto il 60%, solo combinazioni che Fargate
+  accetta), il minimo dell'autoscaling più alto di quanto chiede il carico di notte, un ambiente non di
+  produzione acceso nelle ore in cui nessuno lo usa (la settimana tipo lo mostra), un worker senza load
+  balancer che può andare su Spot, un database una classe sotto. Sotto: capacità pagata contro usata
+  giorno per giorno, costo per 1.000 richieste per servizio, spesa per squadra (dal tag `Component`, o
+  `DADAGUARD_TEAM_TAG`) e per ambiente. Filtri (squadra, risorsa, periodo, listino o netto dai crediti,
+  al mese o all'anno, rischio e modo delle leve, risparmio minimo), quattro lenti e viste salvate stanno
+  nell'indirizzo, quindi una vista si manda con un link. Tutti i servizi Fargate e tutte le istanze RDS
+  si scoprono da soli, senza configurazione. Permessi nuovi, tutti in lettura: `pricing:GetProducts`,
+  `application-autoscaling:DescribeScalableTargets` e `DescribeScheduledActions`,
+  `ec2:DescribeInstanceTypes`, `ce:GetSavingsPlansCoverage` (vedi `deploy/`). Il listino AWS non ha
+  Fargate Spot: la sua tariffa si ricava dalla spesa vera in Cost Explorer, e senza uso di Spot la leva
+  Spot non si propone. Opzionale, dentro Postgres: spazio per schema, righe morte, tabelle lette per
+  intero, indici mai usati, connessioni e lock, dalle sole viste di statistica, con `DADAGUARD_PG_URLS`
+  (`id=postgresql://…`) e un utente con `pg_read_all_stats`, in sessioni di sola lettura.
+
 ### Fixed
 - **Gli allarmi che comandano lo scaling non arrivano più in chat, e il tag `dadaguard:team` vale anche
   sugli allarmi** (11/11/2026). Dadaguard taceva gli allarmi di autoscaling guardando solo il nome, che

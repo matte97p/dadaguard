@@ -26,6 +26,7 @@ import TopologyPage from './pages/TopologyPage.jsx'
 import IamPage from './pages/IamPage.jsx'
 import AccessiPage from './pages/AccessiPage.jsx'
 import FlottaPage from './pages/FlottaPage.jsx'
+import EfficienzaPage from './pages/EfficienzaPage.jsx'
 import SecurityPage from './pages/SecurityPage.jsx'
 import { impostaAccessi } from './accesso.js'
 
@@ -70,6 +71,9 @@ const NAV_OPS = [
     surfaces: ['costs', 'waste'],
     tabs: { costs: 'costs', waste: 'waste' },
   },
+  // Efficienza: quanto della spesa si usa davvero e quali leve la riducono. Accanto a Spesa perché
+  // risponde alla domanda che viene subito dopo la fattura. I suoi filtri stanno nella pagina.
+  { to: '/efficienza', key: 'efficiency', fields: [], surfaces: ['efficiency'] },
   {
     to: '/limiti',
     key: 'limits',
@@ -814,6 +818,7 @@ export default function App() {
                   />
                 }
               />
+              <Route path="/efficienza" element={<EfficienzaPage t={t} lang={lang} accountFilter={accountFilter} />} />
               <Route path="/iam" element={<IamPage services={services} t={t} lang={lang} />} />
               <Route path="/accessi" element={<AccessiPage t={t} lang={lang} />} />
               <Route path="/flotta" element={<FlottaPage t={t} lang={lang} />} />

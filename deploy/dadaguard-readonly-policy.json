@@ -114,7 +114,18 @@
     {
       "Sid": "CostExplorer",
       "Effect": "Allow",
-      "Action": ["ce:GetCostAndUsage", "ce:GetCostForecast"],
+      "Action": ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetSavingsPlansCoverage"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EfficiencyReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScheduledActions",
+        "ec2:DescribeInstanceTypes",
+        "pricing:GetProducts"
+      ],
       "Resource": "*"
     },
     {
