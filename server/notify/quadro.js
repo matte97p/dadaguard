@@ -4,7 +4,7 @@ import { canonicalActor } from '../util/principal.js'
 import { stripOrgEnv } from '../util/envToken.js'
 import { loadConfig } from '../config.js'
 import { postSlack } from './slack.js'
-import { applicaTest, githubConfig, nuovoGithub, repoDelQuadro } from './github.js'
+import { applicaTest, chiaveRepo, githubConfig, nuovoGithub, repoDaUrl, repoDelQuadro } from './github.js'
 import { githubStatusConfig, nuovoGithubStatus } from './githubStatus.js'
 import { applicaEventi, applicaRepo, ascoltaCoda, nuoviEventi, unisciTest } from './eventi.js'
 
@@ -488,8 +488,11 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
   }
 }
 
-// Tutti gli ambienti chiesti, più il confronto con staging sulle righe di produzione. Puro/testabile.
-export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambienti = ['produzione', 'staging']) {
+// Tutti gli ambienti chiesti, più il confronto con staging sulle righe di produzione. `attesa` sono le
+// righe di server/attesa.js (il compare dei rami su GitHub): con quelle, la riga di produzione di un
+// servizio dice anche QUANTO lavoro aspetta e da quanto, non solo che il commit è diverso. Senza
+// (GitHub App assente, compare non letto) le righe restano come prima. Puro/testabile.
+export function quadro({ deploys = {}, servizi = [], persone = null, attesa = null } = {}, ambienti = ['produzione', 'staging']) {
   const out = Object.fromEntries(ambienti.map((a) => [a, quadroAmbiente(a, { deploys, servizi, persone })]))
   if (out.produzione) {
     const staging = out.staging ?? quadroAmbiente('staging', { deploys, servizi, persone })
@@ -500,8 +503,39 @@ export function quadro({ deploys = {}, servizi = [], persone = null } = {}, ambi
       // e dirlo sarebbe inventare. Nel caso normale è staging, e chi legge lo sa.
       if (s && r.commit && !stessoCommit(s, r.commit)) r.staging = s
     }
+    applicaAttesa(out.produzione, attesa)
   }
   return out
+}
+
+// Le righe dell'attesa sulle righe di produzione, per repository: un repository con più servizi (l'API
+// e il suo scheduler) ha un ramo solo, quindi lo stesso conto va su tutti i suoi servizi. Un repository
+// non letto da GitHub non dice niente qui: l'errore lo dice il messaggio del mattino, e sul quadro una
+// riga senza conto è meglio di un conto inventato. Puro.
+// La riga si riconosce dal repository quando lo sa (lo dà la build che ha prodotto ciò che gira), se no
+// dal nome del servizio, che l'attesa ha preso dalle build di staging: una riga di produzione senza la
+// sua build (immagine promossa a mano, build fuori dalla finestra letta) ha comunque il suo conto.
+export function applicaAttesa(qa, attesa) {
+  if (!qa || !Array.isArray(attesa) || !attesa.length) return qa
+  const valide = attesa.filter((x) => !x.errore && x.inAttesa > 0)
+  if (!valide.length) return qa
+  const perRepo = new Map(valide.map((x) => [chiaveRepo(x), x]))
+  const perServizio = new Map(valide.flatMap((x) => (x.servizi ?? []).map((s) => [s, x])))
+  for (const r of qa.app ?? []) {
+    const x = repoDaUrl(r.repo)
+    // Con il repository noto vale solo quello: un servizio omonimo di un altro repository non è lui.
+    const a = x ? perRepo.get(chiaveRepo(x)) : perServizio.get(r.servizio)
+    if (a) r.attesa = { commit: a.inAttesa, giorni: a.giorni, vecchio: Boolean(a.vecchio) }
+  }
+  return qa
+}
+
+// «12 commits waiting 9d 🔴»: quanti commit di staging la produzione non ha, e da quanto aspetta il più
+// vecchio. Il 🔴 oltre la settimana, come nel messaggio del mattino. Puro.
+export function testoAttesaRiga(a) {
+  if (!a?.commit) return null
+  const da = a.giorni == null ? '' : a.giorni < 1 ? ' since today' : ` ${a.giorni}d`
+  return `${plurale(a.commit, 'commit', 'commits')} waiting${da}${a.vecchio ? ' 🔴' : ''}`
 }
 
 // Il nome del repository da un indirizzo (`https://github.com/org/Scraper.git` → `Scraper`). Puro.
@@ -1004,6 +1038,10 @@ function rigaDiApp(a, fermo) {
     return { ...base, stato: 'indietro', quando: a.quando, dettagli: [`the newest is ${sha(a.condivisa.tag, a.repo)}`, stessa] }
   const dettagli =
     come?.tipo === 'riavvio' ? ['restart', task] : rev || task ? [rev, task] : come?.build ? [`build #${come.build}`, durata(come.durataMs)] : [comeBreve(come)]
+  // Il lavoro che aspetta la produzione apre i Dettagli: è la notizia della riga ferma. Al suo posto
+  // esce la seconda voce, perché i Dettagli restano due voci (la larghezza del canvas).
+  const attesa = testoAttesaRiga(a.attesa)
+  if (attesa) return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli: [attesa, dettagli.find(Boolean), stessa] }
   return { ...base, stato: fermo(a.quando), quando: a.quando, dettagli: [...dettagli, stessa] }
 }
 

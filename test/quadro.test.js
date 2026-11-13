@@ -349,6 +349,42 @@ test('produzione dice quando staging è su un altro commit, e solo lì', () => {
   assert.ok(q.staging.app.every((r) => r.staging === undefined))
 })
 
+test('produzione dice quanti commit aspettano e da quanto, per repository, e solo con un conto vero', () => {
+  const GH = 'https://github.com/acme'
+  const servizi = [
+    svc('negozio-api', 'production', { tag: 'def5678', rev: 7 }),
+    svc('negozio-worker', 'production', { tag: 'def5678', rev: 3 }),
+    svc('magazzino', 'production', { tag: 'aaaa000', rev: 2 }),
+    svc('cassa', 'production', { tag: 'bbbb000', rev: 4 }),
+    svc('omonimo', 'production', { tag: 'cccc000', rev: 5 }),
+    svc('negozio-api', 'staging', { tag: 'abc1234' }),
+  ]
+  // La riga di negozio-api sa il suo repository dalla build; le altre no, e si riconoscono dal nome.
+  const deploys = {
+    production: { builds: [b('negozio-api', 'def5678', '2026-10-01T10:00:00Z', 'SUCCEEDED', { repo: `${GH}/Negozio.git` }), b('omonimo', 'cccc000', '2026-10-01T10:00:00Z', 'SUCCEEDED', { repo: `${GH}/altro` })] },
+    ...LETTE_STG,
+  }
+  const attesa = [
+    { owner: 'acme', repo: 'negozio', servizi: ['negozio-api', 'negozio-worker'], inAttesa: 12, giorni: 9, vecchio: true },
+    { owner: 'acme', repo: 'magazzino', servizi: ['magazzino'], inAttesa: 0, giorni: null, vecchio: false },
+    { owner: 'acme', repo: 'cassa', servizi: ['cassa'], errore: 'HTTP 404' },
+    { owner: 'acme', repo: 'terzo', servizi: ['omonimo'], inAttesa: 4, giorni: 2, vecchio: false },
+  ]
+  const q = quadro({ deploys, servizi, attesa })
+  const per = Object.fromEntries(righeTabella(q.produzione, { ora: ORA }).map((r) => [r.nome, r]))
+  assert.match(per['negozio-api'].dettagli, /^12 commits waiting 9d 🔴 · /, 'il conto apre i Dettagli, riconosciuto dal repository')
+  assert.equal(per['negozio-worker'].dettagli, '12 commits waiting 9d 🔴 · rev 3', 'senza build, dal nome del servizio: stesso ramo, stesso conto')
+  assert.doesNotMatch(per.magazzino.dettagli, /waiting/, 'niente in attesa, niente da dire')
+  assert.doesNotMatch(per.cassa.dettagli, /waiting/, 'un repository non letto non inventa un conto')
+  assert.doesNotMatch(per.omonimo.dettagli, /waiting/, 'col repository noto vale solo quello, non il nome')
+  assert.ok(q.staging.app.every((r) => r.attesa === undefined), 'staging non aspetta niente da sé')
+  const una = [{ owner: 'acme', repo: 'negozio', servizi: ['negozio-worker'], inAttesa: 1, giorni: 0, vecchio: false }]
+  const oggi = quadro({ deploys: LETTE_PROD, servizi: servizi.slice(1, 2), attesa: una }, ['produzione'])
+  assert.equal(righeTabella(oggi.produzione, { ora: ORA })[0].dettagli, '1 commit waiting since today · rev 3')
+  const senza = quadro({ deploys: LETTE_PROD, servizi: servizi.slice(1, 2) }, ['produzione'])
+  assert.doesNotMatch(righeTabella(senza.produzione, { ora: ORA })[0].dettagli, /waiting/, 'senza attesa la riga è quella di prima')
+})
+
 test('i link a Dadaguard sono già filtrati sulla risorsa della riga', () => {
   assert.equal(linkRisorsa({ tipo: 'app', servizio: 'api', chiave: 'production' }, URL), `${URL}/deploy?service=api&account=production`)
   assert.equal(linkRisorsa({ tipo: 'iac', chiave: 'staging' }, URL), `${URL}/deploy?service=IaC&account=staging`)
