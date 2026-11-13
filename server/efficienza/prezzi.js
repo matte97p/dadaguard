@@ -195,3 +195,36 @@ export function prezzoDiscoRds(aws, { region, motore, tipoDisco, multiAz }) {
     return prezzi.length ? Math.min(...prezzi) : null
   })
 }
+
+// Prezzo orario di un'istanza EC2 Linux on-demand, tenancy condivisa, senza software preinstallato: è
+// la combinazione che identifica una sola voce del listino (verificato su eu-central-1).
+export function prezzoEc2(aws, { region, tipo }) {
+  if (!tipo) return Promise.resolve(null)
+  return cached(`prezzi:ec2:${region}:${tipo}`, GIORNO, async () => {
+    const lista = await prodotti(aws, 'AmazonEC2', [
+      ['regionCode', region],
+      ['instanceType', tipo],
+      ['operatingSystem', 'Linux'],
+      ['tenancy', 'Shared'],
+      ['preInstalledSw', 'NA'],
+      ['capacitystatus', 'Used'],
+    ])
+    const prezzi = lista.map(prezzoOnDemand).filter((x) => x != null)
+    return prezzi.length ? Math.min(...prezzi) : null
+  })
+}
+
+// Prezzo al GB-mese di un volume EBS del tipo dato (gp3, gp2, io2…). Solo lo spazio: IOPS e throughput
+// oltre la soglia gratuita si pagano a parte e qui non si contano.
+export function prezzoEbs(aws, { region, tipo }) {
+  if (!tipo) return Promise.resolve(null)
+  return cached(`prezzi:ebs:${region}:${tipo}`, GIORNO, async () => {
+    const lista = await prodotti(aws, 'AmazonEC2', [
+      ['regionCode', region],
+      ['productFamily', 'Storage'],
+      ['volumeApiName', tipo],
+    ])
+    const prezzi = lista.map(prezzoOnDemand).filter((x) => x != null)
+    return prezzi.length ? Math.min(...prezzi) : null
+  })
+}

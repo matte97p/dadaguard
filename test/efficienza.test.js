@@ -260,3 +260,34 @@ test('database fuori da RDS: righe con le sole statistiche, mai doppioni di un R
   assert.equal(righe[0].usdMese, null)
   assert.equal(righe[0].connessioniLimite, 300)
 })
+
+import { eHostElb, contoDb } from '../server/efficienza/dbSuEc2.js'
+
+test('database su EC2: si risale solo da un host di load balancer AWS', () => {
+  assert.equal(eHostElb('db-writer-abc123.elb.eu-west-1.amazonaws.com'), true)
+  assert.equal(eHostElb('db.interno.example'), false)
+  assert.equal(eHostElb('10.0.0.5'), false)
+})
+
+test('database su EC2: costo delle istanze più i dischi, e il disco dei dati è il più grande', () => {
+  const c = contoDb({
+    nodi: [{ id: 'i-1', tipo: 'r7g.xlarge', volumi: ['v-1', 'v-2'] }, { id: 'i-2', tipo: 'r7g.xlarge', volumi: ['v-3', 'v-4'] }],
+    volumi: { 'v-1': { gb: 30, tipo: 'gp2' }, 'v-2': { gb: 500, tipo: 'gp3' }, 'v-3': { gb: 30, tipo: 'gp2' }, 'v-4': { gb: 500, tipo: 'gp3' } },
+    prezzi: { istanza: { 'r7g.xlarge': 0.25 }, disco: { gp3: 0.1, gp2: 0.12 } },
+  })
+  assert.equal(c.repliche, 2)
+  assert.equal(c.classe, 'r7g.xlarge')
+  assert.equal(c.tipoDisco, 'gp3')
+  assert.equal(c.discoGbMese, 0.1)
+  assert.ok(Math.abs(c.usdMese - (2 * 0.25 * 730 + 1000 * 0.1 + 60 * 0.12)) < 1e-9)
+  // un prezzo che manca: il totale è sconosciuto, non un numero sbagliato
+  assert.equal(contoDb({ nodi: [{ tipo: 'x', volumi: [] }], volumi: {}, prezzi: { istanza: {}, disco: {} } }).usdMese, null)
+  assert.equal(contoDb({ nodi: [] }), null)
+})
+
+test('leve dentro un database replicato: lo spazio sprecato si paga una volta per copia', () => {
+  const GB = 1024 ** 3
+  const db = { id: 'pg', discoGbMese: 0.1, repliche: 2, proposta: null, interno: { indiciInutili: [{ byte: 10 * GB }], tabelle: [] } }
+  const l = leveAccount({ account: 'prod', database: [db] })
+  assert.ok(Math.abs(l[0].usdMese - 10 * 0.1 * 2) < 1e-9)
+})
