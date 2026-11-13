@@ -55,3 +55,24 @@ test('profilo del comando: cliProfile vince, poi profile, poi niente', () => {
   assert.equal(profiloPerComando({ roleArn: 'arn:1' }), null)
   assert.equal(profiloPerComando(undefined), null)
 })
+
+test('lo stesso numero di account con due chiavi diverse diventa un account solo', () => {
+  // L'org lo chiama col suo nome, la config con il ruolo: prima erano due account, e ogni build
+  // fallita di quell'account compariva due volte.
+  const scoperti = { acme: { label: 'Acme', accountId: '7', inAccount: true, region: 'eu-central-1' } }
+  const out = mergeAccounts(scoperti, { management: { label: 'Management', accountId: '7', profile: 'mgmt' } })
+  assert.deepEqual(Object.keys(out), ['management'])
+  assert.equal(out.management.label, 'Management') // il dichiarato vince
+  assert.equal(out.management.inAccount, true) // e prende dallo scoperto ciò che non aveva
+})
+
+test('un dichiarato senza numero di account resta unito per chiave', () => {
+  const out = mergeAccounts(discovered, { altro: { label: 'Altro' } })
+  assert.deepEqual(Object.keys(out).sort(), ['altro', 'security', 'staging'])
+})
+
+test('senza accountId il numero si legge dal roleArn', () => {
+  const scoperti = { acme: { label: 'Acme', accountId: '123456789012', inAccount: true } }
+  const out = mergeAccounts(scoperti, { management: { label: 'Management', roleArn: 'arn:aws:iam::123456789012:role/ro' } })
+  assert.deepEqual(Object.keys(out), ['management'])
+})
