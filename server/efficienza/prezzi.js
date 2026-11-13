@@ -11,9 +11,23 @@ import { cached } from '../util/ttlcache.js'
 
 const GIORNO = 24 * 60 * 60 * 1000
 
-// Il prezzo orario in USD di un prodotto della Pricing API (una stringa JSON per prodotto).
+// Un prodotto della Pricing API come oggetto. L'SDK v3 non dà stringhe ma oggetti JSON «pigri»
+// (`LazyJsonString`): `typeof` dice object, ma i campi non ci sono finché non si convertono. Trattarli
+// da oggetto faceva sparire tutto il listino in silenzio, con zero errori.
+export function comeProdotto(raw) {
+  if (raw == null) return null
+  if (typeof raw === 'string') return JSON.parse(raw)
+  if (raw.product || raw.terms) return raw
+  try {
+    return JSON.parse(String(raw))
+  } catch {
+    return null
+  }
+}
+
+// Il prezzo orario in USD di un prodotto della Pricing API.
 export function prezzoOnDemand(prodotto) {
-  const p = typeof prodotto === 'string' ? JSON.parse(prodotto) : prodotto
+  const p = comeProdotto(prodotto)
   for (const termine of Object.values(p?.terms?.OnDemand ?? {})) {
     for (const d of Object.values(termine?.priceDimensions ?? {})) {
       const usd = Number(d?.pricePerUnit?.USD)
@@ -35,7 +49,7 @@ const SUFFISSI = {
 export function prezziFargateDa(prodotti) {
   const out = {}
   for (const raw of prodotti ?? []) {
-    const p = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const p = comeProdotto(raw)
     const tipo = p?.product?.attributes?.usagetype ?? ''
     for (const [k, re] of Object.entries(SUFFISSI)) {
       if (out[k] == null && re.test(tipo)) out[k] = prezzoOnDemand(p)
