@@ -490,17 +490,21 @@ const attesaMemo = swrMemo({
   ttlMs: 10 * 60_000,
   onError: (err, key) => log.error('attesa: rinfresco in background fallito', { key, err: err.message }),
 })
+// La stessa cache serve la pagina e le righe di produzione del quadro (vedi `datiQuadro`).
+function attesaCached() {
+  const cfg = attesaConfig()
+  return attesaMemo('attesa', async () =>
+    calcolaAttesa(
+      repoDaGuardare((await deploysCached('it')).value, { extra: cfg.extra, esclusi: cfg.esclusi, org: githubTempi.org }),
+      githubTempi,
+      cfg,
+    ),
+  )
+}
 app.get('/api/attesa', async (req, res) => {
   try {
     if (!githubTempi) return res.status(503).json({ error: 'GitHub App non configurata: senza, i rami non si confrontano' })
-    const cfg = attesaConfig()
-    const { value: righe, at } = await attesaMemo('attesa', async () =>
-      calcolaAttesa(
-        repoDaGuardare((await deploysCached('it')).value, { extra: cfg.extra, esclusi: cfg.esclusi, org: githubTempi.org }),
-        githubTempi,
-        cfg,
-      ),
-    )
+    const { value: righe, at } = await attesaCached()
     if (req.query.format === 'testo') return conEta(res, at).type('text/plain').send(testoAttesa(righe))
     conEta(res, at).json({ righe })
   } catch (err) {
@@ -680,9 +684,16 @@ app.get('/api/servizi/andamento', async (req, res) => {
 // gira davvero, letto col lettore leggero (server/quadroStato.js) e NON con lo stato completo della
 // dashboard, che legge metriche CloudWatch a pagamento e rifatto ogni 15 secondi costerebbe migliaia
 // di dollari al mese. Sono tutte API gratuite.
+// Con l'attesa (i commit di staging che la produzione non ha, vedi server/attesa.js) quando c'è la
+// GitHub App. Non ferma mai il giro: un compare che non risponde vuol dire righe senza conto.
 async function datiQuadro() {
-  const [deploys, servizi] = await Promise.all([deploysCached('it').then((r) => r.value), statoLeggero()])
-  return { deploys, servizi }
+  const leggiAttesa = githubTempi
+    ? attesaCached()
+        .then((r) => r.value)
+        .catch((err) => (log.warn('quadro: attesa non letta, righe di produzione senza conto', { err: err.message }), null))
+    : null
+  const [deploys, servizi, attesa] = await Promise.all([deploysCached('it').then((r) => r.value), statoLeggero(), leggiAttesa])
+  return { deploys, servizi, attesa }
 }
 
 // La lettura del canvas delle corse in Slack (vedi notify/corse.js): TUTTI i cron, non i primi 40 della
