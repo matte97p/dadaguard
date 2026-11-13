@@ -566,7 +566,7 @@ function Interno({ d, t, lang }) {
         <Tessera etichetta={t('eff.pg.dimensione')} valore={byte(db.dimensione, lang)} />
         <Tessera etichetta={t('eff.pg.memoria')} valore={db.memoria == null ? null : `${(db.memoria * 100).toLocaleString(lang === 'en' ? 'en-US' : 'it-IT', { maximumFractionDigits: 1 })}%`} livello={db.memoria != null && db.memoria < 0.99 ? 'warn' : undefined} sotto={t('eff.pg.memoria.sotto')} />
         <Tessera etichetta={t('eff.pg.connessioni')} valore={db.connessioni == null ? null : `${db.connessioni} / ${db.limite}`} sotto={db.in_attesa ? t('eff.pg.lock', { n: db.in_attesa }) : t('eff.pg.lock.nessuno')} livello={db.in_attesa ? 'warn' : undefined} />
-        <Tessera etichetta={t('eff.pg.indici')} valore={byte((pg.indiciInutili ?? []).reduce((a, i) => a + i.byte, 0), lang)} sotto={t('eff.pg.indici.sotto', { n: (pg.indiciInutili ?? []).length })} />
+        <Tessera etichetta={t('eff.pg.indici')} valore={byte((pg.indiciInutili ?? []).reduce((a, i) => a + i.byte, 0), lang)} sotto={t(pg.indiciTroncati ? 'eff.pg.indici.sotto.troncati' : 'eff.pg.indici.sotto', { n: (pg.indiciInutili ?? []).length })} />
       </Tessere>
       <div className="eff-due">
         <div>
