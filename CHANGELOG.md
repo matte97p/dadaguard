@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Efficienza: un indice «mai usato» lo è su tutti i nodi** (13/11/2026). Postgres conta le letture di un
+  indice nodo per nodo, e Dadaguard leggeva solo il primario: un indice che serve alle query mandate alla
+  replica risultava inutile. Per un database su EC2 dietro un load balancer, Dadaguard legge le porte del
+  load balancer (writer e letture) e conta l'uso degli indici anche sulle altre; un indice resta nella lista
+  solo con zero letture ovunque. Senza `elasticloadbalancing:DescribeListeners` (nuovo nella policy) la
+  pagina dice che il conteggio è sul solo primario.
+
 ### Added
 - **Efficienza: costo e copie di un Postgres su EC2** (13/11/2026). Per un database fuori da RDS si risale
   dal suo host (il nome del load balancer) ai target group, alle istanze registrate e ai loro volumi EBS:

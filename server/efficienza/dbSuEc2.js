@@ -1,4 +1,4 @@
-import { ElasticLoadBalancingV2Client, DescribeLoadBalancersCommand, DescribeTargetGroupsCommand, DescribeTargetHealthCommand } from '@aws-sdk/client-elastic-load-balancing-v2'
+import { ElasticLoadBalancingV2Client, DescribeLoadBalancersCommand, DescribeTargetGroupsCommand, DescribeTargetHealthCommand, DescribeListenersCommand } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { EC2Client, DescribeInstancesCommand, DescribeVolumesCommand } from '@aws-sdk/client-ec2'
 import { clientOpts } from '../runtime/awsClient.js'
 import { prezzoEc2, prezzoEbs } from './prezzi.js'
@@ -10,7 +10,8 @@ import { ORE_MESE } from './regole.js'
 // uno spreco di disco (indici mai usati, righe morte) si paga una volta per nodo.
 //
 // Permessi: elasticloadbalancing:DescribeLoadBalancers, DescribeTargetGroups, DescribeTargetHealth,
-// ec2:DescribeInstances, ec2:DescribeVolumes, pricing:GetProducts. Tutti già nella policy read-only.
+// elasticloadbalancing:DescribeListeners (le porte, per contare l'uso degli indici su ogni nodo),
+// ec2:DescribeInstances, ec2:DescribeVolumes, pricing:GetProducts.
 
 // Il nome di un load balancer AWS (`<nome>-<id>.elb.<regione>.amazonaws.com`): solo da lì si risale ai
 // nodi. Un host qualunque (un IP, un DNS nostro) resta senza costo. Puro.
@@ -68,6 +69,13 @@ export async function infraDbSuEc2(aws, host) {
   } while (Marker && ++pagine < 20)
   if (!lb) return null
 
+  // Le porte del load balancer: oltre a quella del writer di solito c'è quella delle letture, che va
+  // alla replica. Servono a leggere l'uso degli indici anche lì (vedi pgStat.usoIndiciSuPorte). Senza
+  // il permesso la lista resta vuota e la pagina dice che gli indici sono contati sul primario soltanto.
+  const porte = await elb
+    .send(new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn }))
+    .then((r) => [...new Set((r.Listeners ?? []).map((l) => l.Port).filter(Boolean))].sort((a, b) => a - b))
+    .catch(() => [])
   const tgs = (await elb.send(new DescribeTargetGroupsCommand({ LoadBalancerArn: lb.LoadBalancerArn }))).TargetGroups ?? []
   const ids = new Set()
   for (const tg of tgs.filter((t) => t.TargetType === 'instance')) {
@@ -96,5 +104,5 @@ export async function infraDbSuEc2(aws, host) {
       prezzi.disco[t] = await prezzoEbs(aws, { region: aws.region, tipo: t }).catch(() => null)
     }),
   ])
-  return contoDb({ nodi, volumi, prezzi })
+  return { ...contoDb({ nodi, volumi, prezzi }), porte }
 }

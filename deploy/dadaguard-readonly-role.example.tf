@@ -58,6 +58,7 @@ data "aws_iam_policy_document" "readonly" {
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
+      "elasticloadbalancing:DescribeListeners", # Efficienza: le porte di un DB su EC2 (writer e replica)
       "ec2:DescribeInstances", "ec2:DescribeInstanceStatus",
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",          # discovery Bedrock: i ModelId invocati (metriche AWS/Bedrock)

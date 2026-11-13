@@ -181,7 +181,7 @@ test('tariffa Spot effettiva: costo diviso ore delle voci Spot, e niente tariffa
   assert.equal(conSpot(null, t), null)
 })
 
-import { leggiUrl, segnaliTabella, opzioniTls } from '../server/efficienza/pgStat.js'
+import { leggiUrl, segnaliTabella, opzioniTls, soloIndiciMaiUsatiOvunque } from '../server/efficienza/pgStat.js'
 import { databaseFuoriRds } from '../server/efficienza/index.js'
 
 test('Postgres: configurazione id=url, voci malformate scartate', () => {
@@ -290,4 +290,11 @@ test('leve dentro un database replicato: lo spazio sprecato si paga una volta pe
   const db = { id: 'pg', discoGbMese: 0.1, repliche: 2, proposta: null, interno: { indiciInutili: [{ byte: 10 * GB }], tabelle: [] } }
   const l = leveAccount({ account: 'prod', database: [db] })
   assert.ok(Math.abs(l[0].usdMese - 10 * 0.1 * 2) < 1e-9)
+})
+
+test('indici mai usati: restano tali solo con zero letture anche sugli altri nodi', () => {
+  const indici = [{ schema: 'public', indice: 'a_idx' }, { schema: 'public', indice: 'b_idx' }]
+  const letture = new Map([['public.a_idx', 120], ['public.b_idx', 0]])
+  assert.deepEqual(soloIndiciMaiUsatiOvunque(indici, letture).map((i) => i.indice), ['b_idx'])
+  assert.equal(soloIndiciMaiUsatiOvunque(indici, new Map()).length, 2)
 })
