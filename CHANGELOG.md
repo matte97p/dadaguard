@@ -5,6 +5,13 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **Efficienza: i prezzi di listino arrivano davvero** (13/11/2026). L'SDK AWS restituisce i prodotti della
+  Pricing API come JSON «pigro» (un oggetto che diventa testo solo quando lo si converte), non come
+  stringa: trattati da oggetti non avevano nessun campo, e la pagina mostrava tutti i costi vuoti senza un
+  errore. Adesso si convertono prima di leggerli. L'avviso su Container Insights dice su quanti servizi è
+  spento invece di valere per tutto l'account.
+
 ### Added
 - **Efficienza: quanto della spesa si usa davvero, e come recuperare il resto** (13/11/2026). Una pagina
   nuova accanto a Spesa, per chi tiene i conti dell'infrastruttura. In cima i soldi recuperabili al mese e

@@ -212,3 +212,16 @@ test('leve dentro il database: indici mai usati e righe morte al prezzo del disc
   // senza statistiche interne o senza prezzo del disco: nessuna leva
   assert.equal(leveAccount({ account: 'prod', database: [{ ...db, discoGbMese: null }] }).length, 0)
 })
+
+test('listino: i prodotti dell SDK v3 arrivano come JSON pigro, non come stringa', () => {
+  // Stessa forma di LazyJsonString: un oggetto che diventa il JSON solo con toString().
+  class Pigro {
+    constructor(s) { this.s = s }
+    toString() { return this.s }
+  }
+  const prodotto = (usagetype, usd) =>
+    new Pigro(JSON.stringify({ product: { attributes: { usagetype } }, terms: { OnDemand: { x: { priceDimensions: { y: { pricePerUnit: { USD: String(usd) } } } } } } }))
+  const p = prezziFargateDa([prodotto('XYZ1-Fargate-vCPU-Hours:perCPU', 0.04), prodotto('XYZ1-Fargate-GB-Hours', 0.0044)])
+  assert.equal(p.x86.vcpu, 0.04)
+  assert.equal(prezzoOnDemand(prodotto('XYZ1-Fargate-GB-Hours', 0.0044)), 0.0044)
+})

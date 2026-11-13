@@ -204,7 +204,8 @@ export async function efficienza({ accounts, giorni = 30, t }) {
         coperturaImpegni(aws).catch(() => null),
       ])
       info.suEc2 = calc.suEc2
-      if (calc.servizi.some((s) => s.taskStimati)) info.avvisi.push({ cosa: 'containerInsights' })
+      const stimati = calc.servizi.filter((s) => s.taskStimati).length
+      if (stimati) info.avvisi.push({ cosa: 'containerInsights', n: stimati })
       const settimana = settimanaAccount(calc.servizi)
       out.settimane[key] = settimana
       out.impegni[key] = sp

@@ -251,7 +251,7 @@ export default function EfficienzaPage({ t = (k) => k, lang, accountFilter = [] 
       {avvisi.length > 0 && (
         <ul className="eff-avvisi">
           {avvisi.map((a, i) => (
-            <li key={i}>{t(`eff.avviso.${a.cosa}`, { a: a.account, perche: a.perche ?? '' })}</li>
+            <li key={i}>{t(`eff.avviso.${a.cosa}`, { a: a.account, perche: a.perche ?? '', n: a.n ?? 0 })}</li>
           ))}
         </ul>
       )}
