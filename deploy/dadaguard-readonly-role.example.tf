@@ -159,7 +159,19 @@ data "aws_iam_policy_document" "readonly" {
   statement {
     sid       = "CostExplorer" # sezione costi (Cost Explorer, endpoint us-east-1)
     effect    = "Allow"
-    actions   = ["ce:GetCostAndUsage", "ce:GetCostForecast"]
+    actions   = ["ce:GetCostAndUsage", "ce:GetCostForecast", "ce:GetSavingsPlansCoverage"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "EfficiencyReadOnly" # Efficienza: autoscaling, memoria delle classi RDS, prezzi di listino
+    effect = "Allow"
+    actions = [
+      "application-autoscaling:DescribeScalableTargets",  # minimo e massimo dei servizi ECS
+      "application-autoscaling:DescribeScheduledActions", # spegnimenti già pianificati
+      "ec2:DescribeInstanceTypes",                        # memoria di una classe RDS dalla gemella EC2
+      "pricing:GetProducts",                              # listino Fargate e RDS (gratuito, us-east-1)
+    ]
     resources = ["*"]
   }
 

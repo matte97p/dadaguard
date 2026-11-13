@@ -7,6 +7,7 @@ import { discover } from './discover.js'
 import { loadConfig } from './config.js'
 import { addServices, removeService } from './watchlist.js'
 import { findWaste } from './waste.js'
+import { efficienza } from './efficienza/index.js'
 import { getCosts, monthEndProjection, getCostTrend, getCostByComponent, getCostByCategory, getCostDaily, giorniSpesa, COMPONENT_TAG, COST_CATEGORY } from './costs.js'
 import { cached } from './util/ttlcache.js'
 import { isQueryable, accessoDi } from './accounts.js'
@@ -40,7 +41,7 @@ import { isCloud, MODE, isDemo } from './mode.js'
 import { cleanAwsReason } from './runtime/awsClient.js'
 import { makeT } from './i18n.js'
 import { demoMappaAccessi } from './demo.js'
-import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport, demoFlotta } from './demo.js'
+import { demoStatus, demoCosts, demoCostTrend, demoCostComponents, demoCostCategories, demoApplyType, demoApplyTypeComponents, demoQuotas, demoFreeTier, demoLogs, demoEvents, demoSelfcheck, demoTopology, demoIamPolicies, demoIamPolicy, demoIamAccess, demoSecurity, demoSsoAccess, demoDeploys, demoTaskMetrics, demoWaf, demoBudgets, demoWaste, demoRuns, demoRunLogs, demoNetwork, demoTeleport, demoFlotta, demoEfficienza } from './demo.js'
 import { listPolicies, policyDetail, accessToResource } from './iam.js'
 import * as teleport from './teleport.js'
 import { collectFindings } from './security.js'
@@ -228,6 +229,22 @@ app.get('/api/waste', async (req, res) => {
       }),
     )
     res.json(out)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Efficienza: capacità pagata contro capacità usata, costo per unità di lavoro e leve di risparmio,
+// per calcolo (ECS Fargate) e database (RDS). Le serie orarie di CloudWatch si pagano a metrica e
+// cambiano lentamente: un quarto d'ora di cache per finestra.
+const EFFICIENZA_TTL = 15 * 60 * 1000
+app.get('/api/efficienza', async (req, res) => {
+  try {
+    const giorni = [7, 30, 90].includes(Number(req.query.giorni)) ? Number(req.query.giorni) : 30
+    if (isDemo) return res.json(demoEfficienza(giorni))
+    const t = makeT(req.query.lang)
+    const { accounts } = loadConfig()
+    res.json(await cached(`efficienza:${giorni}`, EFFICIENZA_TTL, () => efficienza({ accounts, giorni, t })))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

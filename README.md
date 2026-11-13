@@ -57,6 +57,14 @@ Un uptime monitor ti dice se un endpoint risponde `200`. Dadaguard va oltre: la 
 - **Drift** vs Terraform: leggero (state ↔ AWS) e completo (`terragrunt plan`, on-demand)
 - **Risorse non gestite** da Terraform
 - **Sprechi** (EIP / NAT / EBS orfani) + **Costi** per servizio (AWS Cost Explorer)
+- **Efficienza** (pagina a sé, accanto a Spesa): quanto della capacità pagata si usa davvero e quali leve
+  recuperano soldi, la più redditizia prima. Calcolo (ECS su Fargate, tutti i servizi, non solo quelli
+  monitorati) e database (RDS): taglia giusta dal p95 di CPU e memoria, minimo dell'autoscaling troppo
+  alto, ambienti non di produzione accesi di notte, worker che possono andare su Spot, classe del
+  database una taglia sotto; costo per 1.000 richieste dal load balancer; pagato contro usato giorno per
+  giorno; spesa per squadra (dal tag) e per ambiente. Filtri, lenti e viste salvate vivono nell'indirizzo.
+  Prezzi dal listino (`pricing:GetProducts`), Spot dalla spesa vera. Opzionale, dentro Postgres: righe
+  morte, indici mai usati, lock (`DADAGUARD_PG_URLS`, utente con `pg_read_all_stats`)
 - **Budget** e **anomalie di costo**: consumo *e* proiezione a fine periodo (un budget al 65% con la proiezione al 123% è il momento in cui c'è ancora tempo per intervenire)
 - **Tempi dei rilasci**: la vista **Andamento** della pagina Deploy è una dashboard sugli ultimi 7, 30 o 90 giorni, servizio per
   servizio: dove va il tempo (CI, attese, build, deploy), dal push a in produzione con la fascia fino al p90,
