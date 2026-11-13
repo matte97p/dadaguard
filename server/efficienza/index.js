@@ -4,6 +4,7 @@ import { cached } from '../util/ttlcache.js'
 import { isQueryable } from '../accounts.js'
 import { prezziFargate, tariffeSpot, conSpot } from './prezzi.js'
 import { postgresConfigurati, leggiUrl } from './pgStat.js'
+import { infraDbSuEc2 } from './dbSuEc2.js'
 import { calcoloAccount } from './ecs.js'
 import { databaseAccount } from './rds.js'
 import { costoOraTask, settimanaTipo, oreFerme, ORE_FERME_MINIME, nonProduzione, ordinaLeve, ORE_MESE } from './regole.js'
@@ -140,7 +141,7 @@ export function leveAccount({ account, ambienteNonProd, servizi = [], database =
           risorsa: 'rds',
           rischio: 'medio',
           come: 'migration',
-          usdMese: gbInutili * d.discoGbMese,
+          usdMese: gbInutili * d.discoGbMese * (d.repliche ?? 1),
           dati: { gb: gbInutili, n: pg.indiciInutili.length },
         }),
       )
@@ -154,7 +155,7 @@ export function leveAccount({ account, ambienteNonProd, servizi = [], database =
           risorsa: 'rds',
           rischio: 'basso',
           come: 'config',
-          usdMese: gbMorti * d.discoGbMese,
+          usdMese: gbMorti * d.discoGbMese * (d.repliche ?? 1),
           dati: { gb: gbMorti, n: morte.length },
         }),
       )
@@ -222,9 +223,31 @@ export async function efficienza({ accounts, giorni = 30, t }) {
   // I database configurati che non sono istanze RDS (Postgres su EC2, per esempio): righe a sé, con le
   // sole statistiche interne. Senza classe né prezzo d'istanza: il loro costo è quello delle macchine
   // su cui girano, che qui non si attribuisce a mano.
-  out.database.push(...databaseFuoriRds(interni, out.database))
+  // Per ognuno si risale dal suo host alle macchine e ai dischi: costo, copie e prezzo del disco, che
+  // danno un valore in dollari allo spazio sprecato dentro il database.
+  const host = Object.fromEntries(leggiUrl().map((v) => [v.id, hostDi(v.url)]))
+  const fuori = databaseFuoriRds(interni, out.database)
+  await Promise.all(
+    fuori.map(async (d, i) => {
+      const a = accounts?.[d.account]
+      if (!a || !isQueryable(a)) return
+      const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region }
+      const infra = await infraDbSuEc2(aws, host[d.id]).catch(() => null)
+      if (infra) fuori[i] = { ...d, ...infra }
+    }),
+  )
+  out.database.push(...fuori)
+  for (const d of fuori) out.leve.push(...leveAccount({ account: d.account, database: [d] }))
   out.leve = ordinaLeve(out.leve)
   return out
+}
+
+const hostDi = (url) => {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return null
+  }
 }
 
 // Puro: le statistiche Postgres senza un'istanza RDS con lo stesso id diventano righe di database.

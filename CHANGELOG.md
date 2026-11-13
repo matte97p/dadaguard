@@ -5,6 +5,13 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Efficienza: costo e copie di un Postgres su EC2** (13/11/2026). Per un database fuori da RDS si risale
+  dal suo host (il nome del load balancer) ai target group, alle istanze registrate e ai loro volumi EBS:
+  la riga mostra il costo a listino (istanze e dischi), i nodi e i GB di disco. Lo spazio sprecato dentro
+  il database (indici mai usati, righe morte) diventa una leva in dollari, contata una volta per copia.
+  Nessun permesso nuovo: le chiamate sono già nella policy read-only.
+
 ### Security
 - **Nessuna dipendenza npm con meno di 7 giorni di vita** (13/11/2026). `.npmrc` con `min-release-age=7`:
   `npm install` e `npm update` scelgono solo versioni pubblicate da almeno una settimana, il tempo in cui

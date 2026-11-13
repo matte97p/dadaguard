@@ -453,6 +453,7 @@ export default function EfficienzaPage({ t = (k) => k, lang, accountFilter = [] 
                         <td>
                           {d.classe ?? <span className="eff-tenue">-</span>}
                           {d.vcpu ? <small>{`${d.vcpu} vCPU · ${Math.round(d.memGb)} GB`}</small> : null}
+                          {d.fuoriRds && d.repliche ? <small>{t('eff.db.nodi', { n: d.repliche, gb: d.discoGb })}</small> : null}
                         </td>
                         <td><Uso pct={d.cpuP95} /></td>
                         <td>{d.memLiberaMin == null ? '-' : `${Math.round(d.memLiberaMin)}%`}</td>
