@@ -5,6 +5,18 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Efficienza: Spot solo per i servizi replicati, con una copia on-demand** (13/11/2026). La leva Spot
+  andava a ogni servizio senza load balancer, quindi anche a tunnel, agent e scheduler con un task solo,
+  che un'interruzione spegne del tutto. Adesso serve almeno due copie (o un autoscaling che ne preveda
+  due), e la proposta tiene un task on-demand (`base: 1`) e il resto su Spot; il risparmio conta solo le
+  copie spostate.
+- **Efficienza: Postgres anche fuori da RDS, e con TLS verificato** (13/11/2026). In `DADAGUARD_PG_URLS`
+  l'id può avere davanti l'account (`produzione/mio-db=postgresql://…`): un database che non è un'istanza
+  RDS, come un Postgres su EC2, compare nella scheda Database con le sole statistiche interne. Con
+  `DADAGUARD_PG_CA` (il PEM della CA del server) la catena del certificato si verifica e la connessione
+  in chiaro è impossibile; il nome dell'host no, perché spesso si passa da un load balancer interno.
+
 ### Fixed
 - **Efficienza: i prezzi di listino arrivano davvero** (13/11/2026). L'SDK AWS restituisce i prodotti della
   Pricing API come JSON «pigro» (un oggetto che diventa testo solo quando lo si converte), non come

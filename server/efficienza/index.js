@@ -69,9 +69,13 @@ export function leveAccount({ account, ambienteNonProd, servizi = [], database =
         }),
       )
     }
-    // Spot per i servizi che nessuno chiama da fuori (niente load balancer): un worker che riparte da
-    // una coda regge l'interruzione, un'API no. Il rischio resta medio perché la coda va verificata.
-    if (s.quotaSpot === 0 && !s.bilanciato && s.listino?.spotVcpu && s.listino?.spotGb) {
+    // Spot solo per i servizi REPLICATI che nessuno chiama da fuori (niente load balancer), con un task
+    // che resta on-demand (`base: 1`) e il resto su Spot: AWS si può riprendere un task Spot con due
+    // minuti di preavviso, e così il servizio non si spegne mai del tutto. Un servizio con un task solo
+    // (un tunnel, un agent, uno scheduler) resta fuori: non c'è un modo di dedurre dai dati che regga
+    // un'interruzione, e una proposta sbagliata lì costa un accesso o un job interrotto.
+    const repliche = Math.max(s.desiderati ?? 0, s.max ?? 0)
+    if (s.quotaSpot === 0 && !s.bilanciato && repliche >= 2 && s.listino?.spotVcpu && s.listino?.spotGb) {
       const spot = costoOraTask({ cpu: s.cpu, memMb: s.memMb, quotaSpot: 1 }, s.listino)
       leve.push(
         base(s, {
@@ -79,8 +83,8 @@ export function leveAccount({ account, ambienteNonProd, servizi = [], database =
           risorsa: 'ecs',
           rischio: 'medio',
           come: 'config',
-          usdMese: (s.costoOraTask - spot) * s.taskMedi * ORE_MESE,
-          dati: {},
+          usdMese: (s.costoOraTask - spot) * Math.max(0, s.taskMedi - 1) * ORE_MESE,
+          dati: { repliche },
         }),
       )
     }
@@ -215,6 +219,37 @@ export async function efficienza({ accounts, giorni = 30, t }) {
       out.database.push(...db.map((d) => ({ account: key, ...d })))
     }),
   )
+  // I database configurati che non sono istanze RDS (Postgres su EC2, per esempio): righe a sé, con le
+  // sole statistiche interne. Senza classe né prezzo d'istanza: il loro costo è quello delle macchine
+  // su cui girano, che qui non si attribuisce a mano.
+  out.database.push(...databaseFuoriRds(interni, out.database))
   out.leve = ordinaLeve(out.leve)
   return out
+}
+
+// Puro: le statistiche Postgres senza un'istanza RDS con lo stesso id diventano righe di database.
+export function databaseFuoriRds(interni, database) {
+  const visti = new Set((database ?? []).map((d) => d.id))
+  return Object.entries(interni ?? {})
+    .filter(([id]) => !visti.has(id))
+    .map(([id, interno]) => ({
+      account: interno.account ?? null,
+      id,
+      fuoriRds: true,
+      motore: 'postgres',
+      versione: null,
+      classe: null,
+      vcpu: null,
+      memGb: null,
+      multiAz: false,
+      replica: false,
+      squadra: null,
+      cpuP95: null,
+      memLiberaMin: null,
+      connessioniMax: interno.db?.connessioni ?? null,
+      connessioniLimite: interno.db?.limite ?? null,
+      usdMese: null,
+      proposta: null,
+      interno,
+    }))
 }
