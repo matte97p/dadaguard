@@ -6,6 +6,11 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Fixed
+- **Efficienza: tutti gli indici mai usati, non solo i 50 più grandi** (13/11/2026). La query si fermava a
+  50, quindi conteggio e spazio totale erano quelli dei primi 50. Adesso li legge tutti fino a 2000 (un
+  tetto di sicurezza); se lo raggiunge la pagina dice «almeno».
+
+### Fixed
 - **Efficienza: un indice «mai usato» lo è su tutti i nodi** (13/11/2026). Postgres conta le letture di un
   indice nodo per nodo, e Dadaguard leggeva solo il primario: un indice che serve alle query mandate alla
   replica risultava inutile. Per un database su EC2 dietro un load balancer, Dadaguard legge le porte del

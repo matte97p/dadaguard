@@ -17,6 +17,10 @@ import { cached } from '../util/ttlcache.js'
 const TTL = 10 * 60 * 1000
 const TIMEOUT_MS = 8000
 const TABELLE = 60
+// Gli indici mai usati si leggono tutti, fino a un tetto di sicurezza alto: il conteggio e lo spazio
+// totale devono essere veri, e con 50 (il tetto di prima) un database grande ne mostrava solo una parte.
+// La pagina ne elenca pochi; il tetto serve solo a non portarsi dietro una risposta enorme.
+export const INDICI_MAX = 2000
 
 // `id=url;account/id=url` → [{ id, account, url }]. Puro. Le voci malformate si scartano.
 // L'account davanti all'id serve ai database che non sono su RDS (Postgres su EC2, per esempio): senza
@@ -79,7 +83,7 @@ select s.schemaname as schema, s.relname as tabella, s.indexrelname as indice,
        pg_relation_size(s.indexrelid)::float8 as byte
 from pg_stat_user_indexes s join pg_index i on i.indexrelid = s.indexrelid
 where s.idx_scan = 0 and not i.indisunique and not i.indisprimary
-order by pg_relation_size(s.indexrelid) desc limit 50`
+order by pg_relation_size(s.indexrelid) desc limit ${INDICI_MAX}`
 
 const Q_DB = `
 select (select sum(blks_hit)::float8 / nullif(sum(blks_hit) + sum(blks_read), 0) from pg_stat_database where datname = current_database()) as memoria,
@@ -119,6 +123,7 @@ export function statistichePostgres({ id, url }) {
         schemi: schemi.rows,
         tabelle: tabelle.rows.map((t) => ({ ...t, segnali: segnaliTabella(t) })),
         indiciInutili: indici.rows,
+        indiciTroncati: indici.rows.length >= INDICI_MAX,
       }
     } finally {
       await client.end().catch(() => {})
