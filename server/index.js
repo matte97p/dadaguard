@@ -432,8 +432,9 @@ const deploysMemo = swrMemo({
 const GENERATED_AT = 'X-Dadaguard-Generated-At'
 const conEta = (res, at) => (at ? res.set(GENERATED_AT, String(at)) : res)
 
-function deploysCached(lang, ore = null) {
-  return deploysMemo(`deploys:${lang ?? ''}:${ore ?? 'tutti'}`, () => deploysPerAccount(makeT(lang), ore))
+// `fresh`: «Aggiorna» aspetta il giro nuovo invece di ricevere la copia vecchia, come fa `/api/status`.
+function deploysCached(lang, ore = null, { fresh = false } = {}) {
+  return deploysMemo(`deploys:${lang ?? ''}:${ore ?? 'tutti'}`, () => deploysPerAccount(makeT(lang), ore), { fresh })
 }
 
 async function deploysPerAccount(t, ore = null) {
@@ -477,7 +478,7 @@ async function deploysPerAccount(t, ore = null) {
 app.get('/api/deploys', async (req, res) => {
   try {
     if (isDemo) return res.json(demoDeploys())
-    const { value, at } = await deploysCached(req.query.lang, entroLimiti('deploys', req.query.ore))
+    const { value, at } = await deploysCached(req.query.lang, entroLimiti('deploys', req.query.ore), { fresh: req.query.fresh === '1' })
     conEta(res, at).json(value)
   } catch (err) {
     res.status(500).json({ error: err.message })

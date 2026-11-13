@@ -289,15 +289,26 @@ export default function App() {
     loadHealth()
   }, [loadHealth])
 
-  // Deploy (per «Adesso» e per il badge del menu) e storico della disponibilita'. Lo storico arriva da
-  // un endpoint che il server puo' non avere ancora: un 404 non e' un errore da mostrare, vuol dire
-  // solo che la pagina ripiega su quello che sa di adesso (vedi web/adattatori.js).
+  // Deploy (per «Adesso» e per il badge del menu). Si rileggono nello stesso giro di 30 secondi dello
+  // stato dei servizi: prima si leggevano solo all'apertura, e una scheda aperta da ore teneva in cima
+  // fallimenti gia' superati da un rilascio riuscito, mentre servizi e allarmi intorno erano freschi.
+  const loadDeploys = useCallback(
+    ({ fresh = false } = {}) =>
+      fetch(`/api/deploys?lang=${lang}${fresh ? '&fresh=1' : ''}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => j && setDeploys(j))
+        .catch(() => {}),
+    [lang],
+  )
+  useEffect(() => {
+    loadDeploys()
+  }, [loadDeploys])
+
+  // Storico della disponibilita'. Arriva da un endpoint che il server puo' non avere ancora: un 404
+  // non e' un errore da mostrare, vuol dire solo che la pagina ripiega su quello che sa di adesso
+  // (vedi web/adattatori.js).
   useEffect(() => {
     let vivo = true
-    fetch(`/api/deploys?lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => vivo && j && setDeploys(j))
-      .catch(() => {})
     fetch('/api/history')
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => vivo && setStorico(j))
@@ -366,6 +377,7 @@ export default function App() {
       if (!document.hidden) {
         load()
         loadHealth()
+        loadDeploys()
       }
     }
     const timer = setInterval(tick, 30000)
@@ -379,7 +391,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('focus', tick)
     }
-  }, [location.pathname, load, loadHealth])
+  }, [location.pathname, load, loadHealth, loadDeploys])
 
   const services = data?.services ?? []
   const detailService = detailKey ? services.find((s) => serviceKey(s) === detailKey) : null
@@ -708,6 +720,7 @@ export default function App() {
           onAggiorna={() => {
             load(undefined, { fresh: true })
             loadHealth()
+            loadDeploys({ fresh: true })
             setRefreshKey((k) => k + 1)
           }}
           dark={dark}
