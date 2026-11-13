@@ -19,7 +19,7 @@
         "rds:DescribeDBInstances",
         "elasticloadbalancing:DescribeLoadBalancers",
         "elasticloadbalancing:DescribeTargetGroups",
-        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListeners",
         "ec2:DescribeInstances",
         "ec2:DescribeInstanceStatus",
         "cloudwatch:GetMetricData",

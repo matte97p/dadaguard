@@ -142,3 +142,49 @@ export async function postgresConfigurati() {
   )
   return out
 }
+
+// L'uso di ogni indice letto su un'altra porta dello stesso host (la replica dietro lo stesso load
+// balancer): Postgres conta le letture di un indice nodo per nodo, quindi un indice che serve solo alle
+// query mandate alla replica sul primario risulta «mai usato». Ritorna { porte lette, porte fallite,
+// letture per indice `schema.indice` }.
+const Q_USO_INDICI = `select schemaname || '.' || indexrelname as indice, idx_scan::float8 as letture from pg_stat_user_indexes`
+export async function usoIndiciSuPorte(url, porte) {
+  const out = { lette: [], fallite: [], letture: new Map() }
+  const base = new URL(url)
+  const proprio = Number(base.port || 5432)
+  for (const porta of porte ?? []) {
+    if (porta === proprio) continue
+    const u = new URL(url)
+    u.port = String(porta)
+    const client = new pg.Client({
+      ...opzioniTls(u.toString()),
+      statement_timeout: TIMEOUT_MS,
+      query_timeout: TIMEOUT_MS,
+      connectionTimeoutMillis: TIMEOUT_MS,
+      application_name: 'dadaguard',
+      options: '-c default_transaction_read_only=on',
+    })
+    try {
+      await client.connect()
+      const r = await client.query(Q_USO_INDICI)
+      for (const row of r.rows) out.letture.set(row.indice, (out.letture.get(row.indice) ?? 0) + row.letture)
+      out.lette.push(porta)
+    } catch {
+      out.fallite.push(porta)
+    } finally {
+      await client.end().catch(() => {})
+    }
+  }
+  return out
+}
+
+// Gli indici «mai usati» del primario restano tali solo se hanno zero letture anche sugli altri nodi.
+// Puro.
+export function soloIndiciMaiUsatiOvunque(indici, letture) {
+  return (indici ?? []).filter((i) => !(letture?.get(`${i.schema}.${i.indice}`) > 0))
+}
+
+// L'url di un id configurato, per chi deve riaprire la connessione su un'altra porta.
+export function urlDi(id) {
+  return leggiUrl().find((v) => v.id === id)?.url ?? null
+}

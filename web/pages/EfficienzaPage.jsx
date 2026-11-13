@@ -615,6 +615,11 @@ function Interno({ d, t, lang }) {
         </div>
       </div>
       {db.dal && <p className="eff-nota">{t('eff.pg.dal', { d: new Date(db.dal).toLocaleDateString(lang === 'en' ? 'en-GB' : 'it-IT') })}</p>}
+      <p className="eff-nota">
+        {pg.indiciNodi && !pg.indiciNodi.falliti
+          ? t('eff.pg.nodi.tutti', { n: pg.indiciNodi.letti })
+          : t('eff.pg.nodi.primario')}
+      </p>
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { clientOpts, cleanAwsReason } from '../runtime/awsClient.js'
 import { cached } from '../util/ttlcache.js'
 import { isQueryable } from '../accounts.js'
 import { prezziFargate, tariffeSpot, conSpot } from './prezzi.js'
-import { postgresConfigurati, leggiUrl } from './pgStat.js'
+import { postgresConfigurati, leggiUrl, usoIndiciSuPorte, soloIndiciMaiUsatiOvunque } from './pgStat.js'
 import { infraDbSuEc2 } from './dbSuEc2.js'
 import { calcoloAccount } from './ecs.js'
 import { databaseAccount } from './rds.js'
@@ -233,7 +233,21 @@ export async function efficienza({ accounts, giorni = 30, t }) {
       if (!a || !isQueryable(a)) return
       const aws = { profile: a.profile, roleArn: a.roleArn, externalId: a.externalId, region: a.region }
       const infra = await infraDbSuEc2(aws, host[d.id]).catch(() => null)
-      if (infra) fuori[i] = { ...d, ...infra }
+      if (!infra) return
+      fuori[i] = { ...d, ...infra }
+      // Gli indici si contano su ogni nodo: quelli letti sulla replica non sono «mai usati».
+      const interno = d.interno
+      if (interno && !interno.errore && infra.porte?.length) {
+        const url = leggiUrl().find((v) => v.id === d.id)?.url
+        const uso = url ? await usoIndiciSuPorte(url, infra.porte).catch(() => null) : null
+        if (uso) {
+          fuori[i].interno = {
+            ...interno,
+            indiciInutili: soloIndiciMaiUsatiOvunque(interno.indiciInutili, uso.letture),
+            indiciNodi: { letti: 1 + uso.lette.length, falliti: uso.fallite.length },
+          }
+        }
+      }
     }),
   )
   out.database.push(...fuori)
