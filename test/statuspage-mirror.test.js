@@ -102,3 +102,20 @@ test('tick: senza configurazione nessuna chiamata a Statuspage', async () => {
   await tick(env, new Date('2026-01-10T10:00:00Z'))
   assert.equal(atlassian, 0)
 })
+
+test('/health: 200 col giro fresco, 503 con lo stato vecchio o assente, senza far partire un giro', async () => {
+  const { default: worker, dueForStale } = await import('../statuspage/worker.js')
+  let fetches = 0
+  globalThis.fetch = async () => { fetches++; return new Response('ok') }
+  const fresh = { STATUS: kv({ snap: { checkedAt: new Date().toISOString() } }), COMPONENTS: '[]' }
+  const r1 = await worker.fetch(new Request('https://status.example.com/health'), fresh, { waitUntil() {} })
+  assert.equal(r1.status, 200)
+  const old = { STATUS: kv({ snap: { checkedAt: new Date(Date.now() - 10 * 60_000).toISOString() } }), COMPONENTS: '[]' }
+  const r2 = await worker.fetch(new Request('https://status.example.com/health'), old, { waitUntil() { throw new Error('nessun giro') } })
+  assert.equal(r2.status, 503)
+  const none = { STATUS: kv(), COMPONENTS: '[]' }
+  const r3 = await worker.fetch(new Request('https://status.example.com/health'), none, { waitUntil() {} })
+  assert.equal(r3.status, 503)
+  assert.equal(fetches, 0)
+  assert.equal(dueForStale(null), true)
+})

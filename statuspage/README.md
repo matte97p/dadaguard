@@ -16,7 +16,8 @@ turns red thanks to its external probe.
   itself (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`), so `/admin` stays closed if Access is removed by
   mistake.
 - **Pages**: `/` (the status page, Italian and English), `/api/status.json`, `/feed.xml`
-  (`?lang=en`), `/health`.
+  (`?lang=en`), `/health` (503 when the last tick is older than 3 minutes: point a watchdog at it,
+  above all when the page is mirrored to a vendor and nobody visits this Worker).
 
 ## How the state is decided
 
