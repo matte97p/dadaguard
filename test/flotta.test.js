@@ -242,19 +242,19 @@ test('componiFlotta: i segnali del canale diventano problemi della card, con le 
     vm: { oom_kill: 0, mem_disponibile_gb: 5 },
     app_mb: { backend: 900 },
     docker: { motore: 'docker-desktop', vm_mem_gb: 8 },
-    uso: { doctor: { quando: new Date(ADESSO - ORA).toISOString(), ok: 20, ko: 2, falliti: ['porte', 'login'] }, bloccati_mac: 12, sul_mac: 1 },
+    uso: { doctor: { quando: new Date(ADESSO - ORA).toISOString(), ok: 20, ko: 2, falliti: ['porte', 'login'] }, bloccati_mac: 12, sul_mac: 3 },
     container: { non_sani: ['db: unhealthy'] },
   })
   const f = flottaDi([ev(ADESSO - 40 * 60_000, r), ev(ADESSO - 20 * 60_000, r)])
   const [m] = f.macchine
   assert.deepEqual(m.problemi.map((p) => p.tipo), ['container', 'doctor-ko', 'lavoro-sul-mac'])
   assert.deepEqual(m.problemi[1].falliti, ['porte', 'login'])
-  assert.equal(m.problemi[2].quante, 26)
+  assert.equal(m.problemi[2].quante, 6)
   // Un nome di container con spazi o due punti non finisce in un comando.
   assert.equal(m.problemi[0].azione.comando, null)
   assert.equal(azioneDi({ tipo: 'container', nomi: ['db', 'kong'] }).comando, 'docker restart db kong')
   // Con una soglia piu' alta, i comandi sul Mac tornano sotto.
-  const alta = componiFlotta({ heartbeat: {}, salute: settimanaDiSalute([ev(ADESSO - 40 * 60_000, r), ev(ADESSO - 20 * 60_000, r)], { adesso: ADESSO }) }, { adesso: ADESSO, soglie: { comandiSulMac: 50 } })
+  const alta = componiFlotta({ heartbeat: {}, salute: settimanaDiSalute([ev(ADESSO - 40 * 60_000, r), ev(ADESSO - 20 * 60_000, r)], { adesso: ADESSO }) }, { adesso: ADESSO, soglie: { comandiSulMac: 7 } })
   assert.equal(alta.macchine[0].problemi.some((p) => p.tipo === 'lavoro-sul-mac'), false)
 })
 

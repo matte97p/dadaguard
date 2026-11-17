@@ -113,7 +113,8 @@ export function configSalute(cfg = {}) {
 //   · motoriAmmessi: i motori di Docker supportati. Gli altri hanno un avviso alla settimana.
 //   · vmSottoGb: quanti GB sotto l'obiettivo la VM puo' stare. Due, perche' Docker arrotonda e un
 //     mezzo GB di differenza fra impostata e vista e' normale.
-//   · comandiSulMac: quanti comandi dei repo sul Mac in 24 ore (bloccati + forzati) fanno un avviso.
+//   · comandiSulMac: quanti comandi dei repo FORZATI sul Mac in 24 ore fanno un avviso. I bloccati no:
+//     sono l'hook che fa il suo lavoro, e l'agente riprova nel container perdendo solo un giro.
 //   · appPesanteMb: quanti MB una sola app del dev-env (`app_mb`) puo' tenere prima che la pagina
 //     Flotta la segnali. Tre GB: il backend sano sta sotto il GB e mezzo, e sopra i tre e' la causa
 //     piu' comune della VM che finisce la memoria (misurato il 07/10/2026: 3,7 GB su una VM da 11,7
@@ -122,7 +123,7 @@ export const SOGLIE_DEV_ENV = Object.freeze({
   giorniIndietro: 7,
   motoriAmmessi: Object.freeze(['docker-desktop']),
   vmSottoGb: 2,
-  comandiSulMac: 10,
+  comandiSulMac: 5,
   appPesanteMb: 3072,
 })
 
@@ -520,11 +521,12 @@ export function segnali(dati = {}, { adesso = Date.now(), soglie = SOGLIE_DEV_EN
       })
     }
 
-    // 11. Claude continua a lanciare i comandi dei repo SUL MAC invece che nel container: o li ferma
-    //     l'hook (`bloccati`), o passano con la variabile di fuga (`forzati`). Dieci in un giorno sono
-    //     un'abitudine, o un container che non risponde e una sessione che ripiega. Una volta al giorno.
+    // 11. Claude lancia i comandi dei repo SUL MAC invece che nel container: o li ferma l'hook
+    //     (`bloccati`), o passano con la variabile di fuga (`forzati`). Conta solo i forzati: un
+    //     bloccato e' l'hook che funziona e l'agente che riprova nel container, e contarli faceva
+    //     parlare il canale ogni giorno su ogni Mac attivo senza un danno. Una volta al giorno.
     const cm = m.comandiMac
-    const sulMac = cm ? (cm.bloccati ?? 0) + (cm.forzati ?? 0) : 0
+    const sulMac = cm ? (cm.forzati ?? 0) : 0
     if (cm && sulMac >= sg.comandiSulMac) {
       fuori.push({
         chiave: `lavoro-sul-mac:${m.macchina}`,
