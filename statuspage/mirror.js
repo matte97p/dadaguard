@@ -80,18 +80,19 @@ async function remoteStatuses(env) {
   }
 }
 
-// Esegue il piano, una chiamata alla volta (Statuspage limita le richieste per chiave), e restituisce
-// il nuovo "ultimo accettato". Un errore non ferma gli altri componenti e non tocca il loro stato.
-// Prima legge lo stato su Statuspage (una chiamata, solo quando c'e' qualcosa da mandare): se non ci
-// riesce non manda niente, perche' senza saperlo potrebbe coprire una manutenzione.
+// Esegue il piano, una chiamata alla volta (Statuspage limita le richieste per chiave). Legge prima lo
+// stato su Statuspage, e lo fa a OGNI giro anche senza niente da mandare: e' il battito che dice se
+// Statuspage ci accetta ancora (chiave revocata, limite di richieste, guasto loro). Restituisce
+// { sent, ok }: `sent` e' il nuovo "ultimo accettato", `ok` e' falso se la lettura o un invio e' fallito.
+// Senza lettura non manda niente, perche' potrebbe coprire una manutenzione.
 export async function pushMirror(env, plan, sent = {}) {
   const next = { ...sent }
-  if (!plan.length) return next
   const remote = await remoteStatuses(env)
   if (!remote) {
     console.error(JSON.stringify({ evento: 'copia statuspage rimandata', motivo: 'stato su Statuspage non leggibile' }))
-    return next
+    return { sent: next, ok: false }
   }
+  let ok = true
   for (const p of plan) {
     if (maintenanceByVendor(remote[p.remote], sent[p.id])) continue
     try {
@@ -102,10 +103,14 @@ export async function pushMirror(env, plan, sent = {}) {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
       if (res.ok) next[p.id] = p.status
-      else console.error(JSON.stringify({ evento: 'copia statuspage rifiutata', id: p.id, http: res.status }))
+      else {
+        ok = false
+        console.error(JSON.stringify({ evento: 'copia statuspage rifiutata', id: p.id, http: res.status }))
+      }
     } catch (err) {
+      ok = false
       console.error(JSON.stringify({ evento: 'copia statuspage fallita', id: p.id, err: err.message }))
     }
   }
-  return next
+  return { sent: next, ok }
 }

@@ -54,7 +54,8 @@ test('pushMirror: PATCH col formato di Statuspage, un errore non segna come mand
   assert.equal(calls[0].init.method, 'PATCH')
   assert.equal(calls[0].init.headers.authorization, 'OAuth key1')
   assert.deepEqual(JSON.parse(calls[0].init.body), { component: { status: 'operational' } })
-  assert.deepEqual(out, { web: 'operational', api: 'operational' })
+  assert.deepEqual(out.sent, { web: 'operational', api: 'operational' })
+  assert.equal(out.ok, false)
 })
 
 function kv(init = {}) {
@@ -133,10 +134,44 @@ test('pushMirror: non scrive sopra una manutenzione aperta su Statuspage, e non 
   }
   const out = await pushMirror(env, [{ id: 'web', remote: 'r1', status: 'major_outage' }], { web: 'operational' })
   assert.equal(patched, 0)
-  assert.deepEqual(out, { web: 'operational' })
+  assert.deepEqual(out.sent, { web: 'operational' })
+  assert.equal(out.ok, true)
   // La manutenzione l'abbiamo messa noi: allora si aggiorna.
   assert.equal(maintenanceByVendor('under_maintenance', 'under_maintenance'), false)
   globalThis.fetch = async () => new Response('err', { status: 500 })
   const out2 = await pushMirror(env, [{ id: 'web', remote: 'r1', status: 'major_outage' }], {})
-  assert.deepEqual(out2, {})
+  assert.deepEqual(out2.sent, {})
+  assert.equal(out2.ok, false)
+})
+
+test('/health: 503 quando il giro gira ma la copia su Statuspage fallisce da piu\' di 5 minuti', async () => {
+  const { default: worker, mirrorFailing } = await import('../statuspage/worker.js')
+  const now = Date.now()
+  const env = (since) => ({ STATUS: kv({ snap: { checkedAt: new Date(now).toISOString(), mirrorFailingSince: since } }), COMPONENTS: '[]' })
+  const r1 = await worker.fetch(new Request('https://status.example.com/health'), env(new Date(now - 60_000).toISOString()), { waitUntil() {} })
+  assert.equal(r1.status, 200)
+  const r2 = await worker.fetch(new Request('https://status.example.com/health'), env(new Date(now - 10 * 60_000).toISOString()), { waitUntil() {} })
+  assert.equal(r2.status, 503)
+  assert.equal(mirrorFailing(null), false)
+})
+
+test('tick: legge Statuspage a ogni giro e segna da quando la copia fallisce', async () => {
+  let gets = 0
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://api.statuspage.io/')) {
+      if (!init?.method) { gets++; return new Response('no', { status: 401 }) }
+      return new Response('{}')
+    }
+    return new Response('ok', { status: 200 })
+  }
+  const env = {
+    STATUS: kv(),
+    COMPONENTS: JSON.stringify([{ id: 'web', it: 'Vetrina', probe: 'https://shop.example.com/' }]),
+    ATLASSIAN_PAGE_ID: 'pg1', ATLASSIAN_API_KEY: 'revoked', ATLASSIAN_COMPONENTS: JSON.stringify({ web: 'r1' }),
+  }
+  const a = await tick(env, new Date('2026-01-10T10:00:00Z'))
+  const b = await tick(env, new Date('2026-01-10T10:01:00Z'))
+  assert.equal(gets, 2)
+  assert.equal(a.mirrorFailingSince, '2026-01-10T10:00:00.000Z')
+  assert.equal(b.mirrorFailingSince, '2026-01-10T10:00:00.000Z')
 })
