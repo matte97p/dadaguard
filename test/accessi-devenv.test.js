@@ -103,7 +103,7 @@ test('soglieDevEnv: default, valori validi, e un valore che non e un numero tien
   assert.equal(s.giorniIndietro, 3)
   assert.deepEqual(s.motoriAmmessi, ['docker-desktop', 'orbstack'])
   assert.equal(s.vmSottoGb, 1)
-  assert.equal(s.comandiSulMac, 10)
+  assert.equal(s.comandiSulMac, 5)
   // Una riga lasciata senza valore non spegne la soglia.
   assert.equal(soglieDevEnv({ soglieDevEnv: { giorniIndietro: null, motoriAmmessi: [] } }).giorniIndietro, 7)
   assert.deepEqual(soglieDevEnv({ soglieDevEnv: { motoriAmmessi: [] } }).motoriAmmessi, ['docker-desktop'])
@@ -297,15 +297,17 @@ test('opt-out-attivi: vuoto o assente non parla', () => {
 
 // ── 6. lavoro-sul-mac ─────────────────────────────────────────────────────────────────────────────
 
-test('lavoro-sul-mac: bloccati piu forzati nelle 24 ore sopra la soglia parla, una volta al giorno', () => {
-  const out = di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 7, forzati: 3 } })] } }), { adesso: ADESSO }))
+test('lavoro-sul-mac: i forzati nelle 24 ore sopra la soglia parlano, una volta al giorno', () => {
+  const out = di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 7, forzati: 5 } })] } }), { adesso: ADESSO }))
   assert.equal(out.length, 1)
-  assert.equal(out[0].quante, 10)
+  assert.equal(out[0].quante, 5)
   assert.equal(out[0].quando, Date.UTC(2026, 9, 7, 7))
   assert.equal(out[0].calmaMs, GIORNO_MS)
-  assert.deepEqual(di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 7, forzati: 2 } })] } }), { adesso: ADESSO })), [])
+  assert.deepEqual(di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 7, forzati: 4 } })] } }), { adesso: ADESSO })), [])
+  // I bloccati da soli non parlano mai: e' l'hook che funziona.
+  assert.deepEqual(di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 40, forzati: 0 } })] } }), { adesso: ADESSO })), [])
   // La soglia si cambia.
-  assert.equal(di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 4, forzati: 0 } })] } }), { adesso: ADESSO, soglie: { comandiSulMac: 4 } })).length, 1)
+  assert.equal(di('lavoro-sul-mac', segnali(base({ salute: { macchine: [mac({ comandiMac: { bloccati: 0, forzati: 2 } })] } }), { adesso: ADESSO, soglie: { comandiSulMac: 2 } })).length, 1)
 })
 
 test('lavoro-sul-mac: senza i campi non si conta niente', () => {
@@ -412,7 +414,7 @@ test('messaggi: una riga sola, la persona, il numero e il link al Mac nella Flot
     msg({ tipo: 'motore-non-supportato', livello: 'info', motore: null, candidati: ['colima', 'orbstack'], ammessi: ['docker-desktop'] }),
     msg({ tipo: 'vm-sotto-obiettivo', livello: 'info', vmGb: 11.9, stimata: true, obiettivoGb: 14 }),
     msg({ tipo: 'opt-out-attivi', livello: 'info', nomi: ['X_NO_MIGRATE', 'X_`BAD`'] }),
-    msg({ tipo: 'lavoro-sul-mac', quante: 14, bloccati: 11, forzati: 3 }),
+    msg({ tipo: 'lavoro-sul-mac', quante: 6, bloccati: 11, forzati: 6 }),
     msg({ tipo: 'doctor-ko', quante: 2, falliti: ['docker', 'doppler'] }),
   ]
   for (const m of tutti) {
@@ -428,7 +430,7 @@ test('messaggi: una riga sola, la persona, il numero e il link al Mac nella Flot
   assert.match(tutti[4], /DEV-ENV VM BELOW TARGET \(tizio\): about 11\.9 GB of 14/)
   // Un backtick che arriva da un'altra macchina non apre un code span.
   assert.match(tutti[5], /`X_NO_MIGRATE`, `X_'BAD'`/)
-  assert.match(tutti[6], /ON THE MAC INSTEAD OF THE CONTAINER \(tizio\): 14 times in 24 hours, 11 stopped before running, 3 run on the Mac anyway · usually/)
+  assert.match(tutti[6], /ON THE MAC INSTEAD OF THE CONTAINER \(tizio\): 6 times in 24 hours past the hook, 11 more stopped by the hook · check/)
   assert.match(tutti[7], /DEV-ENV DOCTOR FAILED \(tizio\): 2 failed checks · `docker, doppler`/)
 })
 

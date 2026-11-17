@@ -6,6 +6,12 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Comandi dei repo sul Mac: l'avviso conta solo quelli passati scavalcando l'hook** (17/11/2026). I
+  comandi bloccati sono l'hook che fa il suo lavoro: l'agente riprova nel container e perde un giro. Contarli
+  insieme ai forzati faceva parlare il canale ogni giorno su quasi ogni Mac attivo, senza un danno. Ora la
+  soglia (`comandiSulMac`, default 5) guarda solo i forzati, i bloccati restano nel messaggio e nella pagina
+  Flotta, e il messaggio non dice più «di solito il container è spento», che era una frase fissa e non una
+  misura.
 - **Sprechi: un'istanza EC2 è «ferma» solo con poca CPU e poca rete, e le riserve si dichiarano con un tag**
   (17/11/2026). Con la sola CPU un proxy, un NAT su istanza o un bastion pieni di traffico risultavano fermi:
   adesso serve anche meno di 100 MB al giorno di rete (entrata più uscita), e la riga mostra la rete accanto

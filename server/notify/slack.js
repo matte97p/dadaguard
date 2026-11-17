@@ -367,15 +367,12 @@ export function messaggioAccessi(segnale, { publicUrl = null } = {}) {
     return `${testa} DEV-ENV OPT-OUTS ON${chiTra}: ${nomi}${coda}`
   }
   if (segnale.tipo === 'lavoro-sul-mac') {
-    // Una frase che si legge senza conoscere l'hook: chi ha lanciato cosa, dove doveva andare, com'e'
-    // finita e la causa solita. «bloccati» e «forzati» erano i nomi dei contatori, non parole.
+    // Una frase che si legge senza conoscere l'hook: quanti comandi sono passati sul Mac scavalcando
+    // il blocco, e quanti altri l'hook ha fermato. Niente causa: quella che c'era («di solito il
+    // container e' spento») era una frase fissa, non una misura.
     const { bloccati = 0, forzati = 0 } = segnale
-    const esito = !forzati
-      ? 'all stopped before running'
-      : !bloccati
-        ? 'all run on the Mac anyway'
-        : `${bloccati} stopped before running, ${forzati} run on the Mac anyway`
-    return `${testa} CLAUDE RUNS REPO COMMANDS ON THE MAC INSTEAD OF THE CONTAINER${chiTra}: ${segnale.quante === 1 ? 'once' : `${segnale.quante} times`} in 24 hours, ${esito} · usually the container is off and needs restarting${coda}`
+    const fermati = bloccati ? `, ${bloccati} more stopped by the hook` : ''
+    return `${testa} CLAUDE RAN REPO COMMANDS ON THE MAC INSTEAD OF THE CONTAINER${chiTra}: ${forzati === 1 ? 'once' : `${forzati} times`} in 24 hours past the hook${fermati} · check that the dev-env container answers on this Mac${coda}`
   }
   if (segnale.tipo === 'doctor-ko') {
     const n = segnale.quante === 1 ? 'one failed check' : `${segnale.quante} failed checks`
