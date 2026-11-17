@@ -41,6 +41,7 @@ test('mirrorEnabled: servono pagina, chiave e mappa', () => {
 test('pushMirror: PATCH col formato di Statuspage, un errore non segna come mandato', async () => {
   const calls = []
   globalThis.fetch = async (url, init) => {
+    if (!init?.method) return new Response(JSON.stringify([{ id: 'r1', status: 'operational' }, { id: 'r2', status: 'operational' }]))
     calls.push({ url, init })
     return new Response('{}', { status: url.includes('r2') ? 500 : 200 })
   }
@@ -74,6 +75,7 @@ test('tick: spinge su Statuspage al primo giro e non ripete al secondo', async (
   const patches = []
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith('https://api.statuspage.io/')) {
+      if (!init?.method) return new Response(JSON.stringify([{ id: 'r1', status: 'operational' }]))
       patches.push(JSON.parse(init.body).component.status)
       return new Response('{}', { status: 200 })
     }
@@ -118,4 +120,23 @@ test('/health: 200 col giro fresco, 503 con lo stato vecchio o assente, senza fa
   assert.equal(r3.status, 503)
   assert.equal(fetches, 0)
   assert.equal(dueForStale(null), true)
+})
+
+test('pushMirror: non scrive sopra una manutenzione aperta su Statuspage, e non manda niente se non sa lo stato', async () => {
+  const { pushMirror, maintenanceByVendor } = await import('../statuspage/mirror.js')
+  const env = { ATLASSIAN_PAGE_ID: 'pg1', ATLASSIAN_API_KEY: 'key1' }
+  let patched = 0
+  globalThis.fetch = async (url, init) => {
+    if (!init?.method) return new Response(JSON.stringify([{ id: 'r1', status: 'under_maintenance' }]))
+    patched++
+    return new Response('{}')
+  }
+  const out = await pushMirror(env, [{ id: 'web', remote: 'r1', status: 'major_outage' }], { web: 'operational' })
+  assert.equal(patched, 0)
+  assert.deepEqual(out, { web: 'operational' })
+  // La manutenzione l'abbiamo messa noi: allora si aggiorna.
+  assert.equal(maintenanceByVendor('under_maintenance', 'under_maintenance'), false)
+  globalThis.fetch = async () => new Response('err', { status: 500 })
+  const out2 = await pushMirror(env, [{ id: 'web', remote: 'r1', status: 'major_outage' }], {})
+  assert.deepEqual(out2, {})
 })
