@@ -122,6 +122,7 @@ mai un servizio rosso:
 | `dadaguard:runbook` | `https://wiki.example.com/runbook` | pannello, «Di chi è» |
 | `dadaguard:slo` | `0.999` | disponibilità contro obiettivo e budget di errore |
 | `dadaguard:posthog` | `shop-checkout-api` | link «Log in PostHog» in «Apri altrove» (vedi sotto) |
+| `dadaguard:standby` | `failover del worker pagamenti` | «Sprechi»: un'istanza EC2 o un database fermi apposta escono dagli sprechi e restano elencati come riserva, col motivo |
 
 Con un progetto PostHog i servizi che portano il tag `dadaguard:posthog` guadagnano il link ai **log**
 di PostHog in «Apri altrove», già filtrato su quel servizio e sull'ultima ora. Il valore del tag è il

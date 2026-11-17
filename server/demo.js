@@ -943,7 +943,10 @@ export function demoWaste() {
       label: 'Staging',
       estMonthlyUsd: 10.8,
       eips: [{ id: 'eipalloc-0c3', ip: '3.71.9.22' }],
-      idleInstances: [{ id: 'i-0ab12cd34', type: 't3.medium', cpuAvg: 0.9, cpuMax: 3.1 }],
+      idleInstances: [{ id: 'i-0ab12cd34', type: 't3.medium', cpuAvg: 0.9, cpuMax: 3.1, netMbDay: 12 }],
+      standbyInstances: [
+        { id: 'i-0cd56ef78', type: 't4g.small', cpuAvg: 0.4, cpuMax: 2.2, netMbDay: 8, standby: 'failover del worker pagamenti' },
+      ],
     },
   }
 }

@@ -1108,6 +1108,7 @@ const STRINGS = {
     'spend.sprechi.nota': 'Stime a listino, non la bolletta. «Da verificare» vuol dire che può essere una riserva voluta: non entra nel totale.',
     'spend.sprechi.fare.spreco': 'Controlla che non serva a nessuno, poi rilasciala o cancellala dalla console. Il comando qui sotto la mostra, non la tocca.',
     'spend.sprechi.fare.verifica': 'Può essere una riserva voluta. Chiedi a chi la possiede prima di spegnerla: il comando qui sotto la mostra, non la tocca.',
+    'spend.sprechi.fare.riserva': 'Niente da fare finché la riserva serve. Quando non serve più, togli il tag dadaguard:standby e spegnila: il comando qui sotto la mostra, non la tocca.',
     'spend.link.budget': 'Budget nella console AWS',
     'spend.link.anomalie': 'Anomalie nella console AWS',
     'spend.link.explorer': 'Cost Explorer',
@@ -1544,12 +1545,18 @@ const STRINGS = {
       'In stato “available”: non attaccati a nessuna istanza, quindi paghi lo storage a vuoto. Fai uno snapshot ed eliminali se non servono.',
     'waste.idleEc2.title': '{n} {n#istanza EC2 accesa#istanze EC2 accese} ma ~ferme',
     'waste.idleEc2.reason':
-      'CPU media sotto il 2% negli ultimi 7 giorni: accese ma di fatto inutilizzate (e intanto le paghi). Spegnile o ridimensionarle — a meno che non siano nodi di riserva.',
+      'Negli ultimi 7 giorni CPU media sotto il 2% e meno di 100 MB al giorno di rete: accese ma di fatto inutilizzate (e intanto le paghi). Spegnile o ridimensionale, a meno che non siano riserve: in quel caso mettigli il tag dadaguard:standby col motivo.',
     'waste.idleRds.title': '{n} {n#database acceso ma inattivo#database accesi ma inattivi}',
     'waste.idleRds.reason':
       'Quasi sempre fermo negli ultimi 7 giorni: in media usa una minima parte della capacità e non si connette quasi nessuno (anche se ogni tanto ha un picco). Acceso ma inutilizzato per la gran parte del tempo, e intanto lo paghi. Potrebbe però essere una replica di lettura o un nodo di riserva per l’alta affidabilità (HA) usato a sprazzi — controlla prima di spegnerlo.',
     // utilizzo della capacità: quanta ne usa di solito (media) e quanto è arrivato al massimo (picco)
     'waste.util': 'CPU {avg}% in media · {peak}% di picco',
+    'waste.net': 'rete {mb} MB al giorno',
+    'waste.level.standby': 'riserva',
+    'waste.standbyEc2.title': '{n} {n#istanza EC2 di riserva#istanze EC2 di riserva}, ferme',
+    'waste.standbyRds.title': '{n} {n#database di riserva#database di riserva}, fermi',
+    'waste.standby.reason':
+      'Ferme negli ultimi 7 giorni, ma dichiarate riserva col tag dadaguard:standby (accanto all’id c’è il motivo scritto nel tag). Non sono sprechi e non entrano nel conteggio: restano qui perché una riserva dimenticata si ritrovi.',
 
     'topo.title': 'Topologia',
     // Mappa dell'architettura: i gruppi del primo livello, il pannello, le briciole.
@@ -3012,6 +3019,7 @@ const STRINGS = {
     'spend.sprechi.nota': 'List-price estimates, not the bill. «To check» means it may be a deliberate reserve: it is not in the total.',
     'spend.sprechi.fare.spreco': 'Make sure nobody needs it, then release or delete it from the console. The command below shows it, it does not touch it.',
     'spend.sprechi.fare.verifica': 'It may be a deliberate reserve. Ask its owner before turning it off: the command below shows it, it does not touch it.',
+    'spend.sprechi.fare.riserva': 'Nothing to do while the standby is needed. When it is not, remove the dadaguard:standby tag and stop it: the command below shows it, it does not touch it.',
     'spend.link.budget': 'Budgets in the AWS console',
     'spend.link.anomalie': 'Anomalies in the AWS console',
     'spend.link.explorer': 'Cost Explorer',
@@ -3442,11 +3450,17 @@ const STRINGS = {
       'In "available" state: not attached to any instance, so you pay for idle storage. Snapshot and delete them if unused.',
     'waste.idleEc2.title': '{n} running EC2 {n#instance#instances} but ~idle',
     'waste.idleEc2.reason':
-      'Average CPU below 2% over the last 7 days: running but effectively unused (and you pay for it meanwhile). Stop or right-size them — unless they are standby nodes.',
+      'Over the last 7 days, average CPU below 2% and under 100 MB a day of network traffic: running but effectively unused (and you pay for it meanwhile). Stop or right-size them, unless they are standby nodes: then tag them dadaguard:standby with the reason.',
     'waste.idleRds.title': '{n} {n#database#databases} running but idle',
     'waste.idleRds.reason':
       'Idle almost all the time over the last 7 days: on average it uses a tiny share of its capacity and almost nobody connects (though it does spike occasionally). Running but unused most of the time, and you pay for it meanwhile. It might be an intended read replica or a high-availability (HA) standby used in bursts, though — check before stopping it.',
     'waste.util': 'CPU {avg}% avg · {peak}% peak',
+    'waste.net': 'network {mb} MB a day',
+    'waste.level.standby': 'standby',
+    'waste.standbyEc2.title': '{n} standby EC2 {n#instance#instances}, idle',
+    'waste.standbyRds.title': '{n} standby {n#database#databases}, idle',
+    'waste.standby.reason':
+      'Idle over the last 7 days, but declared standby with the dadaguard:standby tag (the reason written in the tag is next to the id). They are not waste and are not counted: they stay listed so a forgotten standby can be found.',
 
     'topo.title': 'Topology',
     'topo.g.ingress': 'Ingress',
