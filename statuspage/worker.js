@@ -14,6 +14,7 @@ import {
   isActive, incidentImpact, pruneItems, toRss, HISTORY_DAYS, STALE_MS,
 } from './logic.js'
 import { verifyAccess } from './access.js'
+import { parseMirrorMap, mirrorPlan, mirrorEnabled, pushMirror } from './mirror.js'
 import { pageHtml } from './page.js'
 import { adminHtml } from './admin.js'
 
@@ -78,12 +79,23 @@ export async function tick(env, now = new Date()) {
     states[c.id] = decide({ probe: p, fails: fails[c.id], interno: interno?.[c.id] ?? null, incident: incidentImpact(list, c.id, now) })
   })
 
+  // Copia su Atlassian Statuspage, se configurata: solo i componenti cambiati dall'ultimo push
+  // accettato, che resta nello snapshot (nessuna scrittura KV in più).
+  let mirrored = prev.mirrored ?? {}
+  if (mirrorEnabled(env)) {
+    const map = parseMirrorMap(env.ATLASSIAN_COMPONENTS, comps.map((c) => c.id))
+    const maintenance = Object.fromEntries(comps.map((c) => [c.id, list.some((i) => i.kind === 'maintenance' && i.components.includes(c.id) && isActive(i, now))]))
+    const plan = mirrorPlan({ states, maintenance, map, sent: mirrored })
+    if (plan.length) mirrored = await pushMirror(env, plan, mirrored)
+  }
+
   const next = {
     checkedAt: now.toISOString(),
     interno: interno !== null,
     fails,
     states,
     probes: probeOut,
+    mirrored,
     history: addMinute(prev.history, dayKey(now, env.TZ || 'UTC'), states),
   }
   await env.STATUS.put('snap', JSON.stringify(next))

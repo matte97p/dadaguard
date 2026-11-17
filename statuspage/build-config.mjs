@@ -42,6 +42,9 @@ export function buildConfig(env) {
       ...(env.STATUSPAGE_DADAGUARD_URL ? { DADAGUARD_URL: env.STATUSPAGE_DADAGUARD_URL } : {}),
       ...(env.STATUSPAGE_ACCESS_TEAM_DOMAIN ? { ACCESS_TEAM_DOMAIN: env.STATUSPAGE_ACCESS_TEAM_DOMAIN } : {}),
       ...(env.STATUSPAGE_ACCESS_AUD ? { ACCESS_AUD: env.STATUSPAGE_ACCESS_AUD } : {}),
+      // Copia facoltativa su Atlassian Statuspage (vedi mirror.js); la chiave API è un secret.
+      ...(env.STATUSPAGE_ATLASSIAN_PAGE_ID ? { ATLASSIAN_PAGE_ID: env.STATUSPAGE_ATLASSIAN_PAGE_ID } : {}),
+      ...(env.STATUSPAGE_ATLASSIAN_COMPONENTS ? { ATLASSIAN_COMPONENTS: env.STATUSPAGE_ATLASSIAN_COMPONENTS } : {}),
     },
   }
 }

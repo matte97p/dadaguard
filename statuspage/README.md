@@ -50,6 +50,19 @@ statusPage:
   jobs: [production/worker, production/scheduler]
 ```
 
+## Mirror to Atlassian Statuspage (optional)
+
+To show the page on Atlassian Statuspage while the state is still decided here, map your component
+ids to Statuspage component ids and add an API key:
+
+```bash
+export STATUSPAGE_ATLASSIAN_PAGE_ID=… STATUSPAGE_ATLASSIAN_COMPONENTS='{"web":"…","api":"…"}'
+npx wrangler secret put ATLASSIAN_API_KEY --config statuspage/wrangler.generated.json
+```
+
+Every minute the Worker pushes only the components whose state changed. `unknown` is never pushed,
+an active maintenance becomes `under_maintenance`, and a failed call is retried on the next tick.
+
 ## Deploy
 
 1. Create a KV namespace and a proxied DNS record for the host.
