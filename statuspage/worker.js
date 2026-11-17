@@ -116,6 +116,11 @@ export function lastDays(now, tz, n = HISTORY_DAYS) {
   return out
 }
 
+// I dati sono vecchi se non c'e' mai stato un giro o se l'ultimo ha piu' di STALE_MS.
+export function dueForStale(checkedAt, now = Date.now()) {
+  return !checkedAt || now - new Date(checkedAt).getTime() > STALE_MS
+}
+
 // Un giro e' dovuto se non ce n'e' mai stato uno o se l'ultimo ha piu' di 55 secondi.
 export function dueForTick(checkedAt, now = Date.now()) {
   return !checkedAt || now - new Date(checkedAt).getTime() >= 55_000
@@ -262,7 +267,17 @@ export default {
       const body = toRss(items, { title: `${env.SITE_NAME || 'Status'} status`, link: `${url.origin}/`, lang })
       return new Response(body, { headers: { ...SECURITY_HEADERS, 'content-type': 'application/rss+xml; charset=utf-8', 'cache-control': 'public, max-age=60' } })
     }
-    if (url.pathname === '/health') return jsonRes({ ok: true })
+    if (url.pathname === '/health') {
+      // Health = the minute tick is alive. With the page served elsewhere (for example on Atlassian
+      // Statuspage, fed by mirror.js) nobody visits this Worker, so the visit fallback above never
+      // restarts a stuck cron, and the vendor page keeps the last state it got. This answer lets an
+      // external watchdog notice: 503 when the last tick is older than STALE_MS. It never starts a tick
+      // itself, otherwise the watchdog would hide the problem it is there to see.
+      const snap = await env.STATUS.get('snap', 'json')
+      const checkedAt = snap?.checkedAt ?? null
+      const ok = !dueForStale(checkedAt)
+      return jsonRes({ ok, checkedAt }, ok ? 200 : 503, { 'cache-control': 'no-store' })
+    }
     return new Response('Not found', { status: 404, headers: SECURITY_HEADERS })
   },
 
