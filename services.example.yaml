@@ -109,6 +109,9 @@ accounts:
 #   dadaguard:slo      es. 99.9   (obiettivo di disponibilita': abilita il budget di errore)
 #   dadaguard:posthog  es. shop-checkout-api   (il `service.name` dei log in PostHog, che di rado e'
 #                      il nome della risorsa AWS: abilita il link «Log in PostHog»)
+#   dadaguard:standby  es. failover del worker pagamenti   (EC2 o database fermi APPOSTA: nella pagina
+#                      «Sprechi» passano da «da verificare» a «riserva», col motivo. Letto dai tag della
+#                      risorsa, quindi regge anche quando l'istanza viene ricreata, a differenza di wasteIgnore)
 # Tag assente = campo vuoto: nessun valore viene indovinato.
 
 # --- Endpoint pubblici per NOME servizio ---

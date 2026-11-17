@@ -22,6 +22,14 @@ const GB_MO = 0.08 // EBS gp3 ~$0.08/GB/mese
 const IDLE_WINDOW_MIN = 7 * 24 * 60 // 7 giorni
 const MIN_AGE_DAYS = 3 // sotto quest'età i dati non bastano per dire "ferma"
 const CPU_IDLE_PCT = 2 // EC2 accesa ma CPU media < 2% → praticamente a vuoto
+// Una macchina che fa rete (proxy, NAT su istanza, bastion) lavora poco di CPU anche quando è piena di
+// traffico: la CPU da sola la darebbe per ferma. Serve ANCHE poca rete: sotto questa media giornaliera
+// (entrata + uscita) passa solo il rumore di fondo di un'istanza accesa (agent, aggiornamenti, DNS).
+const NET_IDLE_MB_DAY = 100
+// Riserva DICHIARATA: un'istanza o un DB ferma apposta (failover, ripiego, nodo pronto all'uso) porta
+// questo tag, col motivo come valore. Vale su chi la ricrea con lo stesso codice, a differenza di
+// `wasteIgnore`, che va per id e si perde quando la risorsa viene sostituita.
+export const TAG_RISERVA = 'dadaguard:standby'
 const CONN_IDLE_AVG = 1 // DB con connessioni MEDIE < 1 → nessuno lo usa (reader Aurora idle ~0.05)
 
 const DAY_MS = 86_400_000
@@ -34,7 +42,22 @@ export function isIdle({ ageDays: age, metric, threshold }) {
   return age >= MIN_AGE_DAYS && metric <= threshold
 }
 
-// EC2 running con CPU media ~0 sulla finestra. Best-effort per-istanza: se la metrica non è leggibile
+// EC2 ferma = poca CPU E poca rete. Pura → unit-testabile senza AWS.
+export function isIdleInstance({ ageDays: age, cpuAvg, netMbDay }) {
+  return isIdle({ ageDays: age, metric: cpuAvg, threshold: CPU_IDLE_PCT }) && netMbDay <= NET_IDLE_MB_DAY
+}
+
+// Il motivo della riserva dichiarata (stringa, anche vuota se il tag non ne ha uno), o null se la risorsa
+// non porta il tag. Accetta la forma dei tag di EC2 e di RDS ({ Key, Value }).
+export function motivoRiserva(tags) {
+  const t = (tags ?? []).find((x) => x?.Key === TAG_RISERVA)
+  return t ? String(t.Value ?? '').trim() : null
+}
+
+// Byte sommati sulla finestra → MB al giorno, arrotondati all'intero.
+const mbAlGiorno = (bytes) => Math.round(bytes / 1e6 / (IDLE_WINDOW_MIN / 1440))
+
+// EC2 running con CPU media e rete ~0 sulla finestra. Best-effort per-istanza: se la metrica non è leggibile
 // (permesso/metrica assente) quella istanza si salta, non fa cadere l'intera lista.
 async function findIdleInstances(aws) {
   const ec2 = new EC2Client(clientOpts(aws))
@@ -57,18 +80,29 @@ async function findIdleInstances(aws) {
         const age = ageDays(i.LaunchTime)
         if (age < MIN_AGE_DAYS) return null
         // utilizzo CPU = quanta della capacità di calcolo usa: media (quanto lavora di solito) + picco.
-        const { cpuAvg, cpuMax } = await metricValues(
+        // Rete = byte entrati e usciti sulla finestra, riportati a MB al giorno.
+        const { cpuAvg, cpuMax, netIn, netOut } = await metricValues(
           aws,
           'AWS/EC2',
           [{ Name: 'InstanceId', Value: i.InstanceId }],
           [
             ['cpuAvg', 'CPUUtilization', 'Average'],
             ['cpuMax', 'CPUUtilization', 'Maximum'],
+            ['netIn', 'NetworkIn', 'Sum'],
+            ['netOut', 'NetworkOut', 'Sum'],
           ],
           IDLE_WINDOW_MIN,
         )
-        if (!isIdle({ ageDays: age, metric: cpuAvg, threshold: CPU_IDLE_PCT })) return null
-        return { id: i.InstanceId, type: i.InstanceType, cpuAvg: round1(cpuAvg), cpuMax: round1(cpuMax) }
+        const netMbDay = mbAlGiorno(netIn + netOut)
+        if (!isIdleInstance({ ageDays: age, cpuAvg, netMbDay })) return null
+        return {
+          id: i.InstanceId,
+          type: i.InstanceType,
+          cpuAvg: round1(cpuAvg),
+          cpuMax: round1(cpuMax),
+          netMbDay,
+          standby: motivoRiserva(i.Tags),
+        }
       } catch {
         return null
       }
@@ -109,7 +143,13 @@ async function findIdleDatabases(aws) {
             IDLE_WINDOW_MIN,
           )
           if (!isIdle({ ageDays: age, metric: conn, threshold: CONN_IDLE_AVG })) return null
-          return { id: d.DBInstanceIdentifier, class: d.DBInstanceClass, cpuAvg: round1(cpuAvg), cpuMax: round1(cpuMax) }
+          return {
+            id: d.DBInstanceIdentifier,
+            class: d.DBInstanceClass,
+            cpuAvg: round1(cpuAvg),
+            cpuMax: round1(cpuMax),
+            standby: motivoRiserva(d.TagList),
+          }
         } catch {
           return null
         }
@@ -182,12 +222,20 @@ export async function findWaste({ profile, roleArn, externalId, region, ignore =
       volumes.reduce((s, v) => s + v.sizeGb * GB_MO, 0),
   )
 
+  // Le ferme col tag di riserva escono dagli sprechi ma restano visibili, a parte: una riserva dichiarata
+  // e poi dimenticata si deve poter ritrovare.
+  const ferme = (xs) => xs.filter(kept)
+  const senzaRiserva = (xs) => ferme(xs).filter((x) => x.standby == null)
+  const riserva = (xs) => ferme(xs).filter((x) => x.standby != null)
+
   return {
     eips,
     natGateways,
     volumes,
-    idleInstances: idleInstances.filter(kept),
-    idleDatabases: idleDatabases.filter(kept),
+    idleInstances: senzaRiserva(idleInstances),
+    idleDatabases: senzaRiserva(idleDatabases),
+    standbyInstances: riserva(idleInstances),
+    standbyDatabases: riserva(idleDatabases),
     estMonthlyUsd,
   }
 }

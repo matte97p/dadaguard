@@ -5,6 +5,14 @@ All notable changes to Dadaguard are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Sprechi: un'istanza EC2 è «ferma» solo con poca CPU e poca rete, e le riserve si dichiarano con un tag**
+  (17/11/2026). Con la sola CPU un proxy, un NAT su istanza o un bastion pieni di traffico risultavano fermi:
+  adesso serve anche meno di 100 MB al giorno di rete (entrata più uscita), e la riga mostra la rete accanto
+  alla CPU. Un'istanza o un database fermi apposta portano il tag `dadaguard:standby` col motivo: escono dagli
+  sprechi e dal numero sulla scheda, e restano elencati in fondo come «riserva». A differenza di `wasteIgnore`,
+  che va per id, il tag regge anche quando la risorsa viene ricreata.
+
 ### Fixed
 - **Efficienza: tutti gli indici mai usati, non solo i 50 più grandi** (13/11/2026). La query si fermava a
   50, quindi conteggio e spazio totale erano quelli dei primi 50. Adesso li legge tutti fino a 2000 (un
