@@ -56,11 +56,44 @@ export function mirrorEnabled(env) {
   return Boolean(env.ATLASSIAN_PAGE_ID && env.ATLASSIAN_API_KEY && env.ATLASSIAN_COMPONENTS)
 }
 
+// Le manutenzioni annunciate su Statuspage mettono da sole i componenti in `under_maintenance` per la
+// finestra. In una manutenzione vera i servizi spesso si fermano davvero: senza questo controllo il
+// Worker vedrebbe le sonde fallire e scriverebbe `major_outage` sopra la manutenzione, e un lavoro
+// annunciato ai clienti diventerebbe un guasto. Quindi: un componente che su Statuspage e' in
+// manutenzione, e non ce l'abbiamo messo noi, non si tocca finche' la finestra non si chiude.
+export function maintenanceByVendor(remoteStatus, sentStatus) {
+  return remoteStatus === 'under_maintenance' && sentStatus !== 'under_maintenance'
+}
+
+async function remoteStatuses(env) {
+  try {
+    const res = await fetch(`${API}/pages/${encodeURIComponent(env.ATLASSIAN_PAGE_ID)}/components`, {
+      headers: { authorization: `OAuth ${env.ATLASSIAN_API_KEY}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const out = {}
+    for (const c of await res.json()) if (c?.id && c?.status) out[c.id] = c.status
+    return out
+  } catch {
+    return null
+  }
+}
+
 // Esegue il piano, una chiamata alla volta (Statuspage limita le richieste per chiave), e restituisce
 // il nuovo "ultimo accettato". Un errore non ferma gli altri componenti e non tocca il loro stato.
+// Prima legge lo stato su Statuspage (una chiamata, solo quando c'e' qualcosa da mandare): se non ci
+// riesce non manda niente, perche' senza saperlo potrebbe coprire una manutenzione.
 export async function pushMirror(env, plan, sent = {}) {
   const next = { ...sent }
+  if (!plan.length) return next
+  const remote = await remoteStatuses(env)
+  if (!remote) {
+    console.error(JSON.stringify({ evento: 'copia statuspage rimandata', motivo: 'stato su Statuspage non leggibile' }))
+    return next
+  }
   for (const p of plan) {
+    if (maintenanceByVendor(remote[p.remote], sent[p.id])) continue
     try {
       const res = await fetch(`${API}/pages/${encodeURIComponent(env.ATLASSIAN_PAGE_ID)}/components/${encodeURIComponent(p.remote)}`, {
         method: 'PATCH',
