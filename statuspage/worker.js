@@ -82,12 +82,16 @@ export async function tick(env, now = new Date()) {
   // Copia su Atlassian Statuspage, se configurata: solo i componenti cambiati dall'ultimo push
   // accettato, che resta nello snapshot (nessuna scrittura KV in più).
   let mirrored = prev.mirrored ?? {}
+  // Da quando la copia su Statuspage non riesce: /health lo usa per dare 503 (vedi MIRROR_FAIL_MS).
+  let mirrorFailingSince = prev.mirrorFailingSince ?? null
   if (mirrorEnabled(env)) {
     const map = parseMirrorMap(env.ATLASSIAN_COMPONENTS, comps.map((c) => c.id))
     const maintenance = Object.fromEntries(comps.map((c) => [c.id, list.some((i) => i.kind === 'maintenance' && i.components.includes(c.id) && isActive(i, now))]))
     const plan = mirrorPlan({ states, maintenance, map, sent: mirrored })
-    if (plan.length) mirrored = await pushMirror(env, plan, mirrored)
-  }
+    const r = await pushMirror(env, plan, mirrored)
+    mirrored = r.sent
+    mirrorFailingSince = r.ok ? null : mirrorFailingSince ?? now.toISOString()
+  } else mirrorFailingSince = null
 
   const next = {
     checkedAt: now.toISOString(),
@@ -96,6 +100,7 @@ export async function tick(env, now = new Date()) {
     states,
     probes: probeOut,
     mirrored,
+    mirrorFailingSince,
     history: addMinute(prev.history, dayKey(now, env.TZ || 'UTC'), states),
   }
   await env.STATUS.put('snap', JSON.stringify(next))
@@ -119,6 +124,12 @@ export function lastDays(now, tz, n = HISTORY_DAYS) {
 // I dati sono vecchi se non c'e' mai stato un giro o se l'ultimo ha piu' di STALE_MS.
 export function dueForStale(checkedAt, now = Date.now()) {
   return !checkedAt || now - new Date(checkedAt).getTime() > STALE_MS
+}
+
+// La copia su un vendor fallisce da troppo: un giro saltato si riprova da solo, cinque minuti di fila no.
+export const MIRROR_FAIL_MS = 5 * 60 * 1000
+export function mirrorFailing(since, now = Date.now()) {
+  return Boolean(since) && now - new Date(since).getTime() > MIRROR_FAIL_MS
 }
 
 // Un giro e' dovuto se non ce n'e' mai stato uno o se l'ultimo ha piu' di 55 secondi.
@@ -275,8 +286,11 @@ export default {
       // itself, otherwise the watchdog would hide the problem it is there to see.
       const snap = await env.STATUS.get('snap', 'json')
       const checkedAt = snap?.checkedAt ?? null
-      const ok = !dueForStale(checkedAt)
-      return jsonRes({ ok, checkedAt }, ok ? 200 : 503, { 'cache-control': 'no-store' })
+      const mirrorFailingSince = snap?.mirrorFailingSince ?? null
+      // 503 anche quando il giro gira ma il vendor rifiuta gli stati da piu' di 5 minuti: altrimenti
+      // la pagina pubblica resterebbe sull'ultimo stato accettato mentre il watchdog vede verde.
+      const ok = !dueForStale(checkedAt) && !mirrorFailing(mirrorFailingSince)
+      return jsonRes({ ok, checkedAt, mirrorFailingSince }, ok ? 200 : 503, { 'cache-control': 'no-store' })
     }
     return new Response('Not found', { status: 404, headers: SECURITY_HEADERS })
   },
