@@ -12,7 +12,7 @@
 // `DADAGUARD_CLIENT_SECRET` (Access service token towards Dadaguard), `ATLASSIAN_API_KEY`.
 
 import { parseComponents, decide, STALE_MS } from './logic.js'
-import { parseMirrorMap, mirrorPlan, mirrorEnabled, pushMirror } from './mirror.js'
+import { parseMirrorMap, mirrorEnabled, pushMirror } from './mirror.js'
 
 const PROBE_TIMEOUT_MS = 8000
 const INTERNO_TIMEOUT_MS = 15000
@@ -77,15 +77,15 @@ export async function tick(env, now = new Date()) {
     states[c.id] = decide({ probe: p, fails: fails[c.id], interno: interno?.[c.id] ?? null })
   })
 
-  // Copia su Atlassian Statuspage, se configurata: solo i componenti cambiati dall'ultimo push
-  // accettato, che resta nello snapshot (nessuna scrittura KV in più).
+  // Copia su Atlassian Statuspage, se configurata: solo i componenti che la pagina mostra diversi
+  // dallo stato misurato (vedi mirrorPlan). L'ultimo push accettato resta nello snapshot (nessuna
+  // scrittura KV in più).
   let mirrored = prev.mirrored ?? {}
   // Da quando la copia su Statuspage non riesce: /health lo usa per dare 503 (vedi MIRROR_FAIL_MS).
   let mirrorFailingSince = prev.mirrorFailingSince ?? null
   if (mirrorEnabled(env)) {
     const map = parseMirrorMap(env.ATLASSIAN_COMPONENTS, comps.map((c) => c.id))
-    const plan = mirrorPlan({ states, map, sent: mirrored })
-    const r = await pushMirror(env, plan, mirrored)
+    const r = await pushMirror(env, { states, map }, mirrored)
     mirrored = r.sent
     mirrorFailingSince = r.ok ? null : mirrorFailingSince ?? now.toISOString()
   } else mirrorFailingSince = null

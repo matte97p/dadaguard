@@ -14,7 +14,8 @@ and its external probe sees it.
   `statusPage` in its config. No service names, accounts or errors leave it. Put an Access
   application with a service-token-only policy in front of that path.
 - **Incidents and maintenance** are opened by a person on Statuspage. A component that Statuspage
-  shows as `under_maintenance` is never overwritten until the window closes.
+  shows as `under_maintenance` is never overwritten until the window closes; when it closes, the
+  measured state is pushed again if the page shows `operational` on a component still down.
 - **`/health`** is the only HTTP path: 503 when the last tick is older than 3 minutes, or when
   Statuspage has rejected the states for more than 5. Nobody visits this Worker, so point a
   watchdog at it: without one, a stuck cron leaves the vendor page on its last state. Every other
@@ -58,8 +59,13 @@ export STATUSPAGE_ATLASSIAN_PAGE_ID=… STATUSPAGE_ATLASSIAN_COMPONENTS='{"web":
 npx wrangler secret put ATLASSIAN_API_KEY --config statuspage/wrangler.generated.json
 ```
 
-Every minute the Worker reads the components on Statuspage, then pushes only the ones whose state
-changed. A failed call is retried on the next tick.
+Every minute the Worker reads the components on Statuspage, then pushes only the ones the page
+shows differently from the measured state: when the measured state changed, or when the page shows
+`operational` while the Worker measures a problem (for example a maintenance that ended by setting a
+component that is still down back to operational). Any other state set by a person on an incident
+stays until the measured state changes. To silence a false alarm, open a maintenance: a green set by
+hand on a component the Worker sees down is overwritten on the next tick. A failed call is retried
+on the next tick.
 
 ## Deploy
 
