@@ -1,8 +1,10 @@
 // Copia lo stato dei componenti su una pagina Atlassian Statuspage, per chi vuole la pagina su un
 // vendor ma lo stato deciso dai propri segnali (sonde e Dadaguard).
 //
-// Si spinge solo quello che cambia: ogni minuto si confronta lo stato voluto con l'ultimo che
-// Statuspage ha accettato, e una chiamata fallita resta "da mandare" e si riprova al giro dopo.
+// Every minute the engine reads what Statuspage shows and pushes a component only when the page
+// differs from the measured state: after our own change (compared with the last state Statuspage
+// accepted, so a failed call is retried on the next tick), or whenever the page shows `operational`
+// while we measure a problem (for example a maintenance that ended by setting it back to operational).
 // `unknown` non si spinge mai: se non sappiamo, lasciamo su Statuspage l'ultimo stato vero invece
 // di inventarne uno. Incidents and maintenance are opened on Statuspage by a person.
 //
@@ -40,13 +42,26 @@ export function toAtlassian(state) {
   return STATO_ATLASSIAN[state] ?? null
 }
 
-// Le chiamate da fare in questo giro: solo i componenti il cui stato voluto è diverso dall'ultimo
-// accettato da Statuspage.
-export function mirrorPlan({ states, map, sent = {} }) {
+// The calls to make on this tick, given what Statuspage shows now (`remote`, Statuspage id -> state).
+// A component is pushed when the page differs from the measured state and is not in a maintenance,
+// and either:
+//  - the measured state changed since the last one Statuspage accepted (`sent`), or
+//  - the page shows `operational` while we measure a problem. A maintenance window can end by setting
+//    the component back to operational: if it was down before and is still down, nothing changed for
+//    us, and without this the page would stay green.
+// Any other state set by someone else (a person on an incident, partial or worse) is left alone until
+// the measured state changes: the page never shows green on a problem, but a person's call on how bad
+// it is stands. A component missing from the listing falls back to `sent` alone.
+export function mirrorPlan({ states, map, sent = {}, remote = {} }) {
   const out = []
-  for (const [id, remote] of Object.entries(map)) {
+  for (const [id, remoteId] of Object.entries(map)) {
     const want = toAtlassian(states[id])
-    if (want && sent[id] !== want) out.push({ id, remote, status: want })
+    if (!want) continue
+    const shown = remote[remoteId]
+    if (shown === want || maintenanceByVendor(shown)) continue
+    const changed = sent[id] !== want
+    const greenOnAProblem = shown === 'operational'
+    if (changed || greenOnAProblem) out.push({ id, remote: remoteId, status: want })
   }
   return out
 }
@@ -80,21 +95,27 @@ async function remoteStatuses(env) {
   }
 }
 
-// Esegue il piano, una chiamata alla volta (Statuspage limita le richieste per chiave). Legge prima lo
-// stato su Statuspage, e lo fa a OGNI giro anche senza niente da mandare: e' il battito che dice se
-// Statuspage ci accetta ancora (chiave revocata, limite di richieste, guasto loro). Restituisce
-// { sent, ok }: `sent` e' il nuovo "ultimo accettato", `ok` e' falso se la lettura o un invio e' fallito.
-// Senza lettura non manda niente, perche' potrebbe coprire una manutenzione.
-export async function pushMirror(env, plan, sent = {}) {
+// Legge lo stato su Statuspage, ne ricava il piano (mirrorPlan) e lo esegue, una chiamata alla volta
+// (Statuspage limita le richieste per chiave). La lettura si fa a OGNI giro anche senza niente da
+// mandare: e' il battito che dice se Statuspage ci accetta ancora (chiave revocata, limite di
+// richieste, guasto loro). Restituisce { sent, ok }: `sent` e' il nuovo "ultimo accettato", `ok` e'
+// falso se la lettura o un invio e' fallito. Senza lettura non manda niente, perche' potrebbe coprire
+// una manutenzione.
+export async function pushMirror(env, { states, map }, sent = {}) {
   const next = { ...sent }
   const remote = await remoteStatuses(env)
   if (!remote) {
     console.error(JSON.stringify({ evento: 'copia statuspage rimandata', motivo: 'stato su Statuspage non leggibile' }))
     return { sent: next, ok: false }
   }
+  // A component that Statuspage already shows in the measured state counts as accepted, so `sent`
+  // follows the page (for example after a maintenance) and is never older than what it shows.
+  for (const [id, remoteId] of Object.entries(map)) {
+    const want = toAtlassian(states[id])
+    if (want && remote[remoteId] === want) next[id] = want
+  }
   let ok = true
-  for (const p of plan) {
-    if (maintenanceByVendor(remote[p.remote])) continue
+  for (const p of mirrorPlan({ states, map, sent, remote })) {
     try {
       const res = await fetch(`${API}/pages/${encodeURIComponent(env.ATLASSIAN_PAGE_ID)}/components/${encodeURIComponent(p.remote)}`, {
         method: 'PATCH',
