@@ -4,9 +4,10 @@
 //
 //   node statuspage/build-config.mjs > statuspage/wrangler.generated.json
 //
-// Obbligatorie: STATUSPAGE_HOST (uno o più, separati da virgola), STATUSPAGE_ZONE, STATUSPAGE_KV_ID, STATUSPAGE_COMPONENTS,
-// CLOUDFLARE_ACCOUNT_ID. Facoltative: STATUSPAGE_NAME, STATUSPAGE_SITE_NAME, STATUSPAGE_TZ,
-// STATUSPAGE_DADAGUARD_URL, STATUSPAGE_ACCESS_TEAM_DOMAIN, STATUSPAGE_ACCESS_AUD.
+// Required: STATUSPAGE_HOST (one or more, comma separated: the host that serves /health),
+// STATUSPAGE_ZONE, STATUSPAGE_KV_ID, STATUSPAGE_COMPONENTS, CLOUDFLARE_ACCOUNT_ID. Optional:
+// STATUSPAGE_NAME, STATUSPAGE_DADAGUARD_URL, STATUSPAGE_ATLASSIAN_PAGE_ID,
+// STATUSPAGE_ATLASSIAN_COMPONENTS.
 import { parseComponents } from './logic.js'
 
 export function buildConfig(env) {
@@ -25,8 +26,8 @@ export function buildConfig(env) {
     // wrangler fallisce con un errore di autenticazione che sembra un token sbagliato.
     account_id: env.CLOUDFLARE_ACCOUNT_ID,
     compatibility_date: '2026-09-01',
-    // Spenti: l'indirizzo workers.dev e le anteprime per versione sarebbero copie pubbliche della
-    // pagina su domini che non sono il nostro.
+    // Off: the workers.dev address and the per-version previews would expose /health on domains that
+    // are not ours.
     workers_dev: false,
     preview_urls: false,
     // La rotta, non un custom domain: il record DNS lo possiede l'IaC di chi deploya, e un custom
@@ -36,12 +37,8 @@ export function buildConfig(env) {
     triggers: { crons: ['* * * * *'] },
     observability: { enabled: true },
     vars: {
-      COMPONENTS: JSON.stringify(comps.map((c) => ({ id: c.id, it: c.name.it, en: c.name.en, subIt: c.sub.it, subEn: c.sub.en, ...(c.probe ? { probe: c.probe } : {}) }))),
-      SITE_NAME: env.STATUSPAGE_SITE_NAME || 'Status',
-      TZ: env.STATUSPAGE_TZ || 'UTC',
+      COMPONENTS: JSON.stringify(comps.map((c) => ({ id: c.id, ...(c.probe ? { probe: c.probe } : {}) }))),
       ...(env.STATUSPAGE_DADAGUARD_URL ? { DADAGUARD_URL: env.STATUSPAGE_DADAGUARD_URL } : {}),
-      ...(env.STATUSPAGE_ACCESS_TEAM_DOMAIN ? { ACCESS_TEAM_DOMAIN: env.STATUSPAGE_ACCESS_TEAM_DOMAIN } : {}),
-      ...(env.STATUSPAGE_ACCESS_AUD ? { ACCESS_AUD: env.STATUSPAGE_ACCESS_AUD } : {}),
       // Copia facoltativa su Atlassian Statuspage (vedi mirror.js); la chiave API è un secret.
       ...(env.STATUSPAGE_ATLASSIAN_PAGE_ID ? { ATLASSIAN_PAGE_ID: env.STATUSPAGE_ATLASSIAN_PAGE_ID } : {}),
       ...(env.STATUSPAGE_ATLASSIAN_COMPONENTS ? { ATLASSIAN_COMPONENTS: env.STATUSPAGE_ATLASSIAN_COMPONENTS } : {}),

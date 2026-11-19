@@ -16,12 +16,12 @@ test('parseMirrorMap: tiene solo id nostri noti e id remoti validi', () => {
   assert.deepEqual(parseMirrorMap('[1,2]', ['web']), {})
 })
 
-test('toAtlassian: stati tradotti, unknown mai spinto, manutenzione vince', () => {
+test('toAtlassian: stati tradotti, unknown mai spinto, manutenzione mai mandata da qui', () => {
   assert.equal(toAtlassian('operational'), 'operational')
   assert.equal(toAtlassian('degraded'), 'degraded_performance')
   assert.equal(toAtlassian('outage'), 'major_outage')
   assert.equal(toAtlassian('unknown'), null)
-  assert.equal(toAtlassian('outage', true), 'under_maintenance')
+  assert.equal(toAtlassian('under_maintenance'), null)
 })
 
 test('mirrorPlan: solo i componenti cambiati', () => {
@@ -136,8 +136,9 @@ test('pushMirror: non scrive sopra una manutenzione aperta su Statuspage, e non 
   assert.equal(patched, 0)
   assert.deepEqual(out.sent, { web: 'operational' })
   assert.equal(out.ok, true)
-  // La manutenzione l'abbiamo messa noi: allora si aggiorna.
-  assert.equal(maintenanceByVendor('under_maintenance', 'under_maintenance'), false)
+  // Il motore non manda mai `under_maintenance`: ogni manutenzione su Statuspage è del vendor.
+  assert.equal(maintenanceByVendor('under_maintenance'), true)
+  assert.equal(maintenanceByVendor('major_outage'), false)
   globalThis.fetch = async () => new Response('err', { status: 500 })
   const out2 = await pushMirror(env, [{ id: 'web', remote: 'r1', status: 'major_outage' }], {})
   assert.deepEqual(out2.sent, {})

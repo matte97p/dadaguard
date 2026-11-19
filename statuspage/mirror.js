@@ -1,10 +1,10 @@
 // Copia lo stato dei componenti su una pagina Atlassian Statuspage, per chi vuole la pagina su un
-// vendor ma lo stato deciso dai propri segnali (sonde, Dadaguard, incidenti di /admin).
+// vendor ma lo stato deciso dai propri segnali (sonde e Dadaguard).
 //
 // Si spinge solo quello che cambia: ogni minuto si confronta lo stato voluto con l'ultimo che
 // Statuspage ha accettato, e una chiamata fallita resta "da mandare" e si riprova al giro dopo.
 // `unknown` non si spinge mai: se non sappiamo, lasciamo su Statuspage l'ultimo stato vero invece
-// di inventarne uno.
+// di inventarne uno. Incidents and maintenance are opened on Statuspage by a person.
 //
 // Configurazione: vars `ATLASSIAN_PAGE_ID` e `ATLASSIAN_COMPONENTS` (JSON, id nostro -> id del
 // componente su Statuspage), secret `ATLASSIAN_API_KEY`. Senza uno dei tre la copia è spenta.
@@ -36,17 +36,16 @@ export function parseMirrorMap(raw, ourIds) {
 }
 
 // Lo stato da mostrare su Statuspage, o null se non c'è niente di certo da dire.
-export function toAtlassian(state, maintenance = false) {
-  if (maintenance) return 'under_maintenance'
+export function toAtlassian(state) {
   return STATO_ATLASSIAN[state] ?? null
 }
 
 // Le chiamate da fare in questo giro: solo i componenti il cui stato voluto è diverso dall'ultimo
 // accettato da Statuspage.
-export function mirrorPlan({ states, maintenance = {}, map, sent = {} }) {
+export function mirrorPlan({ states, map, sent = {} }) {
   const out = []
   for (const [id, remote] of Object.entries(map)) {
-    const want = toAtlassian(states[id], Boolean(maintenance[id]))
+    const want = toAtlassian(states[id])
     if (want && sent[id] !== want) out.push({ id, remote, status: want })
   }
   return out
@@ -60,9 +59,10 @@ export function mirrorEnabled(env) {
 // finestra. In una manutenzione vera i servizi spesso si fermano davvero: senza questo controllo il
 // Worker vedrebbe le sonde fallire e scriverebbe `major_outage` sopra la manutenzione, e un lavoro
 // annunciato ai clienti diventerebbe un guasto. Quindi: un componente che su Statuspage e' in
-// manutenzione, e non ce l'abbiamo messo noi, non si tocca finche' la finestra non si chiude.
-export function maintenanceByVendor(remoteStatus, sentStatus) {
-  return remoteStatus === 'under_maintenance' && sentStatus !== 'under_maintenance'
+// manutenzione non si tocca finche' la finestra non si chiude. The engine never sends
+// `under_maintenance` itself, so every maintenance seen there was opened on the vendor.
+export function maintenanceByVendor(remoteStatus) {
+  return remoteStatus === 'under_maintenance'
 }
 
 async function remoteStatuses(env) {
@@ -94,7 +94,7 @@ export async function pushMirror(env, plan, sent = {}) {
   }
   let ok = true
   for (const p of plan) {
-    if (maintenanceByVendor(remote[p.remote], sent[p.id])) continue
+    if (maintenanceByVendor(remote[p.remote])) continue
     try {
       const res = await fetch(`${API}/pages/${encodeURIComponent(env.ATLASSIAN_PAGE_ID)}/components/${encodeURIComponent(p.remote)}`, {
         method: 'PATCH',
