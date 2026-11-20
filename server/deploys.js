@@ -205,7 +205,14 @@ export async function listDeploys({ profile, roleArn, externalId, region } = {},
   const { restarts, startedBy } = await manual
   const builds = raw.map((b) => {
     const out = mapBuild(b, startedBy.get(b.arn) ?? startedBy.get(b.id))
-    if (out.failReason) out.failReason = cause.get(b.id) || motivoDalVerdetto(out.failReason)
+    const c = cause.get(b.id)
+    if (c?.causa) {
+      out.failReason = c.causa
+      // La causa viene dal log: la fase non serve piu' a capire dove guardare.
+      out.failReasonFromLog = true
+    } else if (out.failReason) out.failReason = motivoDalVerdetto(out.failReason)
+    // La versione nuova era gia' in servizio quando la build e' morta: l'unico rosso che cambia la produzione.
+    if (c?.pubblicato) out.published = true
     return out
   })
   // Il taglio si fa QUI e non a monte: CodeBuild non filtra per data, quindi le build arrivano
