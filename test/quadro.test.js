@@ -183,7 +183,7 @@ test('in corso: numero della build, da quanto, quanto dura di solito, da che com
   assert.deepEqual(v.dettagli.filter(Boolean).slice(0, 3), ['phase BUILD', 'from `aaaaaaa` to `bbbbbbb`', 'by dev'])
 })
 
-test('fallito: cosa gira ancora, il motivo e il log', () => {
+test('fallito: il motivo dopo «failed», chi e il log', () => {
   const q = quadroAmbiente('produzione', {
     deploys: {
       production: {
@@ -197,11 +197,33 @@ test('fallito: cosa gira ancora, il motivo e il log', () => {
   })
   const v = voce(q.app[0], { ora: ORA })
   assert.equal(v.emoji, '❌')
-  assert.equal(v.stato, 'build #662 failed in BUILD at 13:30')
+  assert.equal(v.stato, 'build #662 failed in BUILD at 13:30: COMMAND_EXECUTION_ERROR: exit status 1')
   const d = v.dettagli.filter(Boolean).join(' · ')
-  assert.match(d, /still running `aaaaaaa` \(rev 699\)/)
-  assert.match(d, /reason: COMMAND_EXECUTION_ERROR: exit status 1/)
+  assert.doesNotMatch(d, /still running|was trying|reason:/)
   assert.match(d, /\[build log\]\(https:\/\/log\)/)
+})
+
+test('fallito: la causa dal log toglie la fase; la CI non e\' un «by»; la versione gia\' pubblicata si dice', () => {
+  const rosso = (extra) =>
+    voce(
+      quadroAmbiente('produzione', {
+        deploys: {
+          production: {
+            builds: [
+              b('site', 'aaaaaaa', '2026-10-02T10:00:00Z'),
+              b('site', 'bbbbbbb', '2026-10-03T11:30:00Z', 'FAILED', { number: 85, failPhase: 'POST_BUILD', failReason: 'smoke test failed', failReasonFromLog: true, logsUrl: 'https://log', ...extra }),
+            ],
+          },
+        },
+        servizi: [],
+      }).app[0],
+      { ora: ORA },
+    )
+  const ci = rosso({ forcedBy: 'GitHubActions', actorKind: 'ci', author: null })
+  assert.equal(ci.stato, 'build #85 failed at 13:30: smoke test failed')
+  assert.deepEqual(ci.dettagli.filter(Boolean), ['[build log](https://log)'])
+  const persona = rosso({ forcedBy: 'GitHubActions', actorKind: 'ci', author: 'rossi-dev', published: true })
+  assert.deepEqual(persona.dettagli.filter(Boolean), ['by rossi-dev', '⚠️ new version already live', '[build log](https://log)'])
 })
 
 test('un servizio giù vince su tutto; un cron in rosso invece non è un deploy rotto', () => {

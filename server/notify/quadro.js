@@ -314,7 +314,11 @@ function rigaApp(nome, ecs, builds, { persone, chiave, buildIgnote = false }) {
           motivo: u.failReason ?? null,
           log: u.logsUrl ?? null,
           riavvio: u.kind === 'restart',
-          chi: canonicalActor(u.forcedBy ?? u.author ?? null, persone),
+          causaDalLog: !!u.failReasonFromLog,
+          pubblicato: !!u.published,
+          // Chi ha premuto conta solo se e' una persona: «by GitHub Actions» non dice a chi chiedere.
+          // Altrimenti l'autore del commit; nessuno dei due, nessun «by».
+          chi: canonicalActor((u.actorKind === 'human' ? u.forcedBy : null) ?? u.author ?? null, persone),
         }
       : null
   const come = comeArrivato(b, sorgente, ecs, buildIgnote)
@@ -467,6 +471,7 @@ export function quadroAmbiente(ambiente, { deploys = {}, servizi = [], persone =
     chi: canonicalActor(ultimaIac?.author ?? null, persone),
     fase: i.stato === 'fallito' ? (ultimaIac?.failPhase ?? null) : (ultimaIac?.phase ?? null),
     motivo: i.stato === 'fallito' ? (ultimaIac?.failReason ?? null) : null,
+    causaDalLog: !!ultimaIac?.failReasonFromLog,
     log: i.stato === 'fallito' ? (ultimaIac?.logsUrl ?? null) : null,
   }
 
@@ -746,11 +751,14 @@ function voceApp(r, ora) {
       dettagli: [`running ${c}${rev ? ` (${rev})` : ''}`, r.target && `${r.target} healthy targets`, r.quando && `last change ${alle(r.quando, ora)}`],
     }
   if (r.stato === 'fallito') {
-    // Un rosso da solo fa credere il servizio giù: si dice cosa sta ancora girando.
-    const gira = r.commit ? `still running ${c}${rev ? ` (${rev})` : ''}` : 'no successful release seen'
-    const motivo = t.motivo && `reason: ${tronca(t.motivo, 140)}`
+    // Il motivo subito dopo «failed», cosi' la prima meta' si legge come una frase: cosa e' fallito e
+    // perche'. Che la produzione sia rimasta com'era non si scrive: una build fallita non pubblica, e
+    // il caso contrario ha la sua riga (`pubblicato`). La fase solo se la causa non viene dal log, perche'
+    // in quel caso e' l'unico indizio su dove guardare.
+    const motivo = t.motivo ? `: ${tronca(t.motivo, 140)}` : ''
+    const fase = t.fase && !t.causaDalLog ? ` in ${t.fase}` : ''
     if (t.riavvio)
-      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `manual restart failed ${alle(t.da, ora)}`, dettagli: [daChi(t.chi), motivo, gira] }
+      return { ...base, livello: 'adesso', gravita: 1, quando: t.da, emoji: '❌', stato: `manual restart failed ${alle(t.da, ora)}${motivo}`, dettagli: [daChi(t.chi)] }
     return {
       ...base,
       livello: 'adesso',
@@ -759,8 +767,8 @@ function voceApp(r, ora) {
       emoji: '❌',
       // Il guasto è LA build: l'evento e il giro la vedono con orari diversi di qualche secondo.
       guasto: t.numero ? `build#${t.numero}` : null,
-      stato: `build${t.numero ? ` #${t.numero}` : ''} failed${t.fase ? ` in ${t.fase}` : ''} ${alle(t.da, ora)}`,
-      dettagli: [gira, t.commit && `was trying ${sha(t.commit, r.repo)}`, t.chi && `by ${t.chi}`, motivo, t.log && `[build log](${t.log})`],
+      stato: `build${t.numero ? ` #${t.numero}` : ''} failed${fase} ${alle(t.da, ora)}${motivo}`,
+      dettagli: [t.chi && `by ${t.chi}`, t.pubblicato && '⚠️ new version already live', t.log && `[build log](${t.log})`],
     }
   }
   if (r.stato === 'in_corso') {
@@ -817,8 +825,9 @@ function voceIac(i, ora) {
       gravita: 1,
       emoji: '❌',
       guasto: i.numero ? `apply#${i.numero}` : null,
-      stato: `apply failed${i.fase ? ` in ${i.fase}` : ''} ${alle(i.quando, ora)}`,
-      dettagli: [c, build, i.chi && `by ${i.chi}`, i.motivo && `reason: ${tronca(i.motivo, 140)}`, i.log && `[build log](${i.log})`],
+      // Stessa forma del rosso di un'app: il motivo dopo «failed», la fase solo senza causa dal log.
+      stato: `apply failed${i.fase && !i.causaDalLog ? ` in ${i.fase}` : ''} ${alle(i.quando, ora)}${i.motivo ? `: ${tronca(i.motivo, 140)}` : ''}`,
+      dettagli: [i.chi && `by ${i.chi}`, i.log && `[build log](${i.log})`],
     }
   return { ...base, livello: 'recente', gravita: 4, emoji: '🏗️', stato: `apply OK${SEP}${alle(i.quando, ora)}`, dettagli: [c, build && `${build}${durata(i.durataMs) ? ` in ${durata(i.durataMs)}` : ''}`, i.chi && `by ${i.chi}`] }
 }
