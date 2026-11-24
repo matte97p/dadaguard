@@ -494,5 +494,17 @@ export function nuovoGithub(cfg, deps = {}) {
       .map((p) => ({ numero: p.number, ramo: p.head?.ref ?? null, titolo: p.title ?? null, mergiataAlle: p.merged_at ?? null }))
   }
 
-  return { leggi, runDi, jobsDi, confronto, puntaRamo, prDelCommit, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
+  // La punta di staging che l'ultima promozione ha portato in produzione: la PR mergiata più recente
+  // da `staging` verso `produzione`, e il suo `head.sha`. Serve quando la promozione è uno squash: il
+  // ramo di produzione riceve un commit nuovo, e i commit di staging non ne diventano mai antenati, quindi
+  // il compare fra i due rami li conta in attesa per sempre anche a contenuto identico.
+  async function ultimaPromozione(r, staging, produzione, { ora = Date.now() } = {}) {
+    const q = `state=closed&base=${encodeURIComponent(produzione)}&head=${encodeURIComponent(`${r.owner}:${staging}`)}&sort=updated&direction=desc&per_page=10`
+    const res = await leggiPerAttesa(r.owner, `${percorsoRepo(r)}/pulls?${q}`, ora)
+    const mergiate = (res.json ?? []).filter((p) => p.merged_at && p.head?.sha)
+    mergiate.sort((a, b) => Date.parse(b.merged_at) - Date.parse(a.merged_at))
+    return mergiate[0] ? { sha: mergiate[0].head.sha, numero: mergiate[0].number, mergiataAlle: mergiate[0].merged_at } : null
+  }
+
+  return { leggi, runDi, jobsDi, confronto, puntaRamo, prDelCommit, ultimaPromozione, mem, org: cfg.org, rami: cfg.rami, lettoAlle: () => mem.letto }
 }
