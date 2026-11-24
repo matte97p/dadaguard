@@ -17,6 +17,7 @@ import {
   DEPLOY_IN_CORSO_MS,
   ramiAttesa,
   commitDaLeggere,
+  daDire,
 } from '../server/attesa.js'
 import { nuovoGithub, LimiteGithub } from '../server/notify/github.js'
 import { generateKeyPairSync } from 'node:crypto'
@@ -315,4 +316,65 @@ test('il client GitHub: un rate limit mette in pausa anche le altre letture, un 
   risposta = 'ok'
   await gh.puntaRamo(r, 'main')
   assert.equal(token, 2, 'dopo il 401 si chiede un token nuovo')
+})
+
+test('una promozione in squash: i commit già portati in produzione non aspettano più', async () => {
+  const gh = githubFinto()
+  const chiesti = []
+  gh.confronto = async (r, base) => {
+    chiesti.push(base)
+    if (base === 'main') return { total_commits: 2, commits: [commit('s1', 20, 'feat: one (ENG-1)'), commit('s2', 15, 'fix: two')] }
+    return { total_commits: 0, commits: [] }
+  }
+  gh.ultimaPromozione = async () => ({ sha: 'promossa', numero: 9, mergiataAlle: '2026-03-01T00:00:00Z' })
+  const [riga] = await calcolaAttesa([{ owner: 'acme', repo: 'api' }], gh, cfgBase, { ora: ORA })
+  assert.equal(riga.inAttesa, 0)
+  assert.deepEqual(chiesti, ['main', 'promossa'])
+  assert.equal(daDire(riga), false)
+
+  // Dopo la promozione è arrivato un commit nuovo: aspetta solo lui.
+  gh.confronto = async (r, base) =>
+    base === 'main' ? { total_commits: 3, commits: [commit('s1', 20, 'a'), commit('s2', 15, 'b'), commit('s3', 2, 'feat: three (ENG-3)')] } : { total_commits: 1, commits: [commit('s3', 2, 'feat: three (ENG-3)')] }
+  const [nuovo] = await calcolaAttesa([{ owner: 'acme', repo: 'api' }], gh, cfgBase, { ora: ORA })
+  assert.equal(nuovo.inAttesa, 1)
+  assert.equal(nuovo.giorni, 2)
+  assert.deepEqual(nuovo.ticket, ['ENG-3'])
+})
+
+test('una promozione che non si legge lascia il compare fra i rami, un rate limit sale', async () => {
+  const gh = githubFinto()
+  gh.ultimaPromozione = async () => Promise.reject(new Error('github GET /pulls: HTTP 403'))
+  const [riga] = await calcolaAttesa([{ owner: 'acme', repo: 'api' }], gh, cfgBase, { ora: ORA })
+  assert.equal(riga.inAttesa, 1)
+
+  // Nessuna promozione via PR (un push diretto): resta il compare fra i rami.
+  gh.ultimaPromozione = async () => null
+  assert.equal((await calcolaAttesa([{ owner: 'acme', repo: 'api' }], gh, cfgBase, { ora: ORA }))[0].inAttesa, 1)
+
+  gh.ultimaPromozione = async () => Promise.reject(new LimiteGithub('github /pulls: rate limit (HTTP 403)'))
+  const [limite] = await calcolaAttesa([{ owner: 'acme', repo: 'api' }], gh, cfgBase, { ora: ORA })
+  assert.match(limite.errore, /rate limit/)
+})
+
+test('il client GitHub: l’ultima promozione è la PR mergiata più recente da staging verso main', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const chiamate = []
+  const fetch = async (url) => {
+    chiamate.push(url)
+    const json = (x) => ({ ok: true, status: 200, headers: new Map(), json: async () => x })
+    if (url.endsWith('/orgs/acme/installation')) return json({ id: 7 })
+    if (url.endsWith('/app/installations/7/access_tokens')) return json({ token: 'tok', expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+    if (url.includes('/pulls?'))
+      return json([
+        { number: 12, head: { sha: 'aperta' }, merged_at: null },
+        { number: 10, head: { sha: 'vecchia' }, merged_at: '2026-03-01T00:00:00Z' },
+        { number: 11, head: { sha: 'recente' }, merged_at: '2026-03-08T00:00:00Z' },
+      ])
+    return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
+  }
+  const gh = nuovoGithub({ appId: '1', chiave: privateKey.export({ type: 'pkcs1', format: 'pem' }), org: null, rami: {} }, { fetch })
+  assert.deepEqual(await gh.ultimaPromozione({ owner: 'acme', repo: 'api' }, 'staging', 'main'), { sha: 'recente', numero: 11, mergiataAlle: '2026-03-08T00:00:00Z' })
+  const q = chiamate.find((u) => u.includes('/pulls?'))
+  assert.match(q, /base=main/)
+  assert.match(q, /head=acme%3Astaging/)
 })

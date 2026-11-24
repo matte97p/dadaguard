@@ -237,7 +237,25 @@ async function unRepo(r, github, cfg, rami, ora) {
     throw err
   })
   if (!staging) return null
-  const confronto = await github.confronto(r, rami.produzione, rami.staging, { ora })
+  // Il compare fra i due rami dice cosa aspetta solo se le promozioni sono merge commit. Con uno squash
+  // i commit di staging non entrano mai nella storia di produzione: si confronta allora anche con la
+  // punta di staging dell'ultima promozione, e vale il confronto con MENO commit (una promozione fatta
+  // con un push diretto, senza PR, lascia il compare fra i rami come il più corto). Una promozione che
+  // non si legge non toglie la riga: resta il compare fra i rami, come prima. Un rate limit invece sale.
+  let confronto = await github.confronto(r, rami.produzione, rami.staging, { ora })
+  if ((confronto?.total_commits ?? 0) > 0 && github.ultimaPromozione) {
+    const promossa = await github.ultimaPromozione(r, rami.staging, rami.produzione, { ora }).catch((err) => {
+      if (err instanceof LimiteGithub) throw err
+      return null
+    })
+    if (promossa?.sha) {
+      const daPromossa = await github.confronto(r, promossa.sha, rami.staging, { ora }).catch((err) => {
+        if (err instanceof LimiteGithub) throw err
+        return null
+      })
+      if (daPromossa && (daPromossa.total_commits ?? Infinity) < confronto.total_commits) confronto = daPromossa
+    }
+  }
   const pr = new Map()
   await mapLimit(commitDaLeggere(confronto?.commits ?? []), PR_INSIEME, async (c) => {
     // Una PR non letta toglie un ticket e la data del merge, non la riga. Un rate limit invece sale:
