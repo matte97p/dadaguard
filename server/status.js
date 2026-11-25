@@ -595,6 +595,9 @@ export async function getStatus(lang) {
         // Il motivo che AWS scrive quando l'allarme scatta: e' la sola riga che dice COSA e' successo,
         // e senza di lei resta un nome che chi guarda non sa interpretare.
         motivo: a.StateReason ?? null,
+        // La metrica che l'allarme guarda: da sola dice cosa vuol dire «sotto soglia» (un conteggio di
+        // successi che scende = l'esecuzione e' fallita) e la pagina lo scrive per esteso.
+        metrica: a.MetricName ?? null,
         da: a.StateUpdatedTimestamp ?? null,
         account: k,
         accountLabel: accounts[k]?.label ?? k,
