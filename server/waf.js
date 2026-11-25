@@ -151,7 +151,9 @@ export async function wafOverview({ hours = 24 } = {}) {
   const cred = cloudflareToken()
   if (!cred) return null
   return cachedCall(`waf:${hours}`, TTL_MS, async () => {
-    const since = new Date(Date.now() - hours * 3600_000).toISOString()
+    // Due minuti in meno della finestra: la query parte qualche istante DOPO questa riga, e a 24 ore
+    // tonde Cloudflare rispondeva «cannot request a time range wider than 1d» (1d e un secondo).
+    const since = new Date(Date.now() - hours * 3600_000 + 120_000).toISOString()
     let zones
     try {
       zones = await listZones(cred.token)

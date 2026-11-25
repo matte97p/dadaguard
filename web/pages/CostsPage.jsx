@@ -320,11 +320,14 @@ function Riepilogo({ accounts, giorni, accountLabels, t, lang }) {
   const gross = sum((a) => a.gross)
   const credits = sum((a) => a.credits)
   const net = sum((a) => (a.total != null ? a.total : a.gross))
-  const proj = sum((a) => (a.projection ? a.projection.gross : a.gross))
   const tax = sum((a) => a.tax)
   const ai = sum((a) => a.aiGross)
   const hasCred = Math.abs(credits) > 0.005
   const hasTax = Math.abs(tax) > 0.005
+  // La previsione nella stessa misura del numero grande accanto (netto se c'e' netto), e di quella
+  // nel titolo della pagina: prima il titolo diceva una cifra, questa un'altra, e nessuna delle due
+  // spiegava di essere a listino.
+  const proj = sum((a) => (a.projection ? (hasCred || hasTax ? a.projection.net : a.projection.gross) : hasCred || hasTax ? net : a.gross))
   const hasAi = Math.abs(ai) > 0.005
 
   // «Dove va»: i servizi di tutti gli account sommati per nome, i primi cinque e il resto insieme.
@@ -417,7 +420,7 @@ function Riepilogo({ accounts, giorni, accountLabels, t, lang }) {
       {/* Un riquadro per account: quanto pesa ognuno, e i suoi errori senza spegnere gli altri. */}
       <div className="ui-envgrid">
         {accounts.map(([key, a]) => (
-          <Card key={key} titolo={a.label} nota={a.error ? null : soldi(a.gross, lang)}>
+          <Card key={key} titolo={a.label} nota={a.error ? null : `${soldi(a.gross, lang)} ${t('costs.h.gross')}`}>
             {a.error ? (
               <span className="ui-t-warn">{a.error}</span>
             ) : (

@@ -457,8 +457,14 @@ function GraficoAccessi({ andamento, t, lang }) {
   return (
     <Sezione titolo={t('accessi.grafico')} sotto={t('accessi.graficoSotto', { passo })}>
       <div className="acc-grafico">
-        <Legenda voci={serie.map((s) => ({ etichetta: s.etichetta, colore: s.colore, valore: totale(s), spenta: totale(s) === 0 }))} />
-        <GraficoEventi andamento={andamento} serie={serie} t={t} lang={lang} />
+        {/* Senza nessun evento un grafico vuoto (asse 0-1, quattro zeri in legenda) occupa mezza pagina
+            per dire niente: resta la frase. */}
+        {!vuoto && (
+          <>
+            <Legenda voci={serie.map((s) => ({ etichetta: s.etichetta, colore: s.colore, valore: totale(s), spenta: totale(s) === 0 }))} />
+            <GraficoEventi andamento={andamento} serie={serie} t={t} lang={lang} />
+          </>
+        )}
         {vuoto ? (
           <p className="acc-grafico-vuoto">{t('accessi.grafico.vuoto')}</p>
         ) : (

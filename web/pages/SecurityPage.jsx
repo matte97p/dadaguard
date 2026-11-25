@@ -53,6 +53,11 @@ export default function SecurityPage({ t = (k) => k, lang }) {
   const categories = useMemo(() => [...new Set(findings.map((f) => f.category))], [findings])
   const shown = cat === 'all' ? findings : findings.filter((f) => f.category === cat)
   const gravi = findings.filter((f) => LIVELLO[f.severity] === 'crit').length
+  // «Da sistemare» sono solo quelli che chiedono un'azione (alta e media). Le segnalazioni
+  // informative, come un load balancer esposto di proposito, restano in elenco ma non sono
+  // problemi: contarle nel titolo faceva dire «12 problemi» quando erano 4 e 8 informative.
+  const daSistemare = findings.filter((f) => LIVELLO[f.severity] !== 'info').length
+  const soloInfo = findings.length - daSistemare
   const voci = [
     { key: 'all', label: t('sec.all'), n: findings.length },
     ...categories.map((c) => ({ key: c, label: t(`sec.cat.${c}`), n: findings.filter((f) => f.category === c).length })),
@@ -64,12 +69,14 @@ export default function SecurityPage({ t = (k) => k, lang }) {
     <Verdetto resto={t('sec.title')} dettaglio={t('sec.desc')} />
   ) : findings.length === 0 ? (
     <Verdetto livello="ok" forte={t('sec.v.okTitolo')} dettaglio={t('sec.none')} />
+  ) : daSistemare === 0 ? (
+    <Verdetto livello="ok" forte={t('sec.v.niente')} dettaglio={t('sec.v.soloInfo', { n: soloInfo })} />
   ) : (
     <Verdetto
       livello={gravi ? 'crit' : 'warn'}
-      forte={gravi ? t('sec.v.graviN', { n: gravi }) : t('sec.v.titolo', { n: findings.length })}
-      resto={gravi ? ` ${t('sec.v.suTotale', { n: findings.length })}` : null}
-      dettaglio={t('sec.v.dettaglio', { n: categories.length })}
+      forte={gravi ? t('sec.v.graviN', { n: gravi }) : t('sec.v.daSistemare', { n: daSistemare })}
+      resto={gravi ? ` ${t('sec.v.suTotale', { n: daSistemare })}` : null}
+      dettaglio={[t('sec.v.dettaglio', { n: categories.length }), soloInfo ? t('sec.v.eInfo', { n: soloInfo }) : ''].filter(Boolean).join(' ')}
     />
   )
 
