@@ -146,3 +146,9 @@
     display: none;
   }
 }
+
+.sv-cosa {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

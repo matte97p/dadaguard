@@ -272,6 +272,39 @@
 }
 .ui-verdetto-extra {
   margin-left: auto;
+  order: 2;
+}
+/* «Parti da»: la prima cosa da fare, a tutta riga sotto il verdetto. */
+.ui-parti {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.ui-parti:hover {
+  background: var(--hover);
+}
+.ui-parti > span:first-child {
+  color: var(--mute);
+}
+.ui-parti-che {
+  color: var(--mute);
+  min-width: 0;
+}
+.ui-parti-go {
+  margin-left: auto;
+  color: var(--brand);
+  font-weight: 600;
 }
 
 /* ── sezioni e liste ── */
@@ -848,6 +881,9 @@
   flex-direction: column;
   gap: 6px;
 }
+.ui-fix > span {
+  white-space: pre-line;
+}
 .ui-fix-crit {
   border-color: var(--crit);
   background: var(--crit-soft);
@@ -868,8 +904,9 @@
 .ui-cmd code {
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  white-space: nowrap;
+  /* Il comando si legge per intero: tagliato con lo scorrimento nascosto sembrava finire a meta'. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 12.5px;
   user-select: all;
@@ -1111,6 +1148,18 @@
 }
 .ui-modale .ui-sezione h2 {
   margin-bottom: 10px;
+}
+
+/* Schermo largo: il pannello sta ACCANTO alla pagina, non sopra. Cosi' la lista resta leggibile mentre
+   si guarda il dettaglio di una riga, e un altro clic sulla lista cambia il pannello. Sotto i 1700px
+   il contenuto sarebbe troppo stretto e il pannello copre la pagina come prima. */
+@media (min-width: 1700px) {
+  .ui-scrim {
+    display: none;
+  }
+  html.ui-drawer-aperto .ui-shell {
+    padding-right: 520px;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {

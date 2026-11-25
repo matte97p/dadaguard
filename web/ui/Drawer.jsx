@@ -9,6 +9,13 @@ export default function Drawer({ aperto, onChiudi, titolo, sopra, sotto, childre
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [aperto, onChiudi])
+  // Sullo schermo largo il pannello si aggancia accanto alla pagina (ui.css): la classe sulla radice
+  // dice alla pagina di lasciargli il posto.
+  useEffect(() => {
+    if (!aperto) return undefined
+    document.documentElement.classList.add('ui-drawer-aperto')
+    return () => document.documentElement.classList.remove('ui-drawer-aperto')
+  }, [aperto])
   if (!aperto) return null
   return (
     <>
