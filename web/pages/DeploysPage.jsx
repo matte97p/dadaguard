@@ -353,12 +353,14 @@ function ElencoDeploy({ t = (k) => k, lang, refreshKey, accountFilter = [] }) {
   // Il verdetto: «i rilasci stanno passando?». Le azioni a mano restano un numero e non entrano nel
   // giudizio: un hotfix a mano non e' un guasto, e' una scelta, e marcarlo rosso insegnerebbe a
   // ignorare il rosso.
+  // Le azioni a mano si dicono (un numero in coda), ma non cambiano il colore.
+  const daMano = conta.aMano ? t('rilasci.dep.v.eAMano', { n: conta.aMano }) : ''
   const verdetto = conta.crit
-    ? { livello: 'crit', forte: t('rilasci.dep.v.falliti', { n: conta.crit }), resto: conta.info ? t('rilasci.dep.v.eInCorso', { n: conta.info }) : '' }
+    ? { livello: 'crit', forte: t('rilasci.dep.v.falliti', { n: conta.crit }), resto: (conta.info ? t('rilasci.dep.v.eInCorso', { n: conta.info }) : '') + daMano }
     : conta.info
-      ? { livello: 'info', forte: t('rilasci.dep.v.inCorso', { n: conta.info }), resto: t('rilasci.dep.v.nessunFallito') }
+      ? { livello: 'info', forte: t('rilasci.dep.v.inCorso', { n: conta.info }), resto: t('rilasci.dep.v.nessunFallito') + daMano }
       : nellaFinestra.length
-        ? { livello: 'ok', forte: t('rilasci.dep.v.ok', { n: conta.ok }), resto: '' }
+        ? { livello: 'ok', forte: t('rilasci.dep.v.ok', { n: conta.ok }), resto: daMano }
         : { livello: null, forte: null, resto: t('rilasci.dep.v.nessuno') }
 
   const schede = [
