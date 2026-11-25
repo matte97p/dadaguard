@@ -73,3 +73,15 @@ test('statoCron: fallito, in corso, non partito, spento', () => {
   assert.equal(statoCron({ runs: [{ outcome: 'ok' }, { outcome: 'failed' }] }), 'ok')
   assert.equal(livelloCorsa({ outcome: 'unknown' }), 'warn')
 })
+
+test('accorciaDalCentro: un nome corto resta com\'e\', uno lungo tiene l\'inizio e la fine, dove sta quello che lo distingue', async () => {
+  const { accorciaDalCentro } = await import('../web/rilasci.js')
+  assert.equal(accorciaDalCentro('rossi/job.py'), 'rossi/job.py')
+  const lungo = 'rossi-bianchi-dati/sorgente/importa/aggiorna-listino-prezzi'
+  const corto = accorciaDalCentro(lungo, 38)
+  assert.equal(corto.length, 38)
+  assert.ok(corto.startsWith('rossi-bianchi-'), 'l\'inizio dice di chi e\'')
+  assert.ok(corto.endsWith('aggiorna-listino-prezzi'), 'la fine dice quale')
+  assert.ok(corto.includes('…'))
+  assert.equal(accorciaDalCentro(null), '')
+})

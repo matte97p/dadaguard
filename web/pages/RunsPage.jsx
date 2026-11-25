@@ -4,7 +4,7 @@ import { usePoll } from '../usePoll.js'
 import { fmtAgo, fmtMs, fmtSchedule } from '../format.js'
 import { matchesAny, isFiltering, queryCerca } from '../filters.js'
 import { rangoLivello } from '../adattatori.js'
-import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron, nomeCron, avvisoReaper, vistaIniziale } from '../rilasci.js'
+import { livelloCorsa, durataCorsa, durataTipica, motivoCorsa, statoCron, nomeCron, accorciaDalCentro, avvisoReaper, vistaIniziale } from '../rilasci.js'
 import { contaCron, verdettoCron } from '../../shared/cron.js'
 import { useTick } from '../components/runBits.jsx'
 import RunTimeline from '../components/RunTimeline.jsx'
@@ -284,8 +284,8 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
       >
         <span className="ui-nm">
           <span className="ui-kicon">⏱</span>
-          <span className="ui-name" title={c.name}>
-            {nomeCron(c)}
+          <span className="ui-name" title={nomeCron(c)}>
+            {accorciaDalCentro(nomeCron(c))}
             <small>
               {[
                 c.accountLabel,
@@ -375,8 +375,8 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
                 >
                   <span className="ui-nm">
                     <span className="ui-kicon">⏱</span>
-                    <span className="ui-name">
-                      {nomeCron(c)}
+                    <span className="ui-name" title={nomeCron(c)}>
+                      {accorciaDalCentro(nomeCron(c))}
                       <small>{c.accountLabel}</small>
                     </span>
                   </span>
@@ -434,8 +434,8 @@ function ElencoCorse({ t = (k) => k, lang, refreshKey, accountFilter = [], cronI
             return (
               <button key={r.key} type="button" className="ui-row ui-row-btn" onClick={() => setAperta({ cron: cronOf(r), run: r })}>
                 <Pill livello={livelloCorsa(r)}>{t(`runs.outcome.${r.outcome}`)}</Pill>
-                <span className="ui-name">
-                  {r.cronName}
+                <span className="ui-name" title={r.cronName}>
+                  {accorciaDalCentro(r.cronName)}
                   <small>{[r.accountLabel, t(`runs.type.${r.cronType === 'lambda' ? 'lambda' : r.cronType === 'prefect' ? 'prefect' : 'ecs'}`)].filter(Boolean).join(' · ')}</small>
                 </span>
                 <span className="ui-what">
