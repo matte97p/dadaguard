@@ -84,6 +84,17 @@ export { livelloCorsa, statoCron, motivoCorsa } from '../shared/cron.js'
 // che il server mette in `etichetta`; senza tag, lo schedule di sempre. Pura.
 export const nomeCron = (c) => c?.etichetta ?? c?.name ?? ''
 
+// Un nome lungo accorciato dal CENTRO, non dalla coda: nei cron la parte che distingue sta in fondo
+// (`cartella/sotto/script`), e il taglio di CSS in coda la toglieva proprio. Resta l'inizio, che dice
+// di chi e', e la fine, che dice quale. Il nome intero va nel `title`. Pura.
+export function accorciaDalCentro(testo, max = 38) {
+  const s = String(testo ?? '')
+  if (s.length <= max) return s
+  const coda = Math.ceil((max - 1) * 0.6)
+  const testa = max - 1 - coda
+  return `${s.slice(0, testa)}…${s.slice(s.length - coda)}`
+}
+
 // Da quale vista parte la pagina Cron: l'ANDAMENTO (com'e' andata nei giorni) o l'ELENCO delle corse
 // (cosa gira adesso, com'e' finita ognuna). Si parte dall'ELENCO, come nella pagina Deploy: chi apre
 // Cron di solito cerca la corsa fallita di stanotte, non un grafico di sette giorni. Un link con una
