@@ -6,6 +6,7 @@ All notable changes to Dadaguard are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **Efficienza: la pagina si legge a colpo d'occhio** (25/11/2026). Tre schede con nome-domanda («Da dove partire», «Sprechi e rischi», «Chi spende») e una riga che dice a cosa risponde ciascuna. «Da dove partire» mette prima i servizi al limite, poi le leve di risparmio, ognuna con cosa succede e cosa fare in parole semplici, con «Mostra altre» oltre le prime cinque. «Sprechi e rischi» è un elenco solo di servizi e database, con il filtro «Mostra solo quelli da guardare» acceso di default e un grafico per riga: CPU e memoria ora per ora sulle ultime due settimane, con la zona oltre l'80% evidenziata, le copie accese a gradini, l'asse dei giorni e un cursore che dice giorno, ora e valori di quel momento. Le opzioni (risorsa, prezzo, importi) stanno in una barra in cima, e «Ultimo mese» affianca il fatturato dell'ultimo mese chiuso letto da Spesa. Via le tabelle in gergo, la fila di tag per squadra e gli avvisi sui dati ripetuti: ne resta una riga.
 - **Comandi dei repo sul Mac: l'avviso conta solo quelli passati scavalcando l'hook** (17/11/2026). I
   comandi bloccati sono l'hook che fa il suo lavoro: l'agente riprova nel container e perde un giro. Contarli
   insieme ai forzati faceva parlare il canale ogni giorno su quasi ogni Mac attivo, senza un danno. Ora la
@@ -20,6 +21,7 @@ All notable changes to Dadaguard are documented here. Format based on
   che va per id, il tag regge anche quando la risorsa viene ricreata.
 
 ### Fixed
+- **Efficienza: CPU e memoria dei servizi ECS non risultano più vuote** (25/11/2026). Le metriche del namespace `AWS/ECS` non pubblicano percentili: chiedere `p95` tornava zero punti, e la pagina non poteva dire chi era al limite né proporre una taglia più piccola. Ora si legge il massimo di ogni ora e il p95 si calcola sulle ore, come già dichiarato nella nota della pagina. L'andamento orario di CPU, memoria e copie accese (`oraria`) arriva dal server per servizi e database.
 - **Efficienza: tutti gli indici mai usati, non solo i 50 più grandi** (13/11/2026). La query si fermava a
   50, quindi conteggio e spazio totale erano quelli dei primi 50. Adesso li legge tutti fino a 2000 (un
   tetto di sicurezza); se lo raggiunge la pagina dice «almeno».

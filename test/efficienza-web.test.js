@@ -22,7 +22,7 @@ import { efficienzaDemo } from '../server/efficienza/demo.js'
 
 test('stato e indirizzo: andata e ritorno, e il predefinito non sporca il link', () => {
   assert.equal(queryDaStato(PREDEFINITO), '')
-  const s = { ...PREDEFINITO, lente: 'unita', squadra: ['dati'], rischio: ['basso'], importi: 'anno' }
+  const s = { ...PREDEFINITO, lente: 'capacita', squadra: ['dati'], rischio: ['basso'], importi: 'anno' }
   assert.deepEqual(statoDaQuery(queryDaStato(s)), s)
   // un valore sconosciuto torna al predefinito invece di filtrare a vuoto
   assert.equal(statoDaQuery('lente=boh&giorni=12').lente, 'risparmio')
@@ -101,4 +101,30 @@ test('settimana degli ambienti non di produzione, ruotata nell ora di chi guarda
   // UTC+1 (getTimezoneOffset = -60): la cella delle 10 locali è quella delle 9 UTC
   assert.equal(ruotaSettimana(celle, -60)[10], 9)
   assert.equal(ruotaSettimana(celle, -60)[0], 167)
+})
+
+test('semaforo: separa chi spreca da chi è a tappo, ognuno col suo motivo', async () => {
+  const { semaforo } = await import('../web/efficienza.js')
+  const f = {
+    servizi: [
+      { nome: 'a', account: 'x', usdMese: 100, cpuP95: 10, memP95: 20, proposta: { cpu: 512, memMb: 1024 } },
+      { nome: 'b', account: 'x', usdMese: 50, cpuP95: 92, memP95: 40, proposta: null },
+    ],
+    database: [{ id: 'db1', account: 'x', usdMese: 300, cpuP95: 30, memLiberaMin: 5, proposta: null }],
+    leve: [{ tipo: 'taglia', oggetto: 'a', account: 'x', usdMese: 40 }],
+  }
+  const s = semaforo(f)
+  assert.deepEqual(s.spreco.map((r) => [r.nome, r.risparmio]), [['a', 40]])
+  assert.deepEqual(s.tappo.map((r) => [r.nome, r.motivo]), [['db1', 'memDb'], ['b', 'cpu']])
+})
+
+test('ultimo mese chiuso: somma gli account sul mese più recente non parziale', async () => {
+  const { ultimoMeseChiuso, statoDaQuery } = await import('../web/efficienza.js')
+  const trend = {
+    a: { months: [{ month: '2026-09', usage: 10, invoiced: 8, partial: false }, { month: '2026-10', usage: 20, invoiced: 15, partial: false }, { month: '2026-11', usage: 5, invoiced: 4, partial: true }] },
+    b: { months: [{ month: '2026-10', usage: 30, invoiced: 25, partial: false }, { month: '2026-11', usage: 1, invoiced: 1, partial: true }] },
+  }
+  assert.deepEqual(ultimoMeseChiuso(trend), { mese: '2026-10', usage: 50, invoiced: 40 })
+  assert.equal(ultimoMeseChiuso({}), null)
+  assert.equal(statoDaQuery('importi=ultimo').importi, 'ultimo')
 })

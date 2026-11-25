@@ -5,7 +5,8 @@ import { matchesAny } from './filters.js'
 
 export const RISCHI = ['basso', 'medio']
 export const COME = ['deploy', 'config', 'schedule', 'riavvio', 'migration']
-export const LENTI = ['risparmio', 'unita', 'capacita', 'squadra']
+export const IMPORTI = ['mese', 'anno', 'ultimo']
+export const LENTI = ['risparmio', 'capacita', 'squadra']
 export const SCHEDE = ['calcolo', 'database', 'chi']
 
 export const PREDEFINITO = {
@@ -24,10 +25,9 @@ export const PREDEFINITO = {
 // I blocchi di ogni lente, nell'ordine in cui compaiono. La lente non nasconde dati: sceglie quali
 // domande vengono prima.
 export const BLOCCHI = {
-  risparmio: ['risposta', 'tessere', 'grafico', 'dettaglio'],
-  unita: ['unita', 'tessere', 'dettaglio'],
-  capacita: ['grafico', 'tessere', 'dettaglio'],
-  squadra: ['risposta', 'dettaglio'],
+  risparmio: ['risposta'],
+  capacita: ['semaforo', 'dettaglio'],
+  squadra: ['chi', 'unita'],
 }
 
 const elenco = (v) => (v == null || v === '' ? [] : String(v).split(',').filter(Boolean))
@@ -44,7 +44,7 @@ export function statoDaQuery(search) {
     risorsa: scegli('risorsa', ['', 'ecs', 'rds']),
     giorni: scegli('giorni', ['7', '30', '90']),
     prezzo: scegli('prezzo', ['listino', 'netto']),
-    importi: scegli('importi', ['mese', 'anno']),
+    importi: scegli('importi', IMPORTI),
     rischio: lista('rischio', RISCHI),
     come: lista('come', COME),
     minimo: scegli('minimo', ['0', '20', '100']),
@@ -85,8 +85,8 @@ export const VISTE_PRONTE = [
   { key: 'facili', stato: { rischio: ['basso'] } },
   { key: 'database', stato: { risorsa: 'rds', scheda: 'database' } },
   { key: 'capacita', stato: { lente: 'capacita' } },
-  { key: 'unita', stato: { lente: 'unita' } },
-  { key: 'cfo', stato: { importi: 'anno', prezzo: 'netto', lente: 'squadra', scheda: 'chi' } },
+  { key: 'unita', stato: { lente: 'squadra' } },
+  { key: 'cfo', stato: { importi: 'anno', prezzo: 'netto', lente: 'squadra' } },
 ]
 export function statoVista(vista) {
   return { ...PREDEFINITO, ...vista.stato }
@@ -230,4 +230,68 @@ export function ruotaSettimana(celle, scartoMinuti = 0) {
   const ore = Math.round(-scartoMinuti / 60)
   if (!ore) return celle
   return celle.map((_, i) => celle[(((i - ore) % 168) + 168) % 168])
+}
+
+// Soglie del semaforo: sopra «a tappo» non c'è margine per un picco, sotto «spreco» si paga capacità ferma.
+export const SOGLIA_TAPPO = { cpu: 80, mem: 85, memLibera: 10 }
+
+// Capacità in due colonne: dove si paga più del necessario (c'è una taglia più piccola) e dove non c'è
+// più margine (picco alto). Ogni riga porta il motivo in numeri, senza gergo; l'ordine è per costo.
+export function semaforo(f) {
+  const spreco = []
+  const tappo = []
+  const sani = []
+  const nodati = []
+  const risparmio = (tipo, nome, account) => f.leve.find((l) => l.oggetto === nome && l.account === account && (tipo === 'db' ? l.tipo === 'rds-taglia' : l.tipo === 'taglia'))?.usdMese ?? null
+  for (const s of f.servizi) {
+    const base = { tipo: 'calcolo', nome: s.nome, account: s.account, usdMese: s.usdMese, cpu: s.cpuP95, mem: s.memP95, taglia: s.cpu ? `${s.cpu / 1024} vCPU · ${s.memMb / 1024} GB` : null, oraria: s.oraria ?? null }
+    if (s.cpuP95 != null && s.cpuP95 >= SOGLIA_TAPPO.cpu) tappo.push({ ...base, stato: 'tappo', motivo: 'cpu', valore: s.cpuP95 })
+    else if (s.memP95 != null && s.memP95 >= SOGLIA_TAPPO.mem) tappo.push({ ...base, stato: 'tappo', motivo: 'mem', valore: s.memP95 })
+    else if (s.proposta) spreco.push({ ...base, stato: 'spreco', motivo: 'taglia', risparmio: risparmio('calcolo', s.nome, s.account) })
+    else if (s.cpuP95 == null && s.memP95 == null) nodati.push({ ...base, stato: 'nodati' })
+    else sani.push({ ...base, stato: 'sano' })
+  }
+  for (const d of f.database) {
+    // Nei database la colonna è la memoria LIBERA: la si porta a «usata» così le due barre dicono la stessa cosa.
+    const base = { tipo: 'db', nome: d.id, account: d.account, usdMese: d.usdMese, cpu: d.cpuP95, mem: d.memLiberaMin == null ? null : 100 - d.memLiberaMin, taglia: d.classe ?? null, oraria: d.oraria ?? null }
+    if (d.cpuP95 != null && d.cpuP95 >= SOGLIA_TAPPO.cpu) tappo.push({ ...base, stato: 'tappo', motivo: 'cpu', valore: d.cpuP95 })
+    else if (d.memLiberaMin != null && d.memLiberaMin < SOGLIA_TAPPO.memLibera) tappo.push({ ...base, stato: 'tappo', motivo: 'memDb', valore: d.memLiberaMin })
+    else if (d.proposta) spreco.push({ ...base, stato: 'spreco', motivo: 'taglia', risparmio: risparmio('db', d.id, d.account) })
+    else if (d.cpuP95 == null && d.memLiberaMin == null) nodati.push({ ...base, stato: 'nodati' })
+    else sani.push({ ...base, stato: 'sano' })
+  }
+  const perCosto = (a, b) => (b.risparmio ?? b.usdMese ?? 0) - (a.risparmio ?? a.usdMese ?? 0)
+  const costo = (a, b) => (b.usdMese ?? 0) - (a.usdMese ?? 0)
+  spreco.sort(perCosto)
+  tappo.sort(perCosto)
+  sani.sort(costo)
+  nodati.sort(costo)
+  // Un elenco solo: prima chi è al limite, poi chi spreca, poi i sani e chi non ha misure.
+  return { spreco, tappo, sani, nodati, tutti: [...tappo, ...spreco, ...sani, ...nodati] }
+}
+
+// «Da dove partire»: le poche cose da fare, in ordine. Prima i rischi (chi è a tappo), poi le leve di
+// risparmio dalla più redditizia, fino a `max` voci in tutto.
+export function partenza(f, sem, max = 5) {
+  const rischi = sem.tappo.slice(0, 2)
+  const risparmi = [...f.leve].sort((a, b) => b.usdMese - a.usdMese).slice(0, Math.max(0, max - rischi.length))
+  return { rischi, risparmi, usd: risparmi.reduce((a, l) => a + l.usdMese, 0) }
+}
+
+// L'ultimo mese CHIUSO fatturato (quello in corso è `partial` e non conta), sommato sugli account che
+// Spesa legge. Torna { mese: 'YYYY-MM', usage, invoiced } oppure null senza dati.
+export function ultimoMeseChiuso(trend) {
+  const per = new Map()
+  for (const a of Object.values(trend ?? {})) {
+    const chiusi = (a?.months ?? []).filter((m) => !m.partial)
+    const m = chiusi[chiusi.length - 1]
+    if (!m?.month) continue
+    const x = per.get(m.month) ?? { mese: m.month, usage: 0, invoiced: 0 }
+    x.usage += Number(m.usage ?? 0)
+    x.invoiced += Number(m.invoiced ?? 0)
+    per.set(m.month, x)
+  }
+  if (!per.size) return null
+  // Se gli account non chiudono lo stesso mese, vale il più recente.
+  return [...per.values()].sort((a, b) => b.mese.localeCompare(a.mese))[0]
 }

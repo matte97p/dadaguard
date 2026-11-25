@@ -298,3 +298,15 @@ test('indici mai usati: restano tali solo con zero letture anche sugli altri nod
   assert.deepEqual(soloIndiciMaiUsatiOvunque(indici, letture).map((i) => i.indice), ['b_idx'])
   assert.equal(soloIndiciMaiUsatiOvunque(indici, new Map()).length, 2)
 })
+
+test('serie oraria: tre serie sulla stessa griglia, null dove manca il dato e valori tagliati a 100', async () => {
+  const { serieOrariaFinestra } = await import('../server/efficienza/serie.js')
+  const H = 3600000
+  const inizio = 10 * H
+  const o = serieOrariaFinestra({ inizio, fine: 14 * H, cpu: [[10 * H, 50], [12 * H, 130]], mem: [[11 * H, 40]], copie: [[10 * H, 3], [13 * H, 5]] })
+  assert.equal(o.passoMs, H)
+  assert.equal(o.inizio, 10 * H)
+  assert.deepEqual(o.cpu, [50, null, 100, null])
+  assert.deepEqual(o.mem, [null, 40, null, null])
+  assert.deepEqual(o.copie, [3, null, null, 5])
+})

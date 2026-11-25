@@ -2,7 +2,7 @@ import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds'
 import { EC2Client, DescribeInstanceTypesCommand } from '@aws-sdk/client-ec2'
 import { clientOpts } from '../runtime/awsClient.js'
 import { cached } from '../util/ttlcache.js'
-import { serieOrarie } from './serie.js'
+import { serieOrarie, serieOrariaFinestra } from './serie.js'
 import { prezzoRds, prezzoDiscoRds } from './prezzi.js'
 import { classeSotto, dbReggeTagliaSotto, percentile, ORE_MESE } from './regole.js'
 
@@ -60,6 +60,13 @@ export async function databaseAccount(aws, { tagSquadra }) {
       const memLiberaMinGb = valori('m').length ? Math.min(...valori('m')) / 1024 ** 3 : null
       const memLiberaMin = spec?.memGb && memLiberaMinGb != null ? (memLiberaMinGb / spec.memGb) * 100 : null
       const cpuP95 = percentile(valori('c'), 0.95)
+      // Andamento ora per ora delle ultime due settimane: CPU e memoria usata (100 meno la libera).
+      const daQuando = Date.now() - 14 * 24 * 3600 * 1000
+      const oraria = serieOrariaFinestra({
+        inizio: daQuando,
+        cpu: serie[`c${i}`],
+        mem: spec?.memGb ? serie[`m${i}`].map(([t, v]) => [t, 100 - (v / 1024 ** 3 / spec.memGb) * 100]) : [],
+      })
       const motore = d.Engine
       const base = { region: aws.region, motore, multiAz: Boolean(d.MultiAZ) }
       const ora = await prezzoRds(aws, { ...base, classe: d.DBInstanceClass }).catch(() => null)
@@ -83,6 +90,7 @@ export async function databaseAccount(aws, { tagSquadra }) {
         squadra: (d.TagList ?? []).find((t) => t.Key === tagSquadra)?.Value ?? null,
         cpuP95,
         memLiberaMin,
+        oraria,
         connessioniMax: valori('k').length ? Math.max(...valori('k')) : null,
         connessioniLimite: null, // dipende dal parameter group: si legge da pg_stat se acceso
         usdMese: ora != null ? ora * ORE_MESE : null,

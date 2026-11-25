@@ -62,3 +62,20 @@ export function perOra(serie) {
   }
   return [...ore.entries()].sort((a, b) => a[0] - b[0])
 }
+
+// Allinea tre serie [ms, valore] su una griglia oraria che parte da `inizio` e arriva ad adesso.
+// Ritorna { inizio, passoMs, cpu, mem, copie }: array della stessa lunghezza, `null` dove manca il dato.
+export function serieOrariaFinestra({ inizio, cpu = [], mem = [], copie = [], fine = Date.now() }) {
+  const passoMs = 3600000
+  const da = Math.floor(inizio / passoMs) * passoMs
+  const n = Math.max(1, Math.floor((fine - da) / passoMs))
+  const riempi = (punti, tetto = null) => {
+    const out = new Array(n).fill(null)
+    for (const [t, v] of punti) {
+      const i = Math.floor((t - da) / passoMs)
+      if (i >= 0 && i < n && v != null) out[i] = Math.round((tetto == null ? v : Math.min(tetto, v)) * 10) / 10
+    }
+    return out
+  }
+  return { inizio: da, passoMs, cpu: riempi(cpu, 100), mem: riempi(mem, 100), copie: riempi(copie) }
+}
