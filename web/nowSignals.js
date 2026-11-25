@@ -59,6 +59,9 @@ function serviceSignals(services = [], t, nameOf) {
       // suo ALB) davano due segnali con lo stesso id, che è la chiave React della riga in pagina, e
       // quando uno dei due rientrava restava una riga rossa appesa sulla pagina dei guasti.
       id: `svc:${s.account?.key ?? '-'}:${s.resourceId ?? s.name}`,
+      // Il nome vero della risorsa: `title` e' quello corto per l'occhio, e un allarme porta il nome
+      // intero (piegaAllarmiNeiCron).
+      nome: s.name,
       level: s.overall !== 'down' ? 'warn' : rilasciato ? 'fixed' : schedulato ? 'bad' : 'crit',
       kind: 'service',
       title: nameOf(s),
@@ -456,24 +459,28 @@ export function buildSignals({
   })
 }
 
-// Un allarme CloudWatch che porta il nome di un cron piu' un suffisso (`<cron>-nessun-successo`) parla
-// di quel cron: se il cron ha gia' la sua riga, l'allarme ci entra come una nota invece di contare come
-// un secondo guasto. Si deduce dal nome che AWS restituisce, nello stesso account; vince il cron dal
-// nome piu' lungo (`job` e `job-notte` sono due cron). La riga del cron tiene il suo livello: un cron
-// rilasciato il cui allarme suona ancora aspetta lo stesso giro. Pura.
+// Un allarme CloudWatch che porta il nome di un cron o di un servizio piu' un suffisso
+// (`<nome>-nessun-successo`) parla di quella riga: se ce l'ha gia', l'allarme ci entra come una nota
+// invece di contare come un secondo guasto. Si deduce dal nome che AWS restituisce, nello stesso
+// account; vince il nome piu' lungo (`job` e `job-notte` sono due cron). La riga tiene il suo livello:
+// un cron rilasciato il cui allarme suona ancora aspetta lo stesso giro. Pura.
 export function piegaAllarmiNeiCron(segnali, t = (k) => k) {
-  const cron = segnali.filter((s) => s.kind === 'cron' && s.title)
-  if (!cron.length) return segnali
+  const nomiDi = (s) => [s.nome, s.title].filter(Boolean)
+  const righe = segnali.filter((s) => (s.kind === 'cron' || s.kind === 'service') && nomiDi(s).length)
+  if (!righe.length) return segnali
   const note = new Map()
   const piegati = new Set()
   for (const a of segnali) {
     if (a.kind !== 'alarm' || !a.title) continue
-    const suo = cron
-      .filter((c) => (c.accountKey ?? null) === (a.accountKey ?? null) && a.title.startsWith(`${c.title}-`))
-      .sort((x, y) => y.title.length - x.title.length)[0]
+    let suo = null
+    let lungo = 0
+    for (const r of righe) {
+      if ((r.accountKey ?? null) !== (a.accountKey ?? null)) continue
+      for (const n of nomiDi(r)) if (a.title.startsWith(`${n}-`) && n.length > lungo) [suo, lungo] = [r, n.length]
+    }
     if (!suo) continue
     piegati.add(a)
-    note.set(suo, [...(note.get(suo) ?? []), a.title.slice(suo.title.length + 1)])
+    note.set(suo, [...(note.get(suo) ?? []), a.title.slice(lungo + 1)])
   }
   if (!piegati.size) return segnali
   return segnali

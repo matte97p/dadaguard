@@ -162,7 +162,11 @@ export default function NowPage({
   const conta = contaLivelli(nelFiltro)
   const serviziRotti = righe.filter((r) => r.kind === 'service' && r.livello === 'crit').length
   const deployFalliti = righe.filter((r) => r.kind === 'deploy' && r.livello === 'crit').length
-  const daGuardare = righe.filter((r) => r.livello === 'warn').length
+  // La spesa conta a parte: un budget sforato non ferma niente, e mescolata ai servizi faceva sembrare
+  // «10 da guardare» una lista di guasti, quando sette erano costi.
+  const inSpesa = (r) => areaDi(r) === 'spesa'
+  const daGuardare = righe.filter((r) => r.livello === 'warn' && !inSpesa(r)).length
+  const vociSpesa = righe.filter(inSpesa).length
   const rilasciati = righe.filter((r) => r.level === 'fixed').length
   const altriRotti = righe.filter((r) => r.livello === 'crit').length - serviziRotti - deployFalliti
 
@@ -179,7 +183,11 @@ export default function NowPage({
   const loginFalliti = Number.isFinite(metaOps?.login?.loginFalliti) ? metaOps.login.loginFalliti : null
 
   const resto = () =>
-    [daGuardare ? t('home.v.eDaGuardare', { n: daGuardare }) : '', rilasciati ? t('home.v.eRilasciati', { n: rilasciati }) : ''].join('')
+    [
+      daGuardare ? t('home.v.eDaGuardare', { n: daGuardare }) : '',
+      vociSpesa ? t('home.v.eSpesa', { n: vociSpesa }) : '',
+      rilasciati ? t('home.v.eRilasciati', { n: rilasciati }) : '',
+    ].join('')
   const verdetto = (() => {
     if (!statusReady) return { forte: null, resto: t('home.v.attesa') }
     if (serviziRotti || deployFalliti || altriRotti) {
@@ -192,6 +200,7 @@ export default function NowPage({
       return { livello: 'crit', forte: pezzi.join(', '), resto: resto() }
     }
     if (daGuardare) return { livello: 'warn', forte: t('home.v.nienteRotto'), resto: resto() }
+    if (vociSpesa && !rilasciati) return { livello: 'warn', forte: t('home.v.nienteRotto'), resto: resto() }
     if (rilasciati) return { livello: 'info', forte: t('home.v.nienteRotto'), resto: resto() }
     return { livello: 'ok', forte: t('home.v.tuttoOk'), resto: '' }
   })()
@@ -207,6 +216,10 @@ export default function NowPage({
     if (r.servizio && onApriServizio) return onApriServizio(r.servizio)
     setAperto(r)
   }
+  // Da dove partire: la prima riga della lista, la piu' grave che non sia di spesa. Una frase che si
+  // tocca, cosi' chi apre la pagina non deve scegliere fra venti righe.
+  const partiDa = righe.find((r) => !inSpesa(r) && (r.livello === 'crit' || r.livello === 'warn'))
+  const [spesaAperta, setSpesaAperta] = useState(false)
 
   return (
     <>
@@ -215,6 +228,16 @@ export default function NowPage({
         forte={verdetto.forte}
         resto={verdetto.resto}
         dettaglio={t(`home.ruolo.${ruolo}`)}
+        parti={
+          partiDa && (
+            <button type="button" className="ui-parti" onClick={() => apri(partiDa)}>
+              <span>{t('home.parti')}</span>
+              <b>{partiDa.title}</b>
+              {partiDa.detail && <span className="ui-parti-che">{partiDa.detail}</span>}
+              <span className="ui-parti-go">{t('home.cosaFare')}</span>
+            </button>
+          )
+        }
         extra={
           <div className="ui-seg" role="group" aria-label={t('home.solo.aria')}>
             <button type="button" aria-pressed={!solo} onClick={() => scegliSolo(false)}>
@@ -301,28 +324,55 @@ export default function NowPage({
 
       {solo && <PannelloAree conta={contaPerArea(righe)} area={area} onArea={(a) => setArea((x) => (x === a ? null : a))} t={t} />}
 
-      <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
-        <Lista compatta vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
-          {righe.filter((r) => !solo || !area || areaDi(r) === area).map((r) => (
-            <RigaProblema
-              key={r.id}
-              data-signal={r.kind}
-              data-service={r.servizio?.name}
-              livello={r.livello}
-              etichetta={etichetta(r)}
-              icona={r.servizio ? SIGLA[r.servizio.type] ?? '·' : SIGLA_KIND[r.kind] ?? '·'}
-              nome={r.title}
-              sotto={[r.accountLabel, r.servizio?.type ? tipo(r.servizio.type, t) : t(`now.kind.${r.kind}`)].filter(Boolean).join(' · ')}
-              cosa={r.detail || t(`now.kind.${r.kind}`)}
-              owner={ownerLabel(r)}
-              quando={r.when ? fmtAgo(r.when, t) : t('now.ongoing')}
-              serie={r.serie}
-              azione={r.servizio || r.to || comandoServizio(r.servizio) ? t('home.cosaFare') : ''}
-              onApri={() => apri(r)}
-            />
-          ))}
-        </Lista>
-      </Sezione>
+      {(() => {
+        const filtrate = righe.filter((r) => !solo || !area || areaDi(r) === area)
+        // Con la tessera «Spesa» premuta le righe di spesa sono la lista; altrimenti stanno sotto, in
+        // una sezione a parte e chiusa: costi e budget non sono un guasto, e in fila ai servizi
+        // rotti non si capiva piu' cosa fermava qualcosa e cosa no.
+        const spesaInLista = solo && area === 'spesa'
+        const principali = spesaInLista ? filtrate : filtrate.filter((r) => !inSpesa(r))
+        const spese = solo && area ? [] : filtrate.filter(inSpesa)
+        const riga = (r) => (
+          <RigaProblema
+            key={r.id}
+            data-signal={r.kind}
+            data-service={r.servizio?.name}
+            livello={r.livello}
+            etichetta={etichetta(r)}
+            icona={r.servizio ? SIGLA[r.servizio.type] ?? '·' : SIGLA_KIND[r.kind] ?? '·'}
+            nome={r.title}
+            sotto={[r.accountLabel, r.servizio?.type ? tipo(r.servizio.type, t) : t(`now.kind.${r.kind}`)].filter(Boolean).join(' · ')}
+            cosa={r.detail || t(`now.kind.${r.kind}`)}
+            owner={ownerLabel(r)}
+            quando={r.when ? fmtAgo(r.when, t) : t('now.ongoing')}
+            serie={r.serie}
+            azione={r.servizio || r.to || comandoServizio(r.servizio) ? t('home.cosaFare') : ''}
+            onApri={() => apri(r)}
+          />
+        )
+        return (
+          <>
+            <Sezione titolo={t('home.daSistemare')} sotto={t('home.daSistemareSotto')}>
+              <Lista compatta vuoto={inAttesa ? t('home.inLettura') : t('home.nienteDaSistemare')}>
+                {principali.map(riga)}
+              </Lista>
+            </Sezione>
+            {spese.length > 0 && (
+              <Sezione
+                titolo={t('home.spesa')}
+                sotto={t('home.spesaSotto', { n: spese.length })}
+                extra={
+                  <button type="button" className="ui-kbd" aria-expanded={spesaAperta} onClick={() => setSpesaAperta((v) => !v)}>
+                    {spesaAperta ? t('home.spesaNascondi') : t('home.spesaMostra', { n: spese.length })}
+                  </button>
+                }
+              >
+                {spesaAperta && <Lista compatta>{spese.map(riga)}</Lista>}
+              </Sezione>
+            )}
+          </>
+        )
+      })()}
 
       {!solo && (
         <Sezione titolo={t('home.cambiato')} sotto={t('home.cambiatoSotto')}>

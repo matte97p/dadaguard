@@ -131,7 +131,8 @@ function Panoramica({ s, livello, has, onNavigate, onDrift, onRemove, onTab, t, 
   return (
     <>
       {cosa && (
-        <div>
+        <div className="sv-cosa">
+          <span className="ui-faint">{t('svc.cosaSucede')}</span>
           <b>{cosa}</b>
           {altri > 0 && <div className="ui-mute">{t('svc.altriControlli', { n: altri })}</div>}
         </div>

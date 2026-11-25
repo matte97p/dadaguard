@@ -463,3 +463,18 @@ test('un allarme col nome di un cron piu\' un suffisso entra nella riga del cron
   assert.ok(per['alarm:job-errori:staging'], 'un altro account non e\' lo stesso cron')
   assert.ok(per['alarm:altro-allarme:prod'])
 })
+
+test('un allarme col nome di un servizio schedulato piu\' un suffisso entra nella riga del servizio, non fa una riga a parte', () => {
+  const servizio = (name) => ({ name, type: 'ecs-scheduled', overall: 'down', cause: 'runtime', resourceId: name, account: { key: 'prod', label: 'Prod' }, checks: { runtime: { summary: 'ultima esecuzione fallita' } } })
+  const alarmi = [
+    { nome: 'rossi-report-nessuna-esecuzione', account: 'prod', motivo: 'soglia' },
+    { nome: 'rossi-report-nessuna-esecuzione', account: 'staging', motivo: 'soglia' },
+    { nome: 'bianchi-sync-errori', account: 'prod', motivo: 'soglia' },
+  ]
+  const out = buildSignals({ services: [servizio('rossi-report')], alarmi, t: (k, v) => (v?.nomi ? `${k} ${v.nomi}` : k) })
+  const per = Object.fromEntries(out.map((s) => [`${s.kind}:${s.title}:${s.accountKey}`, s]))
+  assert.match(per['service:rossi-report:prod'].detail, /now\.cronAllarme nessuna-esecuzione$/)
+  assert.equal(per['alarm:rossi-report-nessuna-esecuzione:prod'], undefined)
+  assert.ok(per['alarm:rossi-report-nessuna-esecuzione:staging'], 'un altro account non e\' lo stesso servizio')
+  assert.ok(per['alarm:bianchi-sync-errori:prod'], 'senza un servizio con quel nome resta una riga')
+})
