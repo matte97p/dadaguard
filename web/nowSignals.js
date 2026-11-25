@@ -17,6 +17,7 @@ import { kpiAndamento, livelloErrori } from '../shared/serviziSerie.js'
 import { unisciConti, tabellaServizi } from '../shared/spesaSerie.js'
 import { statoRilascio } from '../shared/rilascio.js'
 import { haSchedule } from './topoGraph.js'
+import { fraseAllarme } from './allarmi.js'
 
 const FAILED = new Set(['FAILED', 'FAULT', 'TIMED_OUT'])
 
@@ -257,7 +258,10 @@ function alarmSignals(alarmi = [], t) {
     level: 'bad',
     kind: 'alarm',
     title: a.nome ?? t('now.alarm'),
-    detail: a.motivo ?? t('now.alarmDetail'),
+    // Una frase che si legge; se la riga di AWS ha un'altra forma resta l'originale.
+    detail: fraseAllarme(a.motivo, t) ?? a.motivo ?? t('now.alarmDetail'),
+    // L'originale non si butta: sta nel pannello, per chi lo vuole.
+    full: a.motivo ?? null,
     when: a.da ?? null,
     to: null,
     accountKey: a.account ?? null,
