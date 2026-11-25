@@ -390,7 +390,22 @@ export default function NowPage({
       >
         {aperto && (
           <>
-            <Rimedio livello={aperto.livello} titolo={aperto.detail} testo={aperto.full} comando={aperto.comando} t={t} />
+            {aperto.kind === 'alarm' ? (
+              <>
+                <div className="sv-cosa">
+                  <span className="ui-faint">{t('svc.cosaSucede')}</span>
+                  <b>{aperto.detail}</b>
+                </div>
+                <Rimedio livello={aperto.livello} titolo={t('svc.cosaFare')} testo={t('alarm.passi')} t={t} />
+                {aperto.full && aperto.full !== aperto.detail && (
+                  <p className="ui-faint">
+                    {t('alarm.originale')}: <span className="ui-mono">{aperto.full}</span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <Rimedio livello={aperto.livello} titolo={aperto.detail} testo={aperto.full} comando={aperto.comando} t={t} />
+            )}
             {aperto.when && <span className="ui-faint">{t('home.da', { quando: fmtAgo(aperto.when, t) })}</span>}
             {aperto.to && (
               <div>

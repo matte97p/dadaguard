@@ -292,12 +292,13 @@ const ORFANO = {
   accountLabel: 'Security',
 }
 
-test('un allarme senza servizio diventa un segnale, con il motivo che AWS ha scritto', () => {
+test('un allarme senza servizio diventa un segnale: frase leggibile in `detail`, il motivo di AWS in `full`', () => {
   const s = buildSignals({ alarmi: [ORFANO], now: NOW, t })
   assert.equal(s.length, 1)
   assert.equal(s[0].kind, 'alarm')
   assert.equal(s[0].title, 'audit-sessioni-negate')
-  assert.match(s[0].detail, /Threshold Crossed/)
+  assert.match(s[0].full, /Threshold Crossed/)
+  assert.match(s[0].detail, /^alarm\./, 'una forma che conosce diventa una frase, non resta l\'originale in inglese')
   assert.equal(s[0].accountKey, 'security')
 })
 
