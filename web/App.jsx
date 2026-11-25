@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ConfigProvider, theme, Space, Modal, Input, message, Skeleton } from 'antd'
 import { makeT, resolveLang } from './i18n.jsx'
@@ -7,7 +7,7 @@ import SideNav from './components/SideNav.jsx'
 import TopBar from './components/TopBar.jsx'
 import { antdTheme } from './theme.js'
 import { asList, matchesAny, isFiltering, listaDaUrl, potaSconosciuti, filtriDaUrl, filtriInUrl } from './filters.js'
-import { passaFiltri, opzioniTipo, opzioniStato } from './servizi.js'
+import { passaFiltri, opzioniTipo, opzioniStato, apriSuProblemi } from './servizi.js'
 import DiscoverDrawer from './components/DiscoverDrawer.jsx'
 import DriftDrawer from './components/DriftDrawer.jsx'
 import MetaHealthDrawer from './components/MetaHealthDrawer.jsx'
@@ -394,6 +394,18 @@ export default function App() {
   }, [location.pathname, load, loadHealth, loadDeploys])
 
   const services = data?.services ?? []
+
+  // Prima volta su Servizi con la flotta letta: parte da «Con problemi» (servizi.js).
+  const servizioProposto = useRef(false)
+  useEffect(() => {
+    if (servizioProposto.current || !data || !location.pathname.startsWith('/servizi')) return
+    servizioProposto.current = true
+    if (apriSuProblemi({ daUrl, nameQuery, filtri: { regionFilter, typeFilter, statusFilter, scheduleFilter, managedFilter, problemsOnly }, servizi: data.services ?? [] })) {
+      setProblemsOnly(true)
+    }
+    // Una volta sola: dopo, il filtro e' di chi guarda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, location.pathname])
   const detailService = detailKey ? services.find((s) => serviceKey(s) === detailKey) : null
   const isCloud = data?.mode === 'cloud'
   const caps = data?.capabilities ?? { watchlist: !isCloud, discover: !isCloud, fullDrift: !isCloud }

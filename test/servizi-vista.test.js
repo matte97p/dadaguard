@@ -148,3 +148,15 @@ test('diChi: senza team, canale e runbook la sezione non c e', () => {
   assert.equal(diChi({}), null)
   assert.deepEqual(diChi({ team: 'pagamenti', slack: '#pagamenti' }), { team: 'pagamenti', slack: '#pagamenti', runbook: null })
 })
+
+test('apriSuProblemi: la prima apertura parte da «Con problemi» solo se nessuno ha scelto niente e c\'e\' qualcosa da vedere', async () => {
+  const { apriSuProblemi } = await import('../web/servizi.js')
+  const giu = { name: 'rossi-job', type: 'lambda', overall: 'down', livello: 'crit', account: { key: 'prod' }, checks: {} }
+  const su = { name: 'bianchi-api', type: 'ecs', overall: 'up', livello: 'ok', account: { key: 'prod' }, checks: {} }
+  assert.equal(apriSuProblemi({ servizi: [su, giu] }), true)
+  assert.equal(apriSuProblemi({ servizi: [su] }), false, 'tutto verde: niente da mostrare per primo')
+  assert.equal(apriSuProblemi({ servizi: [giu], daUrl: { typeFilter: ['lambda'] } }), false, 'un link con un filtro vince')
+  assert.equal(apriSuProblemi({ servizi: [giu], nameQuery: 'rossi' }), false, 'una ricerca vince')
+  assert.equal(apriSuProblemi({ servizi: [giu], filtri: { statusFilter: ['up'] } }), false, 'una tendina scelta vince')
+  assert.equal(apriSuProblemi({ servizi: [giu], filtri: { problemsOnly: true } }), false)
+})

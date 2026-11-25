@@ -135,6 +135,15 @@ export function premiChip(key, f = {}) {
   return { statusFilter: [key], problemsOnly: false }
 }
 
+// Aprendo Servizi la prima volta, la lista parte da «Con problemi» se ce ne sono: 279 righe quasi
+// tutte verdi nascondevano le tre che servivano. Solo se nessuno ha scelto niente (ne' un link, ne' una
+// ricerca, ne' una tendina): chi arriva con un filtro vuole quello. «Tutti» resta un clic. Pura.
+export function apriSuProblemi({ daUrl = {}, nameQuery = '', filtri = {}, servizi = [] } = {}) {
+  if (Object.keys(daUrl).length || String(nameQuery).trim()) return false
+  if (quanteTendine(filtri) > 0 || filtri.problemsOnly) return false
+  return servizi.some(conProblemi)
+}
+
 // Quante tendine sono scelte: e' il numero sul bottone «Filtri» del telefono, dove le tendine stanno
 // chiuse. Senza, un filtro scelto ieri resta acceso sotto un bottone chiuso e la lista sembra corta
 // per nessun motivo. L'account conta: sul telefono la tendina e' l'unico posto che lo mostra intero.
