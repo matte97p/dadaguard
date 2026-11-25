@@ -73,6 +73,15 @@ function servizio(riga, giorni, fine) {
     d.usate += usate
     giornaliero.set(g, d)
   }
+  // Andamento ora per ora delle ultime due settimane, come il server vero.
+  const ultime = ore - 14 * 24 > 0 ? ore - 14 * 24 : 0
+  const oraria = {
+    inizio: fine - (ore - ultime) * ORA,
+    passoMs: ORA,
+    cpu: cpuP.slice(ultime).map((v) => Math.round(v * 10) / 10),
+    mem: memP.slice(ultime).map((v) => Math.round(v * 10) / 10),
+    copie: orarie.slice(ultime).map((o) => o[2]),
+  }
   return {
     account,
     cluster: account === 'prod' ? 'apps' : 'apps-staging',
@@ -98,6 +107,7 @@ function servizio(riga, giorni, fine) {
     eccessoMinimoTaskOra: min ? eccessoMinimo({ minimo: min, vcpuTask: vcpu, ore: orarie.map(([t, v, task]) => ({ t, task, vcpuUsate: v })) }) : 0,
     richieste: reqOra ? Math.round(richieste) : null,
     giornaliero: [...giornaliero.values()],
+    oraria,
     orarie: orarie.map(([t, v]) => [t, v]),
     listino: LISTINO,
   }

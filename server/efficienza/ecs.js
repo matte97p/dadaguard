@@ -13,7 +13,7 @@ import {
 import { ElasticLoadBalancingV2Client, DescribeTargetGroupsCommand } from '@aws-sdk/client-elastic-load-balancing-v2'
 import { clientOpts } from '../runtime/awsClient.js'
 import { cached } from '../util/ttlcache.js'
-import { serieOrarie, perOra } from './serie.js'
+import { serieOrarie, perOra, serieOrariaFinestra } from './serie.js'
 import { costoOraTask, quotaSpot, tagliaGiusta, percentile, eccessoMinimo, ORE_MESE } from './regole.js'
 
 // Calcolo: TUTTI i servizi ECS su Fargate di un account, scoperti da ListClusters/ListServices (non dalla
@@ -140,8 +140,10 @@ export async function calcoloAccount(aws, { giorni, prezzi, tagSquadra }) {
     const dim = { ClusterName: cluster, ServiceName: s.serviceName }
     query.push(
       { id: `c${i}`, namespace: 'AWS/ECS', metrica: 'CPUUtilization', dimensioni: dim, stat: 'Average' },
-      { id: `p${i}`, namespace: 'AWS/ECS', metrica: 'CPUUtilization', dimensioni: dim, stat: 'p95' },
-      { id: `m${i}`, namespace: 'AWS/ECS', metrica: 'MemoryUtilization', dimensioni: dim, stat: 'p95' },
+      // AWS/ECS non pubblica percentili (p95 torna zero punti): si prende il massimo di ogni ora e il
+      // p95 si calcola poi sulle ore (`percentile(recenti(...))`), cioè «il picco che si ripete».
+      { id: `p${i}`, namespace: 'AWS/ECS', metrica: 'CPUUtilization', dimensioni: dim, stat: 'Maximum' },
+      { id: `m${i}`, namespace: 'AWS/ECS', metrica: 'MemoryUtilization', dimensioni: dim, stat: 'Maximum' },
       { id: `t${i}`, namespace: 'ECS/ContainerInsights', metrica: 'RunningTaskCount', dimensioni: dim, stat: 'Average' },
     )
     const tg = (s.loadBalancers ?? []).map((l) => l.targetGroupArn).find((a) => lbDiTg.has(a))
@@ -185,6 +187,9 @@ export async function calcoloAccount(aws, { giorni, prezzi, tagSquadra }) {
         d.usate += o.vcpuUsate
         giornaliero.set(g, d)
       }
+      // L'andamento ora per ora delle ultime due settimane: CPU e memoria (il massimo di ogni ora) e le
+      // copie accese. Le ore senza misura restano `null`.
+      const oraria = serieOrariaFinestra({ inizio: daQuando, cpu: serie[`p${i}`], mem: serie[`m${i}`], copie: orarie.map((o) => [o.t, o.task]) })
       const richieste = serie[`r${i}`]?.length ? serie[`r${i}`].reduce((a, [, v]) => a + v, 0) : null
       return {
         cluster,
@@ -210,6 +215,7 @@ export async function calcoloAccount(aws, { giorni, prezzi, tagSquadra }) {
         eccessoMinimoTaskOra: sc ? eccessoMinimo({ minimo: sc.min, vcpuTask: vcpu, ore: orarie }) : 0,
         richieste,
         giornaliero: [...giornaliero.values()],
+        oraria,
         // vCPU usate per ora (per la settimana tipo dell'account), compatte: [ms, vCPU]
         orarie: orarie.map((o) => [o.t, o.vcpuUsate]),
         listino,
