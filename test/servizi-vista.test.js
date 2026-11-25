@@ -160,3 +160,12 @@ test('apriSuProblemi: la prima apertura parte da «Con problemi» solo se nessun
   assert.equal(apriSuProblemi({ servizi: [giu], filtri: { statusFilter: ['up'] } }), false, 'una tendina scelta vince')
   assert.equal(apriSuProblemi({ servizi: [giu], filtri: { problemsOnly: true } }), false)
 })
+
+test('soldi: il separatore delle migliaia c\'e\' sempre, anche sotto le cinque cifre (in italiano toLocaleString lo toglie)', async () => {
+  const { soldi } = await import('../web/pages/spesaKit.js')
+  assert.equal(soldi(2026, 'it'), '2.026 $')
+  assert.equal(soldi(16988, 'it'), '16.988 $')
+  assert.equal(soldi(2026, 'en'), '2,026 $')
+  assert.equal(soldi(3.6, 'it'), '3,60 $')
+  assert.equal(soldi(-1500, 'it'), '−1.500 $')
+})

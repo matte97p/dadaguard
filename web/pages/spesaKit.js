@@ -4,11 +4,13 @@
 
 // Importo in dollari nel formato di chi legge: sopra i 100 senza decimali (4.812 $), sotto con due
 // (3,60 $). I centesimi di un totale da migliaia sono rumore, quelli di un IP elastico sono il prezzo.
+// Il separatore delle migliaia c'e' SEMPRE: in italiano `toLocaleString` lo toglie sotto le cinque cifre,
+// e «2026 $» accanto a «16.988 $» si leggeva come un anno invece di duemilaventisei dollari.
 export function soldi(v, lang) {
   const n = Number(v ?? 0)
   const a = Math.abs(n)
   const cifre = a >= 100 ? 0 : 2
-  const s = a.toLocaleString(lang === 'en' ? 'en-US' : 'it-IT', { minimumFractionDigits: cifre, maximumFractionDigits: cifre })
+  const s = a.toLocaleString(lang === 'en' ? 'en-US' : 'it-IT', { minimumFractionDigits: cifre, maximumFractionDigits: cifre, useGrouping: 'always' })
   return `${n < 0 ? '−' : ''}${s} $`
 }
 
